@@ -5227,8 +5227,8 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
     threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
-    if (g_batch_cb && getenv("QW3_METAL_BATCH_MOE") != NULL &&
-        getenv("QW3_METAL_DYNAMIC_LEGACY_MOE") == NULL) {
+    if (g_batch_cb && getenv("QW3_METAL_DYNAMIC_LEGACY_MOE") == NULL &&
+        getenv("QW3_METAL_NO_BATCH_MOE") == NULL) {
         int ok = qw3_metal_session_sparse_moe_topk_batch(
             s, gate_offset, up_offset, down_offset, down_type,
             NULL, NULL, obj.routerIds, obj.routerWeights,

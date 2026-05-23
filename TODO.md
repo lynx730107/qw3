@@ -51,8 +51,9 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Introdotto batching command-buffer stile ds4 per il runner session: le primitive `qw3_metal_session_*` possono accodare su un batch aperto e sincronizzare solo ai punti di readback obbligatori.
    - Il runner session apre/chiude il batch attorno ai blocchi tra router readback e logits readback. Misura locale: `--metal-run 32 -p ciao --ctx 256` completa prompt 12 + 32 token in circa `9035 ms`.
    - Profiling locale dopo il batching: il collo di bottiglia visibile era il flush prima del router (`router_sync_ms` circa 170-175 ms/token), non il router f32 in se' (circa 8-12 ms/token).
-   - Il dynamic-router e' ora il default: top-8/softmax router su GPU, buffer `routerIds/routerWeights` in sessione e MoE sparse con expert slot dinamici.
+   - Il dynamic-router e' ora il default: top-8/softmax router su GPU, buffer `routerIds/routerWeights` in sessione e MoE sparse batch.
    - Il path dynamic-router usa prima le view GGUF Metal pointer-based per i tensor expert completi e solo come fallback crea wrapper no-copy temporanei; questo elimina il grosso costo precedente.
+   - Il batch MoE e' default nel dynamic-router; `QW3_METAL_NO_BATCH_MOE=1` o `QW3_METAL_DYNAMIC_LEGACY_MOE=1` tornano agli expert-slot dynamic non-batch.
    - `QW3_METAL_CPU_ROUTER=1` oppure `QW3_METAL_DYNAMIC_ROUTER=0` ripristinano il vecchio path CPU-assisted per confronto/debug.
    - Aggiunta cache globale/lazy per il buffer costante `iq3_s kgrid`, evitando riallocazioni ripetute nei matvec expert.
    - Aggiunti kernel fusi `iq3_s` gate+up per sparse MoE default e dynamic-router.
@@ -64,14 +65,14 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - I wrapper sparse expert IQ3_S/IQ4_XS/Q6_K leggono i pesi expert dalle view GGUF invece di copiare ogni expert in un buffer temporaneo.
    - Shared expert ulteriormente fuso: `gate_shared` e `up_shared` Q8 sono calcolati in un solo kernel pair, e il down shared Q8 accumula direttamente in `x0` con `sigmoid(ffn_gate_inp_shexp)` senza passare da `x1`.
    - Aggiunto esperimento `QW3_METAL_ROUTER_F32_FAST=1` per router F32 row-blocked; non e' default perche' nel profilo breve non migliora i token stabili.
-   - Misura default aggiornata dopo dynamic-router pointer-based: `--metal-run 2 -p ciao --ctx 128` mostra token stabili circa `41-43 ms/token` (`router_sync_ms=0`), con generazione argmax breve circa `22-23 tok/s`.
-   - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session e rimane CPU-assistito top-k/softmax del ramo sparse MoE.
+   - Misura default aggiornata dopo dynamic-router pointer-based + batch MoE: `--metal-run 2 -p ciao --ctx 128` mostra token stabili circa `38-40 ms/token` (`router_sync_ms=0`), con generazione argmax breve circa `24 tok/s`.
+   - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session; il path runtime default non usa piu' top-k/softmax CPU per il ramo sparse MoE.
    - Accesso ai buffer modello Metal stabilizzato per il percorso sessione tramite resolver pointer-based.
    - Ridurre command buffer separati.
    - Fondere kernel solo dopo aver mantenuto test di correttezza equivalenti.
 
 ## Prossimi step consigliati
 
-1. Attaccare il sync pre-router dominante: profilare separatamente shared MoE, ramo attention/DeltaNet e residual norm dentro il batch che precede ogni router.
-2. Ottimizzare ancora i kernel expert-slot del dynamic-router, ora default: target successivo sotto i 35 ms/token.
+1. Profilare il blocco pre-logits del dynamic-router batch: target successivo sotto i 35 ms/token.
+2. Ottimizzare i kernel batch MoE (`gate/up`, SiLU, down/reduce) ora che sono nel path default.
 3. Introdurre KV cache q8_0 per GQA, mantenendo DeltaNet state/conv in F32.
