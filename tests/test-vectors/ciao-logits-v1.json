@@ -1,0 +1,15 @@
+{
+  "schema":"qw3-local-logprobs-v1",
+  "ctx_size":128,
+  "n_predict":2,
+  "temperature":0,
+  "top_k":5,
+  "sample_top_k":40,
+  "top_p":0.94999999,
+  "min_p":0,
+  "prompt_tokens":[248045,846,198,66,21817,248046,198,248045,74455,198,248068,198],
+  "steps":[
+    {"step":0,"selected":{"id":8160,"text":"Here","bytes":[72,101,114,101]},"top":[{"token":{"id":8160,"text":"Here","bytes":[72,101,114,101]},"logit":25.60219},{"token":{"id":1596,"text":"We","bytes":[87,101]},"logit":24.0483665},{"token":{"id":90700,"text":"Thinking","bytes":[84,104,105,110,107,105,110,103]},"logit":19.5657234},{"token":{"id":31248,"text":"Okay","bytes":[79,107,97,121]},"logit":18.5223732},{"token":{"id":760,"text":"The","bytes":[84,104,101]},"logit":17.412199}]},
+    {"step":1,"selected":{"id":579,"text":"'s","bytes":[39,115]},"top":[{"token":{"id":579,"text":"'s","bytes":[39,115]},"logit":27.7424984},{"token":{"id":82,"text":"s","bytes":[115]},"logit":14.8003674},{"token":{"id":369,"text":" is","bytes":[32,105,115]},"logit":14.5806923},{"token":{"id":725,"text":"’s","bytes":[226,128,153,115]},"logit":14.5600357},{"token":{"id":513,"text":" are","bytes":[32,97,114,101]},"logit":14.2750015}]}
+  ]
+}
