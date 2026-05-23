@@ -11058,6 +11058,9 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
     const int eos = qw3_token_eos(e);
     int rc = 0;
     if (qw3_session_create(&s, e, ctx_size) != 0) return -1;
+
+    /* --- Prefill phase --- */
+    const double t_prefill_start = qw3_now_sec();
     for (int i = 0; i < prompt->len; i++) {
         if (qw3_metal_session_eval_token_slow(s, prompt->v[i],
                                               err, sizeof(err)) != 0) {
@@ -11066,7 +11069,11 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
             return -1;
         }
     }
+    const double t_prefill_end = qw3_now_sec();
 
+    /* --- Generation phase --- */
+    const double t_gen_start = qw3_now_sec();
+    int n_generated = 0;
     for (int step = 0; step < n_predict; step++) {
         if (s->kv.pos >= ctx_size) {
             fprintf(stderr, "qw3: Metal generation context full at step %d len=%d ctx=%d\n",
@@ -11084,6 +11091,7 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
         }
 
         if ((int)gpu_top0 == eos) break;
+        n_generated++;
         if (emit) emit(emit_ud, (int)gpu_top0);
         if (qw3_metal_session_eval_token_slow(s, (int)gpu_top0,
                                               err, sizeof(err)) != 0) {
@@ -11092,8 +11100,25 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
             break;
         }
     }
+    const double t_gen_end = qw3_now_sec();
 
     if (done) done(emit_ud);
+
+    /* --- Timing summary --- */
+    const double dt_prefill = t_prefill_end - t_prefill_start;
+    const double dt_gen = t_gen_end - t_gen_start;
+    const double dt_total = t_gen_end - t_prefill_start;
+    const double prefill_tps = (dt_prefill > 0.0) ? (double)prompt->len / dt_prefill : 0.0;
+    const double gen_tps = (dt_gen > 0.0) ? (double)n_generated / dt_gen : 0.0;
+    qw3_log(stderr, QW3_LOG_TIMING,
+            "qw3: Metal argmax timing: "
+            "prefill=%d tokens  %.1f ms  (%.2f tok/s)  |  "
+            "generation=%d tokens  %.1f ms  (%.2f tok/s)  |  "
+            "total=%.1f ms\n",
+            prompt->len, dt_prefill * 1000.0, prefill_tps,
+            n_generated, dt_gen * 1000.0, gen_tps,
+            dt_total * 1000.0);
+
     qw3_session_free(s);
     return rc;
 #endif
@@ -11126,6 +11151,9 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
     const int eos = qw3_token_eos(e);
     int rc = 0;
     if (qw3_session_create(&s, e, ctx_size) != 0) return -1;
+
+    /* --- Prefill phase --- */
+    const double t_prefill_start = qw3_now_sec();
     for (int i = 0; i < prompt->len; i++) {
         if (qw3_metal_session_eval_token_slow(s, prompt->v[i],
                                               err, sizeof(err)) != 0) {
@@ -11134,7 +11162,11 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
             return -1;
         }
     }
+    const double t_prefill_end = qw3_now_sec();
 
+    /* --- Generation phase --- */
+    const double t_gen_start = qw3_now_sec();
+    int n_generated = 0;
     for (int step = 0; step < n_predict; step++) {
         if (s->kv.pos >= ctx_size) {
             fprintf(stderr, "qw3: Metal generation context full at step %d len=%d ctx=%d\n",
@@ -11149,6 +11181,7 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
             break;
         }
         if (token == eos) break;
+        n_generated++;
         if (emit) emit(emit_ud, token);
         if (qw3_metal_session_eval_token_slow(s, token, err, sizeof(err)) != 0) {
             fprintf(stderr, "qw3: Metal session decode failed: %s\n", err);
@@ -11156,8 +11189,25 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
             break;
         }
     }
+    const double t_gen_end = qw3_now_sec();
 
     if (done) done(emit_ud);
+
+    /* --- Timing summary --- */
+    const double dt_prefill = t_prefill_end - t_prefill_start;
+    const double dt_gen = t_gen_end - t_gen_start;
+    const double dt_total = t_gen_end - t_prefill_start;
+    const double prefill_tps = (dt_prefill > 0.0) ? (double)prompt->len / dt_prefill : 0.0;
+    const double gen_tps = (dt_gen > 0.0) ? (double)n_generated / dt_gen : 0.0;
+    qw3_log(stderr, QW3_LOG_TIMING,
+            "qw3: Metal sample timing: "
+            "prefill=%d tokens  %.1f ms  (%.2f tok/s)  |  "
+            "generation=%d tokens  %.1f ms  (%.2f tok/s)  |  "
+            "total=%.1f ms\n",
+            prompt->len, dt_prefill * 1000.0, prefill_tps,
+            n_generated, dt_gen * 1000.0, gen_tps,
+            dt_total * 1000.0);
+
     qw3_session_free(s);
     return rc;
 #endif
