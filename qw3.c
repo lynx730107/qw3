@@ -10627,8 +10627,12 @@ qw3_metal_session_eval_token_slow(qw3_session *s, int token,
 
     float *router = qw3_xmalloc((size_t)QW3_N_EXPERT * sizeof(float));
     const int profile = getenv("QW3_METAL_PROFILE") != NULL;
-    const int dynamic_router = getenv("QW3_METAL_DYNAMIC_ROUTER") != NULL;
     const int gpu_router_topk = getenv("QW3_METAL_GPU_ROUTER_TOPK") != NULL;
+    const char *dynamic_router_env = getenv("QW3_METAL_DYNAMIC_ROUTER");
+    const int cpu_router =
+        getenv("QW3_METAL_CPU_ROUTER") != NULL ||
+        (dynamic_router_env && strcmp(dynamic_router_env, "0") == 0);
+    const int dynamic_router = !gpu_router_topk && !cpu_router;
     const int layer_flush = getenv("QW3_METAL_NO_LAYER_FLUSH") == NULL;
     const int profile_layers = getenv("QW3_METAL_PROFILE_LAYERS") != NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
@@ -10784,22 +10788,18 @@ qw3_metal_session_eval_token_slow(qw3_session *s, int token,
             const uint32_t sh_up_off = QW3_N_FF_SHARED;
             const uint32_t sh_scalar_off = QW3_N_FF_SHARED * 2;
             ok =
-                qw3_metal_session_matvec_q8_0_x1_to_scratch(
+                qw3_metal_session_matvec_q8_0_pair_x1_to_scratch(
                     s->metal, lw->ffn_gate_shared->offset,
-                    QW3_N_EMBD, QW3_N_FF_SHARED, sh_gate_off, NULL) &&
-                qw3_metal_session_matvec_q8_0_x1_to_scratch(
-                    s->metal, lw->ffn_up_shared->offset,
-                    QW3_N_EMBD, QW3_N_FF_SHARED, sh_up_off, NULL) &&
+                    lw->ffn_up_shared->offset, QW3_N_EMBD,
+                    QW3_N_FF_SHARED, sh_gate_off, sh_up_off) &&
                 qw3_metal_session_matvec_f32_x1_to_scratch(
                     s->metal, lw->ffn_gate_inp_shexp->offset,
                     QW3_N_EMBD, 1, sh_scalar_off, NULL) &&
                 qw3_metal_session_silu_mul_scratch_to_inner(
                     s->metal, sh_gate_off, sh_up_off, QW3_N_FF_SHARED) &&
-                qw3_metal_session_matvec_q8_0_inner_to_x1(
+                qw3_metal_session_matvec_q8_0_inner_scale_add_x0(
                     s->metal, lw->ffn_down_shared->offset,
-                    QW3_N_FF_SHARED, QW3_N_EMBD, NULL) &&
-                qw3_metal_session_scale_x1_by_scratch_scalar_add_x0(
-                    s->metal, sh_scalar_off, QW3_N_EMBD);
+                    QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);
             if (ok && layer_flush) {
                 ok = qw3_metal_flush_commands();
                 batch_open = ok;

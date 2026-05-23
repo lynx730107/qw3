@@ -61,6 +61,10 @@ int qw3_metal_session_matvec_q8_0_x1_to_scratch(qw3_metal_session *s,
                                                 uint32_t n_in, uint32_t n_out,
                                                 uint32_t out_offset,
                                                 float *out);
+int qw3_metal_session_matvec_q8_0_pair_x1_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
+    uint32_t n_in, uint32_t n_out, uint32_t out_a_offset,
+    uint32_t out_b_offset);
 int qw3_metal_session_conv1d_zero_from_scratch(qw3_metal_session *s,
                                                uint64_t weight_offset,
                                                uint32_t n_channels, float *out);
@@ -102,6 +106,11 @@ int qw3_metal_session_matvec_q8_0_inner_to_x1(qw3_metal_session *s,
                                               uint64_t tensor_offset,
                                               uint32_t n_in, uint32_t n_out,
                                               float *out);
+int qw3_metal_session_matvec_q8_0_inner_scale_add_x0(qw3_metal_session *s,
+                                                     uint64_t tensor_offset,
+                                                     uint32_t n_in,
+                                                     uint32_t n_out,
+                                                     uint32_t scalar_offset);
 int qw3_metal_session_matvec_iq3_s_expert_x1_to_scratch(
     qw3_metal_session *s, uint64_t tensor_offset, uint32_t expert,
     uint32_t n_in, uint32_t n_out, uint32_t out_offset);
