@@ -68,7 +68,10 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Aggiunto esperimento `QW3_METAL_ROUTER_F32_FAST=1` per router F32 row-blocked; non e' default perche' nel profilo breve non migliora i token stabili.
    - Misura default aggiornata dopo dynamic-router pointer-based + batch MoE: `--metal-run 2 -p ciao --ctx 128` mostra token stabili circa `38-40 ms/token` (`router_sync_ms=0`), con generazione argmax breve circa `24 tok/s`.
    - Il path argmax/`--metal-run` non legge piu' tutto il vettore logits su CPU per scegliere il token: `qw3_metal_session_argmax_logits()` riduce direttamente il buffer logits della sessione e legge solo i blocchi argmax. Misura locale `--metal-run 32 --metal-run-quiet -p ciao --ctx 128`: circa `23.0 tok/s`, `avg_decode_ms` circa `43.5 ms`.
+   - I buffer parziali dell'argmax logits sono persistenti nella sessione, evitando allocazioni per-token.
+   - Nel path greedy/argmax senza readback completo logits, `output_norm` e `lm_head` vengono encodati nel batch finale prima della sync unica. Misura breve `QW3_METAL_PROFILE=1 --metal-run 8 --metal-run-quiet`: circa `24.9 tok/s`; misura lunga `--metal-run 64 --metal-run-quiet`: circa `21.9 tok/s`.
    - Aggiunto profiler opt-in `QW3_METAL_PROFILE_LAYER_SYNC=1` per stimare i costi layer-by-layer forzando sync a ogni layer; e' diagnostico e rallenta volutamente il runner.
+   - Aggiunto esperimento opt-in `QW3_METAL_UNRETAINED_COMMAND_BUFFERS=1`, ma non va usato di default: su Apple M5 produce `Invalid Resource` nel batch runtime.
    - Aggiunto esperimento opt-in `QW3_METAL_FUSED_DOWN_REDUCE=1` per fondere down sparse IQ4_XS e reduce su `x0`; resta non-default perche' nelle misure locali non migliora il path stabile.
    - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session; il path runtime default non usa piu' top-k/softmax CPU per il ramo sparse MoE.
    - Accesso ai buffer modello Metal stabilizzato per il percorso sessione tramite resolver pointer-based.
@@ -78,5 +81,5 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 ## Prossimi step consigliati
 
 1. Profilare il blocco pre-logits del dynamic-router batch: target successivo sotto i 35 ms/token.
-2. Ottimizzare il blocco pre-logits aggregato: il profilo stabile mostra `pre_logits_sync_ms` circa `33-35 ms`, mentre logits/argmax non sono piu' il collo principale.
+2. Ottimizzare il blocco layer/MoE/GQA aggregato: dopo il batch finale il tempo viene misurato nel wait logits, ma il collo reale resta il lavoro dei 40 layer prima dell'argmax.
 3. Introdurre KV cache q8_0 per GQA, mantenendo DeltaNet state/conv in F32.

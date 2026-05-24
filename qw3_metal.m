@@ -103,6 +103,9 @@ static id<MTLCommandBuffer> qw3_metal_command_buffer(int *owned) {
         return g_batch_cb;
     }
     if (owned) *owned = 1;
+    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+        return [g_queue commandBufferWithUnretainedReferences];
+    }
     return [g_queue commandBuffer];
 }
 
@@ -181,6 +184,8 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic, strong) id<MTLBuffer> gqaTokenGate;
 @property(nonatomic, strong) id<MTLBuffer> routerIds;
 @property(nonatomic, strong) id<MTLBuffer> routerWeights;
+@property(nonatomic, strong) id<MTLBuffer> argmaxVals;
+@property(nonatomic, strong) id<MTLBuffer> argmaxIdxs;
 @property(nonatomic) qw3_metal_session_info info;
 @property(nonatomic) uint32_t ctxSize;
 @property(nonatomic) uint32_t vocabSize;
@@ -3002,7 +3007,11 @@ const char *qw3_metal_device_name(void) {
 int qw3_metal_begin_commands(void) {
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (g_batch_cb) return 0;
-    g_batch_cb = [g_queue commandBuffer];
+    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+        g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+    } else {
+        g_batch_cb = [g_queue commandBuffer];
+    }
     return g_batch_cb != nil;
 }
 
@@ -3014,7 +3023,11 @@ int qw3_metal_flush_commands(void) {
     g_batch_cb = nil;
     [cb commit];
     [g_pending_cbs addObject:cb];
-    g_batch_cb = [g_queue commandBuffer];
+    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+        g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+    } else {
+        g_batch_cb = [g_queue commandBuffer];
+    }
     if (!g_batch_cb) {
         (void)qw3_metal_wait_pending_command_buffers("command batch");
         return 0;
@@ -3129,13 +3142,18 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     obj.gqaTokenGate = qw3_metal_new_private_buffer(gqa_q_bytes);
     obj.routerIds = qw3_metal_new_private_buffer(8ull * sizeof(int32_t));
     obj.routerWeights = qw3_metal_new_private_buffer(8ull * sizeof(float));
+    const uint64_t argmax_blocks = ((uint64_t)vocab_size + 255ull) / 256ull;
+    obj.argmaxVals = [g_device newBufferWithLength:(NSUInteger)(argmax_blocks * sizeof(float))
+                                           options:MTLResourceStorageModeShared];
+    obj.argmaxIdxs = [g_device newBufferWithLength:(NSUInteger)(argmax_blocks * sizeof(uint32_t))
+                                           options:MTLResourceStorageModeShared];
 
     if (!obj.gqaK || !obj.gqaV || !obj.deltanetState || !obj.convState ||
         !obj.logits || !obj.x0 || !obj.x1 || !obj.scratch ||
         !obj.qkvConv || !obj.qNorm || !obj.kNorm || !obj.core || !obj.inner ||
         !obj.gqaTmpQ || !obj.gqaTmpK || !obj.gqaTokenQ || !obj.gqaTokenK ||
         !obj.gqaTokenV || !obj.gqaTokenGate || !obj.routerIds ||
-        !obj.routerWeights) {
+        !obj.routerWeights || !obj.argmaxVals || !obj.argmaxIdxs) {
         return NULL;
     }
 
@@ -5566,10 +5584,14 @@ int qw3_metal_session_argmax_logits(qw3_metal_session *s, uint32_t n,
     const uint32_t n_blocks = (n + threads_u32 - 1) / threads_u32;
     const NSUInteger vals_bytes = (NSUInteger)n_blocks * sizeof(float);
     const NSUInteger idxs_bytes = (NSUInteger)n_blocks * sizeof(uint32_t);
-    id<MTLBuffer> valsb = [g_device newBufferWithLength:vals_bytes
-                                                options:MTLResourceStorageModeShared];
-    id<MTLBuffer> idxsb = [g_device newBufferWithLength:idxs_bytes
-                                                options:MTLResourceStorageModeShared];
+    id<MTLBuffer> valsb = obj.argmaxVals;
+    id<MTLBuffer> idxsb = obj.argmaxIdxs;
+    if (!valsb || !idxsb || valsb.length < vals_bytes || idxsb.length < idxs_bytes) {
+        valsb = [g_device newBufferWithLength:vals_bytes
+                                      options:MTLResourceStorageModeShared];
+        idxsb = [g_device newBufferWithLength:idxs_bytes
+                                      options:MTLResourceStorageModeShared];
+    }
     if (!valsb || !idxsb) {
         fprintf(stderr, "qw3: Metal session argmax buffer allocation failed\n");
         return 0;

@@ -10823,7 +10823,33 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
         }
     }
 
-    if (ok) {
+    if (ok && !read_logits) {
+        double t0 = profile ? qw3_now_sec() : 0.0;
+        if (!batch_open) {
+            ok = qw3_metal_begin_commands();
+            batch_open = ok;
+        }
+        ok = ok &&
+             qw3_metal_session_rmsnorm_weight_f32(
+                 s->metal, e->weights.output_norm->offset,
+                 QW3_N_EMBD, QW3_RMS_EPS, NULL);
+        if (profile) t_output_norm_sync += qw3_now_sec() - t0;
+        t0 = profile ? qw3_now_sec() : 0.0;
+        if (ok && e->weights.output->type == QW3_TENSOR_Q8_0) {
+            ok = qw3_metal_session_matvec_q8_0_x1_to_logits(
+                s->metal, e->weights.output->offset,
+                QW3_N_EMBD, QW3_N_VOCAB, NULL);
+        } else if (ok && e->weights.output->type == QW3_TENSOR_Q6_K) {
+            ok = qw3_metal_session_matvec_q6_k_x1_to_logits(
+                s->metal, e->weights.output->offset,
+                QW3_N_EMBD, QW3_N_VOCAB, NULL);
+        } else {
+            ok = 0;
+        }
+        if (ok) ok = qw3_metal_synchronize();
+        if (profile) t_logits += qw3_now_sec() - t0;
+        batch_open = 0;
+    } else if (ok) {
         double t0 = profile ? qw3_now_sec() : 0.0;
         ok = qw3_metal_synchronize();
         if (profile) t_pre_logits_sync += qw3_now_sec() - t0;
