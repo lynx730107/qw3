@@ -472,6 +472,8 @@ static void usage(void) {
         "              Compare N greedy decode steps using Metal logits\n"
         "  --metal-run N\n"
         "              Generate N greedy token IDs using Metal logits only\n"
+        "  --metal-run-quiet\n"
+        "              Suppress per-token Metal run output and print timing summary\n"
         "  --metal-gqa-project-test ID\n"
         "              Run layer-3 GQA q/k/v projection, Q/K norm and RoPE on Metal\n"
         "  --metal-gqa-single-test ID\n"
@@ -581,6 +583,7 @@ int main(int argc, char **argv) {
     int metal_session_gqa_cached2_test = -1;
     int metal_greedy_test = 0;
     int metal_run = 0;
+    int metal_run_quiet = 0;
     int metal_gqa_project_test = -1;
     int metal_gqa_single_test = -1;
     int metal_gqa_attend2_test = -1;
@@ -830,6 +833,9 @@ int main(int argc, char **argv) {
             backend = QW3_BACKEND_METAL;
         } else if (strcmp(argv[i], "--metal-run") == 0 && i + 1 < argc) {
             metal_run = atoi(argv[++i]);
+            backend = QW3_BACKEND_METAL;
+        } else if (strcmp(argv[i], "--metal-run-quiet") == 0) {
+            metal_run_quiet = 1;
             backend = QW3_BACKEND_METAL;
         } else if (strcmp(argv[i], "--metal-gqa-project-test") == 0 && i + 1 < argc) {
             metal_gqa_project_test = atoi(argv[++i]);
@@ -1509,7 +1515,8 @@ int main(int argc, char **argv) {
         qw3_tokens tokens = {0};
         qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
         int rc = qw3_engine_metal_greedy_run(engine, &tokens, ctx_size,
-                                             metal_run, stdout);
+                                             metal_run, metal_run_quiet,
+                                             stdout);
         qw3_tokens_free(&tokens);
         if (rc != 0) {
             qw3_engine_close(engine);

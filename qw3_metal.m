@@ -54,6 +54,7 @@ static id<MTLComputePipelineState> g_matvec_iq3_s_pair_pipeline;
 static id<MTLComputePipelineState> g_moe_iq3_s_pair_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_silu_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_pipeline;
+static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_reduce_pipeline;
 static id<MTLComputePipelineState> g_moe_down_q6_k_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_reduce_batch_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pipeline;
@@ -1900,6 +1901,73 @@ static NSString *qw3_metal_kernel_source(void) {
             "        if (row < args.n_embd) out[base + row] = sum1 * scale;\n"
             "    }\n"
             "}\n"
+            "kernel void qw3_moe_down_iq4_xs_batch_reduce_fast(constant qw3_moe_batch_args &args,\n"
+            "                                                 device const uchar *weights,\n"
+            "                                                 device const float *scratch,\n"
+            "                                                 device float *x0,\n"
+            "                                                 constant int *ids,\n"
+            "                                                 constant float *router_weights,\n"
+            "                                                 threadgroup float *sh,\n"
+            "                                                 uint group [[threadgroup_position_in_grid]],\n"
+            "                                                 ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                                 ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                 ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint slot = uint(simd_idx);\n"
+            "    uint row0 = group * 2u;\n"
+            "    uint row1 = row0 + 1u;\n"
+            "    bool active = slot < args.n_active;\n"
+            "    uint expert = active ? uint(ids[slot]) : 0u;\n"
+            "    uint64_t expert_off = uint64_t(expert) * uint64_t(args.down_expert_bytes);\n"
+            "    device const float *x = scratch + args.hidden_base + slot * args.n_ff;\n"
+            "    uint ix = uint(lane) >> 4u;\n"
+            "    uint it = uint(lane) & 15u;\n"
+            "    uint ib = it >> 1u;\n"
+            "    uint il = it & 1u;\n"
+            "    float sum0 = 0.0f;\n"
+            "    float sum1 = 0.0f;\n"
+            "    uint n_blocks = args.n_ff / 256u;\n"
+            "    if (active) {\n"
+            "        for (uint b = ix; b < n_blocks; b += 2u) {\n"
+            "            device const float *xg = x + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;\n"
+            "            if (row0 < args.n_embd) {\n"
+            "                device const uchar *blk = weights + expert_off + uint64_t(row0) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "                half d = *((device const half *)blk);\n"
+            "                ushort scales_h = *((device const ushort *)(blk + 2));\n"
+            "                device const uchar *scales_l = blk + 4;\n"
+            "                device const uchar *qs = scales_l + 4 + ib * 16u + il * 8u;\n"
+            "                uint ls = ((uint(scales_l[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);\n"
+            "                float dl = float(d) * float(int(ls) - 32);\n"
+            "                float acc = 0.0f;\n"
+            "                for (uint j = 0; j < 8u; j++) { uchar v = qs[j]; acc += qw3_iq4nl_val(uint(v) & 15u) * xg[j]; acc += qw3_iq4nl_val(uint(v) >> 4u) * xg[j + 16u]; }\n"
+            "                sum0 += dl * acc;\n"
+            "            }\n"
+            "            if (row1 < args.n_embd) {\n"
+            "                device const uchar *blk = weights + expert_off + uint64_t(row1) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "                half d = *((device const half *)blk);\n"
+            "                ushort scales_h = *((device const ushort *)(blk + 2));\n"
+            "                device const uchar *scales_l = blk + 4;\n"
+            "                device const uchar *qs = scales_l + 4 + ib * 16u + il * 8u;\n"
+            "                uint ls = ((uint(scales_l[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);\n"
+            "                float dl = float(d) * float(int(ls) - 32);\n"
+            "                float acc = 0.0f;\n"
+            "                for (uint j = 0; j < 8u; j++) { uchar v = qs[j]; acc += qw3_iq4nl_val(uint(v) & 15u) * xg[j]; acc += qw3_iq4nl_val(uint(v) >> 4u) * xg[j + 16u]; }\n"
+            "                sum1 += dl * acc;\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "    sum0 = simd_sum(sum0);\n"
+            "    sum1 = simd_sum(sum1);\n"
+            "    float scale = active ? router_weights[slot] : 0.0f;\n"
+            "    if (lane == 0) { sh[slot] = sum0 * scale; sh[8u + slot] = sum1 * scale; }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    if (tid == 0) {\n"
+            "        float total0 = 0.0f;\n"
+            "        float total1 = 0.0f;\n"
+            "        for (uint s = 0; s < args.n_active; s++) { total0 += sh[s]; total1 += sh[8u + s]; }\n"
+            "        if (row0 < args.n_embd) x0[row0] += total0;\n"
+            "        if (row1 < args.n_embd) x0[row1] += total1;\n"
+            "    }\n"
+            "}\n"
             "kernel void qw3_moe_down_q6_k_batch(constant qw3_moe_batch_args &args,\n"
             "                                    device const uchar *weights,\n"
             "                                    device const float *scratch,\n"
@@ -2249,7 +2317,9 @@ static int qw3_metal_compile_kernels(void) {
         g_matvec_q6_k_swiglu_add_x0_pipeline &&
         g_matvec_iq3_s_pipeline && g_matvec_iq3_s_pair_pipeline &&
         g_moe_iq3_s_pair_batch_pipeline && g_moe_silu_batch_pipeline &&
-        g_moe_down_iq4_xs_batch_pipeline && g_moe_down_q6_k_batch_pipeline &&
+        g_moe_down_iq4_xs_batch_pipeline &&
+        g_moe_down_iq4_xs_batch_reduce_pipeline &&
+        g_moe_down_q6_k_batch_pipeline &&
         g_moe_reduce_batch_pipeline &&
         g_matvec_f32_pipeline && g_matvec_f32_fast_pipeline &&
         g_deltanet_conv1d_zero_pipeline &&
@@ -2482,6 +2552,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                                error:&error];
     if (!g_moe_down_iq4_xs_batch_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_iq4_xs_batch_fast failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_moe_down_iq4_xs_batch_reduce_fast"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_down_iq4_xs_batch_reduce_fast not found\n");
+        return 0;
+    }
+    g_moe_down_iq4_xs_batch_reduce_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                                      error:&error];
+    if (!g_moe_down_iq4_xs_batch_reduce_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_iq4_xs_batch_reduce_fast failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -4912,11 +4994,14 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     qw3_metal_end_compute_encoder(cb, enc);
 
     enc = qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:down_batch_pipeline];
+    const int fuse_down_reduce =
+        down_type == 23 && getenv("QW3_METAL_FUSED_DOWN_REDUCE") != NULL;
+    [enc setComputePipelineState:fuse_down_reduce ?
+     g_moe_down_iq4_xs_batch_reduce_pipeline : down_batch_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
     [enc setBuffer:obj.scratch offset:0 atIndex:2];
-    [enc setBuffer:obj.scratch offset:0 atIndex:3];
+    [enc setBuffer:fuse_down_reduce ? obj.x0 : obj.scratch offset:0 atIndex:3];
     if (ids_buffer) {
         [enc setBuffer:ids_buffer offset:0 atIndex:4];
     } else {
@@ -4928,7 +5013,11 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
         [enc setBytes:weights length:(NSUInteger)n_active * sizeof(float) atIndex:5];
     }
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    if (down_type == 23) {
+    if (fuse_down_reduce) {
+        [enc setThreadgroupMemoryLength:16 * sizeof(float) atIndex:0];
+        [enc dispatchThreadgroups:MTLSizeMake((n_embd + 1u) / 2u, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+    } else if (down_type == 23) {
         threads = 64;
         [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 3u) / 4u) * n_active, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
@@ -4939,16 +5028,18 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     }
     qw3_metal_end_compute_encoder(cb, enc);
 
-    enc = qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:g_moe_reduce_batch_pipeline];
-    [enc setBytes:&args length:sizeof(args) atIndex:0];
-    [enc setBuffer:obj.scratch offset:0 atIndex:1];
-    [enc setBuffer:obj.x0 offset:0 atIndex:2];
-    threads = g_moe_reduce_batch_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threads > 256) threads = 256;
-    [enc dispatchThreads:MTLSizeMake(n_embd, 1, 1)
-    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
-    qw3_metal_end_compute_encoder(cb, enc);
+    if (!fuse_down_reduce) {
+        enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:g_moe_reduce_batch_pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:obj.scratch offset:0 atIndex:1];
+        [enc setBuffer:obj.x0 offset:0 atIndex:2];
+        threads = g_moe_reduce_batch_pipeline.maxTotalThreadsPerThreadgroup;
+        if (threads > 256) threads = 256;
+        [enc dispatchThreads:MTLSizeMake(n_embd, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    }
 
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {
@@ -5457,6 +5548,73 @@ int qw3_metal_session_matvec_q6_k_x1_to_logits(qw3_metal_session *s,
         return 0;
     }
     if (out) memcpy(out, readback.contents, (size_t)out_bytes);
+    return 1;
+}
+
+int qw3_metal_session_argmax_logits(qw3_metal_session *s, uint32_t n,
+                                    uint32_t *idx_out, float *val_out) {
+    if (!s || !s->obj || !idx_out || !val_out || n == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    if (!obj.logits || obj.logits.length < (NSUInteger)n * sizeof(float)) {
+        return 0;
+    }
+
+    const uint32_t threads_u32 = 256;
+    const uint32_t n_blocks = (n + threads_u32 - 1) / threads_u32;
+    const NSUInteger vals_bytes = (NSUInteger)n_blocks * sizeof(float);
+    const NSUInteger idxs_bytes = (NSUInteger)n_blocks * sizeof(uint32_t);
+    id<MTLBuffer> valsb = [g_device newBufferWithLength:vals_bytes
+                                                options:MTLResourceStorageModeShared];
+    id<MTLBuffer> idxsb = [g_device newBufferWithLength:idxs_bytes
+                                                options:MTLResourceStorageModeShared];
+    if (!valsb || !idxsb) {
+        fprintf(stderr, "qw3: Metal session argmax buffer allocation failed\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n;
+    } args = { n };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_argmax_blocks_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.logits offset:0 atIndex:1];
+    [enc setBuffer:valsb offset:0 atIndex:2];
+    [enc setBuffer:idxsb offset:0 atIndex:3];
+    [enc setThreadgroupMemoryLength:(NSUInteger)threads_u32 * sizeof(float)
+                            atIndex:0];
+    [enc setThreadgroupMemoryLength:(NSUInteger)threads_u32 * sizeof(uint32_t)
+                            atIndex:1];
+    [enc dispatchThreadgroups:MTLSizeMake(n_blocks, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads_u32, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal session argmax command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+
+    const float *vals = (const float *)valsb.contents;
+    const uint32_t *idxs = (const uint32_t *)idxsb.contents;
+    uint32_t best_idx = idxs[0];
+    float best_val = vals[0];
+    for (uint32_t i = 1; i < n_blocks; i++) {
+        uint32_t idx = idxs[i];
+        float val = vals[i];
+        if (val > best_val || (val == best_val && idx < best_idx)) {
+            best_val = val;
+            best_idx = idx;
+        }
+    }
+    *idx_out = best_idx;
+    *val_out = best_val;
     return 1;
 }
 
@@ -6020,6 +6178,7 @@ void qw3_metal_cleanup(void) {
     g_moe_iq3_s_pair_batch_pipeline = nil;
     g_moe_silu_batch_pipeline = nil;
     g_moe_down_iq4_xs_batch_pipeline = nil;
+    g_moe_down_iq4_xs_batch_reduce_pipeline = nil;
     g_moe_down_q6_k_batch_pipeline = nil;
     g_moe_reduce_batch_pipeline = nil;
     g_matvec_f32_pipeline = nil;

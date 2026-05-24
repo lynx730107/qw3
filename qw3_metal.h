@@ -156,6 +156,8 @@ int qw3_metal_session_matvec_q6_k_x1_to_logits(qw3_metal_session *s,
                                                uint64_t tensor_offset,
                                                uint32_t n_in, uint32_t n_out,
                                                float *out);
+int qw3_metal_session_argmax_logits(qw3_metal_session *s, uint32_t n,
+                                    uint32_t *idx_out, float *val_out);
 int qw3_metal_session_residual_rmsnorm_x0_x1(qw3_metal_session *s,
                                              uint64_t weight_offset, uint32_t n,
                                              float eps, float *out);

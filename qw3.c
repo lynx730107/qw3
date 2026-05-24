@@ -10600,10 +10600,11 @@ int qw3_engine_metal_session_gqa_cached2_test(qw3_engine *e, int token,
 }
 
 static int __attribute__((unused))
-qw3_metal_session_eval_token_slow(qw3_session *s, int token,
-                                  char *err, size_t errlen) {
+qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
+                                     char *err, size_t errlen,
+                                     int read_logits) {
 #ifdef QW3_NO_METAL
-    (void)s; (void)token; (void)err; (void)errlen;
+    (void)s; (void)token; (void)err; (void)errlen; (void)read_logits;
     return -1;
 #else
     if (!s || !s->engine || !s->metal) return -1;
@@ -10635,6 +10636,7 @@ qw3_metal_session_eval_token_slow(qw3_session *s, int token,
     const int dynamic_router = !gpu_router_topk && !cpu_router;
     const int layer_flush = getenv("QW3_METAL_NO_LAYER_FLUSH") == NULL;
     const int profile_layers = getenv("QW3_METAL_PROFILE_LAYERS") != NULL;
+    const int profile_layer_sync = getenv("QW3_METAL_PROFILE_LAYER_SYNC") != NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
     double t_router_sync = 0.0;
     double t_router_matvec = 0.0;
@@ -10652,6 +10654,7 @@ qw3_metal_session_eval_token_slow(qw3_session *s, int token,
     int full_slot = 0;
     int linear_slot = 0;
     for (int il = 0; ok && il < QW3_N_LAYER; il++) {
+        const double t_layer_sync0 = profile_layer_sync ? qw3_now_sec() : 0.0;
         const qw3_layer_weights *lw = &e->weights.layer[il];
         if (qw3_layer_is_full_attention((uint32_t)il)) {
             ok =
@@ -10800,9 +10803,22 @@ qw3_metal_session_eval_token_slow(qw3_session *s, int token,
                 qw3_metal_session_matvec_q8_0_inner_scale_add_x0(
                     s->metal, lw->ffn_down_shared->offset,
                     QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);
-            if (ok && layer_flush) {
+            if (ok && (layer_flush || profile_layer_sync)) {
                 ok = qw3_metal_flush_commands();
                 batch_open = ok;
+            }
+            if (ok && profile_layer_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal layer sync profile token=%d pos=%llu layer=%d kind=%s total_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
+                        (qw3_now_sec() - t_layer_sync0) * 1000.0);
+                if (ok && il + 1 < QW3_N_LAYER) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
             }
         }
     }
@@ -10821,14 +10837,15 @@ qw3_metal_session_eval_token_slow(qw3_session *s, int token,
         if (profile) t_output_norm_sync += qw3_now_sec() - t0;
         batch_open = 0;
         t0 = profile ? qw3_now_sec() : 0.0;
+        float *logits_out = read_logits ? s->logits : NULL;
         if (ok && e->weights.output->type == QW3_TENSOR_Q8_0) {
             ok = qw3_metal_session_matvec_q8_0_x1_to_logits(
                 s->metal, e->weights.output->offset,
-                QW3_N_EMBD, QW3_N_VOCAB, s->logits);
+                QW3_N_EMBD, QW3_N_VOCAB, logits_out);
         } else if (ok && e->weights.output->type == QW3_TENSOR_Q6_K) {
             ok = qw3_metal_session_matvec_q6_k_x1_to_logits(
                 s->metal, e->weights.output->offset,
-                QW3_N_EMBD, QW3_N_VOCAB, s->logits);
+                QW3_N_EMBD, QW3_N_VOCAB, logits_out);
         } else {
             ok = 0;
         }
@@ -10855,6 +10872,12 @@ qw3_metal_session_eval_token_slow(qw3_session *s, int token,
     }
     return ok ? 0 : -1;
 #endif
+}
+
+static int __attribute__((unused))
+qw3_metal_session_eval_token_slow(qw3_session *s, int token,
+                                  char *err, size_t errlen) {
+    return qw3_metal_session_eval_token_slow_ex(s, token, err, errlen, 1);
 }
 
 int qw3_engine_metal_session_decode_test(qw3_engine *e,
@@ -10991,10 +11014,11 @@ int qw3_engine_metal_greedy_test(qw3_engine *e, const qw3_tokens *prompt,
 }
 
 int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
-                                int ctx_size, int n_steps, FILE *fp) {
+                                int ctx_size, int n_steps, int quiet,
+                                FILE *fp) {
     if (!e || !prompt || !fp || ctx_size <= 0 || n_steps <= 0) return -1;
 #ifdef QW3_NO_METAL
-    (void)e; (void)prompt; (void)ctx_size; (void)n_steps;
+    (void)e; (void)prompt; (void)ctx_size; (void)n_steps; (void)quiet;
     fprintf(fp, "metal run: unavailable in QW3_NO_METAL build\n");
     return -1;
 #else
@@ -11002,10 +11026,14 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
     qw3_session *gpu = NULL;
     char err[256] = {0};
     int ok = qw3_session_create(&gpu, e, ctx_size) == 0;
+    const double t_prefill0 = qw3_now_sec();
     for (int i = 0; ok && i < prompt->len; i++) {
-        ok = qw3_metal_session_eval_token_slow(gpu, prompt->v[i],
-                                               err, sizeof(err)) == 0;
+        ok = qw3_metal_session_eval_token_slow_ex(gpu, prompt->v[i],
+                                                  err, sizeof(err), 0) == 0;
     }
+    const double t_prefill1 = qw3_now_sec();
+    const double t_gen0 = qw3_now_sec();
+    int generated = 0;
     for (int step = 0; ok && step < n_steps; step++) {
         if (gpu->kv.pos >= ctx_size) {
             fprintf(fp, "metal run: context full at step %d len=%d ctx=%d\n",
@@ -11015,20 +11043,32 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
         }
         uint32_t gpu_top0 = 0;
         float gpu_top0_val = 0.0f;
-        ok = qw3_metal_argmax(gpu->logits, QW3_N_VOCAB,
-                              &gpu_top0, &gpu_top0_val);
+        ok = qw3_metal_session_argmax_logits(gpu->metal, QW3_N_VOCAB,
+                                             &gpu_top0, &gpu_top0_val);
         if (!ok) break;
-        fprintf(fp, "metal run step %d: gpu_top0=%u gpu_top0_val=%.7g\n",
-                step, gpu_top0, gpu_top0_val);
-        ok = qw3_metal_session_eval_token_slow(gpu, (int)gpu_top0,
-                                               err, sizeof(err)) == 0;
+        if (!quiet) {
+            fprintf(fp, "metal run step %d: gpu_top0=%u gpu_top0_val=%.7g\n",
+                    step, gpu_top0, gpu_top0_val);
+        }
+        ok = qw3_metal_session_eval_token_slow_ex(gpu, (int)gpu_top0,
+                                                  err, sizeof(err), 0) == 0;
+        if (ok) generated++;
     }
-    fprintf(fp, "metal run: %s prompt_tokens=%d generated=%d final_tokens=%d total_ms=%.1f\n",
-            ok ? "ok" : "failed", prompt->len,
-            ok && gpu ? n_steps : (gpu ? gpu->tokens.len - prompt->len : 0),
-            gpu ? gpu->tokens.len : 0, (qw3_now_sec() - t0) * 1000.0);
+    const double t_gen1 = qw3_now_sec();
+    const double prefill_ms = (t_prefill1 - t_prefill0) * 1000.0;
+    const double gen_ms = (t_gen1 - t_gen0) * 1000.0;
+    const double total_ms = (t_gen1 - t0) * 1000.0;
+    const double gen_tps = gen_ms > 0.0 ? (double)generated * 1000.0 / gen_ms : 0.0;
+    const double avg_decode_ms = generated > 0 ? gen_ms / (double)generated : 0.0;
+    fprintf(fp,
+            "metal run: %s prompt_tokens=%d generated=%d final_tokens=%d "
+            "prefill_ms=%.1f generation_ms=%.1f avg_decode_ms=%.2f "
+            "generation_tok_s=%.2f total_ms=%.1f\n",
+            ok ? "ok" : "failed", prompt->len, generated,
+            gpu ? gpu->tokens.len : 0, prefill_ms, gen_ms,
+            avg_decode_ms, gen_tps, total_ms);
     if (!ok && err[0]) fprintf(fp, "metal run error: %s\n", err);
-    if (gpu && gpu->tokens.len > prompt->len) {
+    if (!quiet && gpu && gpu->tokens.len > prompt->len) {
         fprintf(fp, "metal run generated ids:");
         for (int i = prompt->len; i < gpu->tokens.len; i++) {
             fprintf(fp, " %d", gpu->tokens.v[i]);
@@ -11062,8 +11102,8 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
     for (int i = 0; i < prompt->len; i++) {
-        if (qw3_metal_session_eval_token_slow(s, prompt->v[i],
-                                              err, sizeof(err)) != 0) {
+        if (qw3_metal_session_eval_token_slow_ex(s, prompt->v[i],
+                                                 err, sizeof(err), 0) != 0) {
             fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
             qw3_session_free(s);
             return -1;
@@ -11084,8 +11124,8 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
 
         uint32_t gpu_top0 = 0;
         float gpu_top0_val = 0.0f;
-        if (!qw3_metal_argmax(s->logits, QW3_N_VOCAB,
-                              &gpu_top0, &gpu_top0_val)) {
+        if (!qw3_metal_session_argmax_logits(s->metal, QW3_N_VOCAB,
+                                             &gpu_top0, &gpu_top0_val)) {
             rc = -1;
             break;
         }
@@ -11093,8 +11133,8 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
         if ((int)gpu_top0 == eos) break;
         n_generated++;
         if (emit) emit(emit_ud, (int)gpu_top0);
-        if (qw3_metal_session_eval_token_slow(s, (int)gpu_top0,
-                                              err, sizeof(err)) != 0) {
+        if (qw3_metal_session_eval_token_slow_ex(s, (int)gpu_top0,
+                                                 err, sizeof(err), 0) != 0) {
             fprintf(stderr, "qw3: Metal session decode failed: %s\n", err);
             rc = -1;
             break;

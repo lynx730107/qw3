@@ -170,7 +170,8 @@ int qw3_engine_metal_session_layer0_test(qw3_engine *e, int token,
 int qw3_engine_metal_greedy_test(qw3_engine *e, const qw3_tokens *prompt,
                                  int ctx_size, int n_steps, FILE *fp);
 int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
-                                int ctx_size, int n_steps, FILE *fp);
+                                int ctx_size, int n_steps, int quiet,
+                                FILE *fp);
 int qw3_engine_metal_gqa_project_test(qw3_engine *e, int token, FILE *fp);
 int qw3_engine_metal_gqa_single_test(qw3_engine *e, int token, FILE *fp);
 int qw3_engine_metal_gqa_attend2_test(qw3_engine *e, int token, FILE *fp);
