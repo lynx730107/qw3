@@ -1169,33 +1169,47 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                  device const float *k_cache,\n"
             "                                  device const float *v_cache,\n"
             "                                  device float *out,\n"
-            "                                  uint gid [[thread_position_in_grid]]) {\n"
-            "    uint total = args.n_heads * args.head_dim;\n"
-            "    if (gid >= total || args.n_ctx == 0) return;\n"
-            "    uint h = gid / args.head_dim;\n"
-            "    uint i = gid - h * args.head_dim;\n"
+            "                                  threadgroup float *sh,\n"
+            "                                  uint h [[threadgroup_position_in_grid]],\n"
+            "                                  ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                  ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                  ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                  ushort nt [[threads_per_threadgroup]]) {\n"
+            "    if (h >= args.n_heads || args.n_ctx == 0 || args.head_dim > uint(nt)) return;\n"
+            "    uint i = uint(tid);\n"
             "    uint kvh = h / (args.n_heads / args.n_kv_heads);\n"
             "    device const float *qh = q + uint64_t(h) * args.head_dim;\n"
             "    float scale = rsqrt(float(args.head_dim));\n"
+            "    float qv = (i < args.head_dim) ? qh[i] : 0.0f;\n"
             "    float max_score = -FLT_MAX;\n"
-            "    for (uint t = 0; t < args.n_ctx; t++) {\n"
-            "        device const float *kh = k_cache + (uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim;\n"
-            "        float dot = 0.0f;\n"
-            "        for (uint j = 0; j < args.head_dim; j++) dot += qh[j] * kh[j];\n"
-            "        max_score = max(max_score, dot * scale);\n"
-            "    }\n"
             "    float denom = 0.0f;\n"
             "    float acc = 0.0f;\n"
+            "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
             "    for (uint t = 0; t < args.n_ctx; t++) {\n"
             "        device const float *kh = k_cache + (uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim;\n"
-            "        float dot = 0.0f;\n"
-            "        for (uint j = 0; j < args.head_dim; j++) dot += qh[j] * kh[j];\n"
-            "        float w = exp(dot * scale - max_score);\n"
-            "        denom += w;\n"
-            "        acc += w * v_cache[(uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim + i];\n"
+            "        float part = (i < args.head_dim) ? qv * kh[i] : 0.0f;\n"
+            "        part = simd_sum(part);\n"
+            "        if (lane == 0) sh[simd_idx] = part;\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        float dot = (uint(tid) < n_simd) ? sh[tid] : 0.0f;\n"
+            "        dot = simd_sum(dot);\n"
+            "        if (tid == 0) sh[0] = dot;\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        float score = sh[0] * scale;\n"
+            "        float next_max = max(max_score, score);\n"
+            "        float prev_scale = exp(max_score - next_max);\n"
+            "        float cur_scale = exp(score - next_max);\n"
+            "        float vv = (i < args.head_dim) ? v_cache[(uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim + i] : 0.0f;\n"
+            "        acc = acc * prev_scale + vv * cur_scale;\n"
+            "        denom = denom * prev_scale + cur_scale;\n"
+            "        max_score = next_max;\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "    }\n"
-            "    float sig = 1.0f / (1.0f + exp(-gate[gid]));\n"
-            "    out[gid] = (acc / denom) * sig;\n"
+            "    if (i < args.head_dim) {\n"
+            "        uint gid = h * args.head_dim + i;\n"
+            "        float sig = 1.0f / (1.0f + exp(-gate[gid]));\n"
+            "        out[gid] = (acc / denom) * sig;\n"
+            "    }\n"
             "}\n"
             "struct qw3_recur_zero_args { uint q_heads; uint v_heads; uint head_dim; };\n"
             "kernel void qw3_deltanet_recur_zero(constant qw3_recur_zero_args &args,\n"
@@ -6173,10 +6187,16 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
     [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:3];
     [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:4];
     [enc setBuffer:obj.inner offset:0 atIndex:5];
-    NSUInteger threads = g_gqa_attend_n_inner_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threads > 256) threads = 256;
-    [enc dispatchThreads:MTLSizeMake(inner_n, 1, 1)
-    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    NSUInteger threads = ((NSUInteger)head_dim + 31u) & ~(NSUInteger)31u;
+    if (threads < 32u) threads = 32u;
+    if (threads > 256u ||
+        threads > g_gqa_attend_n_inner_pipeline.maxTotalThreadsPerThreadgroup) {
+        qw3_metal_end_compute_encoder(cb, enc);
+        return 0;
+    }
+    [enc setThreadgroupMemoryLength:32u * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake(n_heads, 1, 1)
+         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {
@@ -7242,10 +7262,16 @@ int qw3_metal_gqa_attend_n_inner(const float *q, const float *gate,
     [enc setBuffer:kb offset:0 atIndex:3];
     [enc setBuffer:vb offset:0 atIndex:4];
     [enc setBuffer:outb offset:0 atIndex:5];
-    NSUInteger threads = g_gqa_attend_n_inner_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threads > 256) threads = 256;
-    [enc dispatchThreads:MTLSizeMake(q_n, 1, 1)
-    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    NSUInteger threads = ((NSUInteger)head_dim + 31u) & ~(NSUInteger)31u;
+    if (threads < 32u) threads = 32u;
+    if (threads > 256u ||
+        threads > g_gqa_attend_n_inner_pipeline.maxTotalThreadsPerThreadgroup) {
+        qw3_metal_end_compute_encoder(cb, enc);
+        return 0;
+    }
+    [enc setThreadgroupMemoryLength:32u * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake(n_heads, 1, 1)
+         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {
