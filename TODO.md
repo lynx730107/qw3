@@ -78,6 +78,7 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Sul Mac Apple M5 locale con SDK macOS 26.4 sono presenti le API Metal 4 (`MTL4CommandQueue`, command allocator e `MTLTensor`, inclusi `Int4/UInt4`). E' una direzione successiva per ridurre overhead di submission o valutare tensor operations; i formati GGUF hot `IQ3_S`/`IQ4_XS`/`Q6_K` continuano comunque a richiedere kernel quantizzati dedicati.
    - Aggiunto profiler opt-in `QW3_METAL_PROFILE_LAYER_SYNC=1` per stimare i costi layer-by-layer forzando sync a ogni layer; e' diagnostico e rallenta volutamente il runner.
    - Aggiunto profiler opt-in `QW3_METAL_PROFILE_STAGE_SYNC=1` per separare per layer `attention/residual`, sparse MoE e shared MoE. Dopo le ottimizzazioni correnti, su un token di decode il ramo shared e' circa `0.20-0.23 ms/layer`, mentre sparse MoE nei layer `IQ4_XS` e' circa `0.62-0.70 ms` (contro circa `0.38-0.40 ms` nei layer `q6_K` gia' ottimizzati).
+   - Aggiunto profiler opt-in `QW3_METAL_PROFILE_MOE_SYNC=1` per scomporre lo sparse MoE batch in `gateup`, `silu`, `down` e `reduce`. Nel token stabile profilato, gli expert con down `IQ4_XS` spendono circa `0.60-0.70 ms` nel gate/up `IQ3_S` e `0.46-0.50 ms` nel down; quelli con down `q6_K` spendono circa `0.60-0.68 ms` nel gate/up e soltanto `0.24-0.26 ms` nel down. Il prossimo hot path da ottimizzare e' quindi il gate/up `IQ3_S` comune.
    - Aggiunto esperimento opt-in `QW3_METAL_UNRETAINED_COMMAND_BUFFERS=1`, ma non va usato di default: su Apple M5 produce `Invalid Resource` nel batch runtime.
    - Aggiunto esperimento opt-in `QW3_METAL_FUSED_DOWN_REDUCE=1` per fondere down sparse IQ4_XS e reduce su `x0`; resta non-default perche' nelle misure locali non migliora il path stabile.
    - Scartati su Apple M5 due ulteriori tentativi dopo il profiling: applicare il matvec `q8_0` multi-riga a tutte le proiezioni sessione scende a circa `27.46 tok/s`, e portare il down `IQ4_XS` a quattro righe per simdgroup scende a circa `27.78 tok/s`, contro `28.07-28.32 tok/s` del default corrente.
@@ -88,6 +89,6 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 
 ## Prossimi step consigliati
 
-1. Profilare nuovamente i layer dopo il kernel `q6_K` batch: isolare il prossimo formato/dispatch dominante nel blocco pre-logits e puntare sotto i 35 ms/token.
+1. Ottimizzare il gate/up `IQ3_S` sparse, identificato dal profiler interno come il prossimo formato/dispatch dominante nel blocco pre-logits, e puntare sotto i 35 ms/token.
 2. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
 3. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.

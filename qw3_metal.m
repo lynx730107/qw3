@@ -5469,6 +5469,9 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
+    const int profile_moe_sync =
+        getenv("QW3_METAL_PROFILE_MOE_SYNC") != NULL && g_batch_cb != nil;
+    double t_moe_sync = profile_moe_sync ? [NSDate timeIntervalSinceReferenceDate] : 0.0;
 
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
     [enc setComputePipelineState:g_moe_iq3_s_pair_batch_pipeline];
@@ -5488,6 +5491,15 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     [enc dispatchThreadgroups:MTLSizeMake(((n_ff + 7u) / 8u) * n_active, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
+    if (profile_moe_sync) {
+        if (!qw3_metal_synchronize()) return 0;
+        fprintf(stderr, "qw3 metal moe profile down_type=%u gateup_ms=%.3f\n",
+                down_type, ([NSDate timeIntervalSinceReferenceDate] - t_moe_sync) * 1000.0);
+        if (!qw3_metal_begin_commands()) return 0;
+        cb = qw3_metal_command_buffer(&owned);
+        if (!cb) return 0;
+        t_moe_sync = [NSDate timeIntervalSinceReferenceDate];
+    }
 
     enc = qw3_metal_compute_encoder(cb);
     [enc setComputePipelineState:g_moe_silu_batch_pipeline];
@@ -5499,6 +5511,15 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     [enc dispatchThreads:MTLSizeMake(n_active * n_ff, 1, 1)
     threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
+    if (profile_moe_sync) {
+        if (!qw3_metal_synchronize()) return 0;
+        fprintf(stderr, "qw3 metal moe profile down_type=%u silu_ms=%.3f\n",
+                down_type, ([NSDate timeIntervalSinceReferenceDate] - t_moe_sync) * 1000.0);
+        if (!qw3_metal_begin_commands()) return 0;
+        cb = qw3_metal_command_buffer(&owned);
+        if (!cb) return 0;
+        t_moe_sync = [NSDate timeIntervalSinceReferenceDate];
+    }
 
     enc = qw3_metal_compute_encoder(cb);
     const int fuse_down_reduce =
@@ -5534,6 +5555,15 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
             threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     }
     qw3_metal_end_compute_encoder(cb, enc);
+    if (profile_moe_sync) {
+        if (!qw3_metal_synchronize()) return 0;
+        fprintf(stderr, "qw3 metal moe profile down_type=%u down_ms=%.3f\n",
+                down_type, ([NSDate timeIntervalSinceReferenceDate] - t_moe_sync) * 1000.0);
+        if (!qw3_metal_begin_commands()) return 0;
+        cb = qw3_metal_command_buffer(&owned);
+        if (!cb) return 0;
+        t_moe_sync = [NSDate timeIntervalSinceReferenceDate];
+    }
 
     if (!fuse_down_reduce) {
         enc = qw3_metal_compute_encoder(cb);
@@ -5546,6 +5576,14 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
         [enc dispatchThreads:MTLSizeMake(n_embd, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
+        if (profile_moe_sync) {
+            if (!qw3_metal_synchronize()) return 0;
+            fprintf(stderr, "qw3 metal moe profile down_type=%u reduce_ms=%.3f\n",
+                    down_type, ([NSDate timeIntervalSinceReferenceDate] - t_moe_sync) * 1000.0);
+            if (!qw3_metal_begin_commands()) return 0;
+            cb = qw3_metal_command_buffer(&owned);
+            if (!cb) return 0;
+        }
     }
 
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
