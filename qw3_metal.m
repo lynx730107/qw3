@@ -24,15 +24,6 @@ static id<MTLCommandBuffer> g_batch_cb;
 static id<MTLComputeCommandEncoder> g_batch_enc;
 static NSMutableArray<id<MTLCommandBuffer>> *g_pending_cbs;
 
-static NSUInteger qw3_metal_moe_mv_threads(void) {
-    const char *env = getenv("QW3_METAL_MOE_MV_THREADS");
-    if (env && env[0]) {
-        long v = strtol(env, NULL, 10);
-        if (v >= 32 && v <= 256 && (v % 32) == 0) return (NSUInteger)v;
-    }
-    return 256;
-}
-
 static NSMutableArray<id<MTLBuffer>> *g_model_buffers;
 static NSMutableDictionary<NSString *, id<MTLBuffer>> *g_model_temp_buffers;
 static id<MTLBuffer> g_iq3s_kgrid_buffer;
@@ -2209,6 +2200,97 @@ static NSString *qw3_metal_kernel_source(void) {
             "    sum = simd_sum(sum); if (lane == 0) sh[simd_idx] = sum; threadgroup_barrier(mem_flags::mem_threadgroup); uint nsg = (uint(nt) + 31u) / 32u; sum = lane < nsg ? sh[lane] : 0.0f; sum = simd_sum(sum);\n"
             "    if (tid == 0) out[args.down_base + slot * args.n_embd + row] = sum * router_weights[slot];\n"
             "}\n"
+            "kernel void qw3_moe_down_q6_k_batch_fast(constant qw3_moe_batch_args &args,\n"
+            "                                        device const uchar *weights,\n"
+            "                                        device const float *scratch,\n"
+            "                                        device float *out,\n"
+            "                                        constant int *ids,\n"
+            "                                        constant float *router_weights,\n"
+            "                                        threadgroup float *sh,\n"
+            "                                        uint group [[threadgroup_position_in_grid]],\n"
+            "                                        ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                        ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    (void)sh;\n"
+            "    const uint nr0 = 2u;\n"
+            "    const uint nsg = 2u;\n"
+            "    uint groups_per_slot = (args.n_embd + 3u) / 4u;\n"
+            "    uint slot = group / groups_per_slot;\n"
+            "    uint row_group = group - slot * groups_per_slot;\n"
+            "    if (slot >= args.n_active) return;\n"
+            "    uint first_row = (row_group * nsg + uint(simd_idx)) * nr0;\n"
+            "    uint expert = uint(ids[slot]);\n"
+            "    uint64_t expert_off = uint64_t(expert) * uint64_t(args.down_expert_bytes);\n"
+            "    device const float *x = scratch + args.hidden_base + slot * args.n_ff;\n"
+            "    uint tid = uint(lane) >> 1u;\n"
+            "    uint ix = uint(lane) & 1u;\n"
+            "    uint ip = tid >> 3u;\n"
+            "    uint il = tid & 7u;\n"
+            "    uint l0 = 4u * il;\n"
+            "    uint is = 8u * ip + l0 / 16u;\n"
+            "    uint y_offset = 128u * ip + l0;\n"
+            "    uint q_offset_l = 64u * ip + l0;\n"
+            "    uint q_offset_h = 32u * ip + l0;\n"
+            "    float sum0 = 0.0f;\n"
+            "    float sum1 = 0.0f;\n"
+            "    uint n_blocks = args.n_ff / 256u;\n"
+            "    for (uint b = ix; b < n_blocks; b += 2u) {\n"
+            "        device const float *yy = x + uint64_t(b) * 256ull + y_offset;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_embd) {\n"
+            "            device const uchar *blk = weights + expert_off + uint64_t(row) * uint64_t(args.down_row_bytes) + uint64_t(b) * 210ull;\n"
+            "            device const uchar *q1 = blk + q_offset_l;\n"
+            "            device const uchar *q2 = q1 + 32u;\n"
+            "            device const uchar *qh = blk + 128u + q_offset_h;\n"
+            "            device const char *sc = (device const char *)(blk + 192u + is);\n"
+            "            ushort dbits = ushort(blk[208u]) | (ushort(blk[209u]) << 8u);\n"
+            "            float d = qw3_f16_to_f32(dbits);\n"
+            "            float acc = 0.0f;\n"
+            "            for (uint l = 0; l < 4u; l++) {\n"
+            "                int qv1 = int((uint(q1[l]) & 15u) | (((uint(qh[l]) >> 0u) & 3u) << 4u)) - 32;\n"
+            "                int qv2 = int((uint(q2[l]) & 15u) | (((uint(qh[l]) >> 2u) & 3u) << 4u)) - 32;\n"
+            "                int qv3 = int((uint(q1[l]) >> 4u) | (((uint(qh[l]) >> 4u) & 3u) << 4u)) - 32;\n"
+            "                int qv4 = int((uint(q2[l]) >> 4u) | (((uint(qh[l]) >> 6u) & 3u) << 4u)) - 32;\n"
+            "                acc += float(sc[0]) * float(qv1) * yy[l + 0u];\n"
+            "                acc += float(sc[2]) * float(qv2) * yy[l + 32u];\n"
+            "                acc += float(sc[4]) * float(qv3) * yy[l + 64u];\n"
+            "                acc += float(sc[6]) * float(qv4) * yy[l + 96u];\n"
+            "            }\n"
+            "            sum0 += d * acc;\n"
+            "        }\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_embd) {\n"
+            "            device const uchar *blk = weights + expert_off + uint64_t(row) * uint64_t(args.down_row_bytes) + uint64_t(b) * 210ull;\n"
+            "            device const uchar *q1 = blk + q_offset_l;\n"
+            "            device const uchar *q2 = q1 + 32u;\n"
+            "            device const uchar *qh = blk + 128u + q_offset_h;\n"
+            "            device const char *sc = (device const char *)(blk + 192u + is);\n"
+            "            ushort dbits = ushort(blk[208u]) | (ushort(blk[209u]) << 8u);\n"
+            "            float d = qw3_f16_to_f32(dbits);\n"
+            "            float acc = 0.0f;\n"
+            "            for (uint l = 0; l < 4u; l++) {\n"
+            "                int qv1 = int((uint(q1[l]) & 15u) | (((uint(qh[l]) >> 0u) & 3u) << 4u)) - 32;\n"
+            "                int qv2 = int((uint(q2[l]) & 15u) | (((uint(qh[l]) >> 2u) & 3u) << 4u)) - 32;\n"
+            "                int qv3 = int((uint(q1[l]) >> 4u) | (((uint(qh[l]) >> 4u) & 3u) << 4u)) - 32;\n"
+            "                int qv4 = int((uint(q2[l]) >> 4u) | (((uint(qh[l]) >> 6u) & 3u) << 4u)) - 32;\n"
+            "                acc += float(sc[0]) * float(qv1) * yy[l + 0u];\n"
+            "                acc += float(sc[2]) * float(qv2) * yy[l + 32u];\n"
+            "                acc += float(sc[4]) * float(qv3) * yy[l + 64u];\n"
+            "                acc += float(sc[6]) * float(qv4) * yy[l + 96u];\n"
+            "            }\n"
+            "            sum1 += d * acc;\n"
+            "        }\n"
+            "    }\n"
+            "    sum0 = simd_sum(sum0);\n"
+            "    sum1 = simd_sum(sum1);\n"
+            "    float scale = router_weights[slot];\n"
+            "    if (lane == 0) {\n"
+            "        uint base = args.down_base + slot * args.n_embd;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_embd) out[base + row] = sum0 * scale;\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_embd) out[base + row] = sum1 * scale;\n"
+            "    }\n"
+            "}\n"
             "kernel void qw3_moe_reduce_batch(constant qw3_moe_batch_args &args,\n"
             "                                  device const float *scratch,\n"
             "                                  device float *x0,\n"
@@ -2773,15 +2855,15 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
-    fn = [g_library newFunctionWithName:@"qw3_moe_down_q6_k_batch"];
+    fn = [g_library newFunctionWithName:@"qw3_moe_down_q6_k_batch_fast"];
     if (!fn) {
-        fprintf(stderr, "qw3: Metal function qw3_moe_down_q6_k_batch not found\n");
+        fprintf(stderr, "qw3: Metal function qw3_moe_down_q6_k_batch_fast not found\n");
         return 0;
     }
     g_moe_down_q6_k_batch_pipeline = [g_device newComputePipelineStateWithFunction:fn
                                                                              error:&error];
     if (!g_moe_down_q6_k_batch_pipeline) {
-        fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_q6_k_batch failed: %s\n",
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_q6_k_batch_fast failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -5295,8 +5377,8 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
         [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 3u) / 4u) * n_active, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     } else {
-        threads = qw3_metal_moe_mv_threads();
-        [enc dispatchThreadgroups:MTLSizeMake(n_embd * n_active, 1, 1)
+        threads = 64;
+        [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 3u) / 4u) * n_active, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     }
     qw3_metal_end_compute_encoder(cb, enc);

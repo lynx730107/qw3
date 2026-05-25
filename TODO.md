@@ -74,6 +74,8 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Nel path greedy/argmax senza readback completo logits, `output_norm` e `lm_head` vengono encodati nel batch finale prima della sync unica. Misura breve `QW3_METAL_PROFILE=1 --metal-run 8 --metal-run-quiet`: circa `24.9 tok/s`; misura lunga `--metal-run 64 --metal-run-quiet`: circa `21.9 tok/s`.
    - Proiezione/cache GQA ottimizzata: Q RMSNorm per 16 head + copia gate e K RMSNorm per KV head sono fusi in 2 dispatch larghi invece di molti dispatch/blit per-head. `--metal-session-gqa-project-test 66` e smoke passano. Misura `--metal-run 32 --metal-run-quiet`: circa `23.9 tok/s`; `--metal-run 64 --metal-run-quiet`: circa `22.1 tok/s`.
    - Cached attention GQA riscritta seguendo la direzione flash/vec di ds4/llama.cpp: il dot Q*K viene ridotto nel threadgroup e accumulato con softmax online, invece di essere ricalcolato per ogni dimensione dell'head. La versione corrente lavora per KV-head e calcola insieme gli 8 Q-head del gruppo GQA, riusando K/V. `--metal-session-gqa-cached2-test 66`, `--metal-gqa-attend4-test 66`, `--metal-gqa-branch4-test 66` e smoke passano. Misura `--metal-run 32 --metal-run-quiet`: circa `26.9-27.0 tok/s`; `--metal-run 64 --metal-run-quiet`: circa `26.8 tok/s`.
+   - Il down sparse MoE `q6_K`, usato nei layer finali lenti (`34`, `38`, `39`), usa ora un kernel batch multi-riga: 2 simdgroup elaborano 4 righe per threadgroup invece del dispatch generico per-riga. `--metal-session-decode-test -p ciao` passa (`maxdiff=2.217293e-05`, top0 `8160`) e `make test-metal-smoke` passa. Due misure consecutive `--metal-run 64 --metal-run-quiet -p ciao --ctx 128` danno `27.86` e `27.85 tok/s`, rispetto a circa `26.8 tok/s` prima del cambio.
+   - Sul Mac Apple M5 locale con SDK macOS 26.4 sono presenti le API Metal 4 (`MTL4CommandQueue`, command allocator e `MTLTensor`, inclusi `Int4/UInt4`). E' una direzione successiva per ridurre overhead di submission o valutare tensor operations; i formati GGUF hot `IQ3_S`/`IQ4_XS`/`Q6_K` continuano comunque a richiedere kernel quantizzati dedicati.
    - Aggiunto profiler opt-in `QW3_METAL_PROFILE_LAYER_SYNC=1` per stimare i costi layer-by-layer forzando sync a ogni layer; e' diagnostico e rallenta volutamente il runner.
    - Aggiunto esperimento opt-in `QW3_METAL_UNRETAINED_COMMAND_BUFFERS=1`, ma non va usato di default: su Apple M5 produce `Invalid Resource` nel batch runtime.
    - Aggiunto esperimento opt-in `QW3_METAL_FUSED_DOWN_REDUCE=1` per fondere down sparse IQ4_XS e reduce su `x0`; resta non-default perche' nelle misure locali non migliora il path stabile.
@@ -84,6 +86,6 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 
 ## Prossimi step consigliati
 
-1. Profilare il blocco pre-logits del dynamic-router batch: target successivo sotto i 35 ms/token.
-2. Ottimizzare il blocco layer/MoE/GQA aggregato: dopo il batch finale il tempo viene misurato nel wait logits, ma il collo reale resta il lavoro dei 40 layer prima dell'argmax.
+1. Profilare nuovamente i layer dopo il kernel `q6_K` batch: isolare il prossimo formato/dispatch dominante nel blocco pre-logits e puntare sotto i 35 ms/token.
+2. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
 3. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.
