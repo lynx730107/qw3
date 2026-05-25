@@ -10793,19 +10793,15 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
             batch_open = ok;
         }
         if (ok) {
-            const uint32_t sh_gate_off = 0;
-            const uint32_t sh_up_off = QW3_N_FF_SHARED;
             const uint32_t sh_scalar_off = QW3_N_FF_SHARED * 2;
             ok =
-                qw3_metal_session_matvec_q8_0_pair_x1_to_scratch(
+                qw3_metal_session_matvec_q8_0_pair_silu_x1_to_inner(
                     s->metal, lw->ffn_gate_shared->offset,
                     lw->ffn_up_shared->offset, QW3_N_EMBD,
-                    QW3_N_FF_SHARED, sh_gate_off, sh_up_off) &&
+                    QW3_N_FF_SHARED) &&
                 qw3_metal_session_matvec_f32_x1_to_scratch(
                     s->metal, lw->ffn_gate_inp_shexp->offset,
                     QW3_N_EMBD, 1, sh_scalar_off, NULL) &&
-                qw3_metal_session_silu_mul_scratch_to_inner(
-                    s->metal, sh_gate_off, sh_up_off, QW3_N_FF_SHARED) &&
                 qw3_metal_session_matvec_q8_0_inner_scale_add_x0(
                     s->metal, lw->ffn_down_shared->offset,
                     QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);

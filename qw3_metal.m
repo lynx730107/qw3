@@ -33,6 +33,7 @@ static id<MTLComputePipelineState> g_rmsnorm_weight_f32_pipeline;
 static id<MTLComputePipelineState> g_embed_q8_0_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_pair_pipeline;
+static id<MTLComputePipelineState> g_matvec_q8_0_pair_silu_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_inner_scale_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_pipeline;
@@ -418,6 +419,49 @@ static NSString *qw3_metal_kernel_source(void) {
             "        out[args.out_b_offset + row] = sumb;\n"
             "    }\n"
             "}\n"
+            "kernel void qw3_matvec_q8_0_pair_silu_fast(constant qw3_matvec_q8_0_pair_args &args,\n"
+            "                                             device const uchar *weights_a,\n"
+            "                                             device const uchar *weights_b,\n"
+            "                                             device const float *x,\n"
+            "                                             device float *inner,\n"
+            "                                             threadgroup float *sh,\n"
+            "                                             uint group [[threadgroup_position_in_grid]],\n"
+            "                                             ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                             ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    (void)sh;\n"
+            "    const uint nr0 = 2u;\n"
+            "    const uint nsg = 4u;\n"
+            "    uint first_row = (group * nsg + uint(simd_idx)) * nr0;\n"
+            "    float ga0 = 0.0f, up0 = 0.0f, ga1 = 0.0f, up1 = 0.0f;\n"
+            "    uint n_blocks = args.n_in / 32u;\n"
+            "    for (uint b = uint(lane); b < n_blocks; b += 32u) {\n"
+            "        device const float *xx = x + uint64_t(b) * 32ull;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_out) {\n"
+            "            device const uchar *ba = weights_a + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 34ull;\n"
+            "            device const uchar *bb = weights_b + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 34ull;\n"
+            "            float da = float(*((device const half *)ba));\n"
+            "            float db = float(*((device const half *)bb));\n"
+            "            for (uint i = 0; i < 32u; i++) { float xv = xx[i]; ga0 += da * float(*((device const char *)(ba + 2u + i))) * xv; up0 += db * float(*((device const char *)(bb + 2u + i))) * xv; }\n"
+            "        }\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_out) {\n"
+            "            device const uchar *ba = weights_a + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 34ull;\n"
+            "            device const uchar *bb = weights_b + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 34ull;\n"
+            "            float da = float(*((device const half *)ba));\n"
+            "            float db = float(*((device const half *)bb));\n"
+            "            for (uint i = 0; i < 32u; i++) { float xv = xx[i]; ga1 += da * float(*((device const char *)(ba + 2u + i))) * xv; up1 += db * float(*((device const char *)(bb + 2u + i))) * xv; }\n"
+            "        }\n"
+            "    }\n"
+            "    ga0 = simd_sum(ga0); up0 = simd_sum(up0);\n"
+            "    ga1 = simd_sum(ga1); up1 = simd_sum(up1);\n"
+            "    if (lane == 0) {\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_out) inner[row] = (ga0 / (1.0f + exp(-ga0))) * up0;\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_out) inner[row] = (ga1 / (1.0f + exp(-ga1))) * up1;\n"
+            "    }\n"
+            "}\n"
             "struct qw3_matvec_q8_0_scale_args { uint n_in; uint n_out; uint row_bytes; uint scalar_offset; };\n"
             "kernel void qw3_matvec_q8_0_inner_scale_add_x0(constant qw3_matvec_q8_0_scale_args &args,\n"
             "                                               device const uchar *weights,\n"
@@ -451,6 +495,48 @@ static NSString *qw3_metal_kernel_source(void) {
             "        float raw = scratch[args.scalar_offset];\n"
             "        float scale = 1.0f / (1.0f + exp(-raw));\n"
             "        x0[row] = x0[row] + sum * scale;\n"
+            "    }\n"
+            "}\n"
+            "kernel void qw3_matvec_q8_0_inner_scale_add_x0_fast(constant qw3_matvec_q8_0_scale_args &args,\n"
+            "                                                    device const uchar *weights,\n"
+            "                                                    device const float *x,\n"
+            "                                                    device const float *scratch,\n"
+            "                                                    device float *x0,\n"
+            "                                                    threadgroup float *sh,\n"
+            "                                                    uint group [[threadgroup_position_in_grid]],\n"
+            "                                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                    ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    (void)sh;\n"
+            "    const uint nr0 = 2u;\n"
+            "    const uint nsg = 4u;\n"
+            "    uint first_row = (group * nsg + uint(simd_idx)) * nr0;\n"
+            "    float sum0 = 0.0f;\n"
+            "    float sum1 = 0.0f;\n"
+            "    uint n_blocks = args.n_in / 32u;\n"
+            "    for (uint b = uint(lane); b < n_blocks; b += 32u) {\n"
+            "        device const float *xx = x + uint64_t(b) * 32ull;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_out) {\n"
+            "            device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 34ull;\n"
+            "            float d = float(*((device const half *)blk));\n"
+            "            for (uint i = 0; i < 32u; i++) sum0 += d * float(*((device const char *)(blk + 2u + i))) * xx[i];\n"
+            "        }\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_out) {\n"
+            "            device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 34ull;\n"
+            "            float d = float(*((device const half *)blk));\n"
+            "            for (uint i = 0; i < 32u; i++) sum1 += d * float(*((device const char *)(blk + 2u + i))) * xx[i];\n"
+            "        }\n"
+            "    }\n"
+            "    sum0 = simd_sum(sum0);\n"
+            "    sum1 = simd_sum(sum1);\n"
+            "    if (lane == 0) {\n"
+            "        float raw = scratch[args.scalar_offset];\n"
+            "        float scale = 1.0f / (1.0f + exp(-raw));\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_out) x0[row] = x0[row] + sum0 * scale;\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_out) x0[row] = x0[row] + sum1 * scale;\n"
             "    }\n"
             "}\n"
             "kernel void qw3_matvec_q8_0_fast(constant qw3_matvec_q8_0_args &args,\n"
@@ -2593,6 +2679,7 @@ static int qw3_metal_compile_kernels(void) {
     if (g_library && g_rmsnorm_plain_pipeline &&
         g_rmsnorm_weight_f32_pipeline && g_embed_q8_0_pipeline &&
         g_matvec_q8_0_pipeline && g_matvec_q8_0_pair_pipeline &&
+        g_matvec_q8_0_pair_silu_pipeline &&
         g_matvec_q8_0_inner_scale_add_x0_pipeline &&
         g_matvec_iq4_xs_pipeline &&
         g_matvec_q6_k_pipeline && g_matvec_iq4_xs_add_x0_pipeline &&
@@ -2699,15 +2786,27 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
-    fn = [g_library newFunctionWithName:@"qw3_matvec_q8_0_inner_scale_add_x0"];
+    fn = [g_library newFunctionWithName:@"qw3_matvec_q8_0_pair_silu_fast"];
     if (!fn) {
-        fprintf(stderr, "qw3: Metal function qw3_matvec_q8_0_inner_scale_add_x0 not found\n");
+        fprintf(stderr, "qw3: Metal function qw3_matvec_q8_0_pair_silu_fast not found\n");
+        return 0;
+    }
+    g_matvec_q8_0_pair_silu_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                                error:&error];
+    if (!g_matvec_q8_0_pair_silu_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_matvec_q8_0_pair_silu_fast failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_matvec_q8_0_inner_scale_add_x0_fast"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_matvec_q8_0_inner_scale_add_x0_fast not found\n");
         return 0;
     }
     g_matvec_q8_0_inner_scale_add_x0_pipeline = [g_device newComputePipelineStateWithFunction:fn
                                                                                         error:&error];
     if (!g_matvec_q8_0_inner_scale_add_x0_pipeline) {
-        fprintf(stderr, "qw3: Metal pipeline qw3_matvec_q8_0_inner_scale_add_x0 failed: %s\n",
+        fprintf(stderr, "qw3: Metal pipeline qw3_matvec_q8_0_inner_scale_add_x0_fast failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -4096,6 +4195,62 @@ int qw3_metal_session_matvec_q8_0_pair_x1_to_scratch(
     return 1;
 }
 
+int qw3_metal_session_matvec_q8_0_pair_silu_x1_to_inner(
+    qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
+    uint32_t n_in, uint32_t n_out) {
+    if (!s || !s->obj || n_in == 0 || n_out == 0 || (n_in % 32) != 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_in * sizeof(float);
+    const uint64_t out_bytes = (uint64_t)n_out * sizeof(float);
+    if (!obj.x1 || !obj.inner ||
+        obj.x1.length < x_bytes || obj.inner.length < out_bytes) {
+        return 0;
+    }
+
+    const uint64_t row_bytes = (uint64_t)(n_in / 32) * 34ull;
+    const uint64_t tensor_bytes = row_bytes * (uint64_t)n_out;
+    uint64_t inner_a = 0, inner_b = 0;
+    id<MTLBuffer> wa = qw3_metal_model_view_for(tensor_a_offset, tensor_bytes, &inner_a);
+    id<MTLBuffer> wb = qw3_metal_model_view_for(tensor_b_offset, tensor_bytes, &inner_b);
+    if (!wa || !wb) {
+        fprintf(stderr, "qw3: Metal session q8_0 pair silu tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_out;
+        uint32_t row_bytes;
+        uint32_t out_a_offset;
+        uint32_t out_b_offset;
+    } args = { n_in, n_out, (uint32_t)row_bytes, 0, 0 };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_matvec_q8_0_pair_silu_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wa offset:(NSUInteger)inner_a atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)inner_b atIndex:2];
+    [enc setBuffer:obj.x1 offset:0 atIndex:3];
+    [enc setBuffer:obj.inner offset:0 atIndex:4];
+    [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 7u) / 8u, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal session q8_0 pair silu command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
 int qw3_metal_session_conv1d_zero_from_scratch(qw3_metal_session *s,
                                                uint64_t weight_offset,
                                                uint32_t n_channels,
@@ -4994,11 +5149,8 @@ int qw3_metal_session_matvec_q8_0_inner_scale_add_x0(qw3_metal_session *s,
     [enc setBuffer:obj.scratch offset:0 atIndex:3];
     [enc setBuffer:obj.x0 offset:0 atIndex:4];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    NSUInteger threads = g_matvec_q8_0_inner_scale_add_x0_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threads > 256) threads = 256;
-    if (threads < 32) threads = 32;
-    [enc dispatchThreadgroups:MTLSizeMake(n_out, 1, 1)
-        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 7u) / 8u, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
@@ -6543,6 +6695,7 @@ void qw3_metal_cleanup(void) {
     g_embed_q8_0_pipeline = nil;
     g_matvec_q8_0_pipeline = nil;
     g_matvec_q8_0_pair_pipeline = nil;
+    g_matvec_q8_0_pair_silu_pipeline = nil;
     g_matvec_q8_0_inner_scale_add_x0_pipeline = nil;
     g_matvec_iq4_xs_pipeline = nil;
     g_matvec_q6_k_pipeline = nil;
