@@ -10644,6 +10644,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     const int profile_layers = getenv("QW3_METAL_PROFILE_LAYERS") != NULL;
     const int profile_layer_sync = getenv("QW3_METAL_PROFILE_LAYER_SYNC") != NULL;
     const int profile_stage_sync = getenv("QW3_METAL_PROFILE_STAGE_SYNC") != NULL;
+    const int profile_attn_sync = getenv("QW3_METAL_PROFILE_ATTN_SYNC") != NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
     double t_router_sync = 0.0;
     double t_router_matvec = 0.0;
@@ -10663,6 +10664,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     for (int il = 0; ok && il < QW3_N_LAYER; il++) {
         const double t_layer_sync0 = profile_layer_sync ? qw3_now_sec() : 0.0;
         double t_stage_sync0 = profile_stage_sync ? qw3_now_sec() : 0.0;
+        double t_attn_sync0 = profile_attn_sync ? qw3_now_sec() : 0.0;
         const qw3_layer_weights *lw = &e->weights.layer[il];
         if (qw3_layer_is_full_attention((uint32_t)il)) {
             ok =
@@ -10677,6 +10679,19 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                     QW3_N_HEAD_DIM, QW3_ROPE_DIM, (uint32_t)full_slot,
                     (uint32_t)s->kv.pos, QW3_ROPE_THETA, QW3_RMS_EPS,
                     NULL, NULL, NULL, NULL);
+            if (ok && profile_attn_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal attn profile token=%d pos=%llu layer=%d kind=gqa project_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        (qw3_now_sec() - t_attn_sync0) * 1000.0);
+                t_attn_sync0 = qw3_now_sec();
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
+            }
             if (ok && s->kv.pos == 0) {
                 ok = qw3_metal_session_gqa_single_attn_out(
                     s->metal, lw->attn_o_proj->offset,
@@ -10688,6 +10703,19 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                     (uint32_t)(s->kv.pos + 1), (uint32_t)full_slot,
                     QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
                     QW3_N_EMBD, NULL);
+            }
+            if (ok && profile_attn_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal attn profile token=%d pos=%llu layer=%d kind=gqa attend_out_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        (qw3_now_sec() - t_attn_sync0) * 1000.0);
+                t_attn_sync0 = qw3_now_sec();
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
             }
             full_slot++;
         } else {
@@ -10708,13 +10736,40 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                 qw3_metal_session_matvec_f32_x1_to_scratch(
                     s->metal, lw->linear_ssm_beta->offset,
                     QW3_N_EMBD, QW3_N_LINEAR_V_HEADS,
-                    beta_offset, NULL) &&
+                    beta_offset, NULL);
+            if (ok && profile_attn_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal attn profile token=%d pos=%llu layer=%d kind=linear project_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        (qw3_now_sec() - t_attn_sync0) * 1000.0);
+                t_attn_sync0 = qw3_now_sec();
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
+            }
+            ok = ok &&
                 qw3_metal_session_conv1d_step_from_scratch(
                     s->metal, lw->linear_conv_weight->offset,
                     (uint32_t)linear_slot, n_qkv, NULL, NULL) &&
                 qw3_metal_session_l2norm_qk_from_conv(
                     s->metal, QW3_N_LINEAR_QK_HEADS,
                     QW3_N_LINEAR_HEAD_DIM, QW3_RMS_EPS, NULL, NULL);
+            if (ok && profile_attn_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal attn profile token=%d pos=%llu layer=%d kind=linear conv_norm_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        (qw3_now_sec() - t_attn_sync0) * 1000.0);
+                t_attn_sync0 = qw3_now_sec();
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
+            }
             if (ok) {
                 ok =
                     qw3_metal_session_deltanet_recur_from_scratch_gates(
@@ -10731,6 +10786,19 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                         s->metal, lw->linear_ssm_out->offset,
                         inner_n, QW3_N_EMBD, NULL);
             }
+            if (ok && profile_attn_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal attn profile token=%d pos=%llu layer=%d kind=linear recur_out_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        (qw3_now_sec() - t_attn_sync0) * 1000.0);
+                t_attn_sync0 = qw3_now_sec();
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
+            }
             linear_slot++;
         }
         if (ok) {
@@ -10739,6 +10807,19 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
             ok = qw3_metal_session_residual_rmsnorm_update_x0_x1(
                 s->metal, lw->ffn_norm->offset, QW3_N_EMBD,
                 QW3_RMS_EPS, NULL);
+            if (ok && profile_attn_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal attn profile token=%d pos=%llu layer=%d kind=%s residual_norm_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
+                        (qw3_now_sec() - t_attn_sync0) * 1000.0);
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
+            }
             if (ok && profile_stage_sync) {
                 ok = qw3_metal_synchronize();
                 batch_open = 0;
