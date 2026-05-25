@@ -36,8 +36,10 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Rimane da portare temperature/top-k/top-p/min-p interamente GPU-side.
 
 3. KV cache q8_0
-   - Aggiungere formato q8_0 per K/V GQA.
-   - Mantenere DeltaNet recurrent/conv in F32, coerente con llama.cpp.
+   - Aggiunto percorso Metal opt-in `QW3_METAL_KV_Q8_0=1` per K/V GQA: quantizzazione q8_0 alla scrittura cache e dequantizzazione direttamente nel kernel cached attention grouped.
+   - A `--ctx 32768`, la cache GQA K+V della sessione passa da 1280 MiB F32 a 340 MiB q8_0; DeltaNet recurrent/conv rimane F32, coerente con llama.cpp.
+   - Correttezza funzionale: `--metal-session-gqa-cached2-test` passa in q8; `--metal-session-decode-test -p ciao` mantiene top0 `8160` (`rmsdiff` atteso circa `0.0128` rispetto al reference F32).
+   - Il path resta opt-in finche' non viene validata la qualita' su continuazioni lunghe; nelle misure locali brevi/medie la velocita' e' sostanzialmente neutra (`64`: circa `26.7 tok/s`; `256`: circa `25.8 tok/s`).
    - Esporre opzioni equivalenti concettualmente a `-ctk q8_0 -ctv q8_0`.
 
 4. Ottimizzazione performance
@@ -84,4 +86,4 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 
 1. Profilare il blocco pre-logits del dynamic-router batch: target successivo sotto i 35 ms/token.
 2. Ottimizzare il blocco layer/MoE/GQA aggregato: dopo il batch finale il tempo viene misurato nel wait logits, ma il collo reale resta il lavoro dei 40 layer prima dell'argmax.
-3. Introdurre KV cache q8_0 per GQA, mantenendo DeltaNet state/conv in F32.
+3. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.

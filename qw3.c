@@ -774,6 +774,12 @@ qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
                       mem.scratch_bytes;
 #ifndef QW3_NO_METAL
     if (backend == QW3_BACKEND_METAL) {
+        const char *kv_q8_env = getenv("QW3_METAL_KV_Q8_0");
+        if (kv_q8_env && strcmp(kv_q8_env, "0") != 0) {
+            mem.gqa_kv_bytes = (uint64_t)QW3_N_FULL_ATTN_LAYERS *
+                               QW3_N_HEAD_KV * (QW3_N_HEAD_DIM / 32) *
+                               34ull * (uint64_t)ctx_size * 2ull;
+        }
         const uint64_t conv_bytes = (uint64_t)QW3_N_LINEAR_LAYERS *
                                     tensor_linear_qkv() *
                                     (QW3_N_LINEAR_CONV_K - 1) *
