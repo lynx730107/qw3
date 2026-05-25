@@ -10645,6 +10645,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     const int profile_layer_sync = getenv("QW3_METAL_PROFILE_LAYER_SYNC") != NULL;
     const int profile_stage_sync = getenv("QW3_METAL_PROFILE_STAGE_SYNC") != NULL;
     const int profile_attn_sync = getenv("QW3_METAL_PROFILE_ATTN_SYNC") != NULL;
+    const int profile_proj_sync = getenv("QW3_METAL_PROFILE_PROJ_SYNC") != NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
     double t_router_sync = 0.0;
     double t_router_matvec = 0.0;
@@ -10719,21 +10720,96 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
             }
             full_slot++;
         } else {
-            ok =
-                qw3_metal_session_rmsnorm_weight_f32(
+            if (profile_proj_sync) {
+                double t_proj_sync0 = qw3_now_sec();
+                ok = qw3_metal_session_rmsnorm_weight_f32(
                     s->metal, lw->attn_norm->offset,
-                    QW3_N_EMBD, QW3_RMS_EPS, NULL) &&
-                qw3_metal_session_matvec_q8_0_x1_to_scratch(
-                    s->metal, lw->linear_qkv_proj->offset,
-                    QW3_N_EMBD, n_qkv, 0, NULL) &&
-                qw3_metal_session_matvec_q8_0_x1_to_scratch(
-                    s->metal, lw->linear_gate_proj->offset,
-                    QW3_N_EMBD, inner_n, n_qkv, NULL) &&
-                qw3_metal_session_matvec_f32_pair_x1_to_scratch(
-                    s->metal, lw->linear_ssm_alpha->offset,
-                    lw->linear_ssm_beta->offset, QW3_N_EMBD,
-                    QW3_N_LINEAR_V_HEADS, alpha_offset, beta_offset);
-            if (ok && profile_attn_sync) {
+                    QW3_N_EMBD, QW3_RMS_EPS, NULL);
+                if (ok) {
+                    ok = qw3_metal_synchronize();
+                    batch_open = 0;
+                    fprintf(stderr,
+                            "qw3 metal proj profile token=%d pos=%llu layer=%d kind=linear norm_ms=%.3f\n",
+                            token, (unsigned long long)s->kv.pos, il,
+                            (qw3_now_sec() - t_proj_sync0) * 1000.0);
+                    t_proj_sync0 = qw3_now_sec();
+                    if (ok) {
+                        ok = qw3_metal_begin_commands();
+                        batch_open = ok;
+                    }
+                }
+                if (ok) {
+                    ok = qw3_metal_session_matvec_q8_0_x1_to_scratch(
+                        s->metal, lw->linear_qkv_proj->offset,
+                        QW3_N_EMBD, n_qkv, 0, NULL);
+                }
+                if (ok) {
+                    ok = qw3_metal_synchronize();
+                    batch_open = 0;
+                    fprintf(stderr,
+                            "qw3 metal proj profile token=%d pos=%llu layer=%d kind=linear qkv_ms=%.3f\n",
+                            token, (unsigned long long)s->kv.pos, il,
+                            (qw3_now_sec() - t_proj_sync0) * 1000.0);
+                    t_proj_sync0 = qw3_now_sec();
+                    if (ok) {
+                        ok = qw3_metal_begin_commands();
+                        batch_open = ok;
+                    }
+                }
+                if (ok) {
+                    ok = qw3_metal_session_matvec_q8_0_x1_to_scratch(
+                        s->metal, lw->linear_gate_proj->offset,
+                        QW3_N_EMBD, inner_n, n_qkv, NULL);
+                }
+                if (ok) {
+                    ok = qw3_metal_synchronize();
+                    batch_open = 0;
+                    fprintf(stderr,
+                            "qw3 metal proj profile token=%d pos=%llu layer=%d kind=linear gate_ms=%.3f\n",
+                            token, (unsigned long long)s->kv.pos, il,
+                            (qw3_now_sec() - t_proj_sync0) * 1000.0);
+                    t_proj_sync0 = qw3_now_sec();
+                    if (ok) {
+                        ok = qw3_metal_begin_commands();
+                        batch_open = ok;
+                    }
+                }
+                if (ok) {
+                    ok = qw3_metal_session_matvec_f32_pair_x1_to_scratch(
+                        s->metal, lw->linear_ssm_alpha->offset,
+                        lw->linear_ssm_beta->offset, QW3_N_EMBD,
+                        QW3_N_LINEAR_V_HEADS, alpha_offset, beta_offset);
+                }
+                if (ok) {
+                    ok = qw3_metal_synchronize();
+                    batch_open = 0;
+                    fprintf(stderr,
+                            "qw3 metal proj profile token=%d pos=%llu layer=%d kind=linear gates_f32_pair_ms=%.3f\n",
+                            token, (unsigned long long)s->kv.pos, il,
+                            (qw3_now_sec() - t_proj_sync0) * 1000.0);
+                    if (ok) {
+                        ok = qw3_metal_begin_commands();
+                        batch_open = ok;
+                    }
+                }
+                if (profile_attn_sync) t_attn_sync0 = qw3_now_sec();
+            } else {
+                ok =
+                    qw3_metal_session_rmsnorm_weight_f32(
+                        s->metal, lw->attn_norm->offset,
+                        QW3_N_EMBD, QW3_RMS_EPS, NULL) &&
+                    qw3_metal_session_matvec_q8_0_x1_to_scratch(
+                        s->metal, lw->linear_qkv_proj->offset,
+                        QW3_N_EMBD, n_qkv, 0, NULL) &&
+                    qw3_metal_session_matvec_q8_0_x1_to_scratch(
+                        s->metal, lw->linear_gate_proj->offset,
+                        QW3_N_EMBD, inner_n, n_qkv, NULL) &&
+                    qw3_metal_session_matvec_f32_pair_x1_to_scratch(
+                        s->metal, lw->linear_ssm_alpha->offset,
+                        lw->linear_ssm_beta->offset, QW3_N_EMBD,
+                        QW3_N_LINEAR_V_HEADS, alpha_offset, beta_offset);
+            }
+            if (ok && profile_attn_sync && !profile_proj_sync) {
                 ok = qw3_metal_synchronize();
                 batch_open = 0;
                 fprintf(stderr,
