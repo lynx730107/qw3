@@ -44,7 +44,6 @@ static id<MTLComputePipelineState> g_matvec_q6_k_swiglu_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pair_pipeline;
 static id<MTLComputePipelineState> g_moe_iq3_s_pair_batch_pipeline;
-static id<MTLComputePipelineState> g_moe_silu_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_reduce_pipeline;
 static id<MTLComputePipelineState> g_moe_down_q6_k_batch_pipeline;
@@ -2022,18 +2021,6 @@ static NSString *qw3_metal_kernel_source(void) {
             "        scratch[base + args.n_ff + row] = up_sum;\n"
             "    }\n"
             "}\n"
-            "kernel void qw3_moe_silu_batch(constant qw3_moe_batch_args &args,\n"
-            "                                device const float *scratch,\n"
-            "                                device float *out,\n"
-            "                                uint gid [[thread_position_in_grid]]) {\n"
-            "    uint total = args.n_active * args.n_ff;\n"
-            "    if (gid >= total) return;\n"
-            "    uint slot = gid / args.n_ff;\n"
-            "    uint row = gid - slot * args.n_ff;\n"
-            "    uint base = args.gateup_base + slot * (2u * args.n_ff);\n"
-            "    float g = scratch[base + row];\n"
-            "    out[args.hidden_base + slot * args.n_ff + row] = (g / (1.0f + exp(-g))) * scratch[base + args.n_ff + row];\n"
-            "}\n"
             "kernel void qw3_moe_down_iq4_xs_batch(constant qw3_moe_batch_args &args,\n"
             "                                      device const uchar *weights,\n"
             "                                      device const float *scratch,\n"
@@ -2072,7 +2059,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "    sum = simd_sum(sum); if (lane == 0) sh[simd_idx] = sum; threadgroup_barrier(mem_flags::mem_threadgroup); uint nsg = (uint(nt) + 31u) / 32u; sum = lane < nsg ? sh[lane] : 0.0f; sum = simd_sum(sum);\n"
             "    if (tid == 0) out[args.down_base + slot * args.n_embd + row] = sum * router_weights[slot];\n"
             "}\n"
-            "kernel void qw3_moe_iq3_s_pair_batch_fast(constant qw3_moe_batch_args &args,\n"
+            "kernel void qw3_moe_iq3_s_swiglu_batch_fast(constant qw3_moe_batch_args &args,\n"
             "                                           device const uchar *gate_weights,\n"
             "                                           device const uchar *up_weights,\n"
             "                                           device const float *x,\n"
@@ -2130,15 +2117,15 @@ static NSString *qw3_metal_kernel_source(void) {
             "    gate_sum2 = simd_sum(gate_sum2); up_sum2 = simd_sum(up_sum2);\n"
             "    gate_sum3 = simd_sum(gate_sum3); up_sum3 = simd_sum(up_sum3);\n"
             "    if (lane == 0) {\n"
-            "        uint base = args.gateup_base + slot * (2u * args.n_ff);\n"
+            "        uint base = args.hidden_base + slot * args.n_ff;\n"
             "        uint row = first_row;\n"
-            "        if (row < args.n_ff) { scratch[base + row] = gate_sum0; scratch[base + args.n_ff + row] = up_sum0; }\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum0 / (1.0f + exp(-gate_sum0))) * up_sum0;\n"
             "        row = first_row + 1u;\n"
-            "        if (row < args.n_ff) { scratch[base + row] = gate_sum1; scratch[base + args.n_ff + row] = up_sum1; }\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum1 / (1.0f + exp(-gate_sum1))) * up_sum1;\n"
             "        row = first_row + 2u;\n"
-            "        if (row < args.n_ff) { scratch[base + row] = gate_sum2; scratch[base + args.n_ff + row] = up_sum2; }\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum2 / (1.0f + exp(-gate_sum2))) * up_sum2;\n"
             "        row = first_row + 3u;\n"
-            "        if (row < args.n_ff) { scratch[base + row] = gate_sum3; scratch[base + args.n_ff + row] = up_sum3; }\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum3 / (1.0f + exp(-gate_sum3))) * up_sum3;\n"
             "    }\n"
             "}\n"
             "kernel void qw3_moe_down_iq4_xs_batch_fast(constant qw3_moe_batch_args &args,\n"
@@ -2716,7 +2703,7 @@ static int qw3_metal_compile_kernels(void) {
         g_matvec_iq4_xs_swiglu_add_x0_pipeline &&
         g_matvec_q6_k_swiglu_add_x0_pipeline &&
         g_matvec_iq3_s_pipeline && g_matvec_iq3_s_pair_pipeline &&
-        g_moe_iq3_s_pair_batch_pipeline && g_moe_silu_batch_pipeline &&
+        g_moe_iq3_s_pair_batch_pipeline &&
         g_moe_down_iq4_xs_batch_pipeline &&
         g_moe_down_iq4_xs_batch_reduce_pipeline &&
         g_moe_down_q6_k_batch_pipeline &&
@@ -2936,27 +2923,15 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
-    fn = [g_library newFunctionWithName:@"qw3_moe_iq3_s_pair_batch_fast"];
+    fn = [g_library newFunctionWithName:@"qw3_moe_iq3_s_swiglu_batch_fast"];
     if (!fn) {
-        fprintf(stderr, "qw3: Metal function qw3_moe_iq3_s_pair_batch_fast not found\n");
+        fprintf(stderr, "qw3: Metal function qw3_moe_iq3_s_swiglu_batch_fast not found\n");
         return 0;
     }
     g_moe_iq3_s_pair_batch_pipeline = [g_device newComputePipelineStateWithFunction:fn
                                                                               error:&error];
     if (!g_moe_iq3_s_pair_batch_pipeline) {
-        fprintf(stderr, "qw3: Metal pipeline qw3_moe_iq3_s_pair_batch_fast failed: %s\n",
-                [[error localizedDescription] UTF8String]);
-        return 0;
-    }
-    fn = [g_library newFunctionWithName:@"qw3_moe_silu_batch"];
-    if (!fn) {
-        fprintf(stderr, "qw3: Metal function qw3_moe_silu_batch not found\n");
-        return 0;
-    }
-    g_moe_silu_batch_pipeline = [g_device newComputePipelineStateWithFunction:fn
-                                                                        error:&error];
-    if (!g_moe_silu_batch_pipeline) {
-        fprintf(stderr, "qw3: Metal pipeline qw3_moe_silu_batch failed: %s\n",
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_iq3_s_swiglu_batch_fast failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -5602,27 +5577,7 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     qw3_metal_end_compute_encoder(cb, enc);
     if (profile_moe_sync) {
         if (!qw3_metal_synchronize()) return 0;
-        fprintf(stderr, "qw3 metal moe profile down_type=%u gateup_ms=%.3f\n",
-                down_type, ([NSDate timeIntervalSinceReferenceDate] - t_moe_sync) * 1000.0);
-        if (!qw3_metal_begin_commands()) return 0;
-        cb = qw3_metal_command_buffer(&owned);
-        if (!cb) return 0;
-        t_moe_sync = [NSDate timeIntervalSinceReferenceDate];
-    }
-
-    enc = qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:g_moe_silu_batch_pipeline];
-    [enc setBytes:&args length:sizeof(args) atIndex:0];
-    [enc setBuffer:obj.scratch offset:0 atIndex:1];
-    [enc setBuffer:obj.scratch offset:0 atIndex:2];
-    threads = g_moe_silu_batch_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threads > 256) threads = 256;
-    [enc dispatchThreads:MTLSizeMake(n_active * n_ff, 1, 1)
-    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
-    qw3_metal_end_compute_encoder(cb, enc);
-    if (profile_moe_sync) {
-        if (!qw3_metal_synchronize()) return 0;
-        fprintf(stderr, "qw3 metal moe profile down_type=%u silu_ms=%.3f\n",
+        fprintf(stderr, "qw3 metal moe profile down_type=%u gateup_swiglu_ms=%.3f\n",
                 down_type, ([NSDate timeIntervalSinceReferenceDate] - t_moe_sync) * 1000.0);
         if (!qw3_metal_begin_commands()) return 0;
         cb = qw3_metal_command_buffer(&owned);
@@ -6853,7 +6808,6 @@ void qw3_metal_cleanup(void) {
     g_matvec_iq3_s_pipeline = nil;
     g_matvec_iq3_s_pair_pipeline = nil;
     g_moe_iq3_s_pair_batch_pipeline = nil;
-    g_moe_silu_batch_pipeline = nil;
     g_moe_down_iq4_xs_batch_pipeline = nil;
     g_moe_down_iq4_xs_batch_reduce_pipeline = nil;
     g_moe_down_q6_k_batch_pipeline = nil;
