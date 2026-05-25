@@ -10643,6 +10643,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     const int layer_flush = getenv("QW3_METAL_NO_LAYER_FLUSH") == NULL;
     const int profile_layers = getenv("QW3_METAL_PROFILE_LAYERS") != NULL;
     const int profile_layer_sync = getenv("QW3_METAL_PROFILE_LAYER_SYNC") != NULL;
+    const int profile_stage_sync = getenv("QW3_METAL_PROFILE_STAGE_SYNC") != NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
     double t_router_sync = 0.0;
     double t_router_matvec = 0.0;
@@ -10661,6 +10662,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     int linear_slot = 0;
     for (int il = 0; ok && il < QW3_N_LAYER; il++) {
         const double t_layer_sync0 = profile_layer_sync ? qw3_now_sec() : 0.0;
+        double t_stage_sync0 = profile_stage_sync ? qw3_now_sec() : 0.0;
         const qw3_layer_weights *lw = &e->weights.layer[il];
         if (qw3_layer_is_full_attention((uint32_t)il)) {
             ok =
@@ -10737,6 +10739,20 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
             ok = qw3_metal_session_residual_rmsnorm_update_x0_x1(
                 s->metal, lw->ffn_norm->offset, QW3_N_EMBD,
                 QW3_RMS_EPS, NULL);
+            if (ok && profile_stage_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal stage profile token=%d pos=%llu layer=%d kind=%s attention_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
+                        (qw3_now_sec() - t_stage_sync0) * 1000.0);
+                t_stage_sync0 = qw3_now_sec();
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
+            }
             if (ok && !dynamic_router) ok = qw3_metal_synchronize();
             if (profile) t_router_sync += qw3_now_sec() - t0;
             if (profile_layers) {
@@ -10791,6 +10807,20 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
             }
             if (profile) t_sparse_encode += qw3_now_sec() - t0;
             batch_open = ok;
+            if (ok && profile_stage_sync) {
+                ok = qw3_metal_synchronize();
+                batch_open = 0;
+                fprintf(stderr,
+                        "qw3 metal stage profile token=%d pos=%llu layer=%d kind=%s sparse_ms=%.3f\n",
+                        token, (unsigned long long)s->kv.pos, il,
+                        qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
+                        (qw3_now_sec() - t_stage_sync0) * 1000.0);
+                t_stage_sync0 = qw3_now_sec();
+                if (ok) {
+                    ok = qw3_metal_begin_commands();
+                    batch_open = ok;
+                }
+            }
         }
         if (ok) {
             const uint32_t sh_scalar_off = QW3_N_FF_SHARED * 2;
@@ -10805,18 +10835,27 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                 qw3_metal_session_matvec_q8_0_inner_scale_add_x0(
                     s->metal, lw->ffn_down_shared->offset,
                     QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);
-            if (ok && (layer_flush || profile_layer_sync)) {
+            if (ok && (layer_flush || profile_layer_sync || profile_stage_sync)) {
                 ok = qw3_metal_flush_commands();
                 batch_open = ok;
             }
-            if (ok && profile_layer_sync) {
+            if (ok && (profile_layer_sync || profile_stage_sync)) {
                 ok = qw3_metal_synchronize();
                 batch_open = 0;
-                fprintf(stderr,
-                        "qw3 metal layer sync profile token=%d pos=%llu layer=%d kind=%s total_ms=%.3f\n",
-                        token, (unsigned long long)s->kv.pos, il,
-                        qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
-                        (qw3_now_sec() - t_layer_sync0) * 1000.0);
+                if (profile_stage_sync) {
+                    fprintf(stderr,
+                            "qw3 metal stage profile token=%d pos=%llu layer=%d kind=%s shared_ms=%.3f\n",
+                            token, (unsigned long long)s->kv.pos, il,
+                            qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
+                            (qw3_now_sec() - t_stage_sync0) * 1000.0);
+                }
+                if (profile_layer_sync) {
+                    fprintf(stderr,
+                            "qw3 metal layer sync profile token=%d pos=%llu layer=%d kind=%s total_ms=%.3f\n",
+                            token, (unsigned long long)s->kv.pos, il,
+                            qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
+                            (qw3_now_sec() - t_layer_sync0) * 1000.0);
+                }
                 if (ok && il + 1 < QW3_N_LAYER) {
                     ok = qw3_metal_begin_commands();
                     batch_open = ok;
