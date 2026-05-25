@@ -50,6 +50,7 @@ static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_reduce_pipeline;
 static id<MTLComputePipelineState> g_moe_down_q6_k_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_reduce_batch_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pipeline;
+static id<MTLComputePipelineState> g_matvec_f32_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_fast_pipeline;
 static id<MTLComputePipelineState> g_deltanet_conv1d_zero_pipeline;
 static id<MTLComputePipelineState> g_deltanet_conv1d_step_pipeline;
@@ -1072,6 +1073,34 @@ static NSString *qw3_metal_kernel_source(void) {
             "    sum = lane < 32 ? sh[lane] : 0.0f;\n"
             "    sum = simd_sum(sum);\n"
             "    if (tid == 0) out[row] = sum;\n"
+            "}\n"
+            "struct qw3_matvec_f32_pair_args { uint n_in; uint n_out; uint out_a_offset; uint out_b_offset; };\n"
+            "kernel void qw3_matvec_f32_pair(constant qw3_matvec_f32_pair_args &args,\n"
+            "                                device const float *weights_a,\n"
+            "                                device const float *weights_b,\n"
+            "                                device const float *x,\n"
+            "                                device float *out,\n"
+            "                                threadgroup float *sh,\n"
+            "                                uint row [[threadgroup_position_in_grid]],\n"
+            "                                ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                ushort nt [[threads_per_threadgroup]]) {\n"
+            "    if (row >= args.n_out) return;\n"
+            "    device const float *wa = weights_a + uint64_t(row) * args.n_in;\n"
+            "    device const float *wb = weights_b + uint64_t(row) * args.n_in;\n"
+            "    float suma = 0.0f;\n"
+            "    float sumb = 0.0f;\n"
+            "    for (uint i = tid; i < args.n_in; i += nt) { float xv = x[i]; suma += wa[i] * xv; sumb += wb[i] * xv; }\n"
+            "    suma = simd_sum(suma);\n"
+            "    sumb = simd_sum(sumb);\n"
+            "    if (lane == 0) { sh[simd_idx] = suma; sh[simd_idx + 32] = sumb; }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    suma = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    sumb = lane < 32 ? sh[lane + 32] : 0.0f;\n"
+            "    suma = simd_sum(suma);\n"
+            "    sumb = simd_sum(sumb);\n"
+            "    if (tid == 0) { out[args.out_a_offset + row] = suma; out[args.out_b_offset + row] = sumb; }\n"
             "}\n"
             "kernel void qw3_matvec_f32_fast(constant qw3_matvec_f32_args &args,\n"
             "                               device const float *weights,\n"
@@ -2692,7 +2721,8 @@ static int qw3_metal_compile_kernels(void) {
         g_moe_down_iq4_xs_batch_reduce_pipeline &&
         g_moe_down_q6_k_batch_pipeline &&
         g_moe_reduce_batch_pipeline &&
-        g_matvec_f32_pipeline && g_matvec_f32_fast_pipeline &&
+        g_matvec_f32_pipeline && g_matvec_f32_pair_pipeline &&
+        g_matvec_f32_fast_pipeline &&
         g_deltanet_conv1d_zero_pipeline &&
         g_deltanet_conv1d_step_pipeline &&
         g_l2norm_heads_pipeline &&
@@ -2987,6 +3017,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                     error:&error];
     if (!g_matvec_f32_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_matvec_f32 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_matvec_f32_pair"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_matvec_f32_pair not found\n");
+        return 0;
+    }
+    g_matvec_f32_pair_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                          error:&error];
+    if (!g_matvec_f32_pair_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_matvec_f32_pair failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -4582,6 +4624,73 @@ int qw3_metal_session_matvec_f32_x1_to_scratch(qw3_metal_session *s,
         return 0;
     }
     if (out) memcpy(out, readback.contents, (size_t)out_bytes);
+    return 1;
+}
+
+int qw3_metal_session_matvec_f32_pair_x1_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
+    uint32_t n_in, uint32_t n_out, uint32_t out_a_offset,
+    uint32_t out_b_offset) {
+    if (!s || !s->obj || n_in == 0 || n_out == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_in * sizeof(float);
+    const uint64_t out_bytes = (uint64_t)n_out * sizeof(float);
+    const uint64_t out_a_offset_bytes = (uint64_t)out_a_offset * sizeof(float);
+    const uint64_t out_b_offset_bytes = (uint64_t)out_b_offset * sizeof(float);
+    if (!obj.x1 || !obj.scratch ||
+        obj.x1.length < x_bytes ||
+        obj.scratch.length < out_a_offset_bytes ||
+        obj.scratch.length - out_a_offset_bytes < out_bytes ||
+        obj.scratch.length < out_b_offset_bytes ||
+        obj.scratch.length - out_b_offset_bytes < out_bytes) {
+        return 0;
+    }
+
+    const uint64_t tensor_bytes =
+        (uint64_t)n_in * (uint64_t)n_out * sizeof(float);
+    uint64_t tensor_a_inner = 0, tensor_b_inner = 0;
+    id<MTLBuffer> wa =
+        qw3_metal_model_view_for(tensor_a_offset, tensor_bytes, &tensor_a_inner);
+    id<MTLBuffer> wb =
+        qw3_metal_model_view_for(tensor_b_offset, tensor_bytes, &tensor_b_inner);
+    if (!wa || !wb) {
+        fprintf(stderr, "qw3: Metal session f32 pair tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_out;
+        uint32_t out_a_offset;
+        uint32_t out_b_offset;
+    } args = { n_in, n_out, out_a_offset, out_b_offset };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_matvec_f32_pair_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wa offset:(NSUInteger)tensor_a_inner atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)tensor_b_inner atIndex:2];
+    [enc setBuffer:obj.x1 offset:0 atIndex:3];
+    [enc setBuffer:obj.scratch offset:0 atIndex:4];
+    [enc setThreadgroupMemoryLength:64 * sizeof(float) atIndex:0];
+    NSUInteger threads = g_matvec_f32_pair_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    if (threads < 32) threads = 32;
+    [enc dispatchThreadgroups:MTLSizeMake(n_out, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal session f32 pair command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
     return 1;
 }
 
@@ -6750,6 +6859,7 @@ void qw3_metal_cleanup(void) {
     g_moe_down_q6_k_batch_pipeline = nil;
     g_moe_reduce_batch_pipeline = nil;
     g_matvec_f32_pipeline = nil;
+    g_matvec_f32_pair_pipeline = nil;
     g_matvec_f32_fast_pipeline = nil;
     g_deltanet_conv1d_zero_pipeline = nil;
     g_deltanet_conv1d_step_pipeline = nil;

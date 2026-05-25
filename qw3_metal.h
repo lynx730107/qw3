@@ -84,6 +84,10 @@ int qw3_metal_session_matvec_f32_x1_to_scratch(qw3_metal_session *s,
                                                uint64_t tensor_offset,
                                                uint32_t n_in, uint32_t n_out,
                                                uint32_t out_offset, float *out);
+int qw3_metal_session_matvec_f32_pair_x1_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
+    uint32_t n_in, uint32_t n_out, uint32_t out_a_offset,
+    uint32_t out_b_offset);
 int qw3_metal_session_router_topk_from_scratch(qw3_metal_session *s,
                                                uint32_t router_offset,
                                                uint32_t n_router,

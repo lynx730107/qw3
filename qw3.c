@@ -10729,14 +10729,10 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                 qw3_metal_session_matvec_q8_0_x1_to_scratch(
                     s->metal, lw->linear_gate_proj->offset,
                     QW3_N_EMBD, inner_n, n_qkv, NULL) &&
-                qw3_metal_session_matvec_f32_x1_to_scratch(
+                qw3_metal_session_matvec_f32_pair_x1_to_scratch(
                     s->metal, lw->linear_ssm_alpha->offset,
-                    QW3_N_EMBD, QW3_N_LINEAR_V_HEADS,
-                    alpha_offset, NULL) &&
-                qw3_metal_session_matvec_f32_x1_to_scratch(
-                    s->metal, lw->linear_ssm_beta->offset,
-                    QW3_N_EMBD, QW3_N_LINEAR_V_HEADS,
-                    beta_offset, NULL);
+                    lw->linear_ssm_beta->offset, QW3_N_EMBD,
+                    QW3_N_LINEAR_V_HEADS, alpha_offset, beta_offset);
             if (ok && profile_attn_sync) {
                 ok = qw3_metal_synchronize();
                 batch_open = 0;
