@@ -99,9 +99,12 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - `QW3_METAL_PROFILE=1` separa ora anche il body pre-logits, `output_norm`, `lm_head` e il tempo argmax nel runner. Prima del nuovo router i token stabili misuravano body circa `30.0-31.5 ms`, `lm_head` circa `3.5-4.0 ms` e argmax circa `0.21 ms`: il target principale e' il corpo dei layer, non l'output vocabolario.
    - Il router top-8/softmax default non e' piu' seriale su un singolo thread: un threadgroup da 256 thread riduce gli score degli esperti con ordinamento deterministico e mantiene gli stessi ids/pesi. `--metal-moe-router-test 66`, decode sessione e `make test-metal-smoke` passano; la generazione sale a `29.56` da `28.48 tok/s` nel confronto immediato su 64 token e a `28.52` da `27.73 tok/s` su 256 token. Dopo il cambio il body profilato scende a circa `27.9-29.1 ms`.
    - Baseline comparativo locale: `../../llama.cpp/build/bin/llama-bench` build `9e209c5ae (8765)` sullo stesso Apple M5/Metal 4 misura `tg128 = 36.16 +/- 0.06 tok/s`; `qw3` e' ora a `28.52 tok/s` sul run generation da 256 token.
+   - Confrontata l'orchestrazione release di `ds4`: il decode esegue una tape statica e invia un primo prefisso dopo 4 layer. Portare lo stesso split in `qw3` e' peggiorativo (`27.61` contro `29.44 tok/s` su 64 token), quindi non viene mantenuto: per Qwen l'invio per-layer attuale alimenta meglio la GPU.
+   - Aggiunto `QW3_METAL_GRAPH_TOKEN_PROFILE=1`, profiler non invasivo ispirato al token profile di `ds4`: sul token stabile il path corrente sottomette i 40 flush e il finale in circa `1.1-1.5 ms`, poi attende la GPU per circa `31.8-33.1 ms`. L'overhead CPU della tape non spiega il gap con `llama.cpp`; le prossime modifiche devono ridurre lavoro/traffico dei kernel body.
+   - Provata e rimossa una fusione greedy `lm_head Q6_K + argmax` che evita logits completi: produce la stessa sequenza (`8160 579 264 7047 1817 25 271 16`), ma su 256 token misura `28.29` contro `28.37 tok/s` del controllo. Il secondo livello di riduzione annulla il traffico evitato.
    - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session; il path runtime default non usa piu' top-k/softmax CPU per il ramo sparse MoE.
    - Accesso ai buffer modello Metal stabilizzato per il percorso sessione tramite resolver pointer-based.
-   - Ridurre command buffer separati.
+   - Non ridurre alla cieca i command buffer: valutare nuove segmentazioni solo con `QW3_METAL_GRAPH_TOKEN_PROFILE=1`.
    - Fondere kernel solo dopo aver mantenuto test di correttezza equivalenti.
 
 ## Prossimi step consigliati

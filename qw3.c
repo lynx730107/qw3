@@ -10634,6 +10634,8 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
 
     float *router = qw3_xmalloc((size_t)QW3_N_EXPERT * sizeof(float));
     const int profile = getenv("QW3_METAL_PROFILE") != NULL;
+    const int graph_token_profile =
+        getenv("QW3_METAL_GRAPH_TOKEN_PROFILE") != NULL;
     const int gpu_router_topk = getenv("QW3_METAL_GPU_ROUTER_TOPK") != NULL;
     const char *dynamic_router_env = getenv("QW3_METAL_DYNAMIC_ROUTER");
     const int cpu_router =
@@ -10647,12 +10649,16 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     const int profile_attn_sync = getenv("QW3_METAL_PROFILE_ATTN_SYNC") != NULL;
     const int profile_proj_sync = getenv("QW3_METAL_PROFILE_PROJ_SYNC") != NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
+    const double t_graph_token0 = graph_token_profile ? qw3_now_sec() : 0.0;
     double t_router_sync = 0.0;
     double t_router_matvec = 0.0;
     double t_sparse_encode = 0.0;
     double t_pre_logits_sync = 0.0;
     double t_output_norm_sync = 0.0;
     double t_logits = 0.0;
+    double t_graph_encoded = 0.0;
+    double t_graph_done = 0.0;
+    int graph_flushes = 0;
 
     int batch_open = 0;
     int ok = qw3_metal_begin_commands() &&
@@ -10990,6 +10996,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                     QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);
             if (ok && (layer_flush || profile_layer_sync || profile_stage_sync)) {
                 ok = qw3_metal_flush_commands();
+                if (ok && graph_token_profile) graph_flushes++;
                 batch_open = ok;
             }
             if (ok && (profile_layer_sync || profile_stage_sync)) {
@@ -11054,7 +11061,9 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
         } else {
             ok = 0;
         }
+        if (ok && graph_token_profile) t_graph_encoded = qw3_now_sec();
         if (ok) ok = qw3_metal_synchronize();
+        if (ok && graph_token_profile) t_graph_done = qw3_now_sec();
         if (profile) t_logits += qw3_now_sec() - t0;
         batch_open = 0;
     } else if (ok) {
@@ -11103,6 +11112,15 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                 t_router_matvec * 1000.0, t_sparse_encode * 1000.0,
                 t_pre_logits_sync * 1000.0, t_output_norm_sync * 1000.0,
                 t_logits * 1000.0);
+    }
+    if (graph_token_profile && !read_logits && t_graph_done != 0.0) {
+        fprintf(stderr,
+                "qw3: metal graph token token=%d pos=%d flushes=%d "
+                "submit_ms=%.3f final_wait_ms=%.3f total_ms=%.3f\n",
+                token, s->kv.pos - 1, graph_flushes,
+                (t_graph_encoded - t_graph_token0) * 1000.0,
+                (t_graph_done - t_graph_encoded) * 1000.0,
+                (t_graph_done - t_graph_token0) * 1000.0);
     }
     return ok ? 0 : -1;
 #endif
