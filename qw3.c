@@ -10648,6 +10648,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     const int profile_stage_sync = getenv("QW3_METAL_PROFILE_STAGE_SYNC") != NULL;
     const int profile_attn_sync = getenv("QW3_METAL_PROFILE_ATTN_SYNC") != NULL;
     const int profile_proj_sync = getenv("QW3_METAL_PROFILE_PROJ_SYNC") != NULL;
+    const int fused_gdn = getenv("QW3_METAL_LEGACY_GDN") == NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
     const double t_graph_token0 = graph_token_profile ? qw3_now_sec() : 0.0;
     double t_router_sync = 0.0;
@@ -10849,17 +10850,28 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                 }
             }
             if (ok) {
-                ok =
-                    qw3_metal_session_deltanet_recur_from_scratch_gates(
+                if (fused_gdn) {
+                    ok = qw3_metal_session_deltanet_fused_gdn_from_scratch(
                         s->metal, lw->linear_ssm_dt_bias->offset,
-                        lw->linear_ssm_a->offset, alpha_offset, beta_offset,
+                        lw->linear_ssm_a->offset, lw->linear_ssm_norm->offset,
+                        n_qkv, alpha_offset, beta_offset,
                         (uint32_t)linear_slot,
                         QW3_N_LINEAR_QK_HEADS, QW3_N_LINEAR_V_HEADS,
-                        QW3_N_LINEAR_HEAD_DIM, NULL, NULL) &&
-                    qw3_metal_session_deltanet_gated_rmsnorm_from_buffers(
+                        QW3_N_LINEAR_HEAD_DIM, QW3_RMS_EPS);
+                } else {
+                    ok =
+                        qw3_metal_session_deltanet_recur_from_scratch_gates(
+                            s->metal, lw->linear_ssm_dt_bias->offset,
+                            lw->linear_ssm_a->offset, alpha_offset, beta_offset,
+                            (uint32_t)linear_slot,
+                            QW3_N_LINEAR_QK_HEADS, QW3_N_LINEAR_V_HEADS,
+                            QW3_N_LINEAR_HEAD_DIM, NULL, NULL) &&
+                        qw3_metal_session_deltanet_gated_rmsnorm_from_buffers(
                         s->metal, lw->linear_ssm_norm->offset, n_qkv,
                         QW3_N_LINEAR_V_HEADS, QW3_N_LINEAR_HEAD_DIM,
-                        QW3_RMS_EPS, NULL) &&
+                        QW3_RMS_EPS, NULL);
+                }
+                ok = ok &&
                     qw3_metal_session_matvec_q8_0_inner_to_x1(
                         s->metal, lw->linear_ssm_out->offset,
                         inner_n, QW3_N_EMBD, NULL);
