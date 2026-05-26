@@ -11019,6 +11019,12 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
 
     if (ok && !read_logits) {
         double t0 = profile ? qw3_now_sec() : 0.0;
+        if (profile) {
+            ok = qw3_metal_synchronize();
+            batch_open = 0;
+            t_pre_logits_sync += qw3_now_sec() - t0;
+            t0 = qw3_now_sec();
+        }
         if (!batch_open) {
             ok = qw3_metal_begin_commands();
             batch_open = ok;
@@ -11027,8 +11033,16 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
              qw3_metal_session_rmsnorm_weight_f32(
                  s->metal, e->weights.output_norm->offset,
                  QW3_N_EMBD, QW3_RMS_EPS, NULL);
+        if (profile && ok) {
+            ok = qw3_metal_synchronize();
+            batch_open = 0;
+        }
         if (profile) t_output_norm_sync += qw3_now_sec() - t0;
         t0 = profile ? qw3_now_sec() : 0.0;
+        if (ok && !batch_open) {
+            ok = qw3_metal_begin_commands();
+            batch_open = ok;
+        }
         if (ok && e->weights.output->type == QW3_TENSOR_Q8_0) {
             ok = qw3_metal_session_matvec_q8_0_x1_to_logits(
                 s->metal, e->weights.output->offset,
@@ -11243,6 +11257,9 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
     return -1;
 #else
     const double t0 = qw3_now_sec();
+    const int profile = getenv("QW3_METAL_PROFILE") != NULL;
+    double t_argmax = 0.0;
+    int n_argmax = 0;
     qw3_session *gpu = NULL;
     char err[256] = {0};
     int ok = qw3_session_create(&gpu, e, ctx_size) == 0;
@@ -11263,8 +11280,13 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
         }
         uint32_t gpu_top0 = 0;
         float gpu_top0_val = 0.0f;
+        const double t_argmax0 = profile ? qw3_now_sec() : 0.0;
         ok = qw3_metal_session_argmax_logits(gpu->metal, QW3_N_VOCAB,
                                              &gpu_top0, &gpu_top0_val);
+        if (profile) {
+            t_argmax += qw3_now_sec() - t_argmax0;
+            n_argmax++;
+        }
         if (!ok) break;
         if (!quiet) {
             fprintf(fp, "metal run step %d: gpu_top0=%u gpu_top0_val=%.7g\n",
@@ -11287,6 +11309,12 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
             ok ? "ok" : "failed", prompt->len, generated,
             gpu ? gpu->tokens.len : 0, prefill_ms, gen_ms,
             avg_decode_ms, gen_tps, total_ms);
+    if (profile) {
+        fprintf(stderr,
+                "qw3 metal argmax profile calls=%d total_ms=%.1f avg_ms=%.3f\n",
+                n_argmax, t_argmax * 1000.0,
+                n_argmax ? t_argmax * 1000.0 / (double)n_argmax : 0.0);
+    }
     if (!ok && err[0]) fprintf(fp, "metal run error: %s\n", err);
     if (!quiet && gpu && gpu->tokens.len > prompt->len) {
         fprintf(fp, "metal run generated ids:");

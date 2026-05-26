@@ -1708,23 +1708,36 @@ static NSString *qw3_metal_kernel_source(void) {
             "kernel void qw3_router_top8(device const float *router,\n"
             "                            device int *ids,\n"
             "                            device float *weights,\n"
-            "                            uint tid [[thread_position_in_grid]]) {\n"
-            "    if (tid != 0) return;\n"
-            "    float vals[8];\n"
-            "    int best[8];\n"
-            "    for (uint k = 0; k < 8u; k++) { vals[k] = -INFINITY; best[k] = 0; }\n"
-            "    for (uint i = 0; i < 256u; i++) {\n"
-            "        float v = router[i];\n"
-            "        for (uint k = 0; k < 8u; k++) {\n"
-            "            if (v > vals[k]) {\n"
-            "                for (uint j = 7u; j > k; j--) { vals[j] = vals[j - 1u]; best[j] = best[j - 1u]; }\n"
-            "                vals[k] = v; best[k] = int(i); break;\n"
+            "                            uint tid [[thread_index_in_threadgroup]]) {\n"
+            "    threadgroup float vals[256];\n"
+            "    threadgroup int best[256];\n"
+            "    threadgroup float selected[8];\n"
+            "    threadgroup int selected_ids[8];\n"
+            "    for (uint rank = 0; rank < 8u; rank++) {\n"
+            "        float v = router[tid];\n"
+            "        for (uint k = 0; k < rank; k++) if (selected_ids[k] == int(tid)) v = -INFINITY;\n"
+            "        vals[tid] = v;\n"
+            "        best[tid] = int(tid);\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        for (uint stride = 128u; stride > 0u; stride >>= 1u) {\n"
+            "            if (tid < stride) {\n"
+            "                float rv = vals[tid + stride];\n"
+            "                int ri = best[tid + stride];\n"
+            "                if (rv > vals[tid] || (rv == vals[tid] && ri < best[tid])) {\n"
+            "                    vals[tid] = rv;\n"
+            "                    best[tid] = ri;\n"
+            "                }\n"
             "            }\n"
+            "            threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "        }\n"
+            "        if (tid == 0) { ids[rank] = best[0]; selected_ids[rank] = best[0]; selected[rank] = vals[0]; }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "    }\n"
-            "    float sum = 0.0f;\n"
-            "    for (uint k = 0; k < 8u; k++) { weights[k] = exp(vals[k] - vals[0]); sum += weights[k]; ids[k] = best[k]; }\n"
-            "    for (uint k = 0; k < 8u; k++) weights[k] /= sum;\n"
+            "    if (tid == 0) {\n"
+            "        float sum = 0.0f;\n"
+            "        for (uint k = 0; k < 8u; k++) { weights[k] = exp(selected[k] - selected[0]); sum += weights[k]; }\n"
+            "        for (uint k = 0; k < 8u; k++) weights[k] /= sum;\n"
+            "    }\n"
             "}\n"
             "struct qw3_expert_slot_args { uint n_in; uint n_out; uint row_bytes; uint expert_bytes; uint slot; };\n"
             "inline float qw3_iq3s_dot_row(device const uchar *wr,\n"
@@ -4757,8 +4770,8 @@ int qw3_metal_session_router_topk_from_scratch(qw3_metal_session *s,
     [enc setBuffer:obj.scratch offset:(NSUInteger)router_offset_bytes atIndex:0];
     [enc setBuffer:obj.routerIds offset:0 atIndex:1];
     [enc setBuffer:obj.routerWeights offset:0 atIndex:2];
-    [enc dispatchThreads:MTLSizeMake(1, 1, 1)
-    threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+    [enc dispatchThreads:MTLSizeMake(256, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
     qw3_metal_close_batch_encoder();
@@ -5974,8 +5987,8 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
     [enc setBuffer:obj.scratch offset:0 atIndex:0];
     [enc setBuffer:obj.routerIds offset:0 atIndex:1];
     [enc setBuffer:obj.routerWeights offset:0 atIndex:2];
-    [enc dispatchThreads:MTLSizeMake(1, 1, 1)
-    threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+    [enc dispatchThreads:MTLSizeMake(256, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
     if (g_batch_cb && getenv("QW3_METAL_DYNAMIC_LEGACY_MOE") == NULL &&
