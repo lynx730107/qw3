@@ -46,6 +46,7 @@ static id<MTLComputePipelineState> g_matvec_iq3_s_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pair_pipeline;
 static id<MTLComputePipelineState> g_moe_iq3_s_pair_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_pipeline;
+static id<MTLComputePipelineState> g_moe_down_iq4_xs_pair_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_reduce_pipeline;
 static id<MTLComputePipelineState> g_moe_down_q6_k_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_reduce_batch_pipeline;
@@ -2371,6 +2372,82 @@ static NSString *qw3_metal_kernel_source(void) {
             "        if (row < args.n_embd) out[base + row] = sum1 * scale;\n"
             "    }\n"
             "}\n"
+            "kernel void qw3_moe_down_iq4_xs_pair_fast(constant qw3_moe_batch_args &args,\n"
+            "                                         device const uchar *weights,\n"
+            "                                         device const float *scratch,\n"
+            "                                         device float *out,\n"
+            "                                         constant int *ids,\n"
+            "                                         constant float *router_weights,\n"
+            "                                         threadgroup float *sh,\n"
+            "                                         uint group [[threadgroup_position_in_grid]],\n"
+            "                                         ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                         ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    (void)sh;\n"
+            "    const uint nr0 = 2u;\n"
+            "    const uint nsg = 2u;\n"
+            "    uint groups_per_pair = (args.n_embd + 3u) / 4u;\n"
+            "    uint pair = group / groups_per_pair;\n"
+            "    uint row_group = group - pair * groups_per_pair;\n"
+            "    uint slot0 = pair * 2u;\n"
+            "    uint slot1 = slot0 + 1u;\n"
+            "    if (slot0 >= args.n_active) return;\n"
+            "    uint first_row = (row_group * nsg + uint(simd_idx)) * nr0;\n"
+            "    uint expert0 = uint(ids[slot0]);\n"
+            "    uint expert1 = slot1 < args.n_active ? uint(ids[slot1]) : expert0;\n"
+            "    uint64_t expert_off0 = uint64_t(expert0) * uint64_t(args.down_expert_bytes);\n"
+            "    uint64_t expert_off1 = uint64_t(expert1) * uint64_t(args.down_expert_bytes);\n"
+            "    device const float *x0 = scratch + args.hidden_base + slot0 * args.n_ff;\n"
+            "    device const float *x1 = scratch + args.hidden_base + (slot1 < args.n_active ? slot1 : slot0) * args.n_ff;\n"
+            "    uint ix = uint(lane) >> 4u;\n"
+            "    uint it = uint(lane) & 15u;\n"
+            "    uint ib = it >> 1u;\n"
+            "    uint il = it & 1u;\n"
+            "    float sum00 = 0.0f, sum01 = 0.0f, sum10 = 0.0f, sum11 = 0.0f;\n"
+            "    uint n_blocks = args.n_ff / 256u;\n"
+            "    for (uint b = ix; b < n_blocks; b += 2u) {\n"
+            "        device const float *xg0 = x0 + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;\n"
+            "        device const float *xg1 = x1 + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_embd) {\n"
+            "            device const uchar *ba = weights + expert_off0 + uint64_t(row) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "            device const uchar *bb = weights + expert_off1 + uint64_t(row) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "            half da = *((device const half *)ba); half db = *((device const half *)bb);\n"
+            "            ushort sha = *((device const ushort *)(ba + 2)); ushort shb = *((device const ushort *)(bb + 2));\n"
+            "            device const uchar *sla = ba + 4; device const uchar *slb = bb + 4;\n"
+            "            device const uchar *qsa = sla + 4 + ib * 16u + il * 8u; device const uchar *qsb = slb + 4 + ib * 16u + il * 8u;\n"
+            "            uint lsa = ((uint(sla[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(sha) >> (2u * ib)) & 3u) << 4u);\n"
+            "            uint lsb = ((uint(slb[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(shb) >> (2u * ib)) & 3u) << 4u);\n"
+            "            float aca = 0.0f, acb = 0.0f;\n"
+            "            for (uint j = 0; j < 8u; j++) { uchar va = qsa[j]; uchar vb = qsb[j]; aca += qw3_iq4nl_val(uint(va) & 15u) * xg0[j] + qw3_iq4nl_val(uint(va) >> 4u) * xg0[j + 16u]; acb += qw3_iq4nl_val(uint(vb) & 15u) * xg1[j] + qw3_iq4nl_val(uint(vb) >> 4u) * xg1[j + 16u]; }\n"
+            "            sum00 += float(da) * float(int(lsa) - 32) * aca; sum10 += float(db) * float(int(lsb) - 32) * acb;\n"
+            "        }\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_embd) {\n"
+            "            device const uchar *ba = weights + expert_off0 + uint64_t(row) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "            device const uchar *bb = weights + expert_off1 + uint64_t(row) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "            half da = *((device const half *)ba); half db = *((device const half *)bb);\n"
+            "            ushort sha = *((device const ushort *)(ba + 2)); ushort shb = *((device const ushort *)(bb + 2));\n"
+            "            device const uchar *sla = ba + 4; device const uchar *slb = bb + 4;\n"
+            "            device const uchar *qsa = sla + 4 + ib * 16u + il * 8u; device const uchar *qsb = slb + 4 + ib * 16u + il * 8u;\n"
+            "            uint lsa = ((uint(sla[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(sha) >> (2u * ib)) & 3u) << 4u);\n"
+            "            uint lsb = ((uint(slb[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(shb) >> (2u * ib)) & 3u) << 4u);\n"
+            "            float aca = 0.0f, acb = 0.0f;\n"
+            "            for (uint j = 0; j < 8u; j++) { uchar va = qsa[j]; uchar vb = qsb[j]; aca += qw3_iq4nl_val(uint(va) & 15u) * xg0[j] + qw3_iq4nl_val(uint(va) >> 4u) * xg0[j + 16u]; acb += qw3_iq4nl_val(uint(vb) & 15u) * xg1[j] + qw3_iq4nl_val(uint(vb) >> 4u) * xg1[j + 16u]; }\n"
+            "            sum01 += float(da) * float(int(lsa) - 32) * aca; sum11 += float(db) * float(int(lsb) - 32) * acb;\n"
+            "        }\n"
+            "    }\n"
+            "    sum00 = simd_sum(sum00); sum01 = simd_sum(sum01);\n"
+            "    sum10 = simd_sum(sum10); sum11 = simd_sum(sum11);\n"
+            "    if (lane == 0) {\n"
+            "        float scale0 = router_weights[slot0];\n"
+            "        float scale1 = slot1 < args.n_active ? router_weights[slot1] : 0.0f;\n"
+            "        uint base = args.down_base + pair * args.n_embd;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_embd) out[base + row] = sum00 * scale0 + sum10 * scale1;\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_embd) out[base + row] = sum01 * scale0 + sum11 * scale1;\n"
+            "    }\n"
+            "}\n"
             "kernel void qw3_moe_down_iq4_xs_batch_reduce_fast(constant qw3_moe_batch_args &args,\n"
             "                                                 device const uchar *weights,\n"
             "                                                 device const float *scratch,\n"
@@ -2886,6 +2963,7 @@ static int qw3_metal_compile_kernels(void) {
         g_matvec_iq3_s_pipeline && g_matvec_iq3_s_pair_pipeline &&
         g_moe_iq3_s_pair_batch_pipeline &&
         g_moe_down_iq4_xs_batch_pipeline &&
+        g_moe_down_iq4_xs_pair_pipeline &&
         g_moe_down_iq4_xs_batch_reduce_pipeline &&
         g_moe_down_q6_k_batch_pipeline &&
         g_moe_reduce_batch_pipeline &&
@@ -3138,6 +3216,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                                error:&error];
     if (!g_moe_down_iq4_xs_batch_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_iq4_xs_batch_fast failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_moe_down_iq4_xs_pair_fast"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_down_iq4_xs_pair_fast not found\n");
+        return 0;
+    }
+    g_moe_down_iq4_xs_pair_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                               error:&error];
+    if (!g_moe_down_iq4_xs_pair_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_iq4_xs_pair_fast failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -5954,8 +6044,12 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     enc = qw3_metal_compute_encoder(cb);
     const int fuse_down_reduce =
         down_type == 23 && getenv("QW3_METAL_FUSED_DOWN_REDUCE") != NULL;
+    const int pair_down_reduce =
+        down_type == 23 && !fuse_down_reduce &&
+        getenv("QW3_METAL_LEGACY_PAIR_DOWN") == NULL;
     [enc setComputePipelineState:fuse_down_reduce ?
-     g_moe_down_iq4_xs_batch_reduce_pipeline : down_batch_pipeline];
+     g_moe_down_iq4_xs_batch_reduce_pipeline :
+     pair_down_reduce ? g_moe_down_iq4_xs_pair_pipeline : down_batch_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
     [enc setBuffer:obj.scratch offset:0 atIndex:2];
@@ -5975,6 +6069,10 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
         [enc setThreadgroupMemoryLength:16 * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake((n_embd + 1u) / 2u, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+    } else if (pair_down_reduce) {
+        threads = 64;
+        [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 3u) / 4u) * ((n_active + 1u) / 2u), 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     } else if (down_type == 23) {
         threads = 64;
         [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 3u) / 4u) * n_active, 1, 1)
@@ -5996,9 +6094,11 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     }
 
     if (!fuse_down_reduce) {
+        __typeof__(args) reduce_args = args;
+        if (pair_down_reduce) reduce_args.n_active = (n_active + 1u) / 2u;
         enc = qw3_metal_compute_encoder(cb);
         [enc setComputePipelineState:g_moe_reduce_batch_pipeline];
-        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBytes:&reduce_args length:sizeof(reduce_args) atIndex:0];
         [enc setBuffer:obj.scratch offset:0 atIndex:1];
         [enc setBuffer:obj.x0 offset:0 atIndex:2];
         threads = g_moe_reduce_batch_pipeline.maxTotalThreadsPerThreadgroup;
@@ -7176,6 +7276,7 @@ void qw3_metal_cleanup(void) {
     g_matvec_iq3_s_pair_pipeline = nil;
     g_moe_iq3_s_pair_batch_pipeline = nil;
     g_moe_down_iq4_xs_batch_pipeline = nil;
+    g_moe_down_iq4_xs_pair_pipeline = nil;
     g_moe_down_iq4_xs_batch_reduce_pipeline = nil;
     g_moe_down_q6_k_batch_pipeline = nil;
     g_moe_reduce_batch_pipeline = nil;
