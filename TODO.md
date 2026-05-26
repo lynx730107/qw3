@@ -93,6 +93,8 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Le proiezioni F32 DeltaNet `alpha` e `beta` sono ora fuse in un kernel paired che conserva la riduzione per-riga e riusa l'attivazione `x1`. Il decode mantiene `top0=8160`; misure alternate danno `28.32` contro `28.04 tok/s` su 64 token e `27.18` contro `27.09 tok/s` su 256 token rispetto al percorso separato.
    - Il gate/up sparse `IQ3_S` batch applica ora SwiGLU direttamente quando scrive l'area `hidden`, eliminando il dispatch `moe_silu_batch` separato in ogni layer. Il decode mantiene `top0=8160`; misure dopo la fusione danno `28.12` contro circa `28.09 tok/s` su 64 token e `27.16` contro `27.09 tok/s` su 256 token rispetto al percorso precedente. Il profiler aggiornato misura `gateup_swiglu` circa `0.681 ms` nei layer con down `IQ4_XS` e `0.640 ms` nei tre layer con down `q6_K`; il gate/up quantizzato resta il costo MoE dominante.
    - Il kernel hot `IQ3_S` gate/up+SwiGLU usa ora un dot-product paired: gate e up accumulano nello stesso passaggio caricando una sola volta ogni valore di `x1`. `make test-metal-smoke` passa e il decode mantiene `top0=8160`; la generazione sale a `28.25` da `28.13 tok/s` su 64 token e a `27.29` da `27.16 tok/s` su 256 token. Nel profilo stabile `gateup_swiglu` dei 37 layer `IQ4_XS` scende da circa `0.681` a `0.668 ms/layer`.
+   - Portato e scartato il caricamento LUT threadgroup con accumulo `float4` del matvec down `IQ4_XS`, modellato sul kernel di `llama.cpp`: il decode rimane corretto ma misura `28.22` contro `28.25 tok/s` su 64 token e `27.25` contro `27.29 tok/s` su 256 token, quindi il codice non viene mantenuto.
+   - La riduzione degli 8 output expert sparse usa ora carichi/somme `float4` e un dispatch su `n_embd / 4`, conservando l'ordine della somma per expert. Il decode e `make test-metal-smoke` passano invariati; il percorso normale sale a `28.76` da `28.25 tok/s` su 64 token e a `27.73` da `27.29 tok/s` su 256 token. Il profiler sincrono per microfase resta circa `0.196 ms/layer` e maschera il vantaggio osservato end-to-end.
    - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session; il path runtime default non usa piu' top-k/softmax CPU per il ramo sparse MoE.
    - Accesso ai buffer modello Metal stabilizzato per il percorso sessione tramite resolver pointer-based.
    - Ridurre command buffer separati.
@@ -100,6 +102,6 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 
 ## Prossimi step consigliati
 
-1. Continuare sul blocco pre-logits misurato: dopo il dot paired `IQ3_S`, confrontare un intervento sul down `IQ4_XS` (37 layer, circa `0.486 ms/layer`) con la proiezione DeltaNet `qkv` (30 layer, circa `0.449 ms/layer`).
+1. Continuare sul blocco pre-logits misurato: il port diretto del down `IQ4_XS` e stato scartato, quindi il prossimo candidato pulito e la proiezione DeltaNet `qkv` (`30` layer, circa `0.449 ms/layer`) oppure una variante down diversa dal LUT vettoriale gia escluso.
 2. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
 3. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.

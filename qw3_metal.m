@@ -2443,10 +2443,15 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                  device const float *scratch,\n"
             "                                  device float *x0,\n"
             "                                  uint gid [[thread_position_in_grid]]) {\n"
-            "    if (gid >= args.n_embd) return;\n"
-            "    float sum = 0.0f;\n"
-            "    for (uint slot = 0; slot < args.n_active; slot++) sum += scratch[args.down_base + slot * args.n_embd + gid];\n"
-            "    x0[gid] = x0[gid] + sum;\n"
+            "    uint n4 = args.n_embd / 4u;\n"
+            "    if (gid >= n4) return;\n"
+            "    float4 sum = float4(0.0f);\n"
+            "    for (uint slot = 0; slot < args.n_active; slot++) {\n"
+            "        device const float4 *src4 = (device const float4 *)(scratch + args.down_base + slot * args.n_embd);\n"
+            "        sum += src4[gid];\n"
+            "    }\n"
+            "    device float4 *x04 = (device float4 *)x0;\n"
+            "    x04[gid] += sum;\n"
             "}\n"
             "kernel void qw3_matvec_iq3_s_expert_slot(constant qw3_expert_slot_args &args,\n"
             "                                         device const uchar *weights,\n"
@@ -5683,7 +5688,7 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
         [enc setBuffer:obj.x0 offset:0 atIndex:2];
         threads = g_moe_reduce_batch_pipeline.maxTotalThreadsPerThreadgroup;
         if (threads > 256) threads = 256;
-        [enc dispatchThreads:MTLSizeMake(n_embd, 1, 1)
+        [enc dispatchThreads:MTLSizeMake(n_embd / 4u, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
         if (profile_moe_sync) {
