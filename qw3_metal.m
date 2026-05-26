@@ -4499,9 +4499,7 @@ int qw3_metal_session_conv1d_step_from_scratch(qw3_metal_session *s,
     }
     uint64_t weight_inner = 0;
     id<MTLBuffer> wb = qw3_metal_model_view_for(weight_offset, weight_bytes, &weight_inner);
-    id<MTLBuffer> next_state = [g_device newBufferWithLength:(NSUInteger)state_bytes
-                                                     options:MTLResourceStorageModePrivate];
-    if (!wb || !next_state) return 0;
+    if (!wb) return 0;
 
     struct {
         uint32_t n_channels;
@@ -4516,38 +4514,38 @@ int qw3_metal_session_conv1d_step_from_scratch(qw3_metal_session *s,
     [enc setBuffer:obj.scratch offset:0 atIndex:2];
     [enc setBuffer:obj.convState offset:(NSUInteger)state_offset atIndex:3];
     [enc setBuffer:obj.qkvConv offset:0 atIndex:4];
-    [enc setBuffer:next_state offset:0 atIndex:5];
+    /* Every thread owns one channel and consumes its old three values first. */
+    [enc setBuffer:obj.convState offset:(NSUInteger)state_offset atIndex:5];
     NSUInteger threads = g_deltanet_conv1d_step_pipeline.maxTotalThreadsPerThreadgroup;
     if (threads > 256) threads = 256;
     [enc dispatchThreads:MTLSizeMake(n_channels, 1, 1)
     threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
-    qw3_metal_close_batch_encoder();
-    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
-    if (!blit) return 0;
-    [blit copyFromBuffer:next_state sourceOffset:0
-                toBuffer:obj.convState destinationOffset:(NSUInteger)state_offset
-                    size:(NSUInteger)state_bytes];
     id<MTLBuffer> out_readback = nil;
     id<MTLBuffer> state_readback = nil;
-    if (out) {
-        out_readback = [g_device newBufferWithLength:(NSUInteger)qkv_bytes
-                                             options:MTLResourceStorageModeShared];
-        if (!out_readback) return 0;
-        [blit copyFromBuffer:obj.qkvConv sourceOffset:0
-                    toBuffer:out_readback destinationOffset:0
-                        size:(NSUInteger)qkv_bytes];
+    if (out || state_out) {
+        qw3_metal_close_batch_encoder();
+        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        if (!blit) return 0;
+        if (out) {
+            out_readback = [g_device newBufferWithLength:(NSUInteger)qkv_bytes
+                                                 options:MTLResourceStorageModeShared];
+            if (!out_readback) return 0;
+            [blit copyFromBuffer:obj.qkvConv sourceOffset:0
+                        toBuffer:out_readback destinationOffset:0
+                            size:(NSUInteger)qkv_bytes];
+        }
+        if (state_out) {
+            state_readback = [g_device newBufferWithLength:(NSUInteger)state_bytes
+                                                   options:MTLResourceStorageModeShared];
+            if (!state_readback) return 0;
+            [blit copyFromBuffer:obj.convState sourceOffset:(NSUInteger)state_offset
+                        toBuffer:state_readback destinationOffset:0
+                            size:(NSUInteger)state_bytes];
+        }
+        [blit endEncoding];
     }
-    if (state_out) {
-        state_readback = [g_device newBufferWithLength:(NSUInteger)state_bytes
-                                               options:MTLResourceStorageModeShared];
-        if (!state_readback) return 0;
-        [blit copyFromBuffer:next_state sourceOffset:0
-                    toBuffer:state_readback destinationOffset:0
-                        size:(NSUInteger)state_bytes];
-    }
-    [blit endEncoding];
 
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {
