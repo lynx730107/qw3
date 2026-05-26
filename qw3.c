@@ -10649,6 +10649,8 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     const int profile_attn_sync = getenv("QW3_METAL_PROFILE_ATTN_SYNC") != NULL;
     const int profile_proj_sync = getenv("QW3_METAL_PROFILE_PROJ_SYNC") != NULL;
     const int fused_gdn = getenv("QW3_METAL_LEGACY_GDN") == NULL;
+    const int fused_shared_gate =
+        getenv("QW3_METAL_LEGACY_SHARED_GATE") == NULL;
     const double t_eval0 = profile ? qw3_now_sec() : 0.0;
     const double t_graph_token0 = graph_token_profile ? qw3_now_sec() : 0.0;
     double t_router_sync = 0.0;
@@ -10995,17 +10997,29 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
         }
         if (ok) {
             const uint32_t sh_scalar_off = QW3_N_FF_SHARED * 2;
-            ok =
-                qw3_metal_session_matvec_q8_0_pair_silu_x1_to_inner(
-                    s->metal, lw->ffn_gate_shared->offset,
-                    lw->ffn_up_shared->offset, QW3_N_EMBD,
-                    QW3_N_FF_SHARED) &&
-                qw3_metal_session_matvec_f32_x1_to_scratch(
-                    s->metal, lw->ffn_gate_inp_shexp->offset,
-                    QW3_N_EMBD, 1, sh_scalar_off, NULL) &&
-                qw3_metal_session_matvec_q8_0_inner_scale_add_x0(
-                    s->metal, lw->ffn_down_shared->offset,
-                    QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);
+            if (fused_shared_gate) {
+                ok =
+                    qw3_metal_session_shared_gate_up_silu_x1_to_inner(
+                        s->metal, lw->ffn_gate_shared->offset,
+                        lw->ffn_up_shared->offset,
+                        lw->ffn_gate_inp_shexp->offset, QW3_N_EMBD,
+                        QW3_N_FF_SHARED, sh_scalar_off) &&
+                    qw3_metal_session_matvec_q8_0_inner_scale_add_x0(
+                        s->metal, lw->ffn_down_shared->offset,
+                        QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);
+            } else {
+                ok =
+                    qw3_metal_session_matvec_q8_0_pair_silu_x1_to_inner(
+                        s->metal, lw->ffn_gate_shared->offset,
+                        lw->ffn_up_shared->offset, QW3_N_EMBD,
+                        QW3_N_FF_SHARED) &&
+                    qw3_metal_session_matvec_f32_x1_to_scratch(
+                        s->metal, lw->ffn_gate_inp_shexp->offset,
+                        QW3_N_EMBD, 1, sh_scalar_off, NULL) &&
+                    qw3_metal_session_matvec_q8_0_inner_scale_add_x0(
+                        s->metal, lw->ffn_down_shared->offset,
+                        QW3_N_FF_SHARED, QW3_N_EMBD, sh_scalar_off);
+            }
             if (ok && (layer_flush || profile_layer_sync || profile_stage_sync)) {
                 ok = qw3_metal_flush_commands();
                 if (ok && graph_token_profile) graph_flushes++;

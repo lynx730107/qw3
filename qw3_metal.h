@@ -68,6 +68,10 @@ int qw3_metal_session_matvec_q8_0_pair_x1_to_scratch(
 int qw3_metal_session_matvec_q8_0_pair_silu_x1_to_inner(
     qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
     uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_shared_gate_up_silu_x1_to_inner(
+    qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
+    uint64_t scalar_weight_offset, uint32_t n_in, uint32_t n_out,
+    uint32_t scalar_offset);
 int qw3_metal_session_conv1d_zero_from_scratch(qw3_metal_session *s,
                                                uint64_t weight_offset,
                                                uint32_t n_channels, float *out);

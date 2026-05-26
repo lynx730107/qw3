@@ -110,6 +110,10 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Verificato e non mantenuto il kernel `qw3_matvec_q8_0_fast` gia' presente, con geometria `2 righe x 4 simdgroup` analoga a `llama.cpp`/`ds4`: il decode e' corretto (`top0=8160`) ma rallenta a `29.02 tok/s`. Per avvicinare i matvec Q8 di ggml serve portarne il corpo vettoriale/dequantizzazione, non solo la geometria di dispatch.
    - Portato e poi rimosso anche un matvec Q8 che riproduce il corpo ggml (`N_R0=2`, `N_SG=4`, 8 quanti per lane e riduzione cross-simdgroup): corretto (`top0=8160`), ma misura `29.17 tok/s`. Sulle proiezioni Q8 di questo modello il kernel corrente a una riga resta migliore su M5.
    - Eliminata la copia `next_state` residua di `conv1d_step`: ogni canale consuma i tre campioni precedenti prima di aggiornarli, quindi la state convolutiva viene aggiornata in place e il runtime evita un blit per ciascuno dei 30 layer lineari. Il decode conserva `maxdiff=2.002716e-05` e `top0=8160`; due run da 256 token misurano `29.66-29.67 tok/s` contro `29.58-29.59` prima della modifica.
+   - Ablazione sul server Qwen35MoE dedicato di `llama.cpp`, all-GPU/F32 a `ctx=512`: baseline `34.72 tok/s`; `GGML_METAL_CONCURRENCY_DISABLE=1` scende a `33.44`; `GGML_METAL_GRAPH_OPTIMIZE_DISABLE=1` scende a `32.34`; `GGML_METAL_FUSION_DISABLE=1` resta neutro a `34.80`. Il margine strutturale osservato viene quindi dall'esecuzione concorrente con riordino del grafo, non dalla fusion generica.
+   - Il log `GGML_METAL_GRAPH_DEBUG=1` del client dedicato contiene 2736 nodi marcati `concurrent`: il backend sovrappone proiezioni indipendenti, router, MoE/shared expert e preparazione dei nodi successivi usando dipendenze sui range dei buffer, non un solo overlap locale.
+   - Provato e rimosso un encoder concurrent limitato al ramo sparse MoE e allo shared expert: il decode resta corretto (`top0=8160`, `maxdiff=2.360344e-05`) ma rallenta leggermente (`29.47` contro `29.56 tok/s` su 256 token, `ctx=512`). Questa singola sovrapposizione non replica il beneficio dello scheduler di `llama.cpp`.
+   - Ottimizzato lo shared expert senza concurrency globale: il dispatch Q8 gate/up+SwiGLU contiene ora anche il singolo threadgroup che calcola il gate scalare F32, eliminando una dispatch separata in tutti i 40 layer. Il decode passa (`top0=8160`, `maxdiff=2.288818e-05`); due confronti a 256 token misurano `29.64-29.67 tok/s` default contro `29.59-29.59` con `QW3_METAL_LEGACY_SHARED_GATE=1`.
    - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session; il path runtime default non usa piu' top-k/softmax CPU per il ramo sparse MoE.
    - Accesso ai buffer modello Metal stabilizzato per il percorso sessione tramite resolver pointer-based.
    - Non ridurre alla cieca i command buffer: valutare nuove segmentazioni solo con `QW3_METAL_GRAPH_TOKEN_PROFILE=1`.
@@ -117,6 +121,7 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 
 ## Prossimi step consigliati
 
-1. Continuare sul body pre-logits ora misurato a circa `28-29 ms/token`: valutare una riduzione top-8 con primitive simdgroup oppure una nuova ottimizzazione delle proiezioni DeltaNet/sparse MoE, evitando le varianti gia scartate.
-2. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
-3. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.
+1. Progettare un path decode sperimentale con dipendenze esplicite sui buffer e gruppi concurrent estesi a piu' operazioni del body, modellato sul riordino del graph Metal di `llama.cpp`; mantenere il path seriale come baseline e misurare ogni incremento.
+2. Continuare sui kernel body dominanti, soprattutto sparse MoE, poiche' l'ablazione indica che il graph optimizer spiega circa `2.4 tok/s` ma non tutto il divario residuo con `llama.cpp`; evitare le varianti gia scartate.
+3. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
+4. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.
