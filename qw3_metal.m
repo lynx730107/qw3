@@ -5746,6 +5746,7 @@ int qw3_metal_session_deltanet_gated_rmsnorm_from_buffers(qw3_metal_session *s,
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
     NSUInteger threads = g_deltanet_gated_rmsnorm_pipeline.maxTotalThreadsPerThreadgroup;
     if (threads > 256) threads = 256;
+    if (threads > head_dim) threads = head_dim;
     if (threads < 32) threads = 32;
     [enc dispatchThreadgroups:MTLSizeMake(v_heads, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
