@@ -27,6 +27,7 @@ static NSMutableArray<id<MTLCommandBuffer>> *g_pending_cbs;
 static NSMutableArray<id<MTLBuffer>> *g_model_buffers;
 static NSMutableDictionary<NSString *, id<MTLBuffer>> *g_model_temp_buffers;
 static id<MTLBuffer> g_iq3s_kgrid_buffer;
+static id<MTLBuffer> g_iq3s_expanded_kgrid_buffer;
 static id<MTLLibrary> g_library;
 static id<MTLComputePipelineState> g_rmsnorm_plain_pipeline;
 static id<MTLComputePipelineState> g_rmsnorm_weight_f32_pipeline;
@@ -1938,7 +1939,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "inline float2 qw3_iq3s_dot32_pair(device const uchar *gate_blk,\n"
             "                                  device const uchar *up_blk,\n"
             "                                  device const float *xx,\n"
-            "                                  device const ushort *kgrid,\n"
+            "                                  device const uchar *kgrid,\n"
             "                                  uint ib) {\n"
             "    half gate_d = *((device const half *)gate_blk);\n"
             "    device const uchar *gate_qs = gate_blk + 2;\n"
@@ -1973,10 +1974,10 @@ static NSString *qw3_metal_kernel_source(void) {
             "            float gate_sign2 = (uint(gate_s) & (1u << (j + 4u))) ? -1.0f : 1.0f;\n"
             "            float up_sign1 = (uint(up_s) & (1u << j)) ? -1.0f : 1.0f;\n"
             "            float up_sign2 = (uint(up_s) & (1u << (j + 4u))) ? -1.0f : 1.0f;\n"
-            "            sum.x += gate_db * qw3_iq3s_grid_val(kgrid, gate_idx1, j) * gate_sign1 * x1;\n"
-            "            sum.x += gate_db * qw3_iq3s_grid_val(kgrid, gate_idx2, j) * gate_sign2 * x2;\n"
-            "            sum.y += up_db * qw3_iq3s_grid_val(kgrid, up_idx1, j) * up_sign1 * x1;\n"
-            "            sum.y += up_db * qw3_iq3s_grid_val(kgrid, up_idx2, j) * up_sign2 * x2;\n"
+            "            sum.x += gate_db * float(kgrid[gate_idx1 * 4u + j]) * gate_sign1 * x1;\n"
+            "            sum.x += gate_db * float(kgrid[gate_idx2 * 4u + j]) * gate_sign2 * x2;\n"
+            "            sum.y += up_db * float(kgrid[up_idx1 * 4u + j]) * up_sign1 * x1;\n"
+            "            sum.y += up_db * float(kgrid[up_idx2 * 4u + j]) * up_sign2 * x2;\n"
             "        }\n"
             "    }\n"
             "    return sum;\n"
@@ -2240,7 +2241,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                           device const uchar *up_weights,\n"
             "                                           device const float *x,\n"
             "                                           device float *scratch,\n"
-            "                                           device const ushort *kgrid,\n"
+            "                                           device const uchar *kgrid,\n"
             "                                           constant int *ids,\n"
             "                                           threadgroup float *sh,\n"
             "                                           uint group [[threadgroup_position_in_grid]],\n"
@@ -3817,6 +3818,25 @@ static id<MTLBuffer> qw3_metal_iq3s_kgrid_buffer(void) {
                                                    options:MTLResourceStorageModeShared];
     }
     return g_iq3s_kgrid_buffer;
+}
+
+static id<MTLBuffer> qw3_metal_iq3s_expanded_kgrid_buffer(void) {
+    if (!g_device) return nil;
+    if (!g_iq3s_expanded_kgrid_buffer) {
+        uint8_t grid[512 * 4];
+        for (uint32_t i = 0; i < 512; ++i) {
+            const uint16_t packed = g_iq3s_kgrid[i];
+            for (uint32_t j = 0; j < 4; ++j) {
+                grid[4 * i + j] =
+                    (uint8_t)(2 * ((packed >> (3 * j)) & 7) + 1);
+            }
+        }
+        g_iq3s_expanded_kgrid_buffer =
+            [g_device newBufferWithBytes:grid
+                                   length:sizeof(grid)
+                                  options:MTLResourceStorageModeShared];
+    }
+    return g_iq3s_expanded_kgrid_buffer;
 }
 
 qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
@@ -5985,7 +6005,7 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
         down_w = qw3_metal_model_temp_buffer_for(
             down_offset, down_tensor_bytes, &down_inner);
     }
-    id<MTLBuffer> kgb = qw3_metal_iq3s_kgrid_buffer();
+    id<MTLBuffer> kgb = qw3_metal_iq3s_expanded_kgrid_buffer();
     if (!gate_w || !up_w || !down_w || !kgb) return 0;
 
     struct {
@@ -7259,6 +7279,7 @@ void qw3_metal_cleanup(void) {
     [g_model_temp_buffers removeAllObjects];
     g_model_temp_buffers = nil;
     g_iq3s_kgrid_buffer = nil;
+    g_iq3s_expanded_kgrid_buffer = nil;
     g_rmsnorm_plain_pipeline = nil;
     g_rmsnorm_weight_f32_pipeline = nil;
     g_embed_q8_0_pipeline = nil;
