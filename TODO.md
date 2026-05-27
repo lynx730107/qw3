@@ -41,6 +41,8 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - La CLI Metal espone ora `-ctk q8_0 -ctv q8_0` (e `f32`); il backend richiede tipi K/V uguali, coerentemente con il buffer cache congiunto attuale.
    - Correttezza funzionale aggiornata: `--metal-session-decode-test -p ciao -ctk q8_0 -ctv q8_0` mantiene top0 `8160` con il drift atteso verso il reference F32 (`maxdiff=0.06894875`, `rmsdiff=0.01298941`).
    - A `--ctx 32000` la sessione q8 alloca `332.03 MiB` per GQA K+V; la generazione misura `42.22 tok/s` a 128 token e `40.87 tok/s` a 256 token. Su continuazione crescente fino a 2048 token il costo cached attention emerge e il baseline e' `27.57 tok/s`.
+   - L'attention cached q8 usa ora, da 256 posizioni, 32 scansioni KV parallele e una riduzione softmax dei risultati parziali ispirata al path FlashAttention vec di `llama.cpp`; il temporaneo aggiunto costa `0.50 MiB` a prescindere dal contesto. `QW3_METAL_LEGACY_Q8_ATTN=1` mantiene il kernel seriale e `QW3_METAL_Q8_SPLIT_FORCE=1` forza il nuovo path nei test brevi.
+   - Verifica del nuovo path: il decode q8 forzato mantiene `top0=8160` (`maxdiff=0.06742239`, `rmsdiff=0.01277085`). A `--ctx 32000` su 512 token i confronti incrociati misurano split `41.81`/`41.92 tok/s` contro legacy `38.22`/`37.64 tok/s`; nello stesso binario promosso lo split misura `41.85` contro `38.17 tok/s` legacy. Sul run raffreddato da 2048 token sale da `27.57` legacy a `40.56 tok/s` (`74.29 s` -> `50.50 s` di generation).
 
 4. Ottimizzazione performance
    - Residual update `x0 = x0 + attn` e somma `moe` su session buffer Metal: fatto.
@@ -154,4 +156,4 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 2. Progettare un path decode sperimentale con dipendenze esplicite sui buffer e gruppi concurrent estesi a piu' operazioni del body, modellato sul riordino del graph Metal di `llama.cpp`; mantenere il path seriale come baseline e misurare ogni incremento.
 3. Continuare sui kernel body dominanti e misurare il vantaggio su scenari equivalenti a `llama.cpp`, soprattutto con contesti lunghi e KV q8; evitare le varianti gia scartate.
 4. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
-5. Profilare e ottimizzare l'attention cached q8_0 a posizioni lunghe: il nuovo run da 2048 token mostra il calo da oltre `40 tok/s` a `27.57 tok/s`; il tentativo `simd_broadcast` delle scale non e' mantenuto in attesa di un A/B raffreddato.
+5. Confrontare il nuovo attention split q8_0 con `llama.cpp` usando lo stesso run lungo e poi estendere oltre 2048 token: a `ctx=32000` il path `qw3` appena promosso misura `40.56 tok/s` su 2048 token contro `27.57` del proprio kernel legacy.

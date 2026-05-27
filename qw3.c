@@ -779,6 +779,10 @@ qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
             mem.gqa_kv_bytes = (uint64_t)QW3_N_FULL_ATTN_LAYERS *
                                QW3_N_HEAD_KV * (QW3_N_HEAD_DIM / 32) *
                                34ull * (uint64_t)ctx_size * 2ull;
+            if (getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL) {
+                mem.scratch_bytes += 32ull * QW3_N_HEAD *
+                                     (QW3_N_HEAD_DIM + 2ull) * sizeof(float);
+            }
         }
         const uint64_t conv_bytes = (uint64_t)QW3_N_LINEAR_LAYERS *
                                     tensor_linear_qkv() *
