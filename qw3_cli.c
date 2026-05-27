@@ -470,6 +470,8 @@ static void usage(void) {
         "              Run session layer-3 single-token GQA through attn_o\n"
         "  --metal-session-gqa-cached2-test ID\n"
         "              Run session layer-3 GQA over two cached tokens through attn_o\n"
+        "  --metal-session-gqa-cached-bench ID N\n"
+        "              Benchmark session layer-3 cached attention at N cached tokens\n"
         "  --metal-greedy-test N\n"
         "              Compare N greedy decode steps using Metal logits\n"
         "  --metal-run N\n"
@@ -585,6 +587,8 @@ int main(int argc, char **argv) {
     int metal_session_gqa_project_test = -1;
     int metal_session_gqa_single_test = -1;
     int metal_session_gqa_cached2_test = -1;
+    int metal_session_gqa_cached_bench_token = -1;
+    int metal_session_gqa_cached_bench_n = 0;
     int metal_greedy_test = 0;
     int metal_run = 0;
     int metal_run_quiet = 0;
@@ -839,6 +843,10 @@ int main(int argc, char **argv) {
             backend = QW3_BACKEND_METAL;
         } else if (strcmp(argv[i], "--metal-session-gqa-cached2-test") == 0 && i + 1 < argc) {
             metal_session_gqa_cached2_test = atoi(argv[++i]);
+            backend = QW3_BACKEND_METAL;
+        } else if (strcmp(argv[i], "--metal-session-gqa-cached-bench") == 0 && i + 2 < argc) {
+            metal_session_gqa_cached_bench_token = atoi(argv[++i]);
+            metal_session_gqa_cached_bench_n = atoi(argv[++i]);
             backend = QW3_BACKEND_METAL;
         } else if (strcmp(argv[i], "--metal-greedy-test") == 0 && i + 1 < argc) {
             metal_greedy_test = atoi(argv[++i]);
@@ -1524,6 +1532,14 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
+    if (metal_session_gqa_cached_bench_token >= 0) {
+        if (qw3_engine_metal_session_gqa_cached_bench(
+                engine, metal_session_gqa_cached_bench_token,
+                metal_session_gqa_cached_bench_n, ctx_size, stdout) != 0) {
+            qw3_engine_close(engine);
+            return 1;
+        }
+    }
     if (metal_greedy_test > 0) {
         if (!prompt) {
             fprintf(stderr, "qw3: --metal-greedy-test requires -p TEXT\n");
@@ -1718,6 +1734,7 @@ int main(int argc, char **argv) {
         metal_session_gqa_project_test < 0 &&
         metal_session_gqa_single_test < 0 &&
         metal_session_gqa_cached2_test < 0 &&
+        metal_session_gqa_cached_bench_token < 0 &&
         metal_greedy_test <= 0 &&
         metal_run <= 0 &&
         metal_gqa_project_test < 0 &&

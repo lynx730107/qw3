@@ -4075,8 +4075,10 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     const BOOL gqa_kv_q8 = kv_q8_env && strcmp(kv_q8_env, "0") != 0;
     const BOOL gqa_split_q8 =
         gqa_kv_q8 && getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL;
-    const uint32_t gqa_max_q8_splits =
-        gqa_split_q8 && getenv("QW3_METAL_Q8_SPLIT_32") == NULL ? 64u : 32u;
+    const uint32_t gqa_max_q8_splits = !gqa_split_q8 ||
+        getenv("QW3_METAL_Q8_SPLIT_32") != NULL ? 32u :
+        (getenv("QW3_METAL_Q8_SPLIT_64") != NULL ? 64u :
+         (getenv("QW3_METAL_Q8_SPLIT_128") != NULL ? 128u : 256u));
     const uint64_t gqa_cache_token_bytes = gqa_kv_q8 ?
         (uint64_t)QW3_METAL_N_HEAD_KV * (QW3_METAL_N_HEAD_DIM / 32u) * 34ull :
         (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(float);
@@ -7542,9 +7544,14 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
     const BOOL split_q8 = obj.gqaKvQ8 && obj.gqaSplitQ8 &&
         (n_ctx >= 256u || getenv("QW3_METAL_Q8_SPLIT_FORCE") != NULL);
     if (split_q8) {
-        const uint32_t active_max_splits =
-            obj.gqaMaxQ8Splits > 32u && n_ctx < 2048u ?
-                32u : obj.gqaMaxQ8Splits;
+        uint32_t active_max_splits = obj.gqaMaxQ8Splits;
+        if (active_max_splits > 32u && n_ctx < 2048u) {
+            active_max_splits = 32u;
+        } else if (active_max_splits > 64u && n_ctx < 4096u) {
+            active_max_splits = 64u;
+        } else if (active_max_splits > 128u && n_ctx < 16384u) {
+            active_max_splits = 128u;
+        }
         const uint32_t n_splits =
             n_ctx < active_max_splits ? n_ctx : active_max_splits;
         const uint64_t split_bytes =

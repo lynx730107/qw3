@@ -165,6 +165,9 @@ int qw3_engine_metal_session_gqa_single_test(qw3_engine *e, int token,
                                              int ctx_size, FILE *fp);
 int qw3_engine_metal_session_gqa_cached2_test(qw3_engine *e, int token,
                                               int ctx_size, FILE *fp);
+int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
+                                              int n_ctx, int ctx_size,
+                                              FILE *fp);
 int qw3_engine_metal_session_layer0_test(qw3_engine *e, int token,
                                          int ctx_size, FILE *fp);
 int qw3_engine_metal_greedy_test(qw3_engine *e, const qw3_tokens *prompt,

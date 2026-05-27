@@ -781,7 +781,9 @@ qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
                                34ull * (uint64_t)ctx_size * 2ull;
             if (getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL) {
                 const uint64_t q8_splits =
-                    getenv("QW3_METAL_Q8_SPLIT_32") == NULL ? 64ull : 32ull;
+                    getenv("QW3_METAL_Q8_SPLIT_32") != NULL ? 32ull :
+                    (getenv("QW3_METAL_Q8_SPLIT_64") != NULL ? 64ull :
+                     (getenv("QW3_METAL_Q8_SPLIT_128") != NULL ? 128ull : 256ull));
                 mem.scratch_bytes += q8_splits * QW3_N_HEAD *
                                      (QW3_N_HEAD_DIM + 2ull) * sizeof(float);
             }
@@ -10608,6 +10610,86 @@ int qw3_engine_metal_session_gqa_cached2_test(qw3_engine *e, int token,
     free(g1); free(v1); free(k1); free(q1); free(g0); free(v0); free(k0);
     free(q0); free(x1); free(x0);
     return gpu_ok ? 0 : -1;
+#endif
+}
+
+int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
+                                              int n_ctx, int ctx_size,
+                                              FILE *fp) {
+    if (!e || !fp || n_ctx < 2 || ctx_size < n_ctx) return -1;
+#ifdef QW3_NO_METAL
+    (void)e; (void)token; (void)n_ctx; (void)ctx_size;
+    fprintf(fp, "metal session gqa cached bench: unavailable in QW3_NO_METAL build\n");
+    return -1;
+#else
+    if (e->backend != QW3_BACKEND_METAL || !e->metal_ready) {
+        fprintf(fp, "metal session gqa cached bench: Metal backend is not initialized\n");
+        return -1;
+    }
+    if (token < 0 || token >= QW3_N_VOCAB) {
+        fprintf(fp, "metal session gqa cached bench: token %d is outside vocab\n", token);
+        return -1;
+    }
+
+    const int il = 3;
+    const int iters = 64;
+    const qw3_layer_weights *lw = &e->weights.layer[il];
+    const uint32_t qg_n = (uint32_t)tensor_cols_qg();
+    const uint32_t q_n = QW3_N_HEAD * QW3_N_HEAD_DIM;
+    const uint32_t kv_n = (uint32_t)tensor_cols_kv();
+    qw3_session *s = NULL;
+    int ok = qw3_session_create(&s, e, ctx_size) == 0 && s && s->metal;
+
+    double fill_ms = 0.0;
+    if (ok) {
+        ok = qw3_metal_session_embed_q8_0(
+                 s->metal, e->weights.token_embd->offset,
+                 (uint32_t)token, QW3_N_EMBD, NULL) &&
+             qw3_metal_session_rmsnorm_weight_f32(
+                 s->metal, lw->attn_norm->offset,
+                 QW3_N_EMBD, QW3_RMS_EPS, NULL);
+    }
+    if (ok) {
+        const double t0 = qw3_now_sec();
+        for (int pos = 0; ok && pos < n_ctx; pos++) {
+            ok = qw3_metal_session_gqa_project_cache(
+                s->metal, lw->attn_q_proj->offset, lw->attn_k_proj->offset,
+                lw->attn_v_proj->offset, lw->attn_q_norm->offset,
+                lw->attn_k_norm->offset, qg_n, q_n, kv_n,
+                QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
+                QW3_ROPE_DIM, 0, (uint32_t)pos, QW3_ROPE_THETA,
+                QW3_RMS_EPS, NULL, NULL, NULL, NULL);
+        }
+        if (ok) ok = qw3_metal_synchronize();
+        fill_ms = (qw3_now_sec() - t0) * 1000.0;
+    }
+    if (ok) {
+        ok = qw3_metal_session_gqa_cached_attn_out(
+                 s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, 0,
+                 QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
+                 QW3_N_EMBD, NULL) &&
+             qw3_metal_synchronize();
+    }
+
+    double attend_ms = 0.0;
+    if (ok) {
+        const double t0 = qw3_now_sec();
+        for (int i = 0; ok && i < iters; i++) {
+            ok = qw3_metal_session_gqa_cached_attn_out(
+                s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, 0,
+                QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
+                QW3_N_EMBD, NULL);
+        }
+        if (ok) ok = qw3_metal_synchronize();
+        attend_ms = (qw3_now_sec() - t0) * 1000.0;
+    }
+
+    fprintf(fp,
+            "metal session gqa cached bench: %s token=%d layer=3 n_ctx=%d iters=%d fill_ms=%.3f attend_total_ms=%.3f attend_ms=%.4f\n",
+            ok ? "ok" : "failed", token, n_ctx, iters, fill_ms,
+            attend_ms, attend_ms / (double)iters);
+    qw3_session_free(s);
+    return ok ? 0 : -1;
 #endif
 }
 
