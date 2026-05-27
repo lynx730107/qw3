@@ -68,6 +68,7 @@ static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_zero_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_pipeline;
+static id<MTLComputePipelineState> g_deltanet_prepare_scratch_gates_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_tiled_pipeline;
 static id<MTLComputePipelineState> g_deltanet_fused_gdn_scratch_pipeline;
 static id<MTLComputePipelineState> g_deltanet_gated_rmsnorm_pipeline;
@@ -1619,6 +1620,18 @@ static NSString *qw3_metal_kernel_source(void) {
             "    }\n"
             "    core_out[uint64_t(hv) * args.head_dim + j] = out * rsqrt(float(args.head_dim));\n"
             "}\n"
+            "kernel void qw3_deltanet_prepare_scratch_gates(constant qw3_recur_scratch_args &args,\n"
+            "                                                device float *scratch,\n"
+            "                                                device const float *dt_bias,\n"
+            "                                                device const float *a,\n"
+            "                                                uint hv [[thread_position_in_grid]]) {\n"
+            "    if (hv >= args.v_heads) return;\n"
+            "    float beta_raw = scratch[args.beta_offset + hv];\n"
+            "    scratch[args.beta_offset + hv] = 1.0f / (1.0f + exp(-beta_raw));\n"
+            "    float alpha_raw = scratch[args.alpha_offset + hv] + dt_bias[hv];\n"
+            "    float sp = alpha_raw > 20.0f ? alpha_raw : (alpha_raw < -20.0f ? exp(alpha_raw) : log(1.0f + exp(alpha_raw)));\n"
+            "    scratch[args.alpha_offset + hv] = exp(sp * a[hv]);\n"
+            "}\n"
             "kernel void qw3_deltanet_recur_scratch_gates_tiled(constant qw3_recur_scratch_args &args,\n"
             "                                                   device const float *state_in,\n"
             "                                                   device const float *q,\n"
@@ -1645,11 +1658,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float b = 0.0f;\n"
             "    float g = 0.0f;\n"
             "    if (lane == 0) {\n"
-            "        float beta_raw = scratch[args.beta_offset + hv];\n"
-            "        b = 1.0f / (1.0f + exp(-beta_raw));\n"
-            "        float alpha_raw = scratch[args.alpha_offset + hv] + dt_bias[hv];\n"
-            "        float sp = alpha_raw > 20.0f ? alpha_raw : (alpha_raw < -20.0f ? exp(alpha_raw) : log(1.0f + exp(alpha_raw)));\n"
-            "        g = exp(sp * a[hv]);\n"
+            "        b = scratch[args.beta_offset + hv];\n"
+            "        g = scratch[args.alpha_offset + hv];\n"
             "    }\n"
             "    b = simd_broadcast(b, 0);\n"
             "    g = simd_broadcast(g, 0);\n"
@@ -3035,6 +3045,7 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_attend_n_q8_inner_pipeline &&
         g_deltanet_recur_zero_pipeline &&
         g_deltanet_recur_pipeline && g_deltanet_recur_scratch_gates_pipeline &&
+        g_deltanet_prepare_scratch_gates_pipeline &&
         g_deltanet_recur_scratch_gates_tiled_pipeline &&
         g_deltanet_fused_gdn_scratch_pipeline &&
         g_deltanet_gated_rmsnorm_pipeline &&
@@ -3523,6 +3534,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                                       error:&error];
     if (!g_deltanet_recur_scratch_gates_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_recur_scratch_gates failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_deltanet_prepare_scratch_gates"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_deltanet_prepare_scratch_gates not found\n");
+        return 0;
+    }
+    g_deltanet_prepare_scratch_gates_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_deltanet_prepare_scratch_gates_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_prepare_scratch_gates failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -5645,6 +5668,16 @@ int qw3_metal_session_deltanet_tiled_gdn_from_scratch(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_deltanet_prepare_scratch_gates_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.scratch offset:0 atIndex:1];
+    [enc setBuffer:dtb offset:(NSUInteger)dt_inner atIndex:2];
+    [enc setBuffer:ab offset:(NSUInteger)a_inner atIndex:3];
+    [enc dispatchThreadgroups:MTLSizeMake(1, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    enc = qw3_metal_compute_encoder(cb);
     [enc setComputePipelineState:g_deltanet_recur_scratch_gates_tiled_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:obj.deltanetState offset:(NSUInteger)state_offset atIndex:1];
@@ -7471,6 +7504,7 @@ void qw3_metal_cleanup(void) {
     g_deltanet_recur_zero_pipeline = nil;
     g_deltanet_recur_pipeline = nil;
     g_deltanet_recur_scratch_gates_pipeline = nil;
+    g_deltanet_prepare_scratch_gates_pipeline = nil;
     g_deltanet_recur_scratch_gates_tiled_pipeline = nil;
     g_deltanet_fused_gdn_scratch_pipeline = nil;
     g_deltanet_gated_rmsnorm_pipeline = nil;
