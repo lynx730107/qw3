@@ -38,9 +38,9 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 3. KV cache q8_0
    - Aggiunto percorso Metal opt-in `QW3_METAL_KV_Q8_0=1` per K/V GQA: quantizzazione q8_0 alla scrittura cache e dequantizzazione direttamente nel kernel cached attention grouped.
    - A `--ctx 32768`, la cache GQA K+V della sessione passa da 1280 MiB F32 a 340 MiB q8_0; DeltaNet recurrent/conv rimane F32, coerente con llama.cpp.
-   - Correttezza funzionale: `--metal-session-gqa-cached2-test` passa in q8; `--metal-session-decode-test -p ciao` mantiene top0 `8160` (`rmsdiff` atteso circa `0.0128` rispetto al reference F32).
-   - Il path resta opt-in finche' non viene validata la qualita' su continuazioni lunghe; nelle misure locali brevi/medie la velocita' e' sostanzialmente neutra (`64`: circa `26.7 tok/s`; `256`: circa `25.8 tok/s`).
-   - Esporre opzioni equivalenti concettualmente a `-ctk q8_0 -ctv q8_0`.
+   - La CLI Metal espone ora `-ctk q8_0 -ctv q8_0` (e `f32`); il backend richiede tipi K/V uguali, coerentemente con il buffer cache congiunto attuale.
+   - Correttezza funzionale aggiornata: `--metal-session-decode-test -p ciao -ctk q8_0 -ctv q8_0` mantiene top0 `8160` con il drift atteso verso il reference F32 (`maxdiff=0.06894875`, `rmsdiff=0.01298941`).
+   - A `--ctx 32000` la sessione q8 alloca `332.03 MiB` per GQA K+V; la generazione misura `42.22 tok/s` a 128 token e `40.87 tok/s` a 256 token. Su continuazione crescente fino a 2048 token il costo cached attention emerge e il baseline e' `27.57 tok/s`.
 
 4. Ottimizzazione performance
    - Residual update `x0 = x0 + attn` e somma `moe` su session buffer Metal: fatto.
@@ -142,6 +142,7 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Portata e rimossa la struttura di accumulo del matvec `Q6_K` di `llama.cpp`, che precarica i 16 valori RHS e applica le quattro scale dopo i dot parziali: il decode resta corretto (`top0=8160`, `maxdiff=1.907349e-05`), ma il logits rimane `3.6-3.7 ms` e i run lunghi (`40.47`, `40.35 tok/s`) sono indistinguibili dal baseline mantenuto (`40.37`, `40.05`).
    - Fusa e rimossa la preparazione `sigmoid/softplus` delle porte DeltaNet nella piccola proiezione F32: elimina un dispatch da 32 thread per layer mantenendo esattamente il decode (`top0=8160`, `maxdiff=1.883507e-05`), ma non sposta il profilo (`recur_out_ms=0.285`, `project_ms=0.555 ms/layer`) e il run lungo misura `40.23 tok/s`.
    - Provata e rimossa la fusione del reduce sparse `IQ4_XS` nel down shared: il kernel shared somma i quattro contributi pair-down mentre aggiorna `x0`, eliminando il dispatch reduce e mantenendo `top0=8160` (`maxdiff=2.074242e-05`), ma il confronto a 480 token e' neutro (`37.75` contro `37.72 tok/s`).
+   - Provata e rimossa sul kernel cached-attention q8 la lettura singola delle scale K/V con `simd_broadcast`: la correttezza resta identica (`maxdiff=0.06894875`), ma il confronto lungo non e' conclusivo per throttling termico (`27.57 tok/s` baseline iniziale, `19.95` variante dopo carico prolungato, poi il controllo corto ripristinato scende da `42.22` a `30.66 tok/s`). La variante non viene mantenuta senza un A/B raffreddato.
    - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session; il path runtime default non usa piu' top-k/softmax CPU per il ramo sparse MoE.
    - Accesso ai buffer modello Metal stabilizzato per il percorso sessione tramite resolver pointer-based.
    - Non ridurre alla cieca i command buffer: valutare nuove segmentazioni solo con `QW3_METAL_GRAPH_TOKEN_PROFILE=1`.
@@ -153,4 +154,4 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 2. Progettare un path decode sperimentale con dipendenze esplicite sui buffer e gruppi concurrent estesi a piu' operazioni del body, modellato sul riordino del graph Metal di `llama.cpp`; mantenere il path seriale come baseline e misurare ogni incremento.
 3. Continuare sui kernel body dominanti e misurare il vantaggio su scenari equivalenti a `llama.cpp`, soprattutto con contesti lunghi e KV q8; evitare le varianti gia scartate.
 4. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
-5. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.
+5. Profilare e ottimizzare l'attention cached q8_0 a posizioni lunghe: il nuovo run da 2048 token mostra il calo da oltre `40 tok/s` a `27.57 tok/s`; il tentativo `simd_broadcast` delle scale non e' mantenuto in attesa di un A/B raffreddato.
