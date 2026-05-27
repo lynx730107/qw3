@@ -197,6 +197,7 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic) uint32_t pos;
 @property(nonatomic) BOOL gqaKvQ8;
 @property(nonatomic) BOOL gqaSplitQ8;
+@property(nonatomic) uint32_t gqaMaxQ8Splits;
 @end
 
 @implementation QW3MetalSessionObj
@@ -4074,6 +4075,8 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     const BOOL gqa_kv_q8 = kv_q8_env && strcmp(kv_q8_env, "0") != 0;
     const BOOL gqa_split_q8 =
         gqa_kv_q8 && getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL;
+    const uint32_t gqa_max_q8_splits =
+        gqa_split_q8 && getenv("QW3_METAL_Q8_SPLIT_32") == NULL ? 64u : 32u;
     const uint64_t gqa_cache_token_bytes = gqa_kv_q8 ?
         (uint64_t)QW3_METAL_N_HEAD_KV * (QW3_METAL_N_HEAD_DIM / 32u) * 34ull :
         (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(float);
@@ -4099,7 +4102,8 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     const uint64_t gqa_kv_token_bytes =
         (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(float);
     const uint64_t gqa_attn_partial_bytes = gqa_split_q8 ?
-        32ull * QW3_METAL_N_HEAD * (QW3_METAL_N_HEAD_DIM + 2ull) * sizeof(float) :
+        (uint64_t)gqa_max_q8_splits * QW3_METAL_N_HEAD *
+            (QW3_METAL_N_HEAD_DIM + 2ull) * sizeof(float) :
         0ull;
 
     QW3MetalSessionObj *obj = [[QW3MetalSessionObj alloc] init];
@@ -4107,6 +4111,7 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     obj.vocabSize = vocab_size;
     obj.gqaKvQ8 = gqa_kv_q8;
     obj.gqaSplitQ8 = gqa_split_q8;
+    obj.gqaMaxQ8Splits = gqa_max_q8_splits;
     qw3_metal_session_info info = {
         .gqa_kv_bytes = 2 * gqa_kv_bytes,
         .deltanet_state_bytes = deltanet_state_bytes,
@@ -7537,7 +7542,11 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
     const BOOL split_q8 = obj.gqaKvQ8 && obj.gqaSplitQ8 &&
         (n_ctx >= 256u || getenv("QW3_METAL_Q8_SPLIT_FORCE") != NULL);
     if (split_q8) {
-        const uint32_t n_splits = n_ctx < 32u ? n_ctx : 32u;
+        const uint32_t active_max_splits =
+            obj.gqaMaxQ8Splits > 32u && n_ctx < 2048u ?
+                32u : obj.gqaMaxQ8Splits;
+        const uint32_t n_splits =
+            n_ctx < active_max_splits ? n_ctx : active_max_splits;
         const uint64_t split_bytes =
             (uint64_t)n_splits * n_heads * (head_dim + 2u) * sizeof(float);
         if (!obj.gqaAttnPartial || obj.gqaAttnPartial.length < split_bytes ||

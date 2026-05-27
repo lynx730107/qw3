@@ -780,7 +780,9 @@ qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
                                QW3_N_HEAD_KV * (QW3_N_HEAD_DIM / 32) *
                                34ull * (uint64_t)ctx_size * 2ull;
             if (getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL) {
-                mem.scratch_bytes += 32ull * QW3_N_HEAD *
+                const uint64_t q8_splits =
+                    getenv("QW3_METAL_Q8_SPLIT_32") == NULL ? 64ull : 32ull;
+                mem.scratch_bytes += q8_splits * QW3_N_HEAD *
                                      (QW3_N_HEAD_DIM + 2ull) * sizeof(float);
             }
         }
