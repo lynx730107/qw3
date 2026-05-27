@@ -10853,7 +10853,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
             }
             if (ok) {
                 if (fused_gdn) {
-                    ok = qw3_metal_session_deltanet_fused_gdn_from_scratch(
+                    ok = qw3_metal_session_deltanet_tiled_gdn_from_scratch(
                         s->metal, lw->linear_ssm_dt_bias->offset,
                         lw->linear_ssm_a->offset, lw->linear_ssm_norm->offset,
                         n_qkv, alpha_offset, beta_offset,

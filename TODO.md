@@ -133,6 +133,7 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
    - Provata e rimossa una geometria Q8 stretta per le sole proiezioni da `x1`, con 64 thread per i 64 blocchi effettivi invece di 256: nel confronto caldo a 256 token misura `38.02 tok/s` contro `38.05` del controllo, quindi il costo delle proiezioni non si riduce eliminando i thread nominalmente inattivi.
    - Isolato e rimosso anche il corpo Q8 stile `llama.cpp` nella geometria locale a una riga: accumula `q*x` per blocco e applica `d` una sola volta. Il decode resta corretto (`top0=8160`, `maxdiff=2.279878e-05`), ma due run misurano `38.84-38.86 tok/s` contro `39.06` del corpo originale ricompilato subito dopo.
    - Verificato nei sorgenti di riferimento che i matvec Q8 decode di `qw3`, `ds4` e `llama.cpp` consumano RHS `float`, e che la SiLU usa il normale `exp` con fast-math Metal di default; non manca un percorso evidente di attivazioni quantizzate o una variante `fast::exp` da importare.
+   - Portata nel path predefinito la ricorrenza Gated DeltaNet tiled ispirata al kernel SIMD di `llama.cpp`: quattro colonne di stato per threadgroup, con dot/update ripartiti sulle lane, seguiti dal gated RMSNorm gia esistente. Il decode resta corretto (`top0=8160`, `maxdiff=1.883507e-05`); nel profilo attention `recur_out_ms` dei 30 layer lineari scende da `0.320` a `0.305 ms/layer`. I run da 256 token tiled misurano `39.48`, `38.71`, `39.62` e `38.84 tok/s`, mentre i controlli fused adiacenti misurano `38.94` e `38.76 tok/s`: il margine end-to-end e' piccolo e rumoroso, ma coerente con il guadagno isolato della fase.
    - Restano copie temporanee per input/output CPU dei wrapper diagnostici/non-session; il path runtime default non usa piu' top-k/softmax CPU per il ramo sparse MoE.
    - Accesso ai buffer modello Metal stabilizzato per il percorso sessione tramite resolver pointer-based.
    - Non ridurre alla cieca i command buffer: valutare nuove segmentazioni solo con `QW3_METAL_GRAPH_TOKEN_PROFILE=1`.
@@ -140,7 +141,8 @@ Chiudere il backend Metal trasformando il path oggi corretto/diagnostico in un r
 
 ## Prossimi step consigliati
 
-1. Progettare un path decode sperimentale con dipendenze esplicite sui buffer e gruppi concurrent estesi a piu' operazioni del body, modellato sul riordino del graph Metal di `llama.cpp`; mantenere il path seriale come baseline e misurare ogni incremento.
-2. Continuare sui kernel body dominanti e misurare il vantaggio su scenari equivalenti a `llama.cpp`, soprattutto con contesti lunghi e KV q8; evitare le varianti gia scartate.
-3. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
-4. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.
+1. Ridurre il costo delle proiezioni Q8 attention, ancora dominante dopo la ricorrenza tiled, studiando la strategia effettiva di `llama.cpp`/`ds4` sulle shape Qwen invece di replicare soltanto geometrie isolate.
+2. Progettare un path decode sperimentale con dipendenze esplicite sui buffer e gruppi concurrent estesi a piu' operazioni del body, modellato sul riordino del graph Metal di `llama.cpp`; mantenere il path seriale come baseline e misurare ogni incremento.
+3. Continuare sui kernel body dominanti e misurare il vantaggio su scenari equivalenti a `llama.cpp`, soprattutto con contesti lunghi e KV q8; evitare le varianti gia scartate.
+4. Valutare una migrazione Metal 4 separata e misurabile per command submission/tensor API, senza sostituire i kernel GGUF custom finche' non mostra un vantaggio reale.
+5. Validare la KV cache q8_0 su continuazioni lunghe e aggiungere opzioni CLI equivalenti a `-ctk q8_0 -ctv q8_0`.

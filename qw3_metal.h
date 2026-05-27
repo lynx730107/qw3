@@ -115,6 +115,11 @@ int qw3_metal_session_deltanet_fused_gdn_from_scratch(
     uint64_t norm_weight_offset, uint32_t z_offset, uint32_t alpha_offset,
     uint32_t beta_offset, uint32_t layer_slot, uint32_t q_heads,
     uint32_t v_heads, uint32_t head_dim, float eps);
+int qw3_metal_session_deltanet_tiled_gdn_from_scratch(
+    qw3_metal_session *s, uint64_t dt_bias_offset, uint64_t a_offset,
+    uint64_t norm_weight_offset, uint32_t z_offset, uint32_t alpha_offset,
+    uint32_t beta_offset, uint32_t layer_slot, uint32_t q_heads,
+    uint32_t v_heads, uint32_t head_dim, float eps);
 int qw3_metal_session_deltanet_gated_rmsnorm_from_buffers(
     qw3_metal_session *s, uint64_t norm_weight_offset, uint32_t z_offset,
     uint32_t v_heads, uint32_t head_dim, float eps, float *out);

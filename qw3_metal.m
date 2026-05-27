@@ -68,6 +68,7 @@ static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_zero_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_pipeline;
+static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_tiled_pipeline;
 static id<MTLComputePipelineState> g_deltanet_fused_gdn_scratch_pipeline;
 static id<MTLComputePipelineState> g_deltanet_gated_rmsnorm_pipeline;
 static id<MTLComputePipelineState> g_residual_rmsnorm_weight_f32_pipeline;
@@ -1618,6 +1619,57 @@ static NSString *qw3_metal_kernel_source(void) {
             "    }\n"
             "    core_out[uint64_t(hv) * args.head_dim + j] = out * rsqrt(float(args.head_dim));\n"
             "}\n"
+            "kernel void qw3_deltanet_recur_scratch_gates_tiled(constant qw3_recur_scratch_args &args,\n"
+            "                                                   device const float *state_in,\n"
+            "                                                   device const float *q,\n"
+            "                                                   device const float *k,\n"
+            "                                                   device const float *v,\n"
+            "                                                   device const float *scratch,\n"
+            "                                                   device const float *dt_bias,\n"
+            "                                                   device const float *a,\n"
+            "                                                   device float *state_out,\n"
+            "                                                   device float *core_out,\n"
+            "                                                   uint2 group [[threadgroup_position_in_grid]],\n"
+            "                                                   ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                   ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint hv = group.y;\n"
+            "    uint j = group.x * 4u + uint(simd_idx);\n"
+            "    if (hv >= args.v_heads || j >= args.head_dim) return;\n"
+            "    uint hk = hv % args.q_heads;\n"
+            "    uint state_n = args.head_dim * args.head_dim;\n"
+            "    device const float *qh = q + uint64_t(hk) * args.head_dim;\n"
+            "    device const float *kh = k + uint64_t(hk) * args.head_dim;\n"
+            "    device const float *vh = v + uint64_t(hv) * args.head_dim;\n"
+            "    device const float *sin = state_in + uint64_t(hv) * state_n;\n"
+            "    device float *sout = state_out + uint64_t(hv) * state_n;\n"
+            "    float b = 0.0f;\n"
+            "    float g = 0.0f;\n"
+            "    if (lane == 0) {\n"
+            "        float beta_raw = scratch[args.beta_offset + hv];\n"
+            "        b = 1.0f / (1.0f + exp(-beta_raw));\n"
+            "        float alpha_raw = scratch[args.alpha_offset + hv] + dt_bias[hv];\n"
+            "        float sp = alpha_raw > 20.0f ? alpha_raw : (alpha_raw < -20.0f ? exp(alpha_raw) : log(1.0f + exp(alpha_raw)));\n"
+            "        g = exp(sp * a[hv]);\n"
+            "    }\n"
+            "    b = simd_broadcast(b, 0);\n"
+            "    g = simd_broadcast(g, 0);\n"
+            "    uint i0 = uint(lane) * 4u;\n"
+            "    float4 sv = float4(sin[(i0 + 0u) * args.head_dim + j],\n"
+            "                       sin[(i0 + 1u) * args.head_dim + j],\n"
+            "                       sin[(i0 + 2u) * args.head_dim + j],\n"
+            "                       sin[(i0 + 3u) * args.head_dim + j]);\n"
+            "    float4 kv = float4(kh[i0 + 0u], kh[i0 + 1u], kh[i0 + 2u], kh[i0 + 3u]);\n"
+            "    float sk = simd_sum(dot(sv, kv));\n"
+            "    float d = b * (vh[j] - sk * g);\n"
+            "    sv = sv * g + kv * d;\n"
+            "    sout[(i0 + 0u) * args.head_dim + j] = sv.x;\n"
+            "    sout[(i0 + 1u) * args.head_dim + j] = sv.y;\n"
+            "    sout[(i0 + 2u) * args.head_dim + j] = sv.z;\n"
+            "    sout[(i0 + 3u) * args.head_dim + j] = sv.w;\n"
+            "    float4 qv = float4(qh[i0 + 0u], qh[i0 + 1u], qh[i0 + 2u], qh[i0 + 3u]);\n"
+            "    float out = simd_sum(dot(sv, qv));\n"
+            "    if (lane == 0) core_out[uint64_t(hv) * args.head_dim + j] = out * rsqrt(float(args.head_dim));\n"
+            "}\n"
             "struct qw3_fused_gdn_args { uint q_heads; uint v_heads; uint head_dim; uint alpha_offset; uint beta_offset; uint z_offset; float eps; };\n"
             "kernel void qw3_deltanet_fused_gdn_scratch(constant qw3_fused_gdn_args &args,\n"
             "                                            device const float *state_in,\n"
@@ -2983,6 +3035,7 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_attend_n_q8_inner_pipeline &&
         g_deltanet_recur_zero_pipeline &&
         g_deltanet_recur_pipeline && g_deltanet_recur_scratch_gates_pipeline &&
+        g_deltanet_recur_scratch_gates_tiled_pipeline &&
         g_deltanet_fused_gdn_scratch_pipeline &&
         g_deltanet_gated_rmsnorm_pipeline &&
         g_residual_rmsnorm_weight_f32_pipeline &&
@@ -3470,6 +3523,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                                       error:&error];
     if (!g_deltanet_recur_scratch_gates_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_recur_scratch_gates failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_deltanet_recur_scratch_gates_tiled"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_deltanet_recur_scratch_gates_tiled not found\n");
+        return 0;
+    }
+    g_deltanet_recur_scratch_gates_tiled_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_deltanet_recur_scratch_gates_tiled_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_recur_scratch_gates_tiled failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -5518,6 +5583,93 @@ int qw3_metal_session_deltanet_fused_gdn_from_scratch(
     return 1;
 }
 
+int qw3_metal_session_deltanet_tiled_gdn_from_scratch(
+    qw3_metal_session *s, uint64_t dt_bias_offset, uint64_t a_offset,
+    uint64_t norm_weight_offset, uint32_t z_offset, uint32_t alpha_offset,
+    uint32_t beta_offset, uint32_t layer_slot, uint32_t q_heads,
+    uint32_t v_heads, uint32_t head_dim, float eps) {
+    if (!s || !s->obj || q_heads == 0 || v_heads == 0 || head_dim == 0 ||
+        layer_slot >= QW3_METAL_N_LINEAR_LAYERS || head_dim % 4u != 0u) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t qk_bytes = (uint64_t)q_heads * head_dim * sizeof(float);
+    const uint64_t inner_bytes = (uint64_t)v_heads * head_dim * sizeof(float);
+    const uint64_t gates_bytes = (uint64_t)v_heads * sizeof(float);
+    const uint64_t state_bytes =
+        (uint64_t)v_heads * head_dim * head_dim * sizeof(float);
+    const uint64_t state_offset = (uint64_t)layer_slot * state_bytes;
+    const uint64_t v_offset = 2 * qk_bytes;
+    const uint64_t alpha_bytes = (uint64_t)alpha_offset * sizeof(float);
+    const uint64_t beta_bytes = (uint64_t)beta_offset * sizeof(float);
+    if (!obj.qNorm || !obj.kNorm || !obj.qkvConv || !obj.deltanetState ||
+        !obj.scratch || !obj.core || obj.qNorm.length < qk_bytes ||
+        obj.kNorm.length < qk_bytes ||
+        obj.qkvConv.length < v_offset + inner_bytes ||
+        obj.deltanetState.length < state_offset ||
+        obj.deltanetState.length - state_offset < state_bytes ||
+        obj.scratch.length < alpha_bytes + gates_bytes ||
+        obj.scratch.length < beta_bytes + gates_bytes ||
+        obj.core.length < inner_bytes) {
+        return 0;
+    }
+    if (!g_model_map_ptr || dt_bias_offset > g_model_map_size ||
+        a_offset > g_model_map_size ||
+        gates_bytes > g_model_map_size - dt_bias_offset ||
+        gates_bytes > g_model_map_size - a_offset) {
+        fprintf(stderr, "qw3: Metal tiled Gated DeltaNet weights are outside mapped model\n");
+        return 0;
+    }
+
+    uint64_t dt_inner = 0;
+    uint64_t a_inner = 0;
+    id<MTLBuffer> dtb = qw3_metal_model_view_for(dt_bias_offset, gates_bytes,
+                                                  &dt_inner);
+    id<MTLBuffer> ab = qw3_metal_model_view_for(a_offset, gates_bytes, &a_inner);
+    if (!dtb || !ab ||
+        128u > g_deltanet_recur_scratch_gates_tiled_pipeline.maxTotalThreadsPerThreadgroup) {
+        return 0;
+    }
+
+    struct {
+        uint32_t q_heads;
+        uint32_t v_heads;
+        uint32_t head_dim;
+        uint32_t alpha_offset;
+        uint32_t beta_offset;
+    } args = { q_heads, v_heads, head_dim, alpha_offset, beta_offset };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_deltanet_recur_scratch_gates_tiled_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.deltanetState offset:(NSUInteger)state_offset atIndex:1];
+    [enc setBuffer:obj.qNorm offset:0 atIndex:2];
+    [enc setBuffer:obj.kNorm offset:0 atIndex:3];
+    [enc setBuffer:obj.qkvConv offset:(NSUInteger)v_offset atIndex:4];
+    [enc setBuffer:obj.scratch offset:0 atIndex:5];
+    [enc setBuffer:dtb offset:(NSUInteger)dt_inner atIndex:6];
+    [enc setBuffer:ab offset:(NSUInteger)a_inner atIndex:7];
+    [enc setBuffer:obj.deltanetState offset:(NSUInteger)state_offset atIndex:8];
+    [enc setBuffer:obj.core offset:0 atIndex:9];
+    [enc dispatchThreadgroups:MTLSizeMake((head_dim + 3u) / 4u, v_heads, 1)
+        threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal tiled Gated DeltaNet command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return qw3_metal_session_deltanet_gated_rmsnorm_from_buffers(
+        s, norm_weight_offset, z_offset, v_heads, head_dim, eps, NULL);
+}
+
 int qw3_metal_session_deltanet_gated_rmsnorm_from_buffers(qw3_metal_session *s,
                                                           uint64_t norm_weight_offset,
                                                           uint32_t z_offset,
@@ -7319,6 +7471,7 @@ void qw3_metal_cleanup(void) {
     g_deltanet_recur_zero_pipeline = nil;
     g_deltanet_recur_pipeline = nil;
     g_deltanet_recur_scratch_gates_pipeline = nil;
+    g_deltanet_recur_scratch_gates_tiled_pipeline = nil;
     g_deltanet_fused_gdn_scratch_pipeline = nil;
     g_deltanet_gated_rmsnorm_pipeline = nil;
     g_residual_rmsnorm_weight_f32_pipeline = nil;
