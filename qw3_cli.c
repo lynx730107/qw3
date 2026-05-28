@@ -11,10 +11,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <errno.h>
+#include <unistd.h>
 #include "qw3.h"
+
+#ifndef QW3_CLI_ENABLE_INTERNAL_TESTS
+#define QW3_CLI_ENABLE_INTERNAL_TESTS 0
+#endif
 
 typedef struct {
     qw3_engine *engine;
+    qw3_tokens *capture;
 } emit_ctx;
 
 typedef struct {
@@ -115,6 +122,9 @@ static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len) 
 
 static void emit_token(void *ud, int token) {
     emit_ctx *ctx = (emit_ctx *)ud;
+    if (ctx && ctx->capture) {
+        qw3_tokens_push(ctx->capture, token);
+    }
     size_t len = 0;
     char *text = token_decoded_text(ctx->engine, token, &len);
     if (text && len) {
@@ -128,6 +138,38 @@ static void emit_done(void *ud) {
     (void)ud;
     fputc('\n', stdout);
     fflush(stdout);
+}
+
+static char *read_file_text(const char *path, size_t *out_len) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+    long n = ftell(fp);
+    if (n < 0) {
+        fclose(fp);
+        return NULL;
+    }
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+    char *buf = malloc((size_t)n + 1);
+    if (!buf) {
+        fclose(fp);
+        return NULL;
+    }
+    size_t got = fread(buf, 1, (size_t)n, fp);
+    fclose(fp);
+    if (got != (size_t)n) {
+        free(buf);
+        return NULL;
+    }
+    buf[got] = '\0';
+    if (out_len) *out_len = got;
+    return buf;
 }
 
 static void print_token_piece(qw3_engine *engine, int token) {
@@ -304,6 +346,221 @@ static int generate_from_session(qw3_engine *engine, qw3_session *session,
     return 0;
 }
 
+#if !QW3_CLI_ENABLE_INTERNAL_TESTS
+static int cli_public_option_takes_value(const char *arg) {
+    return !strcmp(arg, "-m") ||
+           !strcmp(arg, "-p") ||
+           !strcmp(arg, "--prompt-file") ||
+           !strcmp(arg, "-sys") ||
+           !strcmp(arg, "--system") ||
+           !strcmp(arg, "--system-file") ||
+           !strcmp(arg, "-n") ||
+           !strcmp(arg, "--temp") ||
+           !strcmp(arg, "--sample-top-k") ||
+           !strcmp(arg, "--top-p") ||
+           !strcmp(arg, "--min-p") ||
+           !strcmp(arg, "--seed") ||
+           !strcmp(arg, "--ctx") ||
+           !strcmp(arg, "-ctk") ||
+           !strcmp(arg, "--ctk") ||
+           !strcmp(arg, "-ctv") ||
+           !strcmp(arg, "--ctv");
+}
+
+static int cli_internal_option(const char *arg) {
+    if (!arg || arg[0] != '-') return 0;
+    if (!strncmp(arg, "--metal-", 8)) return 1;
+    return !strcmp(arg, "--inspect") ||
+           !strcmp(arg, "--layer-types") ||
+           !strcmp(arg, "--probe-token") ||
+           !strcmp(arg, "--tokenize") ||
+           !strcmp(arg, "--chat-tokenize") ||
+           !strcmp(arg, "--top-k") ||
+           !strcmp(arg, "--dump-logprobs") ||
+           !strcmp(arg, "--logprobs-top-k") ||
+           !strcmp(arg, "--session-roundtrip") ||
+           !strcmp(arg, "--save-session") ||
+           !strcmp(arg, "--load-session") ||
+           !strcmp(arg, "--trace-layers") ||
+           !strcmp(arg, "--dump-trace");
+}
+
+static int reject_internal_cli_options(int argc, char **argv) {
+    for (int i = 1; i < argc; i++) {
+        if (cli_public_option_takes_value(argv[i])) {
+            i++;
+            continue;
+        }
+        if (cli_internal_option(argv[i])) {
+            fprintf(stderr,
+                    "qw3: internal diagnostic/test option '%s' is disabled in the client build\n"
+                    "qw3: rebuild with -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 to enable developer diagnostics\n",
+                    argv[i]);
+            return -1;
+        }
+    }
+    return 0;
+}
+#endif
+
+static void append_generated_assistant(qw3_engine *engine, qw3_tokens *transcript,
+                                       const qw3_tokens *generated) {
+    for (int i = 0; i < generated->len; i++) {
+        qw3_tokens_push(transcript, generated->v[i]);
+    }
+    int eos = qw3_token_eos(engine);
+    if (eos >= 0 && (transcript->len == 0 ||
+                     transcript->v[transcript->len - 1] != eos)) {
+        qw3_tokens_push(transcript, eos);
+    }
+}
+
+static int generate_chat_turn(qw3_engine *engine, qw3_backend backend,
+                              qw3_session *session, qw3_tokens *transcript,
+                              int ctx_size, int n_predict,
+                              qw3_think_mode think_mode, sample_opts *sample) {
+    char err[256] = {0};
+    qw3_tokens generated = {0};
+    emit_ctx emit = {
+        .engine = engine,
+        .capture = &generated,
+    };
+
+    qw3_chat_append_assistant_prefix(engine, transcript, think_mode);
+
+    int rc = -1;
+    if (backend == QW3_BACKEND_METAL) {
+        if (sample->temperature > 0.0f) {
+            rc = qw3_engine_metal_generate_sample(
+                engine, transcript, n_predict, ctx_size,
+                sample->temperature, sample->sample_top_k,
+                sample->top_p, sample->min_p, &sample->rng,
+                emit_token, emit_done, &emit);
+        } else {
+            rc = qw3_engine_metal_generate_argmax(
+                engine, transcript, n_predict, ctx_size,
+                emit_token, emit_done, &emit);
+        }
+    } else if (qw3_session_sync(session, transcript, err, sizeof(err)) == 0) {
+        rc = generate_from_session(engine, session, n_predict, &emit, sample);
+    } else {
+        fprintf(stderr, "qw3: chat prefill failed: %s\n", err);
+    }
+
+    if (rc == 0) {
+        append_generated_assistant(engine, transcript, &generated);
+    }
+    qw3_tokens_free(&generated);
+    return rc;
+}
+
+static void interactive_help(void) {
+    fprintf(stderr,
+            "Commands:\n"
+            "  /help              Show this help\n"
+            "  /read PATH         Send a file as the next user message\n"
+            "  /ctx               Print current token count and context size\n"
+            "  /new               Start a new conversation\n"
+            "  /think             Enable thinking mode for later turns\n"
+            "  /nothink           Disable thinking mode for later turns\n"
+            "  /quit              Exit\n");
+}
+
+static int interactive_chat(qw3_engine *engine, qw3_backend backend,
+                            const char *system_prompt, int ctx_size,
+                            int n_predict, qw3_think_mode think_mode,
+                            sample_opts *sample) {
+    qw3_session *session = NULL;
+    if (backend != QW3_BACKEND_METAL &&
+        qw3_session_create(&session, engine, ctx_size) != 0) {
+        fprintf(stderr, "qw3: cannot create CPU chat session\n");
+        return 1;
+    }
+
+    qw3_tokens transcript = {0};
+    if (system_prompt && system_prompt[0]) {
+        qw3_chat_append_message(engine, &transcript, "system", system_prompt);
+    }
+
+    fprintf(stderr, "qw3 chat ready. Type /help for commands.\n");
+    char *line = NULL;
+    size_t cap = 0;
+    int rc = 0;
+    for (;;) {
+        if (isatty(STDIN_FILENO)) {
+            fprintf(stderr, "\nqw3> ");
+            fflush(stderr);
+        }
+        ssize_t nread = getline(&line, &cap, stdin);
+        if (nread < 0) break;
+        while (nread > 0 && (line[nread - 1] == '\n' || line[nread - 1] == '\r')) {
+            line[--nread] = '\0';
+        }
+        if (nread == 0) continue;
+
+        char *message = line;
+        char *owned_message = NULL;
+        if (line[0] == '/') {
+            if (!strcmp(line, "/quit") || !strcmp(line, "/exit")) {
+                break;
+            } else if (!strcmp(line, "/help")) {
+                interactive_help();
+                continue;
+            } else if (!strcmp(line, "/ctx")) {
+                fprintf(stderr, "tokens=%d ctx=%d\n", transcript.len, ctx_size);
+                continue;
+            } else if (!strcmp(line, "/new")) {
+                qw3_tokens_free(&transcript);
+                memset(&transcript, 0, sizeof(transcript));
+                if (system_prompt && system_prompt[0]) {
+                    qw3_chat_append_message(engine, &transcript, "system", system_prompt);
+                }
+                if (session) qw3_session_invalidate(session);
+                fprintf(stderr, "new conversation\n");
+                continue;
+            } else if (!strcmp(line, "/think")) {
+                think_mode = QW3_THINK_ON;
+                fprintf(stderr, "thinking enabled\n");
+                continue;
+            } else if (!strcmp(line, "/nothink")) {
+                think_mode = QW3_THINK_NONE;
+                fprintf(stderr, "thinking disabled\n");
+                continue;
+            } else if (!strncmp(line, "/read ", 6)) {
+                errno = 0;
+                owned_message = read_file_text(line + 6, NULL);
+                if (!owned_message) {
+                    fprintf(stderr, "qw3: cannot read %s: %s\n",
+                            line + 6, errno ? strerror(errno) : "read failed");
+                    continue;
+                }
+                message = owned_message;
+            } else {
+                fprintf(stderr, "unknown command: %s\n", line);
+                continue;
+            }
+        }
+
+        qw3_chat_append_message(engine, &transcript, "user", message);
+        free(owned_message);
+        if (transcript.len >= ctx_size) {
+            fprintf(stderr, "qw3: context is full (%d/%d tokens)\n",
+                    transcript.len, ctx_size);
+            rc = 1;
+            break;
+        }
+        if (generate_chat_turn(engine, backend, session, &transcript,
+                               ctx_size, n_predict, think_mode, sample) != 0) {
+            rc = 1;
+            break;
+        }
+    }
+    free(line);
+    qw3_tokens_free(&transcript);
+    qw3_session_free(session);
+    return rc;
+}
+
 static void usage(void) {
     fprintf(stderr,
         "qw3 — Qwen3.6-35B-A3B inference engine\n"
@@ -314,6 +571,11 @@ static void usage(void) {
         "Options:\n"
         "  -m PATH     Model GGUF path (default: ./qw3.gguf)\n"
         "  -p TEXT      One-shot prompt\n"
+        "  --prompt-file PATH\n"
+        "              Read one-shot prompt from a file\n"
+        "  -sys TEXT    System prompt\n"
+        "  --system-file PATH\n"
+        "              Read system prompt from a file\n"
         "  -n N         Max tokens to generate (default: 512)\n"
         "  --temp N     Sampling temperature (default: 0, greedy)\n"
         "  --sample-top-k N\n"
@@ -327,6 +589,7 @@ static void usage(void) {
         "  --cpu        Use CPU backend\n"
         "  --metal      Use Metal backend when compiled in\n"
         "  --nothink    Disable thinking mode\n"
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
         "  --inspect    Print GGUF metadata summary after loading\n"
         "  --layer-types N\n"
         "              Print tensor quantization types for one layer\n"
@@ -492,6 +755,7 @@ static void usage(void) {
         "              Run layer-3 GQA four-token final layer output on Metal\n"
         "  --metal-gqa-real-layer-test ID\n"
         "              Run layer-3 GQA residual plus MoE on Metal and compare with CPU\n"
+#endif
         "  --help       Show this help\n"
     );
 }
@@ -499,6 +763,9 @@ static void usage(void) {
 int main(int argc, char **argv) {
     const char *model_path = "./qw3.gguf";
     const char *prompt = NULL;
+    char *prompt_owned = NULL;
+    const char *system_prompt = NULL;
+    char *system_owned = NULL;
     int n_predict = 512;
     int ctx_size = 32768;
     const char *cache_type_k = NULL;
@@ -602,6 +869,14 @@ int main(int argc, char **argv) {
     const char *save_session_path = NULL;
     const char *load_session_path = NULL;
 
+#if !QW3_CLI_ENABLE_INTERNAL_TESTS
+    if (reject_internal_cli_options(argc, argv) != 0) {
+        free(prompt_owned);
+        free(system_owned);
+        return 1;
+    }
+#endif
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             usage();
@@ -610,6 +885,33 @@ int main(int argc, char **argv) {
             model_path = argv[++i];
         } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
             prompt = argv[++i];
+        } else if (strcmp(argv[i], "--prompt-file") == 0 && i + 1 < argc) {
+            const char *path = argv[++i];
+            free(prompt_owned);
+            errno = 0;
+            prompt_owned = read_file_text(path, NULL);
+            if (!prompt_owned) {
+                fprintf(stderr, "qw3: cannot read prompt file %s: %s\n",
+                        path, errno ? strerror(errno) : "read failed");
+                free(system_owned);
+                return 1;
+            }
+            prompt = prompt_owned;
+        } else if ((strcmp(argv[i], "-sys") == 0 ||
+                    strcmp(argv[i], "--system") == 0) && i + 1 < argc) {
+            system_prompt = argv[++i];
+        } else if (strcmp(argv[i], "--system-file") == 0 && i + 1 < argc) {
+            const char *path = argv[++i];
+            free(system_owned);
+            errno = 0;
+            system_owned = read_file_text(path, NULL);
+            if (!system_owned) {
+                fprintf(stderr, "qw3: cannot read system file %s: %s\n",
+                        path, errno ? strerror(errno) : "read failed");
+                free(prompt_owned);
+                return 1;
+            }
+            system_prompt = system_owned;
         } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
             n_predict = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--temp") == 0 && i + 1 < argc) {
@@ -973,7 +1275,7 @@ int main(int argc, char **argv) {
     }
     if (chat_tokenize) {
         qw3_tokens tokens = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt ? prompt : "",
+        qw3_encode_chat_prompt(engine, system_prompt, prompt ? prompt : "",
                                think_mode, &tokens);
         printf("[");
         for (int i = 0; i < tokens.len; i++) {
@@ -992,7 +1294,7 @@ int main(int argc, char **argv) {
         qw3_tokens tokens = {0};
         qw3_session *session = NULL;
         char err[256] = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         if (qw3_session_create(&session, engine, ctx_size) != 0 ||
             qw3_session_sync(session, &tokens, err, sizeof(err)) != 0) {
             fprintf(stderr, "qw3: top-k prefill failed: %s\n", err);
@@ -1029,7 +1331,7 @@ int main(int argc, char **argv) {
         }
         qw3_tokens tokens = {0};
         sample_opts dump_sample = sample;
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int dump_rc = dump_logprobs(engine, &tokens, ctx_size, n_predict,
                                     logprobs_top_k, &dump_sample,
                                     dump_logprobs_path);
@@ -1051,7 +1353,7 @@ int main(int argc, char **argv) {
         qw3_tokens tokens = {0};
         qw3_session *session = NULL;
         char err[256] = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         FILE *fp = fopen(save_session_path, "wb");
         if (!fp ||
             qw3_session_create(&session, engine, ctx_size) != 0 ||
@@ -1106,7 +1408,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         qw3_tokens tokens = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int trace_rc = qw3_engine_trace_prompt(engine, &tokens, ctx_size, stdout);
         qw3_tokens_free(&tokens);
         if (trace_rc != 0) {
@@ -1127,7 +1429,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         qw3_tokens tokens = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int trace_rc = qw3_engine_trace_prompt_json(engine, &tokens, ctx_size, fp);
         fclose(fp);
         qw3_tokens_free(&tokens);
@@ -1390,7 +1692,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         qw3_tokens tokens = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int rc = qw3_engine_metal_decode_test(engine, &tokens, ctx_size, stdout);
         qw3_tokens_free(&tokens);
         if (rc != 0) {
@@ -1405,7 +1707,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         qw3_tokens tokens = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int rc = qw3_engine_metal_session_decode_test(engine, &tokens,
                                                       ctx_size, stdout);
         qw3_tokens_free(&tokens);
@@ -1547,7 +1849,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         qw3_tokens tokens = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int rc = qw3_engine_metal_greedy_test(engine, &tokens, ctx_size,
                                               metal_greedy_test, stdout);
         qw3_tokens_free(&tokens);
@@ -1563,7 +1865,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         qw3_tokens tokens = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int rc = qw3_engine_metal_greedy_run(engine, &tokens, ctx_size,
                                              metal_run, metal_run_quiet,
                                              stdout);
@@ -1625,7 +1927,7 @@ int main(int argc, char **argv) {
         qw3_session *a = NULL;
         qw3_session *b = NULL;
         char err[256] = {0};
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         FILE *fp = tmpfile();
         if (!fp ||
             qw3_session_create(&a, engine, ctx_size) != 0 ||
@@ -1752,7 +2054,16 @@ int main(int argc, char **argv) {
         qw3_session *session = NULL;
         char err[256] = {0};
         emit_ctx emit = { .engine = engine };
-        qw3_encode_chat_prompt(engine, NULL, prompt, think_mode, &tokens);
+        if (!prompt) {
+            int chat_rc = interactive_chat(engine, backend, system_prompt,
+                                           ctx_size, n_predict, think_mode,
+                                           &sample);
+            qw3_engine_close(engine);
+            free(prompt_owned);
+            free(system_owned);
+            return chat_rc;
+        }
+        qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int gen_rc = -1;
         if (backend == QW3_BACKEND_METAL) {
             if (sample.temperature > 0.0f) {
@@ -1781,5 +2092,7 @@ int main(int argc, char **argv) {
     }
 
     qw3_engine_close(engine);
+    free(prompt_owned);
+    free(system_owned);
     return 0;
 }
