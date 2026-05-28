@@ -4680,7 +4680,7 @@ int qw3_metal_session_matvec_q8_0_x1_to_scratch(qw3_metal_session *s,
     [enc setBuffer:obj.x1 offset:0 atIndex:2];
     [enc setBuffer:obj.scratch offset:(NSUInteger)out_offset_bytes atIndex:3];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    NSUInteger threads = g_matvec_f32_pipeline.maxTotalThreadsPerThreadgroup;
+    NSUInteger threads = g_matvec_q8_0_pipeline.maxTotalThreadsPerThreadgroup;
     if (threads > 256) threads = 256;
     if (threads < 32) threads = 32;
     [enc dispatchThreadgroups:MTLSizeMake(n_out, 1, 1)
