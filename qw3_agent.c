@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "qw3.h"
@@ -168,6 +169,12 @@ static int sb_printf(strbuf *sb, const char *fmt, ...) {
     va_end(ap2);
     sb->len += (size_t)n;
     return 0;
+}
+
+static double agent_now_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1.0e-9;
 }
 
 static char *native_tool_response_text(const char *tool_name, const char *value) {
@@ -1272,48 +1279,57 @@ static int generate_once(agent_state *a, char **assistant_text) {
     emit.engine = a->engine;
 
     int rc = -1;
-    if (a->cfg.backend == QW3_BACKEND_METAL) {
-        if (a->cfg.sample.temperature > 0.0f) {
-            rc = qw3_engine_metal_generate_sample(
-                a->engine, &a->transcript, a->cfg.n_predict, a->cfg.ctx_size,
-                a->cfg.sample.temperature, a->cfg.sample.sample_top_k,
-                a->cfg.sample.top_p, a->cfg.sample.min_p,
-                &a->cfg.sample.rng, agent_emit_token, agent_emit_done, &emit);
-        } else {
-            rc = qw3_engine_metal_generate_argmax(
-                a->engine, &a->transcript, a->cfg.n_predict, a->cfg.ctx_size,
-                agent_emit_token, agent_emit_done, &emit);
-        }
+    char err[256] = {0};
+    int session_pos = qw3_session_pos(a->session);
+    int common = qw3_session_common_prefix(a->session, &a->transcript);
+    int cached = (common == session_pos && a->transcript.len >= common) ?
+                 common : 0;
+    const double t_prefill0 = agent_now_sec();
+    if (qw3_session_sync(a->session, &a->transcript, err, sizeof(err)) != 0) {
+        fprintf(stderr, "agent: prefill failed: %s\n", err);
+        rc = -1;
     } else {
-        char err[256] = {0};
-        if (qw3_session_sync(a->session, &a->transcript, err, sizeof(err)) != 0) {
-            fprintf(stderr, "agent: prefill failed: %s\n", err);
-            rc = -1;
-        } else {
-            rc = 0;
-            const int eos = qw3_token_eos(a->engine);
-            for (int i = 0; i < a->cfg.n_predict; i++) {
-                int token = qw3_session_sample(
-                    a->session, a->cfg.sample.temperature,
-                    a->cfg.sample.sample_top_k, a->cfg.sample.top_p,
-                    a->cfg.sample.min_p, &a->cfg.sample.rng);
-                if (token < 0) {
-                    rc = -1;
-                    break;
-                }
-                if (token == eos) break;
-                agent_emit_token(&emit, token);
-                if (qw3_session_eval(a->session, token, err, sizeof(err)) != 0) {
-                    fprintf(stderr, "agent: decode failed: %s\n", err);
-                    rc = -1;
-                    break;
-                }
-                if (generated_has_complete_tool_call(emit.text.p)) {
-                    break;
-                }
+        const double t_prefill1 = agent_now_sec();
+        rc = 0;
+        const int eos = qw3_token_eos(a->engine);
+        int n_generated = 0;
+        const double t_gen0 = agent_now_sec();
+        for (int i = 0; i < a->cfg.n_predict; i++) {
+            int token = qw3_session_sample(
+                a->session, a->cfg.sample.temperature,
+                a->cfg.sample.sample_top_k, a->cfg.sample.top_p,
+                a->cfg.sample.min_p, &a->cfg.sample.rng);
+            if (token < 0) {
+                rc = -1;
+                break;
             }
-            agent_emit_done(&emit);
+            if (token == eos) break;
+            agent_emit_token(&emit, token);
+            n_generated++;
+            if (qw3_session_eval(a->session, token, err, sizeof(err)) != 0) {
+                fprintf(stderr, "agent: decode failed: %s\n", err);
+                rc = -1;
+                break;
+            }
+            if (generated_has_complete_tool_call(emit.text.p)) {
+                break;
+            }
         }
+        const double t_gen1 = agent_now_sec();
+        agent_emit_done(&emit);
+
+        const int prefill_tokens = a->transcript.len - cached;
+        const double prefill_s = t_prefill1 - t_prefill0;
+        const double gen_s = t_gen1 - t_gen0;
+        qw3_log(stderr, QW3_LOG_TIMING,
+                "qw3-agent: %s session timing: cached=%d prompt=%d "
+                "prefill=%d tokens %.1f ms (%.2f tok/s) | "
+                "generation=%d tokens %.1f ms (%.2f tok/s)\n",
+                qw3_backend_name(a->cfg.backend), cached, a->transcript.len,
+                prefill_tokens, prefill_s * 1000.0,
+                prefill_s > 0.0 ? (double)prefill_tokens / prefill_s : 0.0,
+                n_generated, gen_s * 1000.0,
+                gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
     }
 
     if (rc == 0) {
@@ -1776,9 +1792,9 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
-    if (a.cfg.backend != QW3_BACKEND_METAL &&
-        qw3_session_create(&a.session, a.engine, a.cfg.ctx_size) != 0) {
-        fprintf(stderr, "agent: cannot create CPU session\n");
+    if (qw3_session_create(&a.session, a.engine, a.cfg.ctx_size) != 0) {
+        fprintf(stderr, "agent: cannot create %s session\n",
+                qw3_backend_name(a.cfg.backend));
         qw3_engine_close(a.engine);
         free_config(&a.cfg);
         return 1;

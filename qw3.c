@@ -691,6 +691,15 @@ struct qw3_session {
     void *progress_ud;
 };
 
+#define QW3_METAL_LOGITS_GPU  1
+#define QW3_METAL_LOGITS_READ 2
+
+#ifndef QW3_NO_METAL
+static int qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
+                                                char *err, size_t errlen,
+                                                int read_logits);
+#endif
+
 /* =========================================================================
  * Engine — the loaded model.
  * =========================================================================
@@ -3784,6 +3793,11 @@ done:
 }
 
 int qw3_session_eval(qw3_session *s, int token, char *err, size_t errlen) {
+#ifndef QW3_NO_METAL
+    if (s && s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal) {
+        return qw3_metal_session_eval_token_slow_ex(s, token, err, errlen, 1);
+    }
+#endif
     return qw3_session_eval_inner(s, token, err, errlen, NULL, false, NULL);
 }
 
@@ -3795,6 +3809,17 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
         qw3_session_invalidate(s);
         common = 0;
     }
+#ifndef QW3_NO_METAL
+    if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal) {
+        for (int i = common; i < prompt->len; i++) {
+            const int last = i + 1 == prompt->len;
+            int rc = qw3_metal_session_eval_token_slow_ex(
+                s, prompt->v[i], err, errlen, last ? 1 : 0);
+            if (rc != 0) return -1;
+        }
+        return 0;
+    }
+#endif
     for (int i = common; i < prompt->len; i++) {
         if (qw3_session_eval(s, prompt->v[i], err, errlen) != 0) return -1;
     }
@@ -10693,12 +10718,12 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
 #endif
 }
 
-static int __attribute__((unused))
-qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
-                                     char *err, size_t errlen,
-                                     int read_logits) {
+static int
+qw3_metal_session_eval_token_mode(qw3_session *s, int token,
+                                  char *err, size_t errlen,
+                                  int logits_mode) {
 #ifdef QW3_NO_METAL
-    (void)s; (void)token; (void)err; (void)errlen; (void)read_logits;
+    (void)s; (void)token; (void)err; (void)errlen; (void)logits_mode;
     return -1;
 #else
     if (!s || !s->engine || !s->metal) return -1;
@@ -11138,7 +11163,7 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
         }
     }
 
-    if (ok && !read_logits) {
+    if (ok && logits_mode == QW3_METAL_LOGITS_GPU) {
         double t0 = profile ? qw3_now_sec() : 0.0;
         if (profile) {
             ok = qw3_metal_synchronize();
@@ -11194,15 +11219,14 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
         if (profile) t_output_norm_sync += qw3_now_sec() - t0;
         batch_open = 0;
         t0 = profile ? qw3_now_sec() : 0.0;
-        float *logits_out = read_logits ? s->logits : NULL;
         if (ok && e->weights.output->type == QW3_TENSOR_Q8_0) {
             ok = qw3_metal_session_matvec_q8_0_x1_to_logits(
                 s->metal, e->weights.output->offset,
-                QW3_N_EMBD, QW3_N_VOCAB, logits_out);
+                QW3_N_EMBD, QW3_N_VOCAB, s->logits);
         } else if (ok && e->weights.output->type == QW3_TENSOR_Q6_K) {
             ok = qw3_metal_session_matvec_q6_k_x1_to_logits(
                 s->metal, e->weights.output->offset,
-                QW3_N_EMBD, QW3_N_VOCAB, logits_out);
+                QW3_N_EMBD, QW3_N_VOCAB, s->logits);
         } else {
             ok = 0;
         }
@@ -11227,7 +11251,8 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                 t_pre_logits_sync * 1000.0, t_output_norm_sync * 1000.0,
                 t_logits * 1000.0);
     }
-    if (graph_token_profile && !read_logits && t_graph_done != 0.0) {
+    if (graph_token_profile &&
+        logits_mode == QW3_METAL_LOGITS_GPU && t_graph_done != 0.0) {
         fprintf(stderr,
                 "qw3: metal graph token token=%d pos=%d flushes=%d "
                 "submit_ms=%.3f final_wait_ms=%.3f total_ms=%.3f\n",
@@ -11238,6 +11263,15 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
     }
     return ok ? 0 : -1;
 #endif
+}
+
+static int
+qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
+                                     char *err, size_t errlen,
+                                     int read_logits) {
+    return qw3_metal_session_eval_token_mode(
+        s, token, err, errlen,
+        read_logits ? QW3_METAL_LOGITS_READ : QW3_METAL_LOGITS_GPU);
 }
 
 static int __attribute__((unused))
@@ -11575,8 +11609,10 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
     for (int i = 0; i < prompt->len; i++) {
-        if (qw3_metal_session_eval_token_slow(s, prompt->v[i],
-                                              err, sizeof(err)) != 0) {
+        const int last = i + 1 == prompt->len;
+        if (qw3_metal_session_eval_token_slow_ex(s, prompt->v[i],
+                                                 err, sizeof(err),
+                                                 last ? 1 : 0) != 0) {
             fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
             qw3_session_free(s);
             return -1;
@@ -12628,6 +12664,17 @@ int qw3_engine_metal_gqa_real_layer_test(qw3_engine *e, int token, FILE *fp) {
 
 int qw3_session_argmax(qw3_session *s) {
     if (!s) return -1;
+#ifndef QW3_NO_METAL
+    if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal) {
+        uint32_t idx = 0;
+        float val = 0.0f;
+        if (qw3_metal_session_argmax_logits(s->metal, QW3_N_VOCAB,
+                                            &idx, &val)) {
+            return (int)idx;
+        }
+        return -1;
+    }
+#endif
     int best = 0;
     float bestv = s->logits[0];
     for (int i = 1; i < QW3_N_VOCAB; i++) {
