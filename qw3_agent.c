@@ -70,6 +70,8 @@ typedef struct {
     char *system_prompt;
     char *store_dir;
     char *conversation;
+    const char *tool_dsml;
+    char *tool_dsml_owned;
     int n_predict;
     int ctx_size;
     int max_tool_rounds;
@@ -727,9 +729,22 @@ static bool looks_text_file(const char *path) {
     return true;
 }
 
+static bool file_looks_binary(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return true;
+    unsigned char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf), fp);
+    fclose(fp);
+    for (size_t i = 0; i < n; i++) {
+        if (buf[i] == 0) return true;
+    }
+    return false;
+}
+
 static void search_file(strbuf *out, const char *path, const char *pattern,
                         int *matches, int max_matches) {
-    if (*matches >= max_matches || !looks_text_file(path)) return;
+    if (*matches >= max_matches || !looks_text_file(path) ||
+        file_looks_binary(path)) return;
     FILE *fp = fopen(path, "rb");
     if (!fp) return;
     char *line = NULL;
@@ -852,6 +867,24 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls) {
         free(out);
     }
     return result.p ? result.p : agent_strdup("");
+}
+
+static int run_tool_dsml(agent_state *a, const char *dsml) {
+    tool_call_list calls;
+    int n = parse_tool_calls(dsml ? dsml : "", &calls);
+    if (n <= 0) {
+        fprintf(stderr, "agent: no complete DSML tool_calls block found\n");
+        free_tool_calls(&calls);
+        return 1;
+    }
+    char *result = execute_tools(a, &calls);
+    free_tool_calls(&calls);
+    if (result) {
+        fputs(result, stdout);
+        if (result[0] && result[strlen(result) - 1] != '\n') fputc('\n', stdout);
+    }
+    free(result);
+    return 0;
 }
 
 static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
@@ -1055,6 +1088,9 @@ static void print_help(void) {
         "  --store-dir PATH     Conversation store directory\n"
         "  --conversation NAME  Load/save a named conversation\n"
         "  --no-tools           Disable tool execution\n"
+        "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
+        "  --tool-dsml-file PATH\n"
+        "                       Execute DSML tool_calls read from a file and exit\n"
         "  --help               Show help\n\n"
         "Interactive commands:\n"
         "  /help, /quit, /new, /ctx, /save [name], /load name, /sessions\n"
@@ -1142,6 +1178,16 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->conversation = agent_strdup(argv[++i]);
         } else if (!strcmp(argv[i], "--no-tools")) {
             cfg->tools_enabled = false;
+        } else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc) {
+            cfg->tool_dsml = argv[++i];
+        } else if (!strcmp(argv[i], "--tool-dsml-file") && i + 1 < argc) {
+            const char *path = argv[++i];
+            cfg->tool_dsml_owned = read_file_text(path, NULL);
+            if (!cfg->tool_dsml_owned) {
+                fprintf(stderr, "agent: cannot read DSML file %s\n", path);
+                return -1;
+            }
+            cfg->tool_dsml = cfg->tool_dsml_owned;
         } else {
             fprintf(stderr, "agent: unknown option '%s'\n", argv[i]);
             print_help();
@@ -1184,6 +1230,7 @@ static void free_config(agent_config *cfg) {
     free(cfg->system_prompt);
     free(cfg->store_dir);
     free(cfg->conversation);
+    free(cfg->tool_dsml_owned);
 }
 
 static void agent_init_transcript(agent_state *a) {
@@ -1327,6 +1374,13 @@ int main(int argc, char **argv) {
     if (parse_args(&a.cfg, argc, argv) != 0) {
         free_config(&a.cfg);
         return 1;
+    }
+
+    if (a.cfg.tool_dsml) {
+        int rc = run_tool_dsml(&a, a.cfg.tool_dsml);
+        free(a.last_read_path);
+        free_config(&a.cfg);
+        return rc;
     }
 
     qw3_log(stderr, QW3_LOG_OK,
