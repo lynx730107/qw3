@@ -28,6 +28,15 @@
 #define DSML_PARAM "<" DSML_BAR "DSML" DSML_BAR "parameter"
 #define DSML_PARAM_CLOSE "</" DSML_BAR "DSML" DSML_BAR "parameter>"
 
+#define QWEN_XML_TOOL_CALL_BEGIN "<tool_call>"
+#define QWEN_XML_TOOL_CALL_END "</tool_call>"
+#define QWEN_XML_FUNCTION_BEGIN "<function="
+#define QWEN_XML_FUNCTION_END "</function>"
+#define QWEN_XML_PARAMETER_BEGIN "<parameter="
+#define QWEN_XML_PARAMETER_END "</parameter>"
+#define QWEN_XML_TOOL_RESPONSE_BEGIN "<tool_response>"
+#define QWEN_XML_TOOL_RESPONSE_END "</tool_response>"
+
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
 
@@ -72,6 +81,8 @@ typedef struct {
     char *conversation;
     const char *tool_dsml;
     char *tool_dsml_owned;
+    const char *tool_native;
+    char *tool_native_owned;
     int n_predict;
     int ctx_size;
     int max_tool_rounds;
@@ -157,6 +168,53 @@ static int sb_printf(strbuf *sb, const char *fmt, ...) {
     va_end(ap2);
     sb->len += (size_t)n;
     return 0;
+}
+
+static char *native_tool_response_text(const char *tool_name, const char *value) {
+    strbuf sb;
+    sb_init(&sb);
+    (void)tool_name;
+    sb_append(&sb, QWEN_XML_TOOL_RESPONSE_BEGIN "\n");
+    sb_append(&sb, value ? value : "");
+    if (sb.len && sb.p[sb.len - 1] != '\n') sb_append(&sb, "\n");
+    sb_append(&sb, QWEN_XML_TOOL_RESPONSE_END);
+    return sb.p;
+}
+
+static char *native_tool_declarations(void) {
+    strbuf sb;
+    sb_init(&sb);
+#define TOOL_DECL(NAME, DESC, PARAMS) \
+    sb_append(&sb, "{\"type\":\"function\",\"function\":{\"name\":\"" NAME "\",\"description\":\"" DESC "\",\"parameters\":{\"type\":\"object\",\"properties\":{" PARAMS "}}}}\n")
+#define TOOL_PARAM(NAME, DESC) \
+    "\"" NAME "\":{\"type\":\"string\",\"description\":\"" DESC "\"}"
+    TOOL_DECL("read", "Read numbered lines from a text file.",
+              TOOL_PARAM("path", "Path to read") ","
+              TOOL_PARAM("start", "First 1-based line") ","
+              TOOL_PARAM("lines", "Maximum lines to return"));
+    TOOL_DECL("more", "Continue the previous read.",
+              TOOL_PARAM("path", "Optional path") ","
+              TOOL_PARAM("lines", "Maximum lines to return"));
+    TOOL_DECL("list", "List files below a path.",
+              TOOL_PARAM("path", "Directory path") ","
+              TOOL_PARAM("depth", "Maximum recursion depth") ","
+              TOOL_PARAM("max", "Maximum entries"));
+    TOOL_DECL("search", "Search text files for a literal pattern.",
+              TOOL_PARAM("pattern", "Literal pattern") ","
+              TOOL_PARAM("path", "Root path") ","
+              TOOL_PARAM("max", "Maximum matches"));
+    TOOL_DECL("write", "Create or overwrite a text file.",
+              TOOL_PARAM("path", "Path to write") ","
+              TOOL_PARAM("content", "File content"));
+    TOOL_DECL("edit", "Replace the first exact text occurrence in a file.",
+              TOOL_PARAM("path", "Path to edit") ","
+              TOOL_PARAM("old", "Old exact text") ","
+              TOOL_PARAM("new", "Replacement text"));
+    TOOL_DECL("bash", "Run a shell command and return captured output.",
+              TOOL_PARAM("cmd", "Shell command"));
+#undef TOOL_PARAM
+#undef TOOL_DECL
+    return sb.p;
 }
 
 static char *agent_strdup(const char *s) {
@@ -548,6 +606,165 @@ static int parse_tool_calls(const char *text, tool_call_list *out) {
     return out->n_calls;
 }
 
+static const char *skip_space(const char *p, const char *end) {
+    while (p < end && isspace((unsigned char)*p)) p++;
+    return p;
+}
+
+static char *parse_jsonish_atom(const char **pp, const char *end) {
+    const char *p = skip_space(*pp, end);
+    if (p < end && *p == '"') {
+        p++;
+        strbuf out;
+        sb_init(&out);
+        while (p < end && *p != '"') {
+            if (*p == '\\' && p + 1 < end) {
+                p++;
+                if (*p == 'n') sb_append_n(&out, "\n", 1);
+                else if (*p == 'r') sb_append_n(&out, "\r", 1);
+                else if (*p == 't') sb_append_n(&out, "\t", 1);
+                else sb_append_n(&out, p, 1);
+                p++;
+            } else {
+                sb_append_n(&out, p++, 1);
+            }
+        }
+        if (p < end && *p == '"') p++;
+        *pp = p;
+        return out.p ? out.p : agent_strdup("");
+    }
+    const char *q = p;
+    while (q < end && *q != ',' && *q != '}') q++;
+    const char *r = q;
+    while (r > p && isspace((unsigned char)r[-1])) r--;
+    *pp = q;
+    return xml_unescape(p, (size_t)(r - p));
+}
+
+static void infer_tool_name_from_params(tool_call *call) {
+    if (call->name[0]) return;
+    if (tool_param_value(call, "cmd") || tool_param_value(call, "command")) {
+        snprintf(call->name, sizeof(call->name), "bash");
+    } else if (tool_param_value(call, "pattern") || tool_param_value(call, "query")) {
+        snprintf(call->name, sizeof(call->name), "search");
+    } else if (tool_param_value(call, "old") && tool_param_value(call, "new")) {
+        snprintf(call->name, sizeof(call->name), "edit");
+    } else if (tool_param_value(call, "content")) {
+        snprintf(call->name, sizeof(call->name), "write");
+    } else if (tool_param_value(call, "depth") || tool_param_value(call, "max")) {
+        snprintf(call->name, sizeof(call->name), "list");
+    } else if (tool_param_value(call, "path")) {
+        snprintf(call->name, sizeof(call->name), "read");
+    }
+}
+
+static int parse_jsonish_tool_call(const char *text, tool_call_list *out) {
+    const char *start = text ? strchr(text, '{') : NULL;
+    const char *end = start ? strchr(start, '}') : NULL;
+    if (!start || !end || out->n_calls >= 8) return 0;
+    tool_call *call = &out->calls[out->n_calls];
+    const char *p = start + 1;
+    while (p < end && call->n_params < 16) {
+        p = skip_space(p, end);
+        if (p >= end) break;
+        char *key = parse_jsonish_atom(&p, end);
+        if (!key || !key[0]) {
+            free(key);
+            break;
+        }
+        p = skip_space(p, end);
+        if (p >= end || *p != ':') {
+            free(key);
+            break;
+        }
+        p++;
+        char *value = parse_jsonish_atom(&p, end);
+        if (!strcmp(key, "name") || !strcmp(key, "tool") ||
+            !strcmp(key, "function")) {
+            snprintf(call->name, sizeof(call->name), "%s", value ? value : "");
+            free(key);
+            free(value);
+        } else {
+            tool_param *tp = &call->params[call->n_params++];
+            snprintf(tp->name, sizeof(tp->name), "%s", key);
+            tp->value = value ? value : agent_strdup("");
+            free(key);
+        }
+        p = skip_space(p, end);
+        if (p < end && *p == ',') p++;
+    }
+    infer_tool_name_from_params(call);
+    if (!call->name[0]) {
+        for (int i = 0; i < call->n_params; i++) free(call->params[i].value);
+        memset(call, 0, sizeof(*call));
+        return 0;
+    }
+    out->n_calls++;
+    return 1;
+}
+
+static int parse_native_tool_calls(const char *text, tool_call_list *out) {
+    memset(out, 0, sizeof(*out));
+    const char *p = text ? text : "";
+    size_t start_len = strlen(QWEN_XML_TOOL_CALL_BEGIN);
+    size_t end_len = strlen(QWEN_XML_TOOL_CALL_END);
+    while (out->n_calls < 8) {
+        const char *start = strstr(p, QWEN_XML_TOOL_CALL_BEGIN);
+        if (!start) break;
+        const char *close = strstr(start + start_len, QWEN_XML_TOOL_CALL_END);
+        if (!close) break;
+        const char *body = start + start_len;
+        const char *body_end = close;
+        body = skip_space(body, body_end);
+        if ((size_t)(body_end - body) < strlen(QWEN_XML_FUNCTION_BEGIN) ||
+            strncmp(body, QWEN_XML_FUNCTION_BEGIN,
+                    strlen(QWEN_XML_FUNCTION_BEGIN)) != 0) {
+            p = close + end_len;
+            continue;
+        }
+        body += strlen(QWEN_XML_FUNCTION_BEGIN);
+        const char *name_start = body;
+        const char *name_end = strchr(body, '>');
+        if (!name_end || name_end >= body_end) {
+            p = close + end_len;
+            continue;
+        }
+        const char *fn_end = strstr(name_end + 1, QWEN_XML_FUNCTION_END);
+        if (!fn_end || fn_end > body_end) fn_end = body_end;
+        tool_call *call = &out->calls[out->n_calls];
+        snprintf(call->name, sizeof(call->name), "%.*s",
+                 (int)(name_end - name_start), name_start);
+
+        const char *q = name_end + 1;
+        while (q < fn_end && call->n_params < 16) {
+            const char *pa = strstr(q, QWEN_XML_PARAMETER_BEGIN);
+            if (!pa || pa >= fn_end) break;
+            const char *pa_name = pa + strlen(QWEN_XML_PARAMETER_BEGIN);
+            const char *pa_gt = strchr(pa_name, '>');
+            if (!pa_gt || pa_gt >= fn_end) break;
+            const char *pa_end = strstr(pa_gt + 1, QWEN_XML_PARAMETER_END);
+            if (!pa_end || pa_end > fn_end) break;
+            tool_param *tp = &call->params[call->n_params++];
+            snprintf(tp->name, sizeof(tp->name), "%.*s",
+                     (int)(pa_gt - pa_name), pa_name);
+            const char *val = pa_gt + 1;
+            while (val < pa_end && (*val == '\n' || *val == '\r')) val++;
+            const char *val_end = pa_end;
+            while (val_end > val && (val_end[-1] == '\n' || val_end[-1] == '\r')) {
+                val_end--;
+            }
+            tp->value = xml_unescape(val, (size_t)(val_end - val));
+            q = pa_end + strlen(QWEN_XML_PARAMETER_END);
+        }
+        out->n_calls++;
+        p = close + end_len;
+    }
+    if (out->n_calls == 0) {
+        (void)parse_jsonish_tool_call(text, out);
+    }
+    return out->n_calls;
+}
+
 static int int_param(const tool_call *call, const char *name, int def) {
     const char *v = tool_param_value(call, name);
     return v && v[0] ? atoi(v) : def;
@@ -869,6 +1086,20 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls) {
     return result.p ? result.p : agent_strdup("");
 }
 
+static void execute_native_tools_append(agent_state *a,
+                                        const tool_call_list *calls) {
+    for (int i = 0; i < calls->n_calls; i++) {
+        const tool_call *call = &calls->calls[i];
+        fprintf(stderr, "\n[tool] %s\n", call->name);
+        char *out = execute_one_tool(a, call);
+        fprintf(stderr, "%s\n", out ? out : "");
+        char *response = native_tool_response_text(call->name, out ? out : "");
+        qw3_chat_append_message(a->engine, &a->transcript, "user", response);
+        free(response);
+        free(out);
+    }
+}
+
 static int run_tool_dsml(agent_state *a, const char *dsml) {
     tool_call_list calls;
     int n = parse_tool_calls(dsml ? dsml : "", &calls);
@@ -887,15 +1118,112 @@ static int run_tool_dsml(agent_state *a, const char *dsml) {
     return 0;
 }
 
+static int run_tool_native(agent_state *a, const char *text) {
+    tool_call_list calls;
+    int n = parse_native_tool_calls(text ? text : "", &calls);
+    if (n <= 0) {
+        fprintf(stderr, "agent: no complete Qwen native tool_call block found\n");
+        free_tool_calls(&calls);
+        return 1;
+    }
+    strbuf result;
+    sb_init(&result);
+    for (int i = 0; i < calls.n_calls; i++) {
+        const tool_call *call = &calls.calls[i];
+        fprintf(stderr, "\n[tool] %s\n", call->name);
+        char *out = execute_one_tool(a, call);
+        fprintf(stderr, "%s\n", out ? out : "");
+        char *response = native_tool_response_text(call->name, out ? out : "");
+        sb_append(&result, response ? response : "");
+        if (i + 1 < calls.n_calls) sb_append(&result, "\n");
+        free(response);
+        free(out);
+    }
+    free_tool_calls(&calls);
+    if (result.p) {
+        fputs(result.p, stdout);
+        if (result.p[0] && result.p[result.len - 1] != '\n') fputc('\n', stdout);
+    }
+    sb_free(&result);
+    return 0;
+}
+
+static bool range_is_space(const char *p, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        if (!isspace((unsigned char)p[i])) return false;
+    }
+    return true;
+}
+
+static bool text_has_jsonish_tool_call(const char *text) {
+    tool_call_list calls;
+    memset(&calls, 0, sizeof(calls));
+    int n = parse_jsonish_tool_call(text ? text : "", &calls);
+    free_tool_calls(&calls);
+    return n > 0;
+}
+
+static bool partial_marker_after_space(const char *text, size_t len,
+                                       const char *marker) {
+    size_t off = 0;
+    while (off < len && isspace((unsigned char)text[off])) off++;
+    size_t remain = len - off;
+    if (remain == 0) return true;
+    size_t marker_len = strlen(marker);
+    if (remain >= marker_len) return false;
+    return strncmp(text + off, marker, remain) == 0;
+}
+
+static bool should_hold_tool_candidate(const char *text, size_t len,
+                                       bool final) {
+    if (!text || len == 0 || final) return false;
+    if (partial_marker_after_space(text, len, DSML_BEGIN) ||
+        partial_marker_after_space(text, len, QWEN_XML_TOOL_CALL_BEGIN)) {
+        return true;
+    }
+
+    size_t off = 0;
+    while (off < len && isspace((unsigned char)text[off])) off++;
+    if (off == len) return true;
+    if (text[off] != '{') return false;
+    if (text_has_jsonish_tool_call(text + off)) return true;
+    return strchr(text + off, '}') == NULL;
+}
+
+static bool should_suppress_jsonish_tool_call(const char *text, size_t len) {
+    if (!text || len == 0) return false;
+    size_t off = 0;
+    while (off < len && isspace((unsigned char)text[off])) off++;
+    if (off == len || text[off] != '{') return false;
+    return text_has_jsonish_tool_call(text + off);
+}
+
+static bool generated_has_complete_tool_call(const char *text) {
+    if (!text) return false;
+    return strstr(text, DSML_END) ||
+           strstr(text, QWEN_XML_TOOL_CALL_END) ||
+           text_has_jsonish_tool_call(text);
+}
+
 static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
     const char *dsml = ctx->text.p ? strstr(ctx->text.p, DSML_BEGIN) : NULL;
+    const char *native = ctx->text.p ? strstr(ctx->text.p, QWEN_XML_TOOL_CALL_BEGIN) : NULL;
+    const char *hidden = NULL;
+    if (dsml && native) hidden = dsml < native ? dsml : native;
+    else hidden = dsml ? dsml : native;
     size_t limit = 0;
-    if (dsml) {
-        limit = (size_t)(dsml - ctx->text.p);
+    if (hidden) {
+        size_t hidden_off = (size_t)(hidden - ctx->text.p);
+        limit = range_is_space(ctx->text.p, hidden_off) ? 0 : hidden_off;
+    } else if (should_suppress_jsonish_tool_call(ctx->text.p, ctx->text.len)) {
+        limit = 0;
+    } else if (should_hold_tool_candidate(ctx->text.p, ctx->text.len, final)) {
+        limit = 0;
     } else if (final) {
         limit = ctx->text.len;
     } else {
         size_t hold = strlen(DSML_BEGIN);
+        if (strlen(QWEN_XML_TOOL_CALL_BEGIN) > hold) hold = strlen(QWEN_XML_TOOL_CALL_BEGIN);
         limit = ctx->text.len > hold ? ctx->text.len - hold : 0;
     }
     if (limit > ctx->printed) {
@@ -931,11 +1259,6 @@ static void append_generated_assistant(agent_state *a,
                                        const qw3_tokens *generated) {
     for (int i = 0; i < generated->len; i++) {
         qw3_tokens_push(&a->transcript, generated->v[i]);
-    }
-    int eos = qw3_token_eos(a->engine);
-    if (eos >= 0 && (a->transcript.len == 0 ||
-                     a->transcript.v[a->transcript.len - 1] != eos)) {
-        qw3_tokens_push(&a->transcript, eos);
     }
 }
 
@@ -985,7 +1308,9 @@ static int generate_once(agent_state *a, char **assistant_text) {
                     rc = -1;
                     break;
                 }
-                if (emit.text.p && strstr(emit.text.p, DSML_END)) break;
+                if (generated_has_complete_tool_call(emit.text.p)) {
+                    break;
+                }
             }
             agent_emit_done(&emit);
         }
@@ -1015,46 +1340,72 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             free(assistant);
             return -1;
         }
-        tool_call_list calls;
-        int n_calls = parse_tool_calls(assistant ? assistant : "", &calls);
-        free(assistant);
-        if (n_calls <= 0) {
-            free_tool_calls(&calls);
+        tool_call_list native_calls;
+        int n_native = parse_native_tool_calls(assistant ? assistant : "",
+                                               &native_calls);
+        if (n_native > 0) {
+            execute_native_tools_append(a, &native_calls);
+            free_tool_calls(&native_calls);
+            free(assistant);
+            continue;
+        }
+        free_tool_calls(&native_calls);
+
+        tool_call_list dsml_calls;
+        int n_dsml = parse_tool_calls(assistant ? assistant : "", &dsml_calls);
+        if (n_dsml <= 0) {
+            free_tool_calls(&dsml_calls);
+            free(assistant);
             return 0;
         }
-        char *tool_result = execute_tools(a, &calls);
-        free_tool_calls(&calls);
-        qw3_chat_append_message(a->engine, &a->transcript, "tool", tool_result);
+        char *tool_result = execute_tools(a, &dsml_calls);
+        free_tool_calls(&dsml_calls);
+        char *response = native_tool_response_text("dsml", tool_result);
+        qw3_chat_append_message(a->engine, &a->transcript, "user", response);
+        free(response);
         free(tool_result);
+        free(assistant);
     }
     fprintf(stderr, "agent: max tool rounds reached\n");
     return 0;
 }
 
-static char *build_system_prompt(const char *user_system) {
+static char *build_system_prompt(const char *user_system, bool tools_enabled) {
     strbuf sb;
     sb_init(&sb);
     sb_append(&sb,
         "You are qw3-agent, a coding and terminal assistant running inside "
         "the user's local project. Be concise, practical and careful with "
-        "file changes. You can use tools when you need local information or "
-        "need to edit files.\n\n"
-        "When you need tools, answer only with a DSML block. After the tool "
-        "result, continue normally. Tool format:\n"
-        DSML_BEGIN "\n"
-        DSML_INVOKE " name=\"read\">\n"
-        DSML_PARAM " name=\"path\" string=\"true\">path/to/file"
-        DSML_PARAM_CLOSE "\n"
-        DSML_INVOKE_CLOSE "\n"
-        DSML_END "\n\n"
-        "Available tools:\n"
-        "- read(path,start,lines): read numbered file lines.\n"
-        "- more(path,lines): continue the last read.\n"
-        "- list(path,depth,max): list files.\n"
-        "- search(pattern,path,max): search text files.\n"
-        "- write(path,content): overwrite a file.\n"
-        "- edit(path,old,new): replace the first exact occurrence.\n"
-        "- bash(cmd): run a shell command and return output.\n");
+        "file changes.\n");
+    if (tools_enabled) {
+        sb_append(&sb,
+            "\n# Tools\n\n"
+            "You have access to the following functions:\n\n"
+            "<tools>\n");
+        char *tools = native_tool_declarations();
+        sb_append(&sb, tools ? tools : "");
+        free(tools);
+        sb_append(&sb,
+            "</tools>\n\n"
+            "If you choose to call a function ONLY reply in the following format "
+            "with NO suffix:\n\n"
+            "<tool_call>\n"
+            "<function=example_function_name>\n"
+            "<parameter=example_parameter_1>\n"
+            "value_1\n"
+            "</parameter>\n"
+            "<parameter=example_parameter_2>\n"
+            "This is the value for the second parameter\n"
+            "that can span multiple lines\n"
+            "</parameter>\n"
+            "</function>\n"
+            "</tool_call>\n\n"
+            "<IMPORTANT>\n"
+            "Required parameters MUST be specified. You may write optional reasoning "
+            "before the function call, but never after it. If no function call is "
+            "needed, answer normally.\n"
+            "</IMPORTANT>\n");
+    }
     if (user_system && user_system[0]) {
         sb_append(&sb, "\nUser system instructions:\n");
         sb_append(&sb, user_system);
@@ -1091,6 +1442,9 @@ static void print_help(void) {
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
         "  --tool-dsml-file PATH\n"
         "                       Execute DSML tool_calls read from a file and exit\n"
+        "  --tool-native TEXT   Execute literal Qwen <tool_call> XML and exit\n"
+        "  --tool-native-file PATH\n"
+        "                       Execute Qwen tool_call text read from a file and exit\n"
         "  --help               Show help\n\n"
         "Interactive commands:\n"
         "  /help, /quit, /new, /ctx, /save [name], /load name, /sessions\n"
@@ -1188,6 +1542,16 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
                 return -1;
             }
             cfg->tool_dsml = cfg->tool_dsml_owned;
+        } else if (!strcmp(argv[i], "--tool-native") && i + 1 < argc) {
+            cfg->tool_native = argv[++i];
+        } else if (!strcmp(argv[i], "--tool-native-file") && i + 1 < argc) {
+            const char *path = argv[++i];
+            cfg->tool_native_owned = read_file_text(path, NULL);
+            if (!cfg->tool_native_owned) {
+                fprintf(stderr, "agent: cannot read native tool file %s\n", path);
+                return -1;
+            }
+            cfg->tool_native = cfg->tool_native_owned;
         } else {
             fprintf(stderr, "agent: unknown option '%s'\n", argv[i]);
             print_help();
@@ -1219,7 +1583,7 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         fprintf(stderr, "agent: cannot create store directory\n");
         return -1;
     }
-    cfg->system_prompt = build_system_prompt(cfg->user_system);
+    cfg->system_prompt = build_system_prompt(cfg->user_system, cfg->tools_enabled);
     if (!cfg->system_prompt) return -1;
     return 0;
 }
@@ -1231,6 +1595,7 @@ static void free_config(agent_config *cfg) {
     free(cfg->store_dir);
     free(cfg->conversation);
     free(cfg->tool_dsml_owned);
+    free(cfg->tool_native_owned);
 }
 
 static void agent_init_transcript(agent_state *a) {
@@ -1378,6 +1743,12 @@ int main(int argc, char **argv) {
 
     if (a.cfg.tool_dsml) {
         int rc = run_tool_dsml(&a, a.cfg.tool_dsml);
+        free(a.last_read_path);
+        free_config(&a.cfg);
+        return rc;
+    }
+    if (a.cfg.tool_native) {
+        int rc = run_tool_native(&a, a.cfg.tool_native);
         free(a.last_read_path);
         free_config(&a.cfg);
         return rc;
