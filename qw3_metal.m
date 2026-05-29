@@ -31,8 +31,14 @@ static id<MTLBuffer> g_iq3s_expanded_kgrid_buffer;
 static id<MTLLibrary> g_library;
 static id<MTLComputePipelineState> g_rmsnorm_plain_pipeline;
 static id<MTLComputePipelineState> g_rmsnorm_weight_f32_pipeline;
+static id<MTLComputePipelineState> g_rmsnorm_weight_f32_rows_pipeline;
+static id<MTLComputePipelineState> g_rmsnorm_weight_f32_rows_to_out_pipeline;
 static id<MTLComputePipelineState> g_embed_q8_0_pipeline;
+static id<MTLComputePipelineState> g_embed_q8_0_batch_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_pipeline;
+static id<MTLComputePipelineState> g_matmul_q8_0_batch4_pipeline;
+static id<MTLComputePipelineState> g_matmul_q8_0_mm_pipeline;
+static id<MTLComputePipelineState> g_matmul_q8_0_mm_bc_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_pair_silu_pipeline;
 static id<MTLComputePipelineState> g_shared_gate_up_silu_pipeline;
@@ -51,18 +57,31 @@ static id<MTLComputePipelineState> g_moe_down_iq4_xs_pair_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_reduce_pipeline;
 static id<MTLComputePipelineState> g_moe_down_q6_k_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_reduce_batch_pipeline;
+static id<MTLComputePipelineState> g_moe_iq3_s_prefill_batch_pipeline;
+static id<MTLComputePipelineState> g_moe_down_iq4_xs_prefill_reduce_pipeline;
+static id<MTLComputePipelineState> g_moe_down_q6_k_prefill_reduce_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_fast_pipeline;
+static id<MTLComputePipelineState> g_matmul_f32_batch4_pipeline;
+static id<MTLComputePipelineState> g_matmul_f32_pair_batch4_pipeline;
 static id<MTLComputePipelineState> g_deltanet_conv1d_zero_pipeline;
 static id<MTLComputePipelineState> g_deltanet_conv1d_step_pipeline;
+static id<MTLComputePipelineState> g_deltanet_conv1d_batch_pipeline;
 static id<MTLComputePipelineState> g_l2norm_heads_pipeline;
+static id<MTLComputePipelineState> g_l2norm_qk_batch_pipeline;
 static id<MTLComputePipelineState> g_gqa_q_norm_gate_pipeline;
 static id<MTLComputePipelineState> g_gqa_k_norm_pipeline;
+static id<MTLComputePipelineState> g_gqa_q_norm_gate_batch_pipeline;
+static id<MTLComputePipelineState> g_gqa_k_norm_batch_pipeline;
 static id<MTLComputePipelineState> g_rope_heads_pipeline;
+static id<MTLComputePipelineState> g_rope_heads_batch_pipeline;
 static id<MTLComputePipelineState> g_gqa_single_token_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend2_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_inner_pipeline;
+static id<MTLComputePipelineState> g_gqa_prefill_attend_inner_pipeline;
+static id<MTLComputePipelineState> g_gqa_prefill_write_cache_pipeline;
+static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_split_partial_pipeline;
@@ -73,18 +92,23 @@ static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_pipeline;
 static id<MTLComputePipelineState> g_deltanet_prepare_scratch_gates_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_tiled_pipeline;
 static id<MTLComputePipelineState> g_deltanet_fused_gdn_scratch_pipeline;
+static id<MTLComputePipelineState> g_deltanet_batch_fused_gdn_pipeline;
 static id<MTLComputePipelineState> g_deltanet_gated_rmsnorm_pipeline;
 static id<MTLComputePipelineState> g_residual_rmsnorm_weight_f32_pipeline;
 static id<MTLComputePipelineState> g_residual_rmsnorm_update_x0_pipeline;
+static id<MTLComputePipelineState> g_residual_rmsnorm_batch_update_x0_pipeline;
 static id<MTLComputePipelineState> g_silu_mul_pipeline;
 static id<MTLComputePipelineState> g_scale_pipeline;
 static id<MTLComputePipelineState> g_argmax_blocks_pipeline;
 static id<MTLComputePipelineState> g_add_moe_to_x0_pipeline;
 static id<MTLComputePipelineState> g_silu_mul_offsets_pipeline;
+static id<MTLComputePipelineState> g_silu_mul_rows_offsets_pipeline;
 static id<MTLComputePipelineState> g_scale_x1_scalar_add_x0_pipeline;
 static id<MTLComputePipelineState> g_scale_x1_add_x0_pipeline;
 static id<MTLComputePipelineState> g_scale_scratch_add_x0_pipeline;
+static id<MTLComputePipelineState> g_sigmoid_scale_scratch_add_x0_rows_pipeline;
 static id<MTLComputePipelineState> g_router_top8_pipeline;
+static id<MTLComputePipelineState> g_router_top8_batch_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_expert_slot_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_expert_slot_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_expert_slot_pipeline;
@@ -191,10 +215,15 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic, strong) id<MTLBuffer> routerWeights;
 @property(nonatomic, strong) id<MTLBuffer> argmaxVals;
 @property(nonatomic, strong) id<MTLBuffer> argmaxIdxs;
+@property(nonatomic, strong) id<MTLBuffer> prefillTokens;
+@property(nonatomic, strong) id<MTLBuffer> prefillX0;
+@property(nonatomic, strong) id<MTLBuffer> prefillX1;
+@property(nonatomic, strong) id<MTLBuffer> prefillScratch;
 @property(nonatomic) qw3_metal_session_info info;
 @property(nonatomic) uint32_t ctxSize;
 @property(nonatomic) uint32_t vocabSize;
 @property(nonatomic) uint32_t pos;
+@property(nonatomic) uint32_t prefillCap;
 @property(nonatomic) BOOL gqaKvQ8;
 @property(nonatomic) BOOL gqaSplitQ8;
 @property(nonatomic) uint32_t gqaMaxQ8Splits;
@@ -221,6 +250,7 @@ enum {
     QW3_METAL_LINEAR_QKV = 8192,
     QW3_METAL_LINEAR_INNER = 4096,
     QW3_METAL_LINEAR_CONV_K = 4,
+    QW3_METAL_N_EXPERT = 256,
 };
 
 static const uint16_t g_iq3s_kgrid[512] = {
@@ -312,6 +342,51 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float scale = rsqrt(ss / float(args.n) + args.eps);\n"
             "    for (uint i = tid; i < args.n; i += nt) y[i] = x[i] * scale * w[i];\n"
             "}\n"
+            "struct qw3_rmsnorm_rows_args { uint n; float eps; uint n_rows; };\n"
+            "kernel void qw3_rmsnorm_weight_f32_rows(constant qw3_rmsnorm_rows_args &args,\n"
+            "                                        device float *x,\n"
+            "                                        device const float *w,\n"
+            "                                        threadgroup float *sh,\n"
+            "                                        uint row [[threadgroup_position_in_grid]],\n"
+            "                                        ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                        ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                        ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                        ushort nt [[threads_per_threadgroup]]) {\n"
+            "    if (row >= args.n_rows) return;\n"
+            "    device float *xr = x + uint64_t(row) * args.n;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.n; i += nt) ss += xr[i] * xr[i];\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = rsqrt(ss / float(args.n) + args.eps);\n"
+            "    for (uint i = tid; i < args.n; i += nt) xr[i] = xr[i] * scale * w[i];\n"
+            "}\n"
+            "kernel void qw3_rmsnorm_weight_f32_rows_to_out(constant qw3_rmsnorm_rows_args &args,\n"
+            "                                               device const float *x,\n"
+            "                                               device const float *w,\n"
+            "                                               device float *out,\n"
+            "                                               threadgroup float *sh,\n"
+            "                                               uint row [[threadgroup_position_in_grid]],\n"
+            "                                               ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                               ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                               ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                               ushort nt [[threads_per_threadgroup]]) {\n"
+            "    if (row >= args.n_rows) return;\n"
+            "    device const float *xr = x + uint64_t(row) * args.n;\n"
+            "    device float *yr = out + uint64_t(row) * args.n;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.n; i += nt) ss += xr[i] * xr[i];\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = rsqrt(ss / float(args.n) + args.eps);\n"
+            "    for (uint i = tid; i < args.n; i += nt) yr[i] = xr[i] * scale * w[i];\n"
+            "}\n"
             "struct qw3_embed_q8_0_args { uint n_embd; uint row_bytes; };\n"
             "kernel void qw3_embed_q8_0(constant qw3_embed_q8_0_args &args,\n"
             "                           device const uchar *weights,\n"
@@ -324,6 +399,25 @@ static NSString *qw3_metal_kernel_source(void) {
             "    half d = *((device const half *)blk);\n"
             "    char q = *((device const char *)(blk + 2 + lane));\n"
             "    out[gid] = float(d) * float(q);\n"
+            "}\n"
+            "struct qw3_embed_q8_0_batch_args { uint n_embd; uint row_bytes; uint n_tokens; };\n"
+            "kernel void qw3_embed_q8_0_batch(constant qw3_embed_q8_0_batch_args &args,\n"
+            "                                 device const uchar *weights,\n"
+            "                                 device const uint *tokens,\n"
+            "                                 device float *out,\n"
+            "                                 uint gid [[thread_position_in_grid]]) {\n"
+            "    uint total = args.n_tokens * args.n_embd;\n"
+            "    if (gid >= total) return;\n"
+            "    uint t = gid / args.n_embd;\n"
+            "    uint i = gid - t * args.n_embd;\n"
+            "    uint token = tokens[t];\n"
+            "    device const uchar *row = weights + uint64_t(token) * uint64_t(args.row_bytes);\n"
+            "    uint block = i / 32u;\n"
+            "    uint lane = i & 31u;\n"
+            "    device const uchar *blk = row + uint64_t(block) * 34ull;\n"
+            "    float d = float(*((device const half *)blk));\n"
+            "    char q = *((device const char *)(blk + 2u + lane));\n"
+            "    out[uint64_t(t) * args.n_embd + i] = d * float(q);\n"
             "}\n"
             "struct qw3_kv_quant_q8_args { uint n; };\n"
             "kernel void qw3_gqa_kv_quant_q8(constant qw3_kv_quant_q8_args &args,\n"
@@ -381,6 +475,143 @@ static NSString *qw3_metal_kernel_source(void) {
             "    sum = lane < 32 ? sh[lane] : 0.0f;\n"
             "    sum = simd_sum(sum);\n"
             "    if (tid == 0) out[row] = sum;\n"
+            "}\n"
+            "struct qw3_matmul_q8_0_batch_args { uint n_in; uint n_out; uint row_bytes; uint n_tokens; uint in_offset; uint in_stride; uint out_offset; uint out_stride; };\n"
+            "kernel void qw3_matmul_q8_0_batch4(constant qw3_matmul_q8_0_batch_args &args,\n"
+            "                                   device const uchar *weights,\n"
+            "                                   device const float *x,\n"
+            "                                   device float *out,\n"
+            "                                   uint2 group [[threadgroup_position_in_grid]],\n"
+            "                                   ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                   ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint row = group.x * 4u + uint(simd_idx);\n"
+            "    if (row >= args.n_out) return;\n"
+            "    uint t0 = group.y * 4u;\n"
+            "    device const uchar *wr = weights + uint64_t(row) * uint64_t(args.row_bytes);\n"
+            "    float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;\n"
+            "    uint n_blocks = args.n_in / 32u;\n"
+            "    for (uint b = uint(lane); b < n_blocks; b += 32u) {\n"
+            "        device const uchar *blk = wr + uint64_t(b) * 34ull;\n"
+            "        float d = float(*((device const half *)blk));\n"
+            "        uint xb = b * 32u;\n"
+            "        for (uint i = 0; i < 32u; i++) {\n"
+            "            float wv = d * float(*((device const char *)(blk + 2u + i)));\n"
+            "            uint xi = xb + i;\n"
+            "            if (t0 + 0u < args.n_tokens) s0 += wv * x[uint64_t(t0 + 0u) * args.in_stride + args.in_offset + xi];\n"
+            "            if (t0 + 1u < args.n_tokens) s1 += wv * x[uint64_t(t0 + 1u) * args.in_stride + args.in_offset + xi];\n"
+            "            if (t0 + 2u < args.n_tokens) s2 += wv * x[uint64_t(t0 + 2u) * args.in_stride + args.in_offset + xi];\n"
+            "            if (t0 + 3u < args.n_tokens) s3 += wv * x[uint64_t(t0 + 3u) * args.in_stride + args.in_offset + xi];\n"
+            "        }\n"
+            "    }\n"
+            "    s0 = simd_sum(s0); s1 = simd_sum(s1); s2 = simd_sum(s2); s3 = simd_sum(s3);\n"
+            "    if (lane == 0) {\n"
+            "        if (t0 + 0u < args.n_tokens) out[uint64_t(t0 + 0u) * args.out_stride + args.out_offset + row] = s0;\n"
+            "        if (t0 + 1u < args.n_tokens) out[uint64_t(t0 + 1u) * args.out_stride + args.out_offset + row] = s1;\n"
+            "        if (t0 + 2u < args.n_tokens) out[uint64_t(t0 + 2u) * args.out_stride + args.out_offset + row] = s2;\n"
+            "        if (t0 + 3u < args.n_tokens) out[uint64_t(t0 + 3u) * args.out_stride + args.out_offset + row] = s3;\n"
+            "    }\n"
+            "}\n"
+            "constant bool qw3_mm_q8_bc_out [[function_constant(700)]];\n"
+            "struct qw3_block_q8_0 { half d; char qs[32]; };\n"
+            "struct qw3_matmul_q8_0_mm_args { uint n_in; uint n_out; uint row_bytes; uint n_tokens; uint in_stride; uint out_stride; };\n"
+            "static inline void qw3_dequant_q8_0_16(device const qw3_block_q8_0 *xb, short il, thread half4x4 &reg) {\n"
+            "    const float d = float(xb->d);\n"
+            "    float4x4 tmp;\n"
+            "    for (short i = 0; i < 16; i++) tmp[i / 4][i % 4] = float(xb->qs[i + 16 * il]) * d;\n"
+            "    reg = half4x4(tmp);\n"
+            "}\n"
+            "kernel void qw3_matmul_q8_0_mm(constant qw3_matmul_q8_0_mm_args &args,\n"
+            "                                device const char *weights,\n"
+            "                                device const char *xin,\n"
+            "                                device char *yout,\n"
+            "                                threadgroup char *shmem [[threadgroup(0)]],\n"
+            "                                uint3 tgpig [[threadgroup_position_in_grid]],\n"
+            "                                ushort tiitg [[thread_index_in_threadgroup]],\n"
+            "                                ushort sgitg [[simdgroup_index_in_threadgroup]]) {\n"
+            "    threadgroup half *sa = (threadgroup half *)shmem;\n"
+            "    threadgroup half *sb = (threadgroup half *)(shmem + 4096);\n"
+            "    constexpr int NR0 = 64;\n"
+            "    constexpr int NR1 = 32;\n"
+            "    constexpr int NK = 32;\n"
+            "    constexpr int NL0 = NK / 16;\n"
+            "    constexpr int NL1 = NK / 8;\n"
+            "    const int K = int(args.n_in);\n"
+            "    const int M = int(args.n_out);\n"
+            "    const int N = int(args.n_tokens);\n"
+            "    const int r0 = int(tgpig.y) * NR0;\n"
+            "    const int r1 = int(tgpig.x) * NR1;\n"
+            "    const int nr0 = min(M - r0, NR0);\n"
+            "    const int nr1 = min(N - r1, NR1);\n"
+            "    const int lr0 = min(int(tiitg) / NL0, nr0 - 1);\n"
+            "    const int lr1 = min(int(tiitg) / NL1, nr1 - 1);\n"
+            "    const short il0 = short(tiitg % NL0);\n"
+            "    short il = il0;\n"
+            "    device const qw3_block_q8_0 *wblk = (device const qw3_block_q8_0 *)(weights + uint64_t(args.row_bytes) * uint64_t(r0 + lr0));\n"
+            "    const short iy = short(8 * (tiitg % NL1));\n"
+            "    device const float *yin = (device const float *)xin + uint64_t(args.in_stride) * uint64_t(r1 + lr1) + uint64_t(iy);\n"
+            "    simdgroup_half8x8 ma[4];\n"
+            "    simdgroup_half8x8 mb[2];\n"
+            "    simdgroup_float8x8 mc[8];\n"
+            "    for (short i = 0; i < 8; i++) mc[i] = make_filled_simdgroup_matrix<float, 8>(0.0f);\n"
+            "    for (int loop_k = 0; loop_k < K; loop_k += NK) {\n"
+            "        half4x4 temp_a;\n"
+            "        qw3_dequant_q8_0_16(wblk, il, temp_a);\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        for (short i = 0; i < 16; i++) {\n"
+            "            const short sx = short(2 * il0 + i / 8);\n"
+            "            const short sy = short((tiitg / NL0) / 8);\n"
+            "            const short lx = short((tiitg / NL0) % 8);\n"
+            "            const short ly = short(i % 8);\n"
+            "            const short ib = short(8 * sx + sy);\n"
+            "            *(sa + 64 * ib + 8 * ly + lx) = temp_a[i / 4][i % 4];\n"
+            "        }\n"
+            "        for (short i = 0; i < 8; i++) {\n"
+            "            const short sx = short(tiitg % NL1);\n"
+            "            const short sy = short((tiitg / NL1) / 8);\n"
+            "            const short lx = i;\n"
+            "            const short ly = short((tiitg / NL1) % 8);\n"
+            "            const short ib = short(4 * sx + sy);\n"
+            "            *(sb + 64 * ib + 8 * ly + lx) = half(yin[i]);\n"
+            "        }\n"
+            "        il = short((il + 2 < 2) ? il + 2 : il % 2);\n"
+            "        wblk = (il < 2) ? wblk + 1 : wblk;\n"
+            "        yin += NK;\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        threadgroup const half *lsma = sa + 4 * 64 * (sgitg % 2);\n"
+            "        threadgroup const half *lsmb = sb + 2 * 64 * (sgitg / 2);\n"
+            "        for (short ik = 0; ik < NK / 8; ik++) {\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 4; i++) simdgroup_load(ma[i], lsma + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 2; i++) simdgroup_load(mb[i], lsmb + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 8; i++) simdgroup_multiply_accumulate(mc[i], mb[i / 4], ma[i % 4], mc[i]);\n"
+            "            lsma += 8 * 64;\n"
+            "            lsmb += 4 * 64;\n"
+            "        }\n"
+            "    }\n"
+            "    device float *dst = (device float *)yout;\n"
+            "    if (!qw3_mm_q8_bc_out || (r0 + NR0 <= M && r1 + NR1 <= N)) {\n"
+            "        device float *C = dst + uint64_t(r0 + 32 * (sgitg & 1)) + uint64_t(r1 + 16 * (sgitg >> 1)) * uint64_t(args.out_stride);\n"
+            "        for (short i = 0; i < 8; i++) simdgroup_store(mc[i], C + 8 * (i % 4) + uint64_t(8 * (i / 4)) * uint64_t(args.out_stride), args.out_stride, 0, false);\n"
+            "    } else {\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        threadgroup float *tmp = ((threadgroup float *)shmem) + 32 * (sgitg & 1) + (16 * (sgitg >> 1)) * NR0;\n"
+            "        for (short i = 0; i < 8; i++) simdgroup_store(mc[i], tmp + 8 * (i % 4) + 8 * NR0 * (i / 4), NR0, 0, false);\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        if (sgitg == 0) {\n"
+            "            for (int j = int(tiitg); j < nr1; j += NR1) {\n"
+            "                device float *D = dst + uint64_t(r0) + uint64_t(r1 + j) * uint64_t(args.out_stride);\n"
+            "                threadgroup float *C = ((threadgroup float *)shmem) + j * NR0;\n"
+            "                int i = 0;\n"
+            "                device float4 *D4 = (device float4 *)D;\n"
+            "                threadgroup float4 *C4 = (threadgroup float4 *)C;\n"
+            "                for (; i < nr0 / 4; i++) D4[i] = C4[i];\n"
+            "                i *= 4;\n"
+            "                for (; i < nr0; i++) D[i] = C[i];\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
             "}\n"
             "struct qw3_matvec_q8_0_pair_args { uint n_in; uint n_out; uint row_bytes; uint out_a_offset; uint out_b_offset; };\n"
             "kernel void qw3_matvec_q8_0_pair(constant qw3_matvec_q8_0_pair_args &args,\n"
@@ -1170,6 +1401,71 @@ static NSString *qw3_metal_kernel_source(void) {
             "    sumb = simd_sum(sumb);\n"
             "    if (tid == 0) { out[args.out_a_offset + row] = suma; out[args.out_b_offset + row] = sumb; }\n"
             "}\n"
+            "struct qw3_matmul_f32_batch_args { uint n_in; uint n_out; uint n_tokens; uint in_offset; uint in_stride; uint out_offset; uint out_stride; };\n"
+            "kernel void qw3_matmul_f32_batch4(constant qw3_matmul_f32_batch_args &args,\n"
+            "                                  device const float *weights,\n"
+            "                                  device const float *x,\n"
+            "                                  device float *out,\n"
+            "                                  uint2 group [[threadgroup_position_in_grid]],\n"
+            "                                  ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                  ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint row = group.x * 4u + uint(simd_idx);\n"
+            "    if (row >= args.n_out) return;\n"
+            "    uint t0 = group.y * 4u;\n"
+            "    device const float *wr = weights + uint64_t(row) * args.n_in;\n"
+            "    float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;\n"
+            "    for (uint i = uint(lane); i < args.n_in; i += 32u) {\n"
+            "        float wv = wr[i];\n"
+            "        if (t0 + 0u < args.n_tokens) s0 += wv * x[uint64_t(t0 + 0u) * args.in_stride + args.in_offset + i];\n"
+            "        if (t0 + 1u < args.n_tokens) s1 += wv * x[uint64_t(t0 + 1u) * args.in_stride + args.in_offset + i];\n"
+            "        if (t0 + 2u < args.n_tokens) s2 += wv * x[uint64_t(t0 + 2u) * args.in_stride + args.in_offset + i];\n"
+            "        if (t0 + 3u < args.n_tokens) s3 += wv * x[uint64_t(t0 + 3u) * args.in_stride + args.in_offset + i];\n"
+            "    }\n"
+            "    s0 = simd_sum(s0); s1 = simd_sum(s1); s2 = simd_sum(s2); s3 = simd_sum(s3);\n"
+            "    if (lane == 0) {\n"
+            "        if (t0 + 0u < args.n_tokens) out[uint64_t(t0 + 0u) * args.out_stride + args.out_offset + row] = s0;\n"
+            "        if (t0 + 1u < args.n_tokens) out[uint64_t(t0 + 1u) * args.out_stride + args.out_offset + row] = s1;\n"
+            "        if (t0 + 2u < args.n_tokens) out[uint64_t(t0 + 2u) * args.out_stride + args.out_offset + row] = s2;\n"
+            "        if (t0 + 3u < args.n_tokens) out[uint64_t(t0 + 3u) * args.out_stride + args.out_offset + row] = s3;\n"
+            "    }\n"
+            "}\n"
+            "struct qw3_matmul_f32_pair_batch_args { uint n_in; uint n_out; uint n_tokens; uint out_a_offset; uint out_b_offset; uint out_stride; };\n"
+            "kernel void qw3_matmul_f32_pair_batch4(constant qw3_matmul_f32_pair_batch_args &args,\n"
+            "                                       device const float *weights_a,\n"
+            "                                       device const float *weights_b,\n"
+            "                                       device const float *x,\n"
+            "                                       device float *out,\n"
+            "                                       uint2 group [[threadgroup_position_in_grid]],\n"
+            "                                       ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                       ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint row = group.x * 4u + uint(simd_idx);\n"
+            "    if (row >= args.n_out) return;\n"
+            "    uint t0 = group.y * 4u;\n"
+            "    device const float *wa = weights_a + uint64_t(row) * args.n_in;\n"
+            "    device const float *wb = weights_b + uint64_t(row) * args.n_in;\n"
+            "    float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;\n"
+            "    float b0 = 0.0f, b1 = 0.0f, b2 = 0.0f, b3 = 0.0f;\n"
+            "    for (uint i = uint(lane); i < args.n_in; i += 32u) {\n"
+            "        float wva = wa[i];\n"
+            "        float wvb = wb[i];\n"
+            "        if (t0 + 0u < args.n_tokens) { float xv = x[uint64_t(t0 + 0u) * args.n_in + i]; a0 += wva * xv; b0 += wvb * xv; }\n"
+            "        if (t0 + 1u < args.n_tokens) { float xv = x[uint64_t(t0 + 1u) * args.n_in + i]; a1 += wva * xv; b1 += wvb * xv; }\n"
+            "        if (t0 + 2u < args.n_tokens) { float xv = x[uint64_t(t0 + 2u) * args.n_in + i]; a2 += wva * xv; b2 += wvb * xv; }\n"
+            "        if (t0 + 3u < args.n_tokens) { float xv = x[uint64_t(t0 + 3u) * args.n_in + i]; a3 += wva * xv; b3 += wvb * xv; }\n"
+            "    }\n"
+            "    a0 = simd_sum(a0); a1 = simd_sum(a1); a2 = simd_sum(a2); a3 = simd_sum(a3);\n"
+            "    b0 = simd_sum(b0); b1 = simd_sum(b1); b2 = simd_sum(b2); b3 = simd_sum(b3);\n"
+            "    if (lane == 0) {\n"
+            "        uint64_t base = uint64_t(t0 + 0u) * args.out_stride;\n"
+            "        if (t0 + 0u < args.n_tokens) { out[base + args.out_a_offset + row] = a0; out[base + args.out_b_offset + row] = b0; }\n"
+            "        base = uint64_t(t0 + 1u) * args.out_stride;\n"
+            "        if (t0 + 1u < args.n_tokens) { out[base + args.out_a_offset + row] = a1; out[base + args.out_b_offset + row] = b1; }\n"
+            "        base = uint64_t(t0 + 2u) * args.out_stride;\n"
+            "        if (t0 + 2u < args.n_tokens) { out[base + args.out_a_offset + row] = a2; out[base + args.out_b_offset + row] = b2; }\n"
+            "        base = uint64_t(t0 + 3u) * args.out_stride;\n"
+            "        if (t0 + 3u < args.n_tokens) { out[base + args.out_a_offset + row] = a3; out[base + args.out_b_offset + row] = b3; }\n"
+            "    }\n"
+            "}\n"
             "kernel void qw3_matvec_f32_fast(constant qw3_matvec_f32_args &args,\n"
             "                               device const float *weights,\n"
             "                               device const float *x,\n"
@@ -1227,6 +1523,33 @@ static NSString *qw3_metal_kernel_source(void) {
             "    so[1] = st[2];\n"
             "    so[2] = qkv[gid];\n"
             "}\n"
+            "struct qw3_conv1d_batch_args { uint n_channels; uint n_tokens; uint qkv_offset; uint conv_offset; uint stride; };\n"
+            "kernel void qw3_deltanet_conv1d_batch(constant qw3_conv1d_batch_args &args,\n"
+            "                                      device const float *w,\n"
+            "                                      device float *scratch,\n"
+            "                                      device float *state,\n"
+            "                                      uint gid [[thread_position_in_grid]]) {\n"
+            "    uint total = args.n_channels * args.n_tokens;\n"
+            "    if (gid >= total) return;\n"
+            "    uint t = gid / args.n_channels;\n"
+            "    uint ch = gid - t * args.n_channels;\n"
+            "    device const float *wr = w + uint64_t(ch) * 4ull;\n"
+            "    device float *st = state + uint64_t(ch) * 3ull;\n"
+            "    float sum = 0.0f;\n"
+            "    for (int k = 0; k < 4; k++) {\n"
+            "        int idx = int(t) + k - 3;\n"
+            "        float xv = idx < 0 ? st[3 + idx] : scratch[uint64_t(uint(idx)) * args.stride + args.qkv_offset + ch];\n"
+            "        sum += xv * wr[k];\n"
+            "    }\n"
+            "    float y = sum / (1.0f + exp(-sum));\n"
+            "    scratch[uint64_t(t) * args.stride + args.conv_offset + ch] = y;\n"
+            "    if (t + 1u == args.n_tokens) {\n"
+            "        for (int j = 0; j < 3; j++) {\n"
+            "            int idx = int(args.n_tokens) - 3 + j;\n"
+            "            st[j] = idx < 0 ? st[3 + idx] : scratch[uint64_t(uint(idx)) * args.stride + args.qkv_offset + ch];\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
             "struct qw3_l2norm_args { uint head_dim; float eps; };\n"
             "kernel void qw3_l2norm_heads(constant qw3_l2norm_args &args,\n"
             "                             device const float *x,\n"
@@ -1248,6 +1571,34 @@ static NSString *qw3_metal_kernel_source(void) {
             "    ss = simd_sum(ss);\n"
             "    float scale = 1.0f / max(sqrt(ss), args.eps);\n"
             "    for (uint i = tid; i < args.head_dim; i += nt) yh[i] = xh[i] * scale;\n"
+            "}\n"
+            "struct qw3_l2norm_qk_batch_args { uint n_tokens; uint conv_offset; uint stride; uint n_qk_heads; uint head_dim; float eps; };\n"
+            "kernel void qw3_l2norm_qk_batch(constant qw3_l2norm_qk_batch_args &args,\n"
+            "                                device float *scratch,\n"
+            "                                threadgroup float *sh,\n"
+            "                                uint group [[threadgroup_position_in_grid]],\n"
+            "                                ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint heads_per_qk = args.n_qk_heads * args.n_tokens;\n"
+            "    uint qk = group / heads_per_qk;\n"
+            "    uint rem = group - qk * heads_per_qk;\n"
+            "    uint t = rem / args.n_qk_heads;\n"
+            "    uint head = rem - t * args.n_qk_heads;\n"
+            "    if (head >= args.n_qk_heads || t >= args.n_tokens || qk >= 2u) return;\n"
+            "    uint qk_n = args.n_qk_heads * args.head_dim;\n"
+            "    uint off = args.conv_offset + qk * qk_n + head * args.head_dim;\n"
+            "    device float *xh = scratch + uint64_t(t) * args.stride + off;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) ss += xh[i] * xh[i];\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = 1.0f / max(sqrt(ss), args.eps);\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) xh[i] *= scale;\n"
             "}\n"
             "struct qw3_gqa_norm_args { uint n_heads; uint head_dim; float eps; };\n"
             "kernel void qw3_gqa_q_norm_gate(constant qw3_gqa_norm_args &args,\n"
@@ -1299,6 +1650,59 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float scale = rsqrt(ss / float(args.head_dim) + args.eps);\n"
             "    for (uint i = tid; i < args.head_dim; i += nt) yo[i] = kh[i] * scale * w[i];\n"
             "}\n"
+            "struct qw3_gqa_norm_batch_args { uint n_tokens; uint n_heads; uint head_dim; uint in_offset; uint out_offset; uint gate_offset; uint stride; float eps; };\n"
+            "kernel void qw3_gqa_q_norm_gate_batch(constant qw3_gqa_norm_batch_args &args,\n"
+            "                                      device float *scratch,\n"
+            "                                      device const float *w,\n"
+            "                                      threadgroup float *sh,\n"
+            "                                      uint group [[threadgroup_position_in_grid]],\n"
+            "                                      ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                      ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                      ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                      ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint t = group / args.n_heads;\n"
+            "    uint head = group - t * args.n_heads;\n"
+            "    if (t >= args.n_tokens || head >= args.n_heads) return;\n"
+            "    device float *row = scratch + uint64_t(t) * args.stride;\n"
+            "    device const float *qh = row + args.in_offset + uint64_t(head) * uint64_t(args.head_dim) * 2ull;\n"
+            "    device const float *gh = qh + args.head_dim;\n"
+            "    device float *yo = row + args.out_offset + uint64_t(head) * args.head_dim;\n"
+            "    device float *go = row + args.gate_offset + uint64_t(head) * args.head_dim;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) ss += qh[i] * qh[i];\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = rsqrt(ss / float(args.head_dim) + args.eps);\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) { yo[i] = qh[i] * scale * w[i]; go[i] = gh[i]; }\n"
+            "}\n"
+            "kernel void qw3_gqa_k_norm_batch(constant qw3_gqa_norm_batch_args &args,\n"
+            "                                 device float *scratch,\n"
+            "                                 device const float *w,\n"
+            "                                 threadgroup float *sh,\n"
+            "                                 uint group [[threadgroup_position_in_grid]],\n"
+            "                                 ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                 ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                 ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                 ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint t = group / args.n_heads;\n"
+            "    uint head = group - t * args.n_heads;\n"
+            "    if (t >= args.n_tokens || head >= args.n_heads) return;\n"
+            "    device float *row = scratch + uint64_t(t) * args.stride;\n"
+            "    device const float *kh = row + args.in_offset + uint64_t(head) * args.head_dim;\n"
+            "    device float *yo = row + args.out_offset + uint64_t(head) * args.head_dim;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) ss += kh[i] * kh[i];\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = rsqrt(ss / float(args.head_dim) + args.eps);\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) yo[i] = kh[i] * scale * w[i];\n"
+            "}\n"
             "struct qw3_rope_args { uint n_heads; uint head_dim; uint rope_dim; int pos; float theta; };\n"
             "kernel void qw3_rope_heads(constant qw3_rope_args &args,\n"
             "                           device const float *x,\n"
@@ -1314,6 +1718,29 @@ static NSString *qw3_metal_kernel_source(void) {
             "    uint p = i & ~1u;\n"
             "    float freq = pow(args.theta, -float(p) / float(args.rope_dim));\n"
             "    float ang = float(args.pos) * freq;\n"
+            "    float c = cos(ang);\n"
+            "    float s = sin(ang);\n"
+            "    float x0 = xh[p + 0u];\n"
+            "    float x1 = xh[p + 1u];\n"
+            "    yh[i] = (i & 1u) ? (x0 * s + x1 * c) : (x0 * c - x1 * s);\n"
+            "}\n"
+            "struct qw3_rope_batch_args { uint n_tokens; uint n_heads; uint head_dim; uint rope_dim; uint pos0; uint in_offset; uint out_offset; uint stride; float theta; };\n"
+            "kernel void qw3_rope_heads_batch(constant qw3_rope_batch_args &args,\n"
+            "                                 device float *scratch,\n"
+            "                                 uint gid [[thread_position_in_grid]]) {\n"
+            "    uint per_tok = args.n_heads * args.head_dim;\n"
+            "    uint total = args.n_tokens * per_tok;\n"
+            "    if (gid >= total) return;\n"
+            "    uint t = gid / per_tok;\n"
+            "    uint rem = gid - t * per_tok;\n"
+            "    uint h = rem / args.head_dim;\n"
+            "    uint i = rem - h * args.head_dim;\n"
+            "    device const float *xh = scratch + uint64_t(t) * args.stride + args.in_offset + uint64_t(h) * args.head_dim;\n"
+            "    device float *yh = scratch + uint64_t(t) * args.stride + args.out_offset + uint64_t(h) * args.head_dim;\n"
+            "    if (i >= args.rope_dim) { yh[i] = xh[i]; return; }\n"
+            "    uint p = i & ~1u;\n"
+            "    float freq = pow(args.theta, -float(p) / float(args.rope_dim));\n"
+            "    float ang = float(args.pos0 + t) * freq;\n"
             "    float c = cos(ang);\n"
             "    float s = sin(ang);\n"
             "    float x0 = xh[p + 0u];\n"
@@ -1434,6 +1861,168 @@ static NSString *qw3_metal_kernel_source(void) {
             "                uint gid = qh * args.head_dim + i;\n"
             "                float sig = 1.0f / (1.0f + exp(-gate[gid]));\n"
             "                out[gid] = (acc[gh] / denom[gh]) * sig;\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "struct qw3_gqa_prefill_attn_args { uint n_tokens; uint n_heads; uint n_kv_heads; uint head_dim; uint q_offset; uint gate_offset; uint k_offset; uint v_offset; uint out_offset; uint stride; };\n"
+            "kernel void qw3_gqa_prefill_attend_inner(constant qw3_gqa_prefill_attn_args &args,\n"
+            "                                        device float *scratch,\n"
+            "                                        threadgroup float *sh,\n"
+            "                                        uint group [[threadgroup_position_in_grid]],\n"
+            "                                        ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                        ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                        ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                        ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint query = group / args.n_kv_heads;\n"
+            "    uint kvh = group - query * args.n_kv_heads;\n"
+            "    if (query >= args.n_tokens || kvh >= args.n_kv_heads || args.head_dim > uint(nt)) return;\n"
+            "    uint i = uint(tid);\n"
+            "    uint group_heads = args.n_heads / args.n_kv_heads;\n"
+            "    if (group_heads == 0u || group_heads > 8u) return;\n"
+            "    uint first_qh = kvh * group_heads;\n"
+            "    device float *qrow = scratch + uint64_t(query) * args.stride;\n"
+            "    float scale = rsqrt(float(args.head_dim));\n"
+            "    float qv[8];\n"
+            "    float max_score[8];\n"
+            "    float denom[8];\n"
+            "    float acc[8];\n"
+            "    for (uint gh = 0; gh < 8u; gh++) {\n"
+            "        uint qh = first_qh + gh;\n"
+            "        qv[gh] = (gh < group_heads && i < args.head_dim && qh < args.n_heads) ? qrow[args.q_offset + uint64_t(qh) * args.head_dim + i] : 0.0f;\n"
+            "        max_score[gh] = -FLT_MAX;\n"
+            "        denom[gh] = 0.0f;\n"
+            "        acc[gh] = 0.0f;\n"
+            "    }\n"
+            "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
+            "    for (uint src = 0; src <= query; src++) {\n"
+            "        device float *srow = scratch + uint64_t(src) * args.stride;\n"
+            "        float kval = (i < args.head_dim) ? srow[args.k_offset + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            float part = (gh < group_heads && i < args.head_dim) ? qv[gh] * kval : 0.0f;\n"
+            "            part = simd_sum(part);\n"
+            "            if (lane == 0) sh[gh * 8u + uint(simd_idx)] = part;\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            float dot = (gh < group_heads && uint(tid) < n_simd) ? sh[gh * 8u + uint(tid)] : 0.0f;\n"
+            "            dot = simd_sum(dot);\n"
+            "            if (tid == 0) sh[gh] = dot;\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        float vv = (i < args.head_dim) ? srow[args.v_offset + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            if (gh < group_heads) {\n"
+            "                float score = sh[gh] * scale;\n"
+            "                float next_max = max(max_score[gh], score);\n"
+            "                float prev_scale = exp(max_score[gh] - next_max);\n"
+            "                float cur_scale = exp(score - next_max);\n"
+            "                acc[gh] = acc[gh] * prev_scale + vv * cur_scale;\n"
+            "                denom[gh] = denom[gh] * prev_scale + cur_scale;\n"
+            "                max_score[gh] = next_max;\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    }\n"
+            "    if (i < args.head_dim) {\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            uint qh = first_qh + gh;\n"
+            "            if (gh < group_heads && qh < args.n_heads) {\n"
+            "                uint gid = qh * args.head_dim + i;\n"
+            "                float sig = 1.0f / (1.0f + exp(-qrow[args.gate_offset + gid]));\n"
+            "                qrow[args.out_offset + gid] = (acc[gh] / denom[gh]) * sig;\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "struct qw3_gqa_prefill_cache_args { uint n_tokens; uint n_kv_heads; uint head_dim; uint pos0; uint ctx_size; uint k_offset; uint v_offset; uint stride; };\n"
+            "kernel void qw3_gqa_prefill_write_cache(constant qw3_gqa_prefill_cache_args &args,\n"
+            "                                        device const float *scratch,\n"
+            "                                        device float *k_cache,\n"
+            "                                        device float *v_cache,\n"
+            "                                        uint gid [[thread_position_in_grid]]) {\n"
+            "    uint kv_n = args.n_kv_heads * args.head_dim;\n"
+            "    uint total = args.n_tokens * kv_n;\n"
+            "    if (gid >= total) return;\n"
+            "    uint t = gid / kv_n;\n"
+            "    uint i = gid - t * kv_n;\n"
+            "    uint pos = args.pos0 + t;\n"
+            "    if (pos >= args.ctx_size) return;\n"
+            "    device const float *row = scratch + uint64_t(t) * args.stride;\n"
+            "    uint64_t dst = uint64_t(pos) * kv_n + i;\n"
+            "    k_cache[dst] = row[args.k_offset + i];\n"
+            "    v_cache[dst] = row[args.v_offset + i];\n"
+            "}\n"
+            "struct qw3_gqa_prefill_cached_attn_args { uint n_tokens; uint n_heads; uint n_kv_heads; uint head_dim; uint pos0; uint ctx_size; uint q_offset; uint gate_offset; uint out_offset; uint stride; };\n"
+            "kernel void qw3_gqa_prefill_cached_attend_inner(constant qw3_gqa_prefill_cached_attn_args &args,\n"
+            "                                               device float *scratch,\n"
+            "                                               device const float *k_cache,\n"
+            "                                               device const float *v_cache,\n"
+            "                                               threadgroup float *sh,\n"
+            "                                               uint group [[threadgroup_position_in_grid]],\n"
+            "                                               ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                               ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                               ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                               ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint query = group / args.n_kv_heads;\n"
+            "    uint kvh = group - query * args.n_kv_heads;\n"
+            "    if (query >= args.n_tokens || kvh >= args.n_kv_heads || args.head_dim > uint(nt)) return;\n"
+            "    uint n_ctx = args.pos0 + query + 1u;\n"
+            "    if (n_ctx > args.ctx_size) return;\n"
+            "    uint i = uint(tid);\n"
+            "    uint group_heads = args.n_heads / args.n_kv_heads;\n"
+            "    if (group_heads == 0u || group_heads > 8u) return;\n"
+            "    uint first_qh = kvh * group_heads;\n"
+            "    uint kv_n = args.n_kv_heads * args.head_dim;\n"
+            "    device float *qrow = scratch + uint64_t(query) * args.stride;\n"
+            "    float scale = rsqrt(float(args.head_dim));\n"
+            "    float qv[8];\n"
+            "    float max_score[8];\n"
+            "    float denom[8];\n"
+            "    float acc[8];\n"
+            "    for (uint gh = 0; gh < 8u; gh++) {\n"
+            "        uint qh = first_qh + gh;\n"
+            "        qv[gh] = (gh < group_heads && i < args.head_dim && qh < args.n_heads) ? qrow[args.q_offset + uint64_t(qh) * args.head_dim + i] : 0.0f;\n"
+            "        max_score[gh] = -FLT_MAX;\n"
+            "        denom[gh] = 0.0f;\n"
+            "        acc[gh] = 0.0f;\n"
+            "    }\n"
+            "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
+            "    for (uint src = 0; src < n_ctx; src++) {\n"
+            "        float kval = (i < args.head_dim) ? k_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            float part = (gh < group_heads && i < args.head_dim) ? qv[gh] * kval : 0.0f;\n"
+            "            part = simd_sum(part);\n"
+            "            if (lane == 0) sh[gh * 8u + uint(simd_idx)] = part;\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            float dot = (gh < group_heads && uint(tid) < n_simd) ? sh[gh * 8u + uint(tid)] : 0.0f;\n"
+            "            dot = simd_sum(dot);\n"
+            "            if (tid == 0) sh[gh] = dot;\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        float vv = (i < args.head_dim) ? v_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            if (gh < group_heads) {\n"
+            "                float score = sh[gh] * scale;\n"
+            "                float next_max = max(max_score[gh], score);\n"
+            "                float prev_scale = exp(max_score[gh] - next_max);\n"
+            "                float cur_scale = exp(score - next_max);\n"
+            "                acc[gh] = acc[gh] * prev_scale + vv * cur_scale;\n"
+            "                denom[gh] = denom[gh] * prev_scale + cur_scale;\n"
+            "                max_score[gh] = next_max;\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    }\n"
+            "    if (i < args.head_dim) {\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            uint qh = first_qh + gh;\n"
+            "            if (gh < group_heads && qh < args.n_heads) {\n"
+            "                uint gid = qh * args.head_dim + i;\n"
+            "                float sig = 1.0f / (1.0f + exp(-qrow[args.gate_offset + gid]));\n"
+            "                qrow[args.out_offset + gid] = (acc[gh] / denom[gh]) * sig;\n"
             "            }\n"
             "        }\n"
             "    }\n"
@@ -1848,6 +2437,61 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float gate = zi / (1.0f + exp(-zi));\n"
             "    inner_out[uint64_t(hv) * args.head_dim + j] = core * scale * w[j] * gate;\n"
             "}\n"
+            "struct qw3_batch_gdn_args { uint q_heads; uint v_heads; uint head_dim; uint n_tokens; uint conv_offset; uint z_offset; uint alpha_offset; uint beta_offset; uint inner_offset; uint stride; float eps; };\n"
+            "kernel void qw3_deltanet_batch_fused_gdn(constant qw3_batch_gdn_args &args,\n"
+            "                                        device float *state,\n"
+            "                                        device float *scratch,\n"
+            "                                        device const float *dt_bias,\n"
+            "                                        device const float *a,\n"
+            "                                        device const float *w,\n"
+            "                                        threadgroup float *sh,\n"
+            "                                        uint hv [[threadgroup_position_in_grid]],\n"
+            "                                        ushort j [[thread_index_in_threadgroup]],\n"
+            "                                        ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                        ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    if (hv >= args.v_heads || j >= args.head_dim) return;\n"
+            "    uint hk = hv % args.q_heads;\n"
+            "    uint qk_n = args.q_heads * args.head_dim;\n"
+            "    uint state_n = args.head_dim * args.head_dim;\n"
+            "    device float *st = state + uint64_t(hv) * state_n;\n"
+            "    for (uint t = 0; t < args.n_tokens; t++) {\n"
+            "        uint64_t base = uint64_t(t) * args.stride;\n"
+            "        device const float *qh = scratch + base + args.conv_offset + uint64_t(hk) * args.head_dim;\n"
+            "        device const float *kh = scratch + base + args.conv_offset + qk_n + uint64_t(hk) * args.head_dim;\n"
+            "        device const float *vh = scratch + base + args.conv_offset + 2u * qk_n + uint64_t(hv) * args.head_dim;\n"
+            "        if (j == 0) {\n"
+            "            float beta_raw = scratch[base + args.beta_offset + hv];\n"
+            "            sh[0] = 1.0f / (1.0f + exp(-beta_raw));\n"
+            "            float alpha_raw = scratch[base + args.alpha_offset + hv] + dt_bias[hv];\n"
+            "            float sp = alpha_raw > 20.0f ? alpha_raw : (alpha_raw < -20.0f ? exp(alpha_raw) : log(1.0f + exp(alpha_raw)));\n"
+            "            sh[1] = exp(sp * a[hv]);\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        float b = sh[0];\n"
+            "        float g = sh[1];\n"
+            "        float sk = 0.0f;\n"
+            "        for (uint i = 0; i < args.head_dim; i++) sk += st[i * args.head_dim + j] * kh[i];\n"
+            "        float d = b * (vh[j] - sk * g);\n"
+            "        float sum = 0.0f;\n"
+            "        for (uint i = 0; i < args.head_dim; i++) {\n"
+            "            uint idx = i * args.head_dim + j;\n"
+            "            float sv = st[idx] * g + kh[i] * d;\n"
+            "            st[idx] = sv;\n"
+            "            sum += sv * qh[i];\n"
+            "        }\n"
+            "        float core = sum * rsqrt(float(args.head_dim));\n"
+            "        float ss = simd_sum(core * core);\n"
+            "        if (lane == 0) sh[2u + simd_idx] = ss;\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        ss = lane < 32 ? sh[2u + lane] : 0.0f;\n"
+            "        ss = simd_sum(ss);\n"
+            "        float scale = rsqrt(ss / float(args.head_dim) + args.eps);\n"
+            "        float zi = scratch[base + args.z_offset + uint64_t(hv) * args.head_dim + j];\n"
+            "        float gate = zi / (1.0f + exp(-zi));\n"
+            "        scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j] = core * scale * w[j] * gate;\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    }\n"
+            "}\n"
             "struct qw3_gated_rmsnorm_args { uint v_heads; uint head_dim; float eps; };\n"
             "kernel void qw3_deltanet_gated_rmsnorm(constant qw3_gated_rmsnorm_args &args,\n"
             "                                      device const float *w,\n"
@@ -1928,6 +2572,32 @@ static NSString *qw3_metal_kernel_source(void) {
             "        y[i] = v * scale * w[i];\n"
             "    }\n"
             "}\n"
+            "struct qw3_residual_batch_args { uint n; float eps; uint n_tokens; uint residual_offset; uint residual_stride; };\n"
+            "kernel void qw3_residual_rmsnorm_batch_update_x0(constant qw3_residual_batch_args &args,\n"
+            "                                                 device float *x0,\n"
+            "                                                 device const float *residual,\n"
+            "                                                 device const float *w,\n"
+            "                                                 device float *y,\n"
+            "                                                 threadgroup float *sh,\n"
+            "                                                 uint row [[threadgroup_position_in_grid]],\n"
+            "                                                 ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                                 ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                 ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                                 ushort nt [[threads_per_threadgroup]]) {\n"
+            "    if (row >= args.n_tokens) return;\n"
+            "    device float *xr = x0 + uint64_t(row) * args.n;\n"
+            "    device const float *rr = residual + uint64_t(row) * args.residual_stride + args.residual_offset;\n"
+            "    device float *yr = y + uint64_t(row) * args.n;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.n; i += nt) { float v = xr[i] + rr[i]; ss += v * v; }\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = rsqrt(ss / float(args.n) + args.eps);\n"
+            "    for (uint i = tid; i < args.n; i += nt) { float v = xr[i] + rr[i]; xr[i] = v; yr[i] = v * scale * w[i]; }\n"
+            "}\n"
             "struct qw3_unary_args { uint n; float scale; };\n"
             "kernel void qw3_silu_mul(constant qw3_unary_args &args,\n"
             "                         device const float *a,\n"
@@ -1963,6 +2633,20 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float y = scratch[args.b_offset + gid];\n"
             "    out[gid] = (x / (1.0f + exp(-x))) * y;\n"
             "}\n"
+            "struct qw3_rows_offset_args { uint n; uint n_rows; uint stride; uint a_offset; uint b_offset; uint out_offset; };\n"
+            "kernel void qw3_silu_mul_rows_offsets(constant qw3_rows_offset_args &args,\n"
+            "                                       device const float *scratch,\n"
+            "                                       device float *out,\n"
+            "                                       uint gid [[thread_position_in_grid]]) {\n"
+            "    uint total = args.n * args.n_rows;\n"
+            "    if (gid >= total) return;\n"
+            "    uint row = gid / args.n;\n"
+            "    uint col = gid - row * args.n;\n"
+            "    uint base = row * args.stride;\n"
+            "    float x = scratch[base + args.a_offset + col];\n"
+            "    float y = scratch[base + args.b_offset + col];\n"
+            "    out[base + args.out_offset + col] = (x / (1.0f + exp(-x))) * y;\n"
+            "}\n"
             "kernel void qw3_scale_x1_scalar_add_x0(constant qw3_offset_args &args,\n"
             "                                      device float *x0,\n"
             "                                      device const float *x1,\n"
@@ -1987,6 +2671,19 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                     uint gid [[thread_position_in_grid]]) {\n"
             "    if (gid >= args.n) return;\n"
             "    x0[gid] = x0[gid] + scratch[args.a_offset + gid] * scale;\n"
+            "}\n"
+            "kernel void qw3_sigmoid_scale_scratch_add_x0_rows(constant qw3_rows_offset_args &args,\n"
+            "                                                 device float *x0,\n"
+            "                                                 device const float *scratch,\n"
+            "                                                 uint gid [[thread_position_in_grid]]) {\n"
+            "    uint total = args.n * args.n_rows;\n"
+            "    if (gid >= total) return;\n"
+            "    uint row = gid / args.n;\n"
+            "    uint col = gid - row * args.n;\n"
+            "    uint base = row * args.stride;\n"
+            "    float raw = scratch[base + args.b_offset];\n"
+            "    float scale = 1.0f / (1.0f + exp(-raw));\n"
+            "    x0[row * args.n + col] = x0[row * args.n + col] + scratch[base + args.a_offset + col] * scale;\n"
             "}\n"
             "kernel void qw3_scale_scratch_add_x0_slot(constant qw3_offset_args &args,\n"
             "                                          constant uint &slot,\n"
@@ -2029,6 +2726,47 @@ static NSString *qw3_metal_kernel_source(void) {
             "        float sum = 0.0f;\n"
             "        for (uint k = 0; k < 8u; k++) { weights[k] = exp(selected[k] - selected[0]); sum += weights[k]; }\n"
             "        for (uint k = 0; k < 8u; k++) weights[k] /= sum;\n"
+            "    }\n"
+            "}\n"
+            "struct qw3_router_batch_args { uint n_tokens; uint router_offset; uint stride; };\n"
+            "kernel void qw3_router_top8_batch(constant qw3_router_batch_args &args,\n"
+            "                                  device const float *scratch,\n"
+            "                                  device int *ids,\n"
+            "                                  device float *weights,\n"
+            "                                  uint token [[threadgroup_position_in_grid]],\n"
+            "                                  uint tid [[thread_index_in_threadgroup]]) {\n"
+            "    if (token >= args.n_tokens) return;\n"
+            "    threadgroup float vals[256];\n"
+            "    threadgroup int best[256];\n"
+            "    threadgroup float selected[8];\n"
+            "    threadgroup int selected_ids[8];\n"
+            "    device const float *router = scratch + uint64_t(token) * uint64_t(args.stride) + uint64_t(args.router_offset);\n"
+            "    device int *row_ids = ids + uint64_t(token) * 8ull;\n"
+            "    device float *row_weights = weights + uint64_t(token) * 8ull;\n"
+            "    for (uint rank = 0; rank < 8u; rank++) {\n"
+            "        float v = router[tid];\n"
+            "        for (uint k = 0; k < rank; k++) if (selected_ids[k] == int(tid)) v = -INFINITY;\n"
+            "        vals[tid] = v;\n"
+            "        best[tid] = int(tid);\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        for (uint stride = 128u; stride > 0u; stride >>= 1u) {\n"
+            "            if (tid < stride) {\n"
+            "                float rv = vals[tid + stride];\n"
+            "                int ri = best[tid + stride];\n"
+            "                if (rv > vals[tid] || (rv == vals[tid] && ri < best[tid])) {\n"
+            "                    vals[tid] = rv;\n"
+            "                    best[tid] = ri;\n"
+            "                }\n"
+            "            }\n"
+            "            threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        }\n"
+            "        if (tid == 0) { row_ids[rank] = best[0]; selected_ids[rank] = best[0]; selected[rank] = vals[0]; }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    }\n"
+            "    if (tid == 0) {\n"
+            "        float sum = 0.0f;\n"
+            "        for (uint k = 0; k < 8u; k++) { row_weights[k] = exp(selected[k] - selected[0]); sum += row_weights[k]; }\n"
+            "        for (uint k = 0; k < 8u; k++) row_weights[k] /= sum;\n"
             "    }\n"
             "}\n"
             "struct qw3_expert_slot_args { uint n_in; uint n_out; uint row_bytes; uint expert_bytes; uint slot; };\n"
@@ -2835,6 +3573,244 @@ static NSString *qw3_metal_kernel_source(void) {
             "    device float4 *x04 = (device float4 *)x0;\n"
             "    x04[gid] += sum;\n"
             "}\n"
+            "struct qw3_moe_prefill_batch_args { uint n_in; uint n_ff; uint n_embd; uint n_tokens; uint n_active; uint iq3_row_bytes; uint iq3_expert_bytes; uint down_row_bytes; uint down_expert_bytes; uint stride; uint hidden_offset; };\n"
+            "kernel void qw3_moe_iq3_s_swiglu_prefill_batch_fast(constant qw3_moe_prefill_batch_args &args,\n"
+            "                                                   device const uchar *gate_weights,\n"
+            "                                                   device const uchar *up_weights,\n"
+            "                                                   device const float *x1,\n"
+            "                                                   device float *scratch,\n"
+            "                                                   device const uchar *kgrid,\n"
+            "                                                   constant int *ids,\n"
+            "                                                   threadgroup float *sh,\n"
+            "                                                   uint group [[threadgroup_position_in_grid]],\n"
+            "                                                   ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                   ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    (void)sh;\n"
+            "    const uint nr0 = 4u;\n"
+            "    const uint nsg = 2u;\n"
+            "    uint groups_per_pair = (args.n_ff + 7u) / 8u;\n"
+            "    uint pair = group / groups_per_pair;\n"
+            "    uint row_group = group - pair * groups_per_pair;\n"
+            "    uint token = pair / args.n_active;\n"
+            "    uint slot = pair - token * args.n_active;\n"
+            "    if (token >= args.n_tokens || slot >= args.n_active) return;\n"
+            "    uint first_row = (row_group * nsg + uint(simd_idx)) * nr0;\n"
+            "    uint expert = uint(ids[pair]);\n"
+            "    uint64_t expert_off = uint64_t(expert) * uint64_t(args.iq3_expert_bytes);\n"
+            "    device const float *x = x1 + uint64_t(token) * uint64_t(args.n_in);\n"
+            "    float gate_sum0 = 0.0f, gate_sum1 = 0.0f, gate_sum2 = 0.0f, gate_sum3 = 0.0f;\n"
+            "    float up_sum0 = 0.0f, up_sum1 = 0.0f, up_sum2 = 0.0f, up_sum3 = 0.0f;\n"
+            "    uint nb32 = (args.n_in / 256u) * 8u;\n"
+            "    for (uint ib32 = uint(lane); ib32 < nb32; ib32 += 32u) {\n"
+            "        uint ibl = ib32 / 8u;\n"
+            "        uint ib = ib32 - ibl * 8u;\n"
+            "        device const float *xx = x + uint64_t(ib32) * 32ull;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_ff) {\n"
+            "            uint64_t off = expert_off + uint64_t(row) * uint64_t(args.iq3_row_bytes) + uint64_t(ibl) * 110ull;\n"
+            "            float2 pair_sum = qw3_iq3s_dot32_pair(gate_weights + off, up_weights + off, xx, kgrid, ib);\n"
+            "            gate_sum0 += pair_sum.x; up_sum0 += pair_sum.y;\n"
+            "        }\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_ff) {\n"
+            "            uint64_t off = expert_off + uint64_t(row) * uint64_t(args.iq3_row_bytes) + uint64_t(ibl) * 110ull;\n"
+            "            float2 pair_sum = qw3_iq3s_dot32_pair(gate_weights + off, up_weights + off, xx, kgrid, ib);\n"
+            "            gate_sum1 += pair_sum.x; up_sum1 += pair_sum.y;\n"
+            "        }\n"
+            "        row = first_row + 2u;\n"
+            "        if (row < args.n_ff) {\n"
+            "            uint64_t off = expert_off + uint64_t(row) * uint64_t(args.iq3_row_bytes) + uint64_t(ibl) * 110ull;\n"
+            "            float2 pair_sum = qw3_iq3s_dot32_pair(gate_weights + off, up_weights + off, xx, kgrid, ib);\n"
+            "            gate_sum2 += pair_sum.x; up_sum2 += pair_sum.y;\n"
+            "        }\n"
+            "        row = first_row + 3u;\n"
+            "        if (row < args.n_ff) {\n"
+            "            uint64_t off = expert_off + uint64_t(row) * uint64_t(args.iq3_row_bytes) + uint64_t(ibl) * 110ull;\n"
+            "            float2 pair_sum = qw3_iq3s_dot32_pair(gate_weights + off, up_weights + off, xx, kgrid, ib);\n"
+            "            gate_sum3 += pair_sum.x; up_sum3 += pair_sum.y;\n"
+            "        }\n"
+            "    }\n"
+            "    gate_sum0 = simd_sum(gate_sum0); up_sum0 = simd_sum(up_sum0);\n"
+            "    gate_sum1 = simd_sum(gate_sum1); up_sum1 = simd_sum(up_sum1);\n"
+            "    gate_sum2 = simd_sum(gate_sum2); up_sum2 = simd_sum(up_sum2);\n"
+            "    gate_sum3 = simd_sum(gate_sum3); up_sum3 = simd_sum(up_sum3);\n"
+            "    if (lane == 0) {\n"
+            "        uint base = token * args.stride + args.hidden_offset + slot * args.n_ff;\n"
+            "        uint row = first_row;\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum0 / (1.0f + exp(-gate_sum0))) * up_sum0;\n"
+            "        row = first_row + 1u;\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum1 / (1.0f + exp(-gate_sum1))) * up_sum1;\n"
+            "        row = first_row + 2u;\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum2 / (1.0f + exp(-gate_sum2))) * up_sum2;\n"
+            "        row = first_row + 3u;\n"
+            "        if (row < args.n_ff) scratch[base + row] = (gate_sum3 / (1.0f + exp(-gate_sum3))) * up_sum3;\n"
+            "    }\n"
+            "}\n"
+            "kernel void qw3_moe_down_iq4_xs_prefill_batch_reduce_fast(constant qw3_moe_prefill_batch_args &args,\n"
+            "                                                         device const uchar *weights,\n"
+            "                                                         device const float *scratch,\n"
+            "                                                         device float *x0,\n"
+            "                                                         constant int *ids,\n"
+            "                                                         constant float *router_weights,\n"
+            "                                                         threadgroup float *sh,\n"
+            "                                                         uint group [[threadgroup_position_in_grid]],\n"
+            "                                                         ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                                         ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                         ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint row_pair_count = (args.n_embd + 1u) / 2u;\n"
+            "    uint token = group / row_pair_count;\n"
+            "    uint row0 = (group - token * row_pair_count) * 2u;\n"
+            "    uint row1 = row0 + 1u;\n"
+            "    uint slot = uint(simd_idx);\n"
+            "    bool active = token < args.n_tokens && slot < args.n_active;\n"
+            "    uint pair = token * args.n_active + slot;\n"
+            "    uint expert = active ? uint(ids[pair]) : 0u;\n"
+            "    uint64_t expert_off = uint64_t(expert) * uint64_t(args.down_expert_bytes);\n"
+            "    device const float *x = scratch + uint64_t(token) * uint64_t(args.stride) + uint64_t(args.hidden_offset) + uint64_t(slot) * uint64_t(args.n_ff);\n"
+            "    uint ix = uint(lane) >> 4u;\n"
+            "    uint it = uint(lane) & 15u;\n"
+            "    uint ib = it >> 1u;\n"
+            "    uint il = it & 1u;\n"
+            "    float sum0 = 0.0f;\n"
+            "    float sum1 = 0.0f;\n"
+            "    uint n_blocks = args.n_ff / 256u;\n"
+            "    if (active) {\n"
+            "        for (uint b = ix; b < n_blocks; b += 2u) {\n"
+            "            device const float *xg = x + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;\n"
+            "            if (row0 < args.n_embd) {\n"
+            "                device const uchar *blk = weights + expert_off + uint64_t(row0) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "                half d = *((device const half *)blk);\n"
+            "                ushort scales_h = *((device const ushort *)(blk + 2));\n"
+            "                device const uchar *scales_l = blk + 4;\n"
+            "                device const uchar *qs = scales_l + 4 + ib * 16u + il * 8u;\n"
+            "                uint ls = ((uint(scales_l[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);\n"
+            "                float dl = float(d) * float(int(ls) - 32);\n"
+            "                float acc = 0.0f;\n"
+            "                for (uint j = 0; j < 8u; j++) { uchar v = qs[j]; acc += qw3_iq4nl_val(uint(v) & 15u) * xg[j]; acc += qw3_iq4nl_val(uint(v) >> 4u) * xg[j + 16u]; }\n"
+            "                sum0 += dl * acc;\n"
+            "            }\n"
+            "            if (row1 < args.n_embd) {\n"
+            "                device const uchar *blk = weights + expert_off + uint64_t(row1) * uint64_t(args.down_row_bytes) + uint64_t(b) * 136ull;\n"
+            "                half d = *((device const half *)blk);\n"
+            "                ushort scales_h = *((device const ushort *)(blk + 2));\n"
+            "                device const uchar *scales_l = blk + 4;\n"
+            "                device const uchar *qs = scales_l + 4 + ib * 16u + il * 8u;\n"
+            "                uint ls = ((uint(scales_l[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);\n"
+            "                float dl = float(d) * float(int(ls) - 32);\n"
+            "                float acc = 0.0f;\n"
+            "                for (uint j = 0; j < 8u; j++) { uchar v = qs[j]; acc += qw3_iq4nl_val(uint(v) & 15u) * xg[j]; acc += qw3_iq4nl_val(uint(v) >> 4u) * xg[j + 16u]; }\n"
+            "                sum1 += dl * acc;\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "    sum0 = simd_sum(sum0);\n"
+            "    sum1 = simd_sum(sum1);\n"
+            "    float scale = active ? router_weights[pair] : 0.0f;\n"
+            "    if (lane == 0) { sh[slot] = sum0 * scale; sh[8u + slot] = sum1 * scale; }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    if (tid == 0 && token < args.n_tokens) {\n"
+            "        float total0 = 0.0f;\n"
+            "        float total1 = 0.0f;\n"
+            "        for (uint s = 0; s < args.n_active; s++) { total0 += sh[s]; total1 += sh[8u + s]; }\n"
+            "        device float *row = x0 + uint64_t(token) * uint64_t(args.n_embd);\n"
+            "        if (row0 < args.n_embd) row[row0] += total0;\n"
+            "        if (row1 < args.n_embd) row[row1] += total1;\n"
+            "    }\n"
+            "}\n"
+            "kernel void qw3_moe_down_q6_k_prefill_batch_reduce_fast(constant qw3_moe_prefill_batch_args &args,\n"
+            "                                                       device const uchar *weights,\n"
+            "                                                       device const float *scratch,\n"
+            "                                                       device float *x0,\n"
+            "                                                       constant int *ids,\n"
+            "                                                       constant float *router_weights,\n"
+            "                                                       threadgroup float *sh,\n"
+            "                                                       uint group [[threadgroup_position_in_grid]],\n"
+            "                                                       ushort tidx [[thread_index_in_threadgroup]],\n"
+            "                                                       ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                       ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint row_pair_count = (args.n_embd + 1u) / 2u;\n"
+            "    uint token = group / row_pair_count;\n"
+            "    uint row0 = (group - token * row_pair_count) * 2u;\n"
+            "    uint row1 = row0 + 1u;\n"
+            "    uint slot = uint(simd_idx);\n"
+            "    bool active = token < args.n_tokens && slot < args.n_active;\n"
+            "    uint pair = token * args.n_active + slot;\n"
+            "    uint expert = active ? uint(ids[pair]) : 0u;\n"
+            "    uint64_t expert_off = uint64_t(expert) * uint64_t(args.down_expert_bytes);\n"
+            "    device const float *x = scratch + uint64_t(token) * uint64_t(args.stride) + uint64_t(args.hidden_offset) + uint64_t(slot) * uint64_t(args.n_ff);\n"
+            "    uint tid = uint(lane) >> 1u;\n"
+            "    uint ix = uint(lane) & 1u;\n"
+            "    uint ip = tid >> 3u;\n"
+            "    uint il = tid & 7u;\n"
+            "    uint l0 = 4u * il;\n"
+            "    uint is = 8u * ip + l0 / 16u;\n"
+            "    uint y_offset = 128u * ip + l0;\n"
+            "    uint q_offset_l = 64u * ip + l0;\n"
+            "    uint q_offset_h = 32u * ip + l0;\n"
+            "    float sum0 = 0.0f;\n"
+            "    float sum1 = 0.0f;\n"
+            "    uint n_blocks = args.n_ff / 256u;\n"
+            "    if (active) {\n"
+            "        for (uint b = ix; b < n_blocks; b += 2u) {\n"
+            "            device const float *yy = x + uint64_t(b) * 256ull + y_offset;\n"
+            "            if (row0 < args.n_embd) {\n"
+            "                device const uchar *blk = weights + expert_off + uint64_t(row0) * uint64_t(args.down_row_bytes) + uint64_t(b) * 210ull;\n"
+            "                device const uchar *q1 = blk + q_offset_l;\n"
+            "                device const uchar *q2 = q1 + 32u;\n"
+            "                device const uchar *qh = blk + 128u + q_offset_h;\n"
+            "                device const char *sc = (device const char *)(blk + 192u + is);\n"
+            "                ushort dbits = ushort(blk[208u]) | (ushort(blk[209u]) << 8u);\n"
+            "                float d = qw3_f16_to_f32(dbits);\n"
+            "                float acc = 0.0f;\n"
+            "                for (uint l = 0; l < 4u; l++) {\n"
+            "                    int qv1 = int((uint(q1[l]) & 15u) | (((uint(qh[l]) >> 0u) & 3u) << 4u)) - 32;\n"
+            "                    int qv2 = int((uint(q2[l]) & 15u) | (((uint(qh[l]) >> 2u) & 3u) << 4u)) - 32;\n"
+            "                    int qv3 = int((uint(q1[l]) >> 4u) | (((uint(qh[l]) >> 4u) & 3u) << 4u)) - 32;\n"
+            "                    int qv4 = int((uint(q2[l]) >> 4u) | (((uint(qh[l]) >> 6u) & 3u) << 4u)) - 32;\n"
+            "                    acc += float(sc[0]) * float(qv1) * yy[l + 0u];\n"
+            "                    acc += float(sc[2]) * float(qv2) * yy[l + 32u];\n"
+            "                    acc += float(sc[4]) * float(qv3) * yy[l + 64u];\n"
+            "                    acc += float(sc[6]) * float(qv4) * yy[l + 96u];\n"
+            "                }\n"
+            "                sum0 += d * acc;\n"
+            "            }\n"
+            "            if (row1 < args.n_embd) {\n"
+            "                device const uchar *blk = weights + expert_off + uint64_t(row1) * uint64_t(args.down_row_bytes) + uint64_t(b) * 210ull;\n"
+            "                device const uchar *q1 = blk + q_offset_l;\n"
+            "                device const uchar *q2 = q1 + 32u;\n"
+            "                device const uchar *qh = blk + 128u + q_offset_h;\n"
+            "                device const char *sc = (device const char *)(blk + 192u + is);\n"
+            "                ushort dbits = ushort(blk[208u]) | (ushort(blk[209u]) << 8u);\n"
+            "                float d = qw3_f16_to_f32(dbits);\n"
+            "                float acc = 0.0f;\n"
+            "                for (uint l = 0; l < 4u; l++) {\n"
+            "                    int qv1 = int((uint(q1[l]) & 15u) | (((uint(qh[l]) >> 0u) & 3u) << 4u)) - 32;\n"
+            "                    int qv2 = int((uint(q2[l]) & 15u) | (((uint(qh[l]) >> 2u) & 3u) << 4u)) - 32;\n"
+            "                    int qv3 = int((uint(q1[l]) >> 4u) | (((uint(qh[l]) >> 4u) & 3u) << 4u)) - 32;\n"
+            "                    int qv4 = int((uint(q2[l]) >> 4u) | (((uint(qh[l]) >> 6u) & 3u) << 4u)) - 32;\n"
+            "                    acc += float(sc[0]) * float(qv1) * yy[l + 0u];\n"
+            "                    acc += float(sc[2]) * float(qv2) * yy[l + 32u];\n"
+            "                    acc += float(sc[4]) * float(qv3) * yy[l + 64u];\n"
+            "                    acc += float(sc[6]) * float(qv4) * yy[l + 96u];\n"
+            "                }\n"
+            "                sum1 += d * acc;\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "    sum0 = simd_sum(sum0);\n"
+            "    sum1 = simd_sum(sum1);\n"
+            "    float scale = active ? router_weights[pair] : 0.0f;\n"
+            "    if (lane == 0) { sh[slot] = sum0 * scale; sh[8u + slot] = sum1 * scale; }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    if (tidx == 0 && token < args.n_tokens) {\n"
+            "        float total0 = 0.0f;\n"
+            "        float total1 = 0.0f;\n"
+            "        for (uint s = 0; s < args.n_active; s++) { total0 += sh[s]; total1 += sh[8u + s]; }\n"
+            "        device float *row = x0 + uint64_t(token) * uint64_t(args.n_embd);\n"
+            "        if (row0 < args.n_embd) row[row0] += total0;\n"
+            "        if (row1 < args.n_embd) row[row1] += total1;\n"
+            "    }\n"
+            "}\n"
             "kernel void qw3_matvec_iq3_s_expert_slot(constant qw3_expert_slot_args &args,\n"
             "                                         device const uchar *weights,\n"
             "                                         device const float *x,\n"
@@ -3126,8 +4102,14 @@ static NSString *qw3_metal_kernel_source(void) {
 
 static int qw3_metal_compile_kernels(void) {
     if (g_library && g_rmsnorm_plain_pipeline &&
-        g_rmsnorm_weight_f32_pipeline && g_embed_q8_0_pipeline &&
-        g_matvec_q8_0_pipeline && g_matvec_q8_0_pair_pipeline &&
+        g_rmsnorm_weight_f32_pipeline &&
+        g_rmsnorm_weight_f32_rows_pipeline &&
+        g_rmsnorm_weight_f32_rows_to_out_pipeline &&
+        g_embed_q8_0_pipeline &&
+        g_embed_q8_0_batch_pipeline &&
+        g_matvec_q8_0_pipeline && g_matmul_q8_0_batch4_pipeline &&
+        g_matmul_q8_0_mm_pipeline && g_matmul_q8_0_mm_bc_pipeline &&
+        g_matvec_q8_0_pair_pipeline &&
         g_matvec_q8_0_pair_silu_pipeline &&
         g_shared_gate_up_silu_pipeline &&
         g_matvec_q8_0_inner_scale_add_x0_pipeline &&
@@ -3143,16 +4125,27 @@ static int qw3_metal_compile_kernels(void) {
         g_moe_down_iq4_xs_batch_reduce_pipeline &&
         g_moe_down_q6_k_batch_pipeline &&
         g_moe_reduce_batch_pipeline &&
+        g_moe_iq3_s_prefill_batch_pipeline &&
+        g_moe_down_iq4_xs_prefill_reduce_pipeline &&
+        g_moe_down_q6_k_prefill_reduce_pipeline &&
         g_matvec_f32_pipeline && g_matvec_f32_pair_pipeline &&
         g_matvec_f32_fast_pipeline &&
+        g_matmul_f32_batch4_pipeline &&
+        g_matmul_f32_pair_batch4_pipeline &&
         g_deltanet_conv1d_zero_pipeline &&
         g_deltanet_conv1d_step_pipeline &&
+        g_deltanet_conv1d_batch_pipeline &&
         g_l2norm_heads_pipeline &&
+        g_l2norm_qk_batch_pipeline &&
         g_gqa_q_norm_gate_pipeline && g_gqa_k_norm_pipeline &&
-        g_rope_heads_pipeline &&
+        g_gqa_q_norm_gate_batch_pipeline && g_gqa_k_norm_batch_pipeline &&
+        g_rope_heads_pipeline && g_rope_heads_batch_pipeline &&
         g_gqa_single_token_inner_pipeline &&
         g_gqa_attend2_inner_pipeline &&
         g_gqa_attend_n_inner_pipeline &&
+        g_gqa_prefill_attend_inner_pipeline &&
+        g_gqa_prefill_write_cache_pipeline &&
+        g_gqa_prefill_cached_attend_inner_pipeline &&
         g_gqa_kv_quant_q8_pipeline &&
         g_gqa_attend_n_q8_inner_pipeline &&
         g_gqa_attend_n_q8_split_partial_pipeline &&
@@ -3162,13 +4155,20 @@ static int qw3_metal_compile_kernels(void) {
         g_deltanet_prepare_scratch_gates_pipeline &&
         g_deltanet_recur_scratch_gates_tiled_pipeline &&
         g_deltanet_fused_gdn_scratch_pipeline &&
+        g_deltanet_batch_fused_gdn_pipeline &&
         g_deltanet_gated_rmsnorm_pipeline &&
         g_residual_rmsnorm_weight_f32_pipeline &&
-        g_residual_rmsnorm_update_x0_pipeline && g_silu_mul_pipeline &&
+        g_residual_rmsnorm_update_x0_pipeline &&
+        g_residual_rmsnorm_batch_update_x0_pipeline &&
+        g_silu_mul_pipeline &&
         g_scale_pipeline && g_argmax_blocks_pipeline &&
         g_add_moe_to_x0_pipeline && g_silu_mul_offsets_pipeline &&
+        g_silu_mul_rows_offsets_pipeline &&
         g_scale_x1_scalar_add_x0_pipeline && g_scale_x1_add_x0_pipeline &&
-        g_scale_scratch_add_x0_pipeline && g_router_top8_pipeline &&
+        g_scale_scratch_add_x0_pipeline &&
+        g_sigmoid_scale_scratch_add_x0_rows_pipeline &&
+        g_router_top8_pipeline &&
+        g_router_top8_batch_pipeline &&
         g_matvec_iq3_s_expert_slot_pipeline &&
         g_matvec_iq3_s_expert_slot_pair_pipeline &&
         g_matvec_iq4_xs_expert_slot_pipeline &&
@@ -3207,6 +4207,30 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_rmsnorm_weight_f32_rows"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_rmsnorm_weight_f32_rows not found\n");
+        return 0;
+    }
+    g_rmsnorm_weight_f32_rows_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                                 error:&error];
+    if (!g_rmsnorm_weight_f32_rows_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_rmsnorm_weight_f32_rows failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_rmsnorm_weight_f32_rows_to_out"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_rmsnorm_weight_f32_rows_to_out not found\n");
+        return 0;
+    }
+    g_rmsnorm_weight_f32_rows_to_out_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_rmsnorm_weight_f32_rows_to_out_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_rmsnorm_weight_f32_rows_to_out failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_embed_q8_0"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_embed_q8_0 not found\n");
@@ -3216,6 +4240,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                      error:&error];
     if (!g_embed_q8_0_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_embed_q8_0 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_embed_q8_0_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_embed_q8_0_batch not found\n");
+        return 0;
+    }
+    g_embed_q8_0_batch_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                          error:&error];
+    if (!g_embed_q8_0_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_embed_q8_0_batch failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -3230,6 +4266,54 @@ static int qw3_metal_compile_kernels(void) {
         fprintf(stderr, "qw3: Metal pipeline qw3_matvec_q8_0 failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_matmul_q8_0_batch4"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_matmul_q8_0_batch4 not found\n");
+        return 0;
+    }
+    g_matmul_q8_0_batch4_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                            error:&error];
+    if (!g_matmul_q8_0_batch4_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_matmul_q8_0_batch4 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    {
+        const BOOL bc_values[2] = { NO, YES };
+        const char *labels[2] = {
+            "qw3_matmul_q8_0_mm",
+            "qw3_matmul_q8_0_mm(boundary)"
+        };
+        for (int i = 0; i < 2; i++) {
+            MTLFunctionConstantValues *constants =
+                [[MTLFunctionConstantValues alloc] init];
+            BOOL bc_out = bc_values[i];
+            [constants setConstantValue:&bc_out
+                                    type:MTLDataTypeBool
+                                 atIndex:700];
+            fn = [g_library newFunctionWithName:@"qw3_matmul_q8_0_mm"
+                                  constantValues:constants
+                                           error:&error];
+            if (!fn) {
+                fprintf(stderr, "qw3: Metal function %s not found: %s\n",
+                        labels[i], [[error localizedDescription] UTF8String]);
+                return 0;
+            }
+            id<MTLComputePipelineState> pipeline =
+                [g_device newComputePipelineStateWithFunction:fn
+                                                        error:&error];
+            if (!pipeline) {
+                fprintf(stderr, "qw3: Metal pipeline %s failed: %s\n",
+                        labels[i], [[error localizedDescription] UTF8String]);
+                return 0;
+            }
+            if (i == 0) {
+                g_matmul_q8_0_mm_pipeline = pipeline;
+            } else {
+                g_matmul_q8_0_mm_bc_pipeline = pipeline;
+            }
+        }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_q8_0_pair"];
     if (!fn) {
@@ -3447,6 +4531,42 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_moe_iq3_s_swiglu_prefill_batch_fast"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_iq3_s_swiglu_prefill_batch_fast not found\n");
+        return 0;
+    }
+    g_moe_iq3_s_prefill_batch_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                                 error:&error];
+    if (!g_moe_iq3_s_prefill_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_iq3_s_swiglu_prefill_batch_fast failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_moe_down_iq4_xs_prefill_batch_reduce_fast"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_down_iq4_xs_prefill_batch_reduce_fast not found\n");
+        return 0;
+    }
+    g_moe_down_iq4_xs_prefill_reduce_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                                        error:&error];
+    if (!g_moe_down_iq4_xs_prefill_reduce_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_iq4_xs_prefill_batch_reduce_fast failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_moe_down_q6_k_prefill_batch_reduce_fast"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_down_q6_k_prefill_batch_reduce_fast not found\n");
+        return 0;
+    }
+    g_moe_down_q6_k_prefill_reduce_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                                      error:&error];
+    if (!g_moe_down_q6_k_prefill_reduce_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_q6_k_prefill_batch_reduce_fast failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_matvec_f32"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_matvec_f32 not found\n");
@@ -3483,6 +4603,30 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_matmul_f32_batch4"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_matmul_f32_batch4 not found\n");
+        return 0;
+    }
+    g_matmul_f32_batch4_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                           error:&error];
+    if (!g_matmul_f32_batch4_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_matmul_f32_batch4 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_matmul_f32_pair_batch4"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_matmul_f32_pair_batch4 not found\n");
+        return 0;
+    }
+    g_matmul_f32_pair_batch4_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_matmul_f32_pair_batch4_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_matmul_f32_pair_batch4 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_deltanet_conv1d_zero"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_deltanet_conv1d_zero not found\n");
@@ -3507,6 +4651,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_deltanet_conv1d_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_deltanet_conv1d_batch not found\n");
+        return 0;
+    }
+    g_deltanet_conv1d_batch_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_deltanet_conv1d_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_conv1d_batch failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_l2norm_heads"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_l2norm_heads not found\n");
@@ -3516,6 +4672,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                       error:&error];
     if (!g_l2norm_heads_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_l2norm_heads failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_l2norm_qk_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_l2norm_qk_batch not found\n");
+        return 0;
+    }
+    g_l2norm_qk_batch_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                         error:&error];
+    if (!g_l2norm_qk_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_l2norm_qk_batch failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -3543,6 +4711,30 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_q_norm_gate_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_q_norm_gate_batch not found\n");
+        return 0;
+    }
+    g_gqa_q_norm_gate_batch_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_q_norm_gate_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_q_norm_gate_batch failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_k_norm_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_k_norm_batch not found\n");
+        return 0;
+    }
+    g_gqa_k_norm_batch_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_k_norm_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_k_norm_batch failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_rope_heads"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_rope_heads not found\n");
@@ -3552,6 +4744,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                     error:&error];
     if (!g_rope_heads_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_rope_heads failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_rope_heads_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_rope_heads_batch not found\n");
+        return 0;
+    }
+    g_rope_heads_batch_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_rope_heads_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_rope_heads_batch failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -3588,6 +4792,42 @@ static int qw3_metal_compile_kernels(void) {
                                                                             error:&error];
     if (!g_gqa_attend_n_inner_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_gqa_attend_n_inner failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_prefill_attend_inner"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_prefill_attend_inner not found\n");
+        return 0;
+    }
+    g_gqa_prefill_attend_inner_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_prefill_attend_inner_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_prefill_attend_inner failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_prefill_write_cache"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_prefill_write_cache not found\n");
+        return 0;
+    }
+    g_gqa_prefill_write_cache_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_prefill_write_cache_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_prefill_write_cache failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_prefill_cached_attend_inner"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_prefill_cached_attend_inner not found\n");
+        return 0;
+    }
+    g_gqa_prefill_cached_attend_inner_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_prefill_cached_attend_inner_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_prefill_cached_attend_inner failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -3711,6 +4951,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_deltanet_batch_fused_gdn"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_deltanet_batch_fused_gdn not found\n");
+        return 0;
+    }
+    g_deltanet_batch_fused_gdn_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_deltanet_batch_fused_gdn_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_batch_fused_gdn failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_deltanet_gated_rmsnorm"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_deltanet_gated_rmsnorm not found\n");
@@ -3744,6 +4996,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                                     error:&error];
     if (!g_residual_rmsnorm_update_x0_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_residual_rmsnorm_update_x0 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_residual_rmsnorm_batch_update_x0"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_residual_rmsnorm_batch_update_x0 not found\n");
+        return 0;
+    }
+    g_residual_rmsnorm_batch_update_x0_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_residual_rmsnorm_batch_update_x0_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_residual_rmsnorm_batch_update_x0 failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -3795,6 +5059,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_silu_mul_rows_offsets"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_silu_mul_rows_offsets not found\n");
+        return 0;
+    }
+    g_silu_mul_rows_offsets_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                           error:&error];
+    if (!g_silu_mul_rows_offsets_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_silu_mul_rows_offsets failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_scale_x1_scalar_add_x0"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_scale_x1_scalar_add_x0 not found\n");
@@ -3831,6 +5107,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_sigmoid_scale_scratch_add_x0_rows"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_sigmoid_scale_scratch_add_x0_rows not found\n");
+        return 0;
+    }
+    g_sigmoid_scale_scratch_add_x0_rows_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_sigmoid_scale_scratch_add_x0_rows_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_sigmoid_scale_scratch_add_x0_rows failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_router_top8"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_router_top8 not found\n");
@@ -3840,6 +5128,18 @@ static int qw3_metal_compile_kernels(void) {
                                                                      error:&error];
     if (!g_router_top8_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_router_top8 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_router_top8_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_router_top8_batch not found\n");
+        return 0;
+    }
+    g_router_top8_batch_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                           error:&error];
+    if (!g_router_top8_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_router_top8_batch failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -4006,6 +5306,17 @@ int qw3_metal_flush_commands(void) {
     return 1;
 }
 
+int qw3_metal_commit_commands(void) {
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!g_batch_cb) return 1;
+    qw3_metal_close_batch_encoder();
+    id<MTLCommandBuffer> cb = g_batch_cb;
+    g_batch_cb = nil;
+    [cb commit];
+    [g_pending_cbs addObject:cb];
+    return 1;
+}
+
 int qw3_metal_end_commands(void) {
     if (!g_batch_cb) return 0;
     qw3_metal_close_batch_encoder();
@@ -4063,6 +5374,57 @@ static id<MTLBuffer> qw3_metal_iq3s_expanded_kgrid_buffer(void) {
                                   options:MTLResourceStorageModeShared];
     }
     return g_iq3s_expanded_kgrid_buffer;
+}
+
+static int qw3_metal_session_ensure_prefill_buffers(QW3MetalSessionObj *obj,
+                                                     uint32_t n_tokens,
+                                                     uint64_t x0_bytes,
+                                                     uint64_t x1_bytes) {
+    if (!obj || n_tokens == 0) return 0;
+    const uint64_t token_bytes = (uint64_t)n_tokens * sizeof(uint32_t);
+    if (!obj.prefillTokens || obj.prefillTokens.length < token_bytes) {
+        obj.prefillTokens = [g_device newBufferWithLength:(NSUInteger)qw3_metal_session_align(token_bytes)
+                                                  options:MTLResourceStorageModeShared];
+    }
+    if (x0_bytes && (!obj.prefillX0 || obj.prefillX0.length < x0_bytes)) {
+        obj.prefillX0 = qw3_metal_new_private_buffer(x0_bytes);
+    }
+    if (x1_bytes && (!obj.prefillX1 || obj.prefillX1.length < x1_bytes)) {
+        obj.prefillX1 = qw3_metal_new_private_buffer(x1_bytes);
+    }
+    if (!obj.prefillTokens ||
+        (x0_bytes && !obj.prefillX0) ||
+        (x1_bytes && !obj.prefillX1)) {
+        return 0;
+    }
+    if (n_tokens > obj.prefillCap) obj.prefillCap = n_tokens;
+    return 1;
+}
+
+static int qw3_metal_session_ensure_prefill_scratch(QW3MetalSessionObj *obj,
+                                                     uint32_t n_tokens,
+                                                     uint64_t bytes) {
+    if (!obj || n_tokens == 0 || bytes == 0) return 0;
+    if (!obj.prefillScratch || obj.prefillScratch.length < bytes) {
+        obj.prefillScratch = qw3_metal_new_private_buffer(bytes);
+    }
+    if (!obj.prefillScratch) return 0;
+    if (n_tokens > obj.prefillCap) obj.prefillCap = n_tokens;
+    return 1;
+}
+
+static int qw3_metal_session_ensure_router_buffers(QW3MetalSessionObj *obj,
+                                                    uint32_t n_slots) {
+    if (!obj || n_slots == 0) return 0;
+    const uint64_t ids_bytes = (uint64_t)n_slots * sizeof(int32_t);
+    const uint64_t weights_bytes = (uint64_t)n_slots * sizeof(float);
+    if (!obj.routerIds || obj.routerIds.length < ids_bytes) {
+        obj.routerIds = qw3_metal_new_private_buffer(ids_bytes);
+    }
+    if (!obj.routerWeights || obj.routerWeights.length < weights_bytes) {
+        obj.routerWeights = qw3_metal_new_private_buffer(weights_bytes);
+    }
+    return obj.routerIds && obj.routerWeights;
 }
 
 qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
@@ -4214,6 +5576,18 @@ int qw3_metal_session_clear(qw3_metal_session *s) {
         [blit fillBuffer:obj.gqaAttnPartial
                    range:NSMakeRange(0, obj.gqaAttnPartial.length) value:0];
     }
+    if (obj.prefillX0.length > 0) {
+        [blit fillBuffer:obj.prefillX0
+                   range:NSMakeRange(0, obj.prefillX0.length) value:0];
+    }
+    if (obj.prefillX1.length > 0) {
+        [blit fillBuffer:obj.prefillX1
+                   range:NSMakeRange(0, obj.prefillX1.length) value:0];
+    }
+    if (obj.prefillScratch.length > 0) {
+        [blit fillBuffer:obj.prefillScratch
+                   range:NSMakeRange(0, obj.prefillScratch.length) value:0];
+    }
     [blit endEncoding];
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     obj.pos = 0;
@@ -4284,6 +5658,1100 @@ int qw3_metal_session_embed_q8_0(qw3_metal_session *s, uint64_t tensor_offset,
         return 0;
     }
     if (out) memcpy(out, readback.contents, (size_t)out_bytes);
+    return 1;
+}
+
+int qw3_metal_session_batch_embed_q8_0(qw3_metal_session *s,
+                                       uint64_t tensor_offset,
+                                       const uint32_t *tokens,
+                                       uint32_t n_tokens,
+                                       uint32_t n_embd) {
+    if (!s || !s->obj || !tokens || n_tokens == 0 ||
+        n_embd == 0 || (n_embd % 32) != 0) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t row_bytes = (uint64_t)(n_embd / 32u) * 34ull;
+    const uint64_t out_bytes = (uint64_t)n_tokens * n_embd * sizeof(float);
+    if (!qw3_metal_session_ensure_prefill_buffers(obj, n_tokens,
+                                                  out_bytes, 0)) {
+        return 0;
+    }
+    memcpy(obj.prefillTokens.contents, tokens,
+           (size_t)n_tokens * sizeof(uint32_t));
+
+    const uint64_t tensor_bytes = row_bytes * (uint64_t)obj.vocabSize;
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(tensor_offset,
+                                                tensor_bytes, &inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch embedding tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_embd;
+        uint32_t row_bytes;
+        uint32_t n_tokens;
+    } args = { n_embd, (uint32_t)row_bytes, n_tokens };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_embed_q8_0_batch_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wb offset:(NSUInteger)inner atIndex:1];
+    [enc setBuffer:obj.prefillTokens offset:0 atIndex:2];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:3];
+    NSUInteger threads = g_embed_q8_0_batch_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * n_embd, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch embedding command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_rmsnorm_weight_f32_x0_inplace(
+    qw3_metal_session *s, uint64_t weight_offset, uint32_t n_tokens,
+    uint32_t n, float eps) {
+    if (!s || !s->obj || n_tokens == 0 || n == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n * sizeof(float);
+    if (!qw3_metal_session_ensure_prefill_buffers(obj, n_tokens,
+                                                  x_bytes, 0)) {
+        return 0;
+    }
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(weight_offset,
+                                                (uint64_t)n * sizeof(float),
+                                                &inner);
+    if (!wb) return 0;
+    struct {
+        uint32_t n;
+        float eps;
+        uint32_t n_rows;
+    } args = { n, eps, n_tokens };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_rmsnorm_weight_f32_rows_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)inner atIndex:2];
+    [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+    NSUInteger threads = g_rmsnorm_weight_f32_rows_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreadgroups:MTLSizeMake(n_tokens, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch rmsnorm command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
+    qw3_metal_session *s, uint64_t weight_offset, uint32_t n_tokens,
+    uint32_t n, float eps) {
+    if (!s || !s->obj || n_tokens == 0 || n == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n * sizeof(float);
+    if (!qw3_metal_session_ensure_prefill_buffers(obj, n_tokens,
+                                                  x_bytes, x_bytes)) {
+        return 0;
+    }
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(weight_offset,
+                                                (uint64_t)n * sizeof(float),
+                                                &inner);
+    if (!wb) return 0;
+    struct {
+        uint32_t n;
+        float eps;
+        uint32_t n_rows;
+    } args = { n, eps, n_tokens };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_rmsnorm_weight_f32_rows_to_out_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)inner atIndex:2];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:3];
+    [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+    NSUInteger threads =
+        g_rmsnorm_weight_f32_rows_to_out_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreadgroups:MTLSizeMake(n_tokens, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch rmsnorm x0->x1 command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+static int qw3_metal_use_q8_mm(uint32_t n_tokens, uint32_t n_in,
+                               uint32_t n_out) {
+    if (getenv("QW3_METAL_Q8_MM_DISABLE")) return 0;
+    if (n_tokens < 32u) return 0;
+    if ((n_in % 32u) != 0) return 0;
+    if (n_out < 64u) return 0;
+    return 1;
+}
+
+static int qw3_metal_encode_batch_matmul_q8_0(
+    id<MTLBuffer> wbuf, NSUInteger woff, id<MTLBuffer> xbuf,
+    NSUInteger xoff, id<MTLBuffer> outbuf, NSUInteger outoff,
+    uint32_t n_tokens, uint32_t n_in, uint32_t n_out, uint32_t in_stride,
+    uint32_t out_stride, uint32_t row_bytes) {
+    if (qw3_metal_use_q8_mm(n_tokens, n_in, n_out)) {
+        struct {
+            uint32_t n_in;
+            uint32_t n_out;
+            uint32_t row_bytes;
+            uint32_t n_tokens;
+            uint32_t in_stride;
+            uint32_t out_stride;
+        } args = {
+            n_in, n_out, row_bytes, n_tokens, in_stride, out_stride
+        };
+        const int bc_out = ((n_out % 64u) != 0 || (n_tokens % 32u) != 0);
+        id<MTLComputePipelineState> pipeline =
+            bc_out ? g_matmul_q8_0_mm_bc_pipeline : g_matmul_q8_0_mm_pipeline;
+        int owned = 0;
+        id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:wbuf offset:woff atIndex:1];
+        [enc setBuffer:xbuf offset:xoff atIndex:2];
+        [enc setBuffer:outbuf offset:outoff atIndex:3];
+        [enc setThreadgroupMemoryLength:(bc_out ? 8192u : 6144u) atIndex:0];
+        [enc dispatchThreadgroups:MTLSizeMake((n_tokens + 31u) / 32u,
+                                              (n_out + 63u) / 64u, 1)
+            threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+        if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+        if (cb.status == MTLCommandBufferStatusError) {
+            fprintf(stderr, "qw3: Metal Q8_0 prefill mm command failed: %s\n",
+                    [[cb.error localizedDescription] UTF8String]);
+            return 0;
+        }
+        return 1;
+    }
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_out;
+        uint32_t row_bytes;
+        uint32_t n_tokens;
+        uint32_t in_offset;
+        uint32_t in_stride;
+        uint32_t out_offset;
+        uint32_t out_stride;
+    } args = {
+        n_in, n_out, row_bytes, n_tokens, 0, in_stride, 0, out_stride
+    };
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_matmul_q8_0_batch4_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wbuf offset:woff atIndex:1];
+    [enc setBuffer:xbuf offset:xoff atIndex:2];
+    [enc setBuffer:outbuf offset:outoff atIndex:3];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u,
+                                          (n_tokens + 3u) / 4u, 1)
+        threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch q8_0 matmul command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_matmul_q8_0_x0_to_x1(qw3_metal_session *s,
+                                                 uint64_t tensor_offset,
+                                                 uint32_t n_tokens,
+                                                 uint32_t n_in,
+                                                 uint32_t n_out) {
+    if (!s || !s->obj || n_tokens == 0 || n_in == 0 || n_out == 0 ||
+        (n_in % 32) != 0) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n_in * sizeof(float);
+    const uint64_t out_bytes = (uint64_t)n_tokens * n_out * sizeof(float);
+    if (!qw3_metal_session_ensure_prefill_buffers(obj, n_tokens,
+                                                  x_bytes, out_bytes)) {
+        return 0;
+    }
+
+    const uint64_t row_bytes = (uint64_t)(n_in / 32u) * 34ull;
+    const uint64_t tensor_bytes = row_bytes * (uint64_t)n_out;
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(tensor_offset,
+                                                tensor_bytes, &inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch q8_0 tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    return qw3_metal_encode_batch_matmul_q8_0(
+        wb, (NSUInteger)inner, obj.prefillX0, 0, obj.prefillX1, 0,
+        n_tokens, n_in, n_out, n_in, n_out, (uint32_t)row_bytes);
+}
+
+int qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_offset, uint32_t n_tokens,
+    uint32_t n_in, uint32_t n_out, uint32_t out_offset,
+    uint32_t out_stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_in == 0 || n_out == 0 ||
+        (n_in % 32) != 0 || out_stride == 0 ||
+        out_offset > out_stride || n_out > out_stride - out_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n_in * sizeof(float);
+    const uint64_t out_bytes =
+        (uint64_t)n_tokens * out_stride * sizeof(float);
+    if (!obj.prefillX1 || obj.prefillX1.length < x_bytes) return 0;
+    if (!qw3_metal_session_ensure_prefill_scratch(obj, n_tokens, out_bytes)) {
+        return 0;
+    }
+
+    const uint64_t row_bytes = (uint64_t)(n_in / 32u) * 34ull;
+    const uint64_t tensor_bytes = row_bytes * (uint64_t)n_out;
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(tensor_offset,
+                                                tensor_bytes, &inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch q8_0 tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    return qw3_metal_encode_batch_matmul_q8_0(
+        wb, (NSUInteger)inner, obj.prefillX1, 0, obj.prefillScratch,
+        (NSUInteger)out_offset * sizeof(float), n_tokens, n_in, n_out,
+        n_in, out_stride, (uint32_t)row_bytes);
+}
+
+int qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_offset, uint32_t n_tokens,
+    uint32_t n_in, uint32_t n_out, uint32_t in_offset,
+    uint32_t out_offset, uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_in == 0 || n_out == 0 ||
+        (n_in % 32) != 0 || stride == 0 ||
+        in_offset > stride || out_offset > stride ||
+        n_in > stride - in_offset ||
+        n_out > stride - out_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes) {
+        return 0;
+    }
+
+    const uint64_t row_bytes = (uint64_t)(n_in / 32u) * 34ull;
+    const uint64_t tensor_bytes = row_bytes * (uint64_t)n_out;
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(tensor_offset,
+                                                tensor_bytes, &inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch q8_0 tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    return qw3_metal_encode_batch_matmul_q8_0(
+        wb, (NSUInteger)inner, obj.prefillScratch,
+        (NSUInteger)in_offset * sizeof(float), obj.prefillScratch,
+        (NSUInteger)out_offset * sizeof(float), n_tokens, n_in, n_out,
+        stride, stride, (uint32_t)row_bytes);
+}
+
+int qw3_metal_session_batch_matmul_f32_x0_to_x1(qw3_metal_session *s,
+                                                uint64_t tensor_offset,
+                                                uint32_t n_tokens,
+                                                uint32_t n_in,
+                                                uint32_t n_out) {
+    if (!s || !s->obj || n_tokens == 0 || n_in == 0 || n_out == 0) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n_in * sizeof(float);
+    const uint64_t out_bytes = (uint64_t)n_tokens * n_out * sizeof(float);
+    if (!qw3_metal_session_ensure_prefill_buffers(obj, n_tokens,
+                                                  x_bytes, out_bytes)) {
+        return 0;
+    }
+
+    const uint64_t tensor_bytes =
+        (uint64_t)n_in * (uint64_t)n_out * sizeof(float);
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(tensor_offset,
+                                                tensor_bytes, &inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch f32 tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_out;
+        uint32_t n_tokens;
+        uint32_t in_offset;
+        uint32_t in_stride;
+        uint32_t out_offset;
+        uint32_t out_stride;
+    } args = { n_in, n_out, n_tokens, 0, n_in, 0, n_out };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_matmul_f32_batch4_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wb offset:(NSUInteger)inner atIndex:1];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:2];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:3];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u,
+                                          (n_tokens + 3u) / 4u, 1)
+        threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch f32 matmul command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_matmul_f32_x1_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_offset, uint32_t n_tokens,
+    uint32_t n_in, uint32_t n_out, uint32_t out_offset,
+    uint32_t out_stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_in == 0 || n_out == 0 ||
+        out_stride == 0 || out_offset > out_stride ||
+        n_out > out_stride - out_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n_in * sizeof(float);
+    const uint64_t out_bytes =
+        (uint64_t)n_tokens * out_stride * sizeof(float);
+    if (!obj.prefillX1 || obj.prefillX1.length < x_bytes) return 0;
+    if (!qw3_metal_session_ensure_prefill_scratch(obj, n_tokens, out_bytes)) {
+        return 0;
+    }
+
+    const uint64_t tensor_bytes =
+        (uint64_t)n_in * (uint64_t)n_out * sizeof(float);
+    uint64_t inner = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(tensor_offset,
+                                                tensor_bytes, &inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch f32 tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_out;
+        uint32_t n_tokens;
+        uint32_t in_offset;
+        uint32_t in_stride;
+        uint32_t out_offset;
+        uint32_t out_stride;
+    } args = { n_in, n_out, n_tokens, 0, n_in, out_offset, out_stride };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_matmul_f32_batch4_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wb offset:(NSUInteger)inner atIndex:1];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:2];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:3];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u,
+                                          (n_tokens + 3u) / 4u, 1)
+        threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch f32 scratch matmul command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_matmul_f32_pair_x0_to_x1(
+    qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
+    uint32_t n_tokens, uint32_t n_in, uint32_t n_out,
+    uint32_t out_a_offset, uint32_t out_b_offset, uint32_t out_stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_in == 0 || n_out == 0 ||
+        out_stride == 0 ||
+        out_a_offset > out_stride || out_b_offset > out_stride ||
+        n_out > out_stride - out_a_offset ||
+        n_out > out_stride - out_b_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n_in * sizeof(float);
+    const uint64_t out_bytes =
+        (uint64_t)n_tokens * out_stride * sizeof(float);
+    if (!qw3_metal_session_ensure_prefill_buffers(obj, n_tokens,
+                                                  x_bytes, out_bytes)) {
+        return 0;
+    }
+
+    const uint64_t tensor_bytes =
+        (uint64_t)n_in * (uint64_t)n_out * sizeof(float);
+    uint64_t inner_a = 0, inner_b = 0;
+    id<MTLBuffer> wa =
+        qw3_metal_model_view_for(tensor_a_offset, tensor_bytes, &inner_a);
+    id<MTLBuffer> wb =
+        qw3_metal_model_view_for(tensor_b_offset, tensor_bytes, &inner_b);
+    if (!wa || !wb) {
+        fprintf(stderr, "qw3: Metal batch f32 pair tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_out;
+        uint32_t n_tokens;
+        uint32_t out_a_offset;
+        uint32_t out_b_offset;
+        uint32_t out_stride;
+    } args = {
+        n_in, n_out, n_tokens, out_a_offset, out_b_offset, out_stride
+    };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_matmul_f32_pair_batch4_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wa offset:(NSUInteger)inner_a atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)inner_b atIndex:2];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:3];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:4];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u,
+                                          (n_tokens + 3u) / 4u, 1)
+        threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch f32 pair matmul command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_matmul_f32_pair_x1_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
+    uint32_t n_tokens, uint32_t n_in, uint32_t n_out,
+    uint32_t out_a_offset, uint32_t out_b_offset, uint32_t out_stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_in == 0 || n_out == 0 ||
+        out_stride == 0 ||
+        out_a_offset > out_stride || out_b_offset > out_stride ||
+        n_out > out_stride - out_a_offset ||
+        n_out > out_stride - out_b_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n_in * sizeof(float);
+    const uint64_t out_bytes =
+        (uint64_t)n_tokens * out_stride * sizeof(float);
+    if (!obj.prefillX1 || obj.prefillX1.length < x_bytes) return 0;
+    if (!qw3_metal_session_ensure_prefill_scratch(obj, n_tokens, out_bytes)) {
+        return 0;
+    }
+
+    const uint64_t tensor_bytes =
+        (uint64_t)n_in * (uint64_t)n_out * sizeof(float);
+    uint64_t inner_a = 0, inner_b = 0;
+    id<MTLBuffer> wa =
+        qw3_metal_model_view_for(tensor_a_offset, tensor_bytes, &inner_a);
+    id<MTLBuffer> wb =
+        qw3_metal_model_view_for(tensor_b_offset, tensor_bytes, &inner_b);
+    if (!wa || !wb) {
+        fprintf(stderr, "qw3: Metal batch f32 pair tensor is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_out;
+        uint32_t n_tokens;
+        uint32_t out_a_offset;
+        uint32_t out_b_offset;
+        uint32_t out_stride;
+    } args = {
+        n_in, n_out, n_tokens, out_a_offset, out_b_offset, out_stride
+    };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_matmul_f32_pair_batch4_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wa offset:(NSUInteger)inner_a atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)inner_b atIndex:2];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:3];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:4];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u,
+                                          (n_tokens + 3u) / 4u, 1)
+        threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch f32 pair scratch matmul command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_conv1d_step_from_scratch(
+    qw3_metal_session *s, uint64_t weight_offset, uint32_t layer_slot,
+    uint32_t n_tokens, uint32_t n_channels, uint32_t qkv_offset,
+    uint32_t conv_offset, uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_channels == 0 ||
+        layer_slot >= QW3_METAL_N_LINEAR_LAYERS ||
+        stride == 0 || qkv_offset > stride || conv_offset > stride ||
+        n_channels > stride - qkv_offset ||
+        n_channels > stride - conv_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t scratch_bytes =
+        (uint64_t)n_tokens * stride * sizeof(float);
+    const uint64_t state_bytes = (uint64_t)n_channels * 3ull * sizeof(float);
+    const uint64_t state_offset = (uint64_t)layer_slot * state_bytes;
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
+        !obj.convState || obj.convState.length < state_offset ||
+        obj.convState.length - state_offset < state_bytes) {
+        return 0;
+    }
+
+    const uint64_t weight_bytes = (uint64_t)n_channels * 4ull * sizeof(float);
+    uint64_t weight_inner = 0;
+    id<MTLBuffer> wb =
+        qw3_metal_model_view_for(weight_offset, weight_bytes, &weight_inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch DeltaNet conv weight is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n_channels;
+        uint32_t n_tokens;
+        uint32_t qkv_offset;
+        uint32_t conv_offset;
+        uint32_t stride;
+    } args = { n_channels, n_tokens, qkv_offset, conv_offset, stride };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_deltanet_conv1d_batch_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wb offset:(NSUInteger)weight_inner atIndex:1];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
+    [enc setBuffer:obj.convState offset:(NSUInteger)state_offset atIndex:3];
+    NSUInteger threads = g_deltanet_conv1d_batch_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * n_channels, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch DeltaNet conv command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_l2norm_qk_from_scratch(
+    qw3_metal_session *s, uint32_t n_tokens, uint32_t conv_offset,
+    uint32_t stride, uint32_t n_qk_heads, uint32_t head_dim, float eps) {
+    if (!s || !s->obj || n_tokens == 0 || stride == 0 ||
+        n_qk_heads == 0 || head_dim == 0) {
+        return 0;
+    }
+    const uint32_t qk_n = n_qk_heads * head_dim;
+    if (conv_offset > stride || qk_n > stride - conv_offset ||
+        qk_n > stride - (conv_offset + qk_n)) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillScratch || obj.prefillScratch.length < bytes) return 0;
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t conv_offset;
+        uint32_t stride;
+        uint32_t n_qk_heads;
+        uint32_t head_dim;
+        float eps;
+    } args = { n_tokens, conv_offset, stride, n_qk_heads, head_dim, eps };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_l2norm_qk_batch_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+    NSUInteger threads = g_l2norm_qk_batch_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_qk_heads * n_tokens * 2u, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch DeltaNet q/k l2norm command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
+    qw3_metal_session *s, uint64_t dt_bias_offset, uint64_t a_offset,
+    uint64_t norm_weight_offset, uint32_t layer_slot, uint32_t n_tokens,
+    uint32_t conv_offset, uint32_t z_offset, uint32_t alpha_offset,
+    uint32_t beta_offset, uint32_t inner_offset, uint32_t stride,
+    uint32_t q_heads, uint32_t v_heads, uint32_t head_dim, float eps) {
+    if (!s || !s->obj || n_tokens == 0 || stride == 0 ||
+        q_heads == 0 || v_heads == 0 || head_dim == 0 ||
+        layer_slot >= QW3_METAL_N_LINEAR_LAYERS ||
+        head_dim > 256) {
+        return 0;
+    }
+    const uint32_t qk_n = q_heads * head_dim;
+    const uint32_t inner_n = v_heads * head_dim;
+    if (conv_offset > stride || z_offset > stride ||
+        alpha_offset > stride || beta_offset > stride ||
+        inner_offset > stride ||
+        2u * qk_n + inner_n > stride - conv_offset ||
+        inner_n > stride - z_offset ||
+        v_heads > stride - alpha_offset ||
+        v_heads > stride - beta_offset ||
+        inner_n > stride - inner_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t scratch_bytes =
+        (uint64_t)n_tokens * stride * sizeof(float);
+    const uint64_t state_bytes =
+        (uint64_t)v_heads * head_dim * head_dim * sizeof(float);
+    const uint64_t state_offset = (uint64_t)layer_slot * state_bytes;
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
+        !obj.deltanetState || obj.deltanetState.length < state_offset ||
+        obj.deltanetState.length - state_offset < state_bytes) {
+        return 0;
+    }
+
+    const uint64_t gates_bytes = (uint64_t)v_heads * sizeof(float);
+    const uint64_t weight_bytes = (uint64_t)head_dim * sizeof(float);
+    uint64_t dt_inner = 0, a_inner = 0, w_inner = 0;
+    id<MTLBuffer> dtb =
+        qw3_metal_model_view_for(dt_bias_offset, gates_bytes, &dt_inner);
+    id<MTLBuffer> ab =
+        qw3_metal_model_view_for(a_offset, gates_bytes, &a_inner);
+    id<MTLBuffer> wb =
+        qw3_metal_model_view_for(norm_weight_offset, weight_bytes, &w_inner);
+    if (!dtb || !ab || !wb ||
+        head_dim > g_deltanet_batch_fused_gdn_pipeline.maxTotalThreadsPerThreadgroup) {
+        fprintf(stderr, "qw3: Metal batch Gated DeltaNet weights are outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t q_heads;
+        uint32_t v_heads;
+        uint32_t head_dim;
+        uint32_t n_tokens;
+        uint32_t conv_offset;
+        uint32_t z_offset;
+        uint32_t alpha_offset;
+        uint32_t beta_offset;
+        uint32_t inner_offset;
+        uint32_t stride;
+        float eps;
+    } args = {
+        q_heads, v_heads, head_dim, n_tokens, conv_offset, z_offset,
+        alpha_offset, beta_offset, inner_offset, stride, eps
+    };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_deltanet_batch_fused_gdn_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.deltanetState offset:(NSUInteger)state_offset atIndex:1];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
+    [enc setBuffer:dtb offset:(NSUInteger)dt_inner atIndex:3];
+    [enc setBuffer:ab offset:(NSUInteger)a_inner atIndex:4];
+    [enc setBuffer:wb offset:(NSUInteger)w_inner atIndex:5];
+    [enc setThreadgroupMemoryLength:64 * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake(v_heads, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(head_dim, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch Gated DeltaNet command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
+    qw3_metal_session *s, uint64_t weight_offset, uint32_t n_tokens,
+    uint32_t n, uint32_t residual_offset, uint32_t residual_stride,
+    float eps) {
+    if (!s || !s->obj || n_tokens == 0 || n == 0 ||
+        residual_stride == 0 || residual_offset > residual_stride ||
+        n > residual_stride - residual_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n * sizeof(float);
+    const uint64_t scratch_bytes =
+        (uint64_t)n_tokens * residual_stride * sizeof(float);
+    if (!obj.prefillX0 || obj.prefillX0.length < x_bytes ||
+        !obj.prefillScratch || obj.prefillScratch.length < scratch_bytes) {
+        return 0;
+    }
+    if (!qw3_metal_session_ensure_prefill_buffers(obj, n_tokens, x_bytes,
+                                                  x_bytes)) {
+        return 0;
+    }
+
+    uint64_t inner = 0;
+    id<MTLBuffer> wb =
+        qw3_metal_model_view_for(weight_offset, (uint64_t)n * sizeof(float),
+                                 &inner);
+    if (!wb) {
+        fprintf(stderr, "qw3: Metal batch residual RMSNorm weight is outside mapped model views\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n;
+        float eps;
+        uint32_t n_tokens;
+        uint32_t residual_offset;
+        uint32_t residual_stride;
+    } args = { n, eps, n_tokens, residual_offset, residual_stride };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_residual_rmsnorm_batch_update_x0_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:1];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
+    [enc setBuffer:wb offset:(NSUInteger)inner atIndex:3];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:4];
+    [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+    NSUInteger threads =
+        g_residual_rmsnorm_batch_update_x0_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreadgroups:MTLSizeMake(n_tokens, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch residual RMSNorm command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_silu_mul_scratch_to_scratch(
+    qw3_metal_session *s, uint32_t n_tokens, uint32_t n,
+    uint32_t a_offset, uint32_t b_offset, uint32_t out_offset,
+    uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n == 0 || stride == 0 ||
+        a_offset > stride || b_offset > stride || out_offset > stride ||
+        n > stride - a_offset || n > stride - b_offset ||
+        n > stride - out_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillScratch || obj.prefillScratch.length < bytes) return 0;
+
+    struct {
+        uint32_t n;
+        uint32_t n_rows;
+        uint32_t stride;
+        uint32_t a_offset;
+        uint32_t b_offset;
+        uint32_t out_offset;
+    } args = { n, n_tokens, stride, a_offset, b_offset, out_offset };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_silu_mul_rows_offsets_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
+    NSUInteger threads = g_silu_mul_rows_offsets_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * n, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch scratch SwiGLU command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_sigmoid_scale_scratch_add_x0(
+    qw3_metal_session *s, uint32_t n_tokens, uint32_t n,
+    uint32_t src_offset, uint32_t scalar_offset, uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n == 0 || stride == 0 ||
+        src_offset > stride || scalar_offset >= stride ||
+        n > stride - src_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n * sizeof(float);
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillX0 || !obj.prefillScratch ||
+        obj.prefillX0.length < x_bytes ||
+        obj.prefillScratch.length < scratch_bytes) {
+        return 0;
+    }
+
+    struct {
+        uint32_t n;
+        uint32_t n_rows;
+        uint32_t stride;
+        uint32_t a_offset;
+        uint32_t b_offset;
+        uint32_t out_offset;
+    } args = { n, n_tokens, stride, src_offset, scalar_offset, 0 };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_sigmoid_scale_scratch_add_x0_rows_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:1];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
+    NSUInteger threads =
+        g_sigmoid_scale_scratch_add_x0_rows_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * n, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch shared expert add command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_read_batch_x0(qw3_metal_session *s, float *out,
+                                    uint32_t n_tokens, uint32_t n_out) {
+    if (!s || !s->obj || !out || n_tokens == 0 || n_out == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes = (uint64_t)n_tokens * n_out * sizeof(float);
+    if (!obj.prefillX0 || obj.prefillX0.length < bytes) return 0;
+    id<MTLBuffer> readback = [g_device newBufferWithLength:(NSUInteger)bytes
+                                                    options:MTLResourceStorageModeShared];
+    if (!readback) return 0;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:obj.prefillX0 sourceOffset:0
+                toBuffer:readback destinationOffset:0
+                    size:(NSUInteger)bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch x0 read command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    memcpy(out, readback.contents, (size_t)bytes);
+    return 1;
+}
+
+int qw3_metal_session_read_batch_x1(qw3_metal_session *s, float *out,
+                                    uint32_t n_tokens, uint32_t n_out) {
+    if (!s || !s->obj || !out || n_tokens == 0 || n_out == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes = (uint64_t)n_tokens * n_out * sizeof(float);
+    if (!obj.prefillX1 || obj.prefillX1.length < bytes) return 0;
+    id<MTLBuffer> readback = [g_device newBufferWithLength:(NSUInteger)bytes
+                                                    options:MTLResourceStorageModeShared];
+    if (!readback) return 0;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:obj.prefillX1 sourceOffset:0
+                toBuffer:readback destinationOffset:0
+                    size:(NSUInteger)bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch x1 read command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    memcpy(out, readback.contents, (size_t)bytes);
+    return 1;
+}
+
+int qw3_metal_session_read_batch_scratch(qw3_metal_session *s, float *out,
+                                         uint32_t n_tokens,
+                                         uint32_t n_out) {
+    if (!s || !s->obj || !out || n_tokens == 0 || n_out == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes = (uint64_t)n_tokens * n_out * sizeof(float);
+    if (!obj.prefillScratch || obj.prefillScratch.length < bytes) return 0;
+    id<MTLBuffer> readback = [g_device newBufferWithLength:(NSUInteger)bytes
+                                                    options:MTLResourceStorageModeShared];
+    if (!readback) return 0;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:obj.prefillScratch sourceOffset:0
+                toBuffer:readback destinationOffset:0
+                    size:(NSUInteger)bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch scratch read command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    memcpy(out, readback.contents, (size_t)bytes);
+    return 1;
+}
+
+int qw3_metal_session_copy_batch_x0_to_x0(qw3_metal_session *s,
+                                          uint32_t row, uint32_t n) {
+    if (!s || !s->obj || n == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t row_bytes = (uint64_t)n * sizeof(float);
+    const uint64_t src_offset = (uint64_t)row * row_bytes;
+    if (!obj.prefillX0 || !obj.x0 ||
+        obj.prefillX0.length < src_offset + row_bytes ||
+        obj.x0.length < row_bytes) {
+        return 0;
+    }
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:obj.prefillX0 sourceOffset:(NSUInteger)src_offset
+                toBuffer:obj.x0 destinationOffset:0
+                    size:(NSUInteger)row_bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch x0 copy command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
     return 1;
 }
 
@@ -5357,6 +7825,90 @@ int qw3_metal_session_router_topk_from_scratch(qw3_metal_session *s,
     }
     memcpy(ids_out, ids_readback.contents, (size_t)n_top * sizeof(int32_t));
     memcpy(weights_out, weights_readback.contents, (size_t)n_top * sizeof(float));
+    return 1;
+}
+
+int qw3_metal_session_batch_router_topk_from_scratch(
+    qw3_metal_session *s, uint32_t n_tokens, uint32_t router_offset,
+    uint32_t stride, uint32_t n_router, uint32_t n_top,
+    int *ids_out, float *weights_out) {
+    if (!s || !s->obj || n_tokens == 0 || stride == 0 ||
+        n_router != 256 || n_top != 8 ||
+        router_offset > stride || n_router > stride - router_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
+        !qw3_metal_session_ensure_router_buffers(obj, n_tokens * n_top)) {
+        return 0;
+    }
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t router_offset;
+        uint32_t stride;
+    } args = { n_tokens, router_offset, stride };
+
+    id<MTLBuffer> ids_readback = nil;
+    id<MTLBuffer> weights_readback = nil;
+    const uint64_t ids_bytes = (uint64_t)n_tokens * n_top * sizeof(int32_t);
+    const uint64_t weights_bytes = (uint64_t)n_tokens * n_top * sizeof(float);
+    if (ids_out) {
+        ids_readback = [g_device newBufferWithLength:(NSUInteger)ids_bytes
+                                             options:MTLResourceStorageModeShared];
+        if (!ids_readback) return 0;
+    }
+    if (weights_out) {
+        weights_readback = [g_device newBufferWithLength:(NSUInteger)weights_bytes
+                                                 options:MTLResourceStorageModeShared];
+        if (!weights_readback) return 0;
+    }
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_router_top8_batch_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setBuffer:obj.routerIds offset:0 atIndex:2];
+    [enc setBuffer:obj.routerWeights offset:0 atIndex:3];
+    [enc dispatchThreadgroups:MTLSizeMake(n_tokens, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (ids_readback || weights_readback) {
+        qw3_metal_close_batch_encoder();
+        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        if (!blit) return 0;
+        if (ids_readback) {
+            [blit copyFromBuffer:obj.routerIds sourceOffset:0
+                        toBuffer:ids_readback destinationOffset:0
+                            size:(NSUInteger)ids_bytes];
+        }
+        if (weights_readback) {
+            [blit copyFromBuffer:obj.routerWeights sourceOffset:0
+                        toBuffer:weights_readback destinationOffset:0
+                            size:(NSUInteger)weights_bytes];
+        }
+        [blit endEncoding];
+    }
+
+    int ok = owned ? qw3_metal_finish_command_buffer(cb, owned, "operation")
+                   : qw3_metal_end_commands();
+    if (!ok) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch router top-k command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    if (ids_out) memcpy(ids_out, ids_readback.contents, (size_t)ids_bytes);
+    if (weights_out) memcpy(weights_out, weights_readback.contents,
+                            (size_t)weights_bytes);
     return 1;
 }
 
@@ -6491,6 +9043,134 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
     return 1;
 }
 
+int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
+    qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
+    uint64_t down_offset, uint32_t down_type, uint32_t n_tokens,
+    uint32_t n_active, uint32_t n_embd, uint32_t n_ff,
+    uint32_t router_offset, uint32_t hidden_offset, uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_active == 0 || n_active > 8 ||
+        n_embd == 0 || n_ff == 0 || (n_embd % 256) != 0 ||
+        (n_ff % 256) != 0 || stride == 0 ||
+        router_offset > stride || QW3_METAL_N_EXPERT > stride - router_offset ||
+        hidden_offset > stride ||
+        n_active > (stride - hidden_offset) / n_ff) {
+        return 0;
+    }
+    if (down_type != 23 && down_type != 14) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_tokens * n_embd * sizeof(float);
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillX0 || !obj.prefillX1 || !obj.prefillScratch ||
+        obj.prefillX0.length < x_bytes || obj.prefillX1.length < x_bytes ||
+        obj.prefillScratch.length < scratch_bytes ||
+        !qw3_metal_session_ensure_router_buffers(obj, n_tokens * n_active)) {
+        return 0;
+    }
+
+    if (!qw3_metal_session_batch_router_topk_from_scratch(
+            s, n_tokens, router_offset, stride, QW3_METAL_N_EXPERT,
+            n_active, NULL, NULL)) {
+        return 0;
+    }
+
+    const uint64_t iq3_row_bytes = (uint64_t)(n_embd / 256u) * 110ull;
+    const uint64_t iq3_expert_bytes = iq3_row_bytes * (uint64_t)n_ff;
+    const uint64_t down_row_bytes = down_type == 23 ?
+        (uint64_t)(n_ff / 256u) * 136ull :
+        (uint64_t)(n_ff / 256u) * 210ull;
+    const uint64_t down_expert_bytes = down_row_bytes * (uint64_t)n_embd;
+    const uint64_t gate_tensor_bytes = iq3_expert_bytes * 256ull;
+    const uint64_t up_tensor_bytes = iq3_expert_bytes * 256ull;
+    const uint64_t down_tensor_bytes = down_expert_bytes * 256ull;
+    uint64_t gate_inner = 0, up_inner = 0, down_inner = 0;
+    id<MTLBuffer> gate_w =
+        qw3_metal_model_view_for(gate_offset, gate_tensor_bytes, &gate_inner);
+    id<MTLBuffer> up_w =
+        qw3_metal_model_view_for(up_offset, up_tensor_bytes, &up_inner);
+    id<MTLBuffer> down_w =
+        qw3_metal_model_view_for(down_offset, down_tensor_bytes, &down_inner);
+    if (!gate_w) {
+        gate_w = qw3_metal_model_temp_buffer_for(
+            gate_offset, gate_tensor_bytes, &gate_inner);
+    }
+    if (!up_w) {
+        up_w = qw3_metal_model_temp_buffer_for(
+            up_offset, up_tensor_bytes, &up_inner);
+    }
+    if (!down_w) {
+        down_w = qw3_metal_model_temp_buffer_for(
+            down_offset, down_tensor_bytes, &down_inner);
+    }
+    id<MTLBuffer> kgb = qw3_metal_iq3s_expanded_kgrid_buffer();
+    if (!gate_w || !up_w || !down_w || !kgb) return 0;
+
+    struct {
+        uint32_t n_in;
+        uint32_t n_ff;
+        uint32_t n_embd;
+        uint32_t n_tokens;
+        uint32_t n_active;
+        uint32_t iq3_row_bytes;
+        uint32_t iq3_expert_bytes;
+        uint32_t down_row_bytes;
+        uint32_t down_expert_bytes;
+        uint32_t stride;
+        uint32_t hidden_offset;
+    } args = {
+        n_embd, n_ff, n_embd, n_tokens, n_active,
+        (uint32_t)iq3_row_bytes, (uint32_t)iq3_expert_bytes,
+        (uint32_t)down_row_bytes, (uint32_t)down_expert_bytes,
+        stride, hidden_offset
+    };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_moe_iq3_s_prefill_batch_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:gate_w offset:(NSUInteger)gate_inner atIndex:1];
+    [enc setBuffer:up_w offset:(NSUInteger)up_inner atIndex:2];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:3];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:4];
+    [enc setBuffer:kgb offset:0 atIndex:5];
+    [enc setBuffer:obj.routerIds offset:0 atIndex:6];
+    [enc setThreadgroupMemoryLength:64 * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake(((n_ff + 7u) / 8u) *
+                                          n_active * n_tokens, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:down_type == 23 ?
+     g_moe_down_iq4_xs_prefill_reduce_pipeline :
+     g_moe_down_q6_k_prefill_reduce_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
+    [enc setBuffer:obj.prefillX0 offset:0 atIndex:3];
+    [enc setBuffer:obj.routerIds offset:0 atIndex:4];
+    [enc setBuffer:obj.routerWeights offset:0 atIndex:5];
+    [enc setThreadgroupMemoryLength:16 * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 1u) / 2u) * n_tokens,
+                                          1, 1)
+        threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch sparse MoE prefill command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
 int qw3_metal_session_sparse_moe_topk(qw3_metal_session *s,
                                       uint64_t gate_offset,
                                       uint64_t up_offset,
@@ -7224,6 +9904,399 @@ static int qw3_metal_encode_rope_heads(id<MTLCommandBuffer> cb,
     return 1;
 }
 
+int qw3_metal_session_batch_gqa_norm_rope_from_scratch(
+    qw3_metal_session *s, uint64_t q_norm_weight_offset,
+    uint64_t k_norm_weight_offset, uint32_t n_tokens, uint32_t n_heads,
+    uint32_t n_kv_heads, uint32_t head_dim, uint32_t rope_dim,
+    uint32_t pos0, float rope_theta, float eps, uint32_t qg_offset,
+    uint32_t k_offset, uint32_t q_tmp_offset, uint32_t k_tmp_offset,
+    uint32_t q_rope_offset, uint32_t k_rope_offset, uint32_t gate_offset,
+    uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_heads == 0 ||
+        n_kv_heads == 0 || head_dim == 0 || rope_dim == 0 ||
+        rope_dim > head_dim || (rope_dim % 2u) != 0u || stride == 0) {
+        return 0;
+    }
+    const uint32_t q_n = n_heads * head_dim;
+    const uint32_t qg_n = 2u * q_n;
+    const uint32_t kv_n = n_kv_heads * head_dim;
+    if (qg_offset > stride || k_offset > stride ||
+        q_tmp_offset > stride || k_tmp_offset > stride ||
+        q_rope_offset > stride || k_rope_offset > stride ||
+        gate_offset > stride ||
+        qg_n > stride - qg_offset ||
+        kv_n > stride - k_offset ||
+        q_n > stride - q_tmp_offset ||
+        kv_n > stride - k_tmp_offset ||
+        q_n > stride - q_rope_offset ||
+        kv_n > stride - k_rope_offset ||
+        q_n > stride - gate_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes) {
+        return 0;
+    }
+    const uint64_t norm_weight_bytes = (uint64_t)head_dim * sizeof(float);
+    uint64_t q_inner = 0, k_inner = 0;
+    id<MTLBuffer> qw = qw3_metal_model_view_for(q_norm_weight_offset,
+                                                norm_weight_bytes,
+                                                &q_inner);
+    id<MTLBuffer> kw = qw3_metal_model_view_for(k_norm_weight_offset,
+                                                norm_weight_bytes,
+                                                &k_inner);
+    if (!qw || !kw) {
+        fprintf(stderr, "qw3: Metal batch GQA norm weights are outside mapped model views\n");
+        return 0;
+    }
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t n_heads;
+        uint32_t head_dim;
+        uint32_t in_offset;
+        uint32_t out_offset;
+        uint32_t gate_offset;
+        uint32_t stride;
+        float eps;
+    } q_args = {
+        n_tokens, n_heads, head_dim, qg_offset, q_tmp_offset,
+        gate_offset, stride, eps
+    };
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_gqa_q_norm_gate_batch_pipeline];
+    [enc setBytes:&q_args length:sizeof(q_args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setBuffer:qw offset:(NSUInteger)q_inner atIndex:2];
+    [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+    NSUInteger threads =
+        g_gqa_q_norm_gate_batch_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    if (threads < 32) threads = 32;
+    [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_heads, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t n_heads;
+        uint32_t head_dim;
+        uint32_t in_offset;
+        uint32_t out_offset;
+        uint32_t gate_offset;
+        uint32_t stride;
+        float eps;
+    } k_args = {
+        n_tokens, n_kv_heads, head_dim, k_offset, k_tmp_offset,
+        0, stride, eps
+    };
+    enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_gqa_k_norm_batch_pipeline];
+    [enc setBytes:&k_args length:sizeof(k_args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setBuffer:kw offset:(NSUInteger)k_inner atIndex:2];
+    [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+    threads = g_gqa_k_norm_batch_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    if (threads < 32) threads = 32;
+    [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_kv_heads, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t n_heads;
+        uint32_t head_dim;
+        uint32_t rope_dim;
+        uint32_t pos0;
+        uint32_t in_offset;
+        uint32_t out_offset;
+        uint32_t stride;
+        float theta;
+    } rq_args = {
+        n_tokens, n_heads, head_dim, rope_dim, pos0, q_tmp_offset,
+        q_rope_offset, stride, rope_theta
+    };
+    enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_rope_heads_batch_pipeline];
+    [enc setBytes:&rq_args length:sizeof(rq_args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    threads = g_rope_heads_batch_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * q_n, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t n_heads;
+        uint32_t head_dim;
+        uint32_t rope_dim;
+        uint32_t pos0;
+        uint32_t in_offset;
+        uint32_t out_offset;
+        uint32_t stride;
+        float theta;
+    } rk_args = {
+        n_tokens, n_kv_heads, head_dim, rope_dim, pos0, k_tmp_offset,
+        k_rope_offset, stride, rope_theta
+    };
+    enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_rope_heads_batch_pipeline];
+    [enc setBytes:&rk_args length:sizeof(rk_args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    threads = g_rope_heads_batch_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * kv_n, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch GQA norm/RoPE command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_gqa_causal_attn_from_scratch(
+    qw3_metal_session *s, uint32_t n_tokens, uint32_t n_heads,
+    uint32_t n_kv_heads, uint32_t head_dim, uint32_t q_offset,
+    uint32_t gate_offset, uint32_t k_offset, uint32_t v_offset,
+    uint32_t out_offset, uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_heads == 0 ||
+        n_kv_heads == 0 || head_dim == 0 || stride == 0 ||
+        (n_heads % n_kv_heads) != 0u) {
+        return 0;
+    }
+    const uint32_t q_n = n_heads * head_dim;
+    const uint32_t kv_n = n_kv_heads * head_dim;
+    if (q_offset > stride || gate_offset > stride ||
+        k_offset > stride || v_offset > stride || out_offset > stride ||
+        q_n > stride - q_offset ||
+        q_n > stride - gate_offset ||
+        kv_n > stride - k_offset ||
+        kv_n > stride - v_offset ||
+        q_n > stride - out_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes) {
+        return 0;
+    }
+    NSUInteger threads = ((NSUInteger)head_dim + 31u) & ~(NSUInteger)31u;
+    if (threads < 32u) threads = 32u;
+    if (threads > 256u ||
+        threads > g_gqa_prefill_attend_inner_pipeline.maxTotalThreadsPerThreadgroup) {
+        return 0;
+    }
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t n_heads;
+        uint32_t n_kv_heads;
+        uint32_t head_dim;
+        uint32_t q_offset;
+        uint32_t gate_offset;
+        uint32_t k_offset;
+        uint32_t v_offset;
+        uint32_t out_offset;
+        uint32_t stride;
+    } args = {
+        n_tokens, n_heads, n_kv_heads, head_dim, q_offset, gate_offset,
+        k_offset, v_offset, out_offset, stride
+    };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_gqa_prefill_attend_inner_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_kv_heads, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch GQA causal attention command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_gqa_write_cache_from_scratch(
+    qw3_metal_session *s, uint32_t layer_slot, uint32_t pos0,
+    uint32_t n_tokens, uint32_t n_kv_heads, uint32_t head_dim,
+    uint32_t k_offset, uint32_t v_offset, uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_kv_heads == 0 ||
+        head_dim == 0 || stride == 0) {
+        return 0;
+    }
+    const uint32_t kv_n = n_kv_heads * head_dim;
+    if (k_offset > stride || v_offset > stride ||
+        kv_n > stride - k_offset || kv_n > stride - v_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    if (obj.gqaKvQ8 || pos0 > obj.ctxSize ||
+        n_tokens > obj.ctxSize - pos0) {
+        return 0;
+    }
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    const uint64_t cache_token_bytes = (uint64_t)kv_n * sizeof(float);
+    const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_token_bytes;
+    const uint64_t cache_offset = (uint64_t)layer_slot * cache_layer_bytes;
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
+        !obj.gqaK || !obj.gqaV ||
+        obj.gqaK.length < cache_offset + cache_layer_bytes ||
+        obj.gqaV.length < cache_offset + cache_layer_bytes) {
+        return 0;
+    }
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t n_kv_heads;
+        uint32_t head_dim;
+        uint32_t pos0;
+        uint32_t ctx_size;
+        uint32_t k_offset;
+        uint32_t v_offset;
+        uint32_t stride;
+    } args = {
+        n_tokens, n_kv_heads, head_dim, pos0, obj.ctxSize,
+        k_offset, v_offset, stride
+    };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_gqa_prefill_write_cache_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
+    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
+    NSUInteger threads = g_gqa_prefill_write_cache_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threads > 256) threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * kv_n, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch GQA cache write command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
+int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
+    qw3_metal_session *s, uint32_t layer_slot, uint32_t pos0,
+    uint32_t n_tokens, uint32_t n_heads, uint32_t n_kv_heads,
+    uint32_t head_dim, uint32_t q_offset, uint32_t gate_offset,
+    uint32_t out_offset, uint32_t stride) {
+    if (!s || !s->obj || n_tokens == 0 || n_heads == 0 ||
+        n_kv_heads == 0 || head_dim == 0 || stride == 0 ||
+        (n_heads % n_kv_heads) != 0u) {
+        return 0;
+    }
+    const uint32_t q_n = n_heads * head_dim;
+    const uint32_t kv_n = n_kv_heads * head_dim;
+    if (q_offset > stride || gate_offset > stride || out_offset > stride ||
+        q_n > stride - q_offset ||
+        q_n > stride - gate_offset ||
+        q_n > stride - out_offset) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    if (obj.gqaKvQ8 || pos0 > obj.ctxSize ||
+        n_tokens > obj.ctxSize - pos0) {
+        return 0;
+    }
+    const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    const uint64_t cache_token_bytes = (uint64_t)kv_n * sizeof(float);
+    const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_token_bytes;
+    const uint64_t cache_offset = (uint64_t)layer_slot * cache_layer_bytes;
+    if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
+        !obj.gqaK || !obj.gqaV ||
+        obj.gqaK.length < cache_offset + cache_layer_bytes ||
+        obj.gqaV.length < cache_offset + cache_layer_bytes) {
+        return 0;
+    }
+    NSUInteger threads = ((NSUInteger)head_dim + 31u) & ~(NSUInteger)31u;
+    if (threads < 32u) threads = 32u;
+    if (threads > 256u ||
+        threads > g_gqa_prefill_cached_attend_inner_pipeline.maxTotalThreadsPerThreadgroup) {
+        return 0;
+    }
+
+    struct {
+        uint32_t n_tokens;
+        uint32_t n_heads;
+        uint32_t n_kv_heads;
+        uint32_t head_dim;
+        uint32_t pos0;
+        uint32_t ctx_size;
+        uint32_t q_offset;
+        uint32_t gate_offset;
+        uint32_t out_offset;
+        uint32_t stride;
+    } args = {
+        n_tokens, n_heads, n_kv_heads, head_dim, pos0, obj.ctxSize,
+        q_offset, gate_offset, out_offset, stride
+    };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_gqa_prefill_cached_attend_inner_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
+    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
+    [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_kv_heads, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal batch GQA cached attention command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    return 1;
+}
+
 int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
                                         uint64_t q_weight_offset,
                                         uint64_t k_weight_offset,
@@ -7681,8 +10754,14 @@ void qw3_metal_cleanup(void) {
     g_iq3s_expanded_kgrid_buffer = nil;
     g_rmsnorm_plain_pipeline = nil;
     g_rmsnorm_weight_f32_pipeline = nil;
+    g_rmsnorm_weight_f32_rows_pipeline = nil;
+    g_rmsnorm_weight_f32_rows_to_out_pipeline = nil;
     g_embed_q8_0_pipeline = nil;
+    g_embed_q8_0_batch_pipeline = nil;
     g_matvec_q8_0_pipeline = nil;
+    g_matmul_q8_0_batch4_pipeline = nil;
+    g_matmul_q8_0_mm_pipeline = nil;
+    g_matmul_q8_0_mm_bc_pipeline = nil;
     g_matvec_q8_0_pair_pipeline = nil;
     g_matvec_q8_0_pair_silu_pipeline = nil;
     g_shared_gate_up_silu_pipeline = nil;
@@ -7701,18 +10780,31 @@ void qw3_metal_cleanup(void) {
     g_moe_down_iq4_xs_batch_reduce_pipeline = nil;
     g_moe_down_q6_k_batch_pipeline = nil;
     g_moe_reduce_batch_pipeline = nil;
+    g_moe_iq3_s_prefill_batch_pipeline = nil;
+    g_moe_down_iq4_xs_prefill_reduce_pipeline = nil;
+    g_moe_down_q6_k_prefill_reduce_pipeline = nil;
     g_matvec_f32_pipeline = nil;
     g_matvec_f32_pair_pipeline = nil;
     g_matvec_f32_fast_pipeline = nil;
+    g_matmul_f32_batch4_pipeline = nil;
+    g_matmul_f32_pair_batch4_pipeline = nil;
     g_deltanet_conv1d_zero_pipeline = nil;
     g_deltanet_conv1d_step_pipeline = nil;
+    g_deltanet_conv1d_batch_pipeline = nil;
     g_l2norm_heads_pipeline = nil;
+    g_l2norm_qk_batch_pipeline = nil;
     g_gqa_q_norm_gate_pipeline = nil;
     g_gqa_k_norm_pipeline = nil;
+    g_gqa_q_norm_gate_batch_pipeline = nil;
+    g_gqa_k_norm_batch_pipeline = nil;
     g_rope_heads_pipeline = nil;
+    g_rope_heads_batch_pipeline = nil;
     g_gqa_single_token_inner_pipeline = nil;
     g_gqa_attend2_inner_pipeline = nil;
     g_gqa_attend_n_inner_pipeline = nil;
+    g_gqa_prefill_attend_inner_pipeline = nil;
+    g_gqa_prefill_write_cache_pipeline = nil;
+    g_gqa_prefill_cached_attend_inner_pipeline = nil;
     g_gqa_kv_quant_q8_pipeline = nil;
     g_gqa_attend_n_q8_inner_pipeline = nil;
     g_gqa_attend_n_q8_split_partial_pipeline = nil;
@@ -7723,17 +10815,22 @@ void qw3_metal_cleanup(void) {
     g_deltanet_prepare_scratch_gates_pipeline = nil;
     g_deltanet_recur_scratch_gates_tiled_pipeline = nil;
     g_deltanet_fused_gdn_scratch_pipeline = nil;
+    g_deltanet_batch_fused_gdn_pipeline = nil;
     g_deltanet_gated_rmsnorm_pipeline = nil;
     g_residual_rmsnorm_weight_f32_pipeline = nil;
     g_residual_rmsnorm_update_x0_pipeline = nil;
+    g_residual_rmsnorm_batch_update_x0_pipeline = nil;
     g_silu_mul_pipeline = nil;
     g_scale_pipeline = nil;
     g_add_moe_to_x0_pipeline = nil;
     g_silu_mul_offsets_pipeline = nil;
+    g_silu_mul_rows_offsets_pipeline = nil;
     g_scale_x1_scalar_add_x0_pipeline = nil;
     g_scale_x1_add_x0_pipeline = nil;
     g_scale_scratch_add_x0_pipeline = nil;
+    g_sigmoid_scale_scratch_add_x0_rows_pipeline = nil;
     g_router_top8_pipeline = nil;
+    g_router_top8_batch_pipeline = nil;
     g_matvec_iq3_s_expert_slot_pipeline = nil;
     g_matvec_iq3_s_expert_slot_pair_pipeline = nil;
     g_matvec_iq4_xs_expert_slot_pipeline = nil;

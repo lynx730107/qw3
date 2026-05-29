@@ -188,6 +188,46 @@ static char *native_tool_response_text(const char *tool_name, const char *value)
     return sb.p;
 }
 
+static void sb_append_xml_escaped(strbuf *sb, const char *s) {
+    if (!s) return;
+    for (const char *p = s; *p; p++) {
+        if (*p == '&') sb_append(sb, "&amp;");
+        else if (*p == '<') sb_append(sb, "&lt;");
+        else if (*p == '>') sb_append(sb, "&gt;");
+        else sb_append_n(sb, p, 1);
+    }
+}
+
+static char *agent_strdup(const char *s);
+
+static char *native_tool_call_text(const tool_call_list *calls) {
+    strbuf sb;
+    sb_init(&sb);
+    for (int i = 0; calls && i < calls->n_calls; i++) {
+        const tool_call *call = &calls->calls[i];
+        sb_append(&sb, QWEN_XML_TOOL_CALL_BEGIN "\n");
+        sb_append(&sb, QWEN_XML_FUNCTION_BEGIN);
+        sb_append_xml_escaped(&sb, call->name);
+        sb_append(&sb, ">\n");
+        for (int j = 0; j < call->n_params; j++) {
+            const tool_param *param = &call->params[j];
+            sb_append(&sb, QWEN_XML_PARAMETER_BEGIN);
+            sb_append_xml_escaped(&sb, param->name);
+            sb_append(&sb, ">\n");
+            sb_append_xml_escaped(&sb, param->value);
+            if (param->value && param->value[0] &&
+                param->value[strlen(param->value) - 1] != '\n') {
+                sb_append(&sb, "\n");
+            }
+            sb_append(&sb, QWEN_XML_PARAMETER_END "\n");
+        }
+        sb_append(&sb, QWEN_XML_FUNCTION_END "\n");
+        sb_append(&sb, QWEN_XML_TOOL_CALL_END);
+        if (i + 1 < calls->n_calls) sb_append(&sb, "\n");
+    }
+    return sb.p ? sb.p : agent_strdup("");
+}
+
 static char *native_tool_declarations(void) {
     strbuf sb;
     sb_init(&sb);
@@ -648,6 +688,41 @@ static char *parse_jsonish_atom(const char **pp, const char *end) {
     return xml_unescape(p, (size_t)(r - p));
 }
 
+static const char *jsonish_object_end(const char *start) {
+    if (!start || *start != '{') return NULL;
+    int depth = 0;
+    bool in_string = false;
+    bool esc = false;
+    for (const char *p = start; *p; p++) {
+        if (in_string) {
+            if (esc) esc = false;
+            else if (*p == '\\') esc = true;
+            else if (*p == '"') in_string = false;
+            continue;
+        }
+        if (*p == '"') {
+            in_string = true;
+        } else if (*p == '{') {
+            depth++;
+        } else if (*p == '}') {
+            depth--;
+            if (depth == 0) return p;
+        }
+    }
+    return NULL;
+}
+
+static const char *jsonish_payload_start(const char *text, const char *end) {
+    const char *p = skip_space(text ? text : "", end);
+    if (p + 3 <= end && !strncmp(p, "```", 3)) {
+        p += 3;
+        while (p < end && *p != '\n' && *p != '\r') p++;
+        while (p < end && (*p == '\n' || *p == '\r')) p++;
+        p = skip_space(p, end);
+    }
+    return p;
+}
+
 static void infer_tool_name_from_params(tool_call *call) {
     if (call->name[0]) return;
     if (tool_param_value(call, "cmd") || tool_param_value(call, "command")) {
@@ -665,12 +740,9 @@ static void infer_tool_name_from_params(tool_call *call) {
     }
 }
 
-static int parse_jsonish_tool_call(const char *text, tool_call_list *out) {
-    const char *start = text ? strchr(text, '{') : NULL;
-    const char *end = start ? strchr(start, '}') : NULL;
-    if (!start || !end || out->n_calls >= 8) return 0;
-    tool_call *call = &out->calls[out->n_calls];
-    const char *p = start + 1;
+static void parse_jsonish_params_object(const char *start, const char *end,
+                                        tool_call *call) {
+    const char *p = start;
     while (p < end && call->n_params < 16) {
         p = skip_space(p, end);
         if (p >= end) break;
@@ -685,21 +757,51 @@ static int parse_jsonish_tool_call(const char *text, tool_call_list *out) {
             break;
         }
         p++;
-        char *value = parse_jsonish_atom(&p, end);
-        if (!strcmp(key, "name") || !strcmp(key, "tool") ||
-            !strcmp(key, "function")) {
-            snprintf(call->name, sizeof(call->name), "%s", value ? value : "");
+        p = skip_space(p, end);
+        if (p < end && *p == '{') {
+            const char *obj_end = jsonish_object_end(p);
+            if (!obj_end || obj_end > end) {
+                free(key);
+                break;
+            }
+            if (!strcmp(key, "arguments") || !strcmp(key, "parameters") ||
+                !strcmp(key, "args")) {
+                parse_jsonish_params_object(p + 1, obj_end, call);
+            }
+            p = obj_end + 1;
             free(key);
-            free(value);
         } else {
-            tool_param *tp = &call->params[call->n_params++];
-            snprintf(tp->name, sizeof(tp->name), "%s", key);
-            tp->value = value ? value : agent_strdup("");
-            free(key);
+            char *value = parse_jsonish_atom(&p, end);
+            if (!strcmp(key, "name") || !strcmp(key, "tool") ||
+                !strcmp(key, "function")) {
+                snprintf(call->name, sizeof(call->name), "%s",
+                         value ? value : "");
+                free(key);
+                free(value);
+            } else if (strcmp(key, "type")) {
+                tool_param *tp = &call->params[call->n_params++];
+                snprintf(tp->name, sizeof(tp->name), "%s", key);
+                tp->value = value ? value : agent_strdup("");
+                free(key);
+            } else {
+                free(key);
+                free(value);
+            }
         }
         p = skip_space(p, end);
         if (p < end && *p == ',') p++;
     }
+}
+
+static int parse_jsonish_tool_call(const char *text, tool_call_list *out) {
+    if (!text) return 0;
+    const char *text_end = text + strlen(text);
+    const char *start = jsonish_payload_start(text, text_end);
+    if (!start || start >= text_end || *start != '{') start = strchr(text, '{');
+    const char *end = start ? jsonish_object_end(start) : NULL;
+    if (!start || !end || out->n_calls >= 8) return 0;
+    tool_call *call = &out->calls[out->n_calls];
+    parse_jsonish_params_object(start + 1, end, call);
     infer_tool_name_from_params(call);
     if (!call->name[0]) {
         for (int i = 0; i < call->n_params; i++) free(call->params[i].value);
@@ -1189,20 +1291,20 @@ static bool should_hold_tool_candidate(const char *text, size_t len,
         return true;
     }
 
-    size_t off = 0;
-    while (off < len && isspace((unsigned char)text[off])) off++;
-    if (off == len) return true;
-    if (text[off] != '{') return false;
-    if (text_has_jsonish_tool_call(text + off)) return true;
-    return strchr(text + off, '}') == NULL;
+    const char *end = text + len;
+    const char *p = jsonish_payload_start(text, end);
+    if (p >= end) return true;
+    if (*p != '{') return false;
+    if (text_has_jsonish_tool_call(p)) return true;
+    return jsonish_object_end(p) == NULL;
 }
 
 static bool should_suppress_jsonish_tool_call(const char *text, size_t len) {
     if (!text || len == 0) return false;
-    size_t off = 0;
-    while (off < len && isspace((unsigned char)text[off])) off++;
-    if (off == len || text[off] != '{') return false;
-    return text_has_jsonish_tool_call(text + off);
+    const char *end = text + len;
+    const char *p = jsonish_payload_start(text, end);
+    if (p >= end || *p != '{') return false;
+    return text_has_jsonish_tool_call(p);
 }
 
 static bool generated_has_complete_tool_call(const char *text) {
@@ -1390,9 +1492,8 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
     strbuf sb;
     sb_init(&sb);
     sb_append(&sb,
-        "You are qw3-agent, a coding and terminal assistant running inside "
-        "the user's local project. Be concise, practical and careful with "
-        "file changes.\n");
+        "You are qw3-agent, a local coding assistant. Work in the current "
+        "project, be concise, and be careful with file changes.\n");
     if (tools_enabled) {
         sb_append(&sb,
             "\n# Tools\n\n"
@@ -1416,11 +1517,8 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "</parameter>\n"
             "</function>\n"
             "</tool_call>\n\n"
-            "<IMPORTANT>\n"
-            "Required parameters MUST be specified. You may write optional reasoning "
-            "before the function call, but never after it. If no function call is "
-            "needed, answer normally.\n"
-            "</IMPORTANT>\n");
+            "Required parameters MUST be specified. Never write text after a "
+            "tool call. If no tool is needed, answer normally.\n");
     }
     if (user_system && user_system[0]) {
         sb_append(&sb, "\nUser system instructions:\n");

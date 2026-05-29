@@ -707,6 +707,10 @@ static void usage(void) {
         "              Run session x0 embedding then layer-0 attn_norm into x1\n"
         "  --metal-session-qkv-test ID\n"
         "              Run session x1 through layer-0 qkv projection into scratch\n"
+        "  --metal-session-prefill-q8-batch-test ID\n"
+        "              Run 4-token batched q8 prefill projection and compare\n"
+        "  --metal-session-gqa-prefill-batch-test ID\n"
+        "              Run 4-token batched GQA prefill attention and compare\n"
         "  --metal-session-z-test ID\n"
         "              Run layer-0 gate projection into scratch after qkv\n"
         "  --metal-session-conv-test ID\n"
@@ -841,6 +845,8 @@ int main(int argc, char **argv) {
     int metal_session_embed_test = -1;
     int metal_session_rmsnorm_test = -1;
     int metal_session_qkv_test = -1;
+    int metal_session_prefill_q8_batch_test = -1;
+    int metal_session_gqa_prefill_batch_test = -1;
     int metal_session_z_test = -1;
     int metal_session_conv_test = -1;
     int metal_session_l2norm_test = -1;
@@ -1106,6 +1112,12 @@ int main(int argc, char **argv) {
             backend = QW3_BACKEND_METAL;
         } else if (strcmp(argv[i], "--metal-session-qkv-test") == 0 && i + 1 < argc) {
             metal_session_qkv_test = atoi(argv[++i]);
+            backend = QW3_BACKEND_METAL;
+        } else if (strcmp(argv[i], "--metal-session-prefill-q8-batch-test") == 0 && i + 1 < argc) {
+            metal_session_prefill_q8_batch_test = atoi(argv[++i]);
+            backend = QW3_BACKEND_METAL;
+        } else if (strcmp(argv[i], "--metal-session-gqa-prefill-batch-test") == 0 && i + 1 < argc) {
+            metal_session_gqa_prefill_batch_test = atoi(argv[++i]);
             backend = QW3_BACKEND_METAL;
         } else if (strcmp(argv[i], "--metal-session-z-test") == 0 && i + 1 < argc) {
             metal_session_z_test = atoi(argv[++i]);
@@ -1743,6 +1755,22 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
+    if (metal_session_prefill_q8_batch_test >= 0) {
+        if (qw3_engine_metal_session_prefill_q8_batch_test(
+                engine, metal_session_prefill_q8_batch_test,
+                ctx_size, stdout) != 0) {
+            qw3_engine_close(engine);
+            return 1;
+        }
+    }
+    if (metal_session_gqa_prefill_batch_test >= 0) {
+        if (qw3_engine_metal_session_gqa_prefill_batch_test(
+                engine, metal_session_gqa_prefill_batch_test,
+                ctx_size, stdout) != 0) {
+            qw3_engine_close(engine);
+            return 1;
+        }
+    }
     if (metal_session_z_test >= 0) {
         if (qw3_engine_metal_session_z_test(engine, metal_session_z_test,
                                            ctx_size, stdout) != 0) {
@@ -2024,6 +2052,8 @@ int main(int argc, char **argv) {
         metal_session_embed_test < 0 &&
         metal_session_rmsnorm_test < 0 &&
         metal_session_qkv_test < 0 &&
+        metal_session_prefill_q8_batch_test < 0 &&
+        metal_session_gqa_prefill_batch_test < 0 &&
         metal_session_z_test < 0 &&
         metal_session_conv_test < 0 &&
         metal_session_l2norm_test < 0 &&

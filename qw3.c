@@ -691,13 +691,22 @@ struct qw3_session {
     void *progress_ud;
 };
 
-#define QW3_METAL_LOGITS_GPU  1
-#define QW3_METAL_LOGITS_READ 2
+#define QW3_METAL_LOGITS_DEFER 0
+#define QW3_METAL_LOGITS_GPU   1
+#define QW3_METAL_LOGITS_READ  2
 
 #ifndef QW3_NO_METAL
 static int qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                                                 char *err, size_t errlen,
                                                 int read_logits);
+static int qw3_metal_session_eval_token_defer_logits(qw3_session *s, int token,
+                                                     char *err, size_t errlen);
+static int qw3_metal_session_eval_prefill_batch_mode(qw3_session *s,
+                                                     const int *tokens,
+                                                     int n_tokens,
+                                                     char *err,
+                                                     size_t errlen,
+                                                     int logits_mode);
 #endif
 
 /* =========================================================================
@@ -751,6 +760,26 @@ bool qw3_backend_supported(qw3_backend backend) {
     default:
         return false;
     }
+}
+
+static int qw3_prefill_defer_interval(void) {
+    const char *env = getenv("QW3_METAL_PREFILL_DEFER_INTERVAL");
+    if (!env || !env[0]) return 16;
+    char *end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v < 1) return 1;
+    if (v > 1024) return 1024;
+    return (int)v;
+}
+
+static int qw3_metal_prefill_batch_size(void) {
+    const char *env = getenv("QW3_METAL_PREFILL_BATCH");
+    if (!env || !env[0]) return 256;
+    char *end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v < 1) return 1;
+    if (v > 256) return 256;
+    return (int)v;
 }
 
 /* =========================================================================
@@ -3811,11 +3840,48 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
     }
 #ifndef QW3_NO_METAL
     if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal) {
-        for (int i = common; i < prompt->len; i++) {
-            const int last = i + 1 == prompt->len;
-            int rc = qw3_metal_session_eval_token_slow_ex(
-                s, prompt->v[i], err, errlen, last ? 1 : 0);
-            if (rc != 0) return -1;
+        const int prefill_batch = qw3_metal_prefill_batch_size();
+        if (prefill_batch > 1) {
+            for (int i = common; i < prompt->len;) {
+                int n = prompt->len - i;
+                if (n > prefill_batch) n = prefill_batch;
+                const int last = i + n == prompt->len;
+                int rc = 0;
+                if (n > 1) {
+                    rc = qw3_metal_session_eval_prefill_batch_mode(
+                        s, prompt->v + i, n, err, errlen,
+                        last ? QW3_METAL_LOGITS_READ :
+                               QW3_METAL_LOGITS_DEFER);
+                } else {
+                    rc = last ?
+                        qw3_metal_session_eval_token_slow_ex(
+                            s, prompt->v[i], err, errlen, 1) :
+                        qw3_metal_session_eval_token_defer_logits(
+                            s, prompt->v[i], err, errlen);
+                }
+                if (rc != 0) return -1;
+                i += n;
+            }
+        } else {
+            const int defer_interval = qw3_prefill_defer_interval();
+            int deferred = 0;
+            for (int i = common; i < prompt->len; i++) {
+                const int last = i + 1 == prompt->len;
+                int rc = last ?
+                    qw3_metal_session_eval_token_slow_ex(
+                        s, prompt->v[i], err, errlen, 1) :
+                    qw3_metal_session_eval_token_defer_logits(
+                        s, prompt->v[i], err, errlen);
+                if (rc != 0) return -1;
+                if (!last && ++deferred >= defer_interval) {
+                    if (!qw3_metal_synchronize()) {
+                        if (err && errlen) snprintf(err, errlen,
+                                                    "Metal deferred prefill failed");
+                        return -1;
+                    }
+                    deferred = 0;
+                }
+            }
         }
         return 0;
     }
@@ -8925,6 +8991,739 @@ int qw3_engine_metal_session_qkv_test(qw3_engine *e, int token,
 #endif
 }
 
+int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
+                                                   int ctx_size, FILE *fp) {
+    if (!e || !fp || ctx_size <= 0) return -1;
+#ifdef QW3_NO_METAL
+    (void)e; (void)token; (void)ctx_size;
+    fprintf(fp, "metal session prefill q8 batch: unavailable in QW3_NO_METAL build\n");
+    return -1;
+#else
+    if (e->backend != QW3_BACKEND_METAL || !e->metal_ready) {
+        fprintf(fp, "metal session prefill q8 batch: Metal backend is not initialized\n");
+        return -1;
+    }
+    if (token < 0 || token + 3 >= QW3_N_VOCAB) {
+        fprintf(fp, "metal session prefill q8 batch: token %d cannot form a 4-token run\n",
+                token);
+        return -1;
+    }
+    const qw3_layer_weights *lw = &e->weights.layer[0];
+    const qw3_tensor *emb = e->weights.token_embd;
+    const qw3_tensor *norm_w = lw->attn_norm;
+    const qw3_tensor *proj = lw->linear_qkv_proj;
+    const qw3_tensor *gate = lw->linear_gate_proj;
+    const qw3_tensor *alpha = lw->linear_ssm_alpha;
+    const qw3_tensor *beta = lw->linear_ssm_beta;
+    const qw3_tensor *conv_w = lw->linear_conv_weight;
+    const qw3_tensor *dt_bias = lw->linear_ssm_dt_bias;
+    const qw3_tensor *ssm_a = lw->linear_ssm_a;
+    const qw3_tensor *ssm_norm = lw->linear_ssm_norm;
+    const qw3_tensor *out_proj = lw->linear_ssm_out;
+    const qw3_tensor *router_proj = lw->ffn_gate_inp;
+    const uint32_t n_tokens = 4;
+    const uint32_t n_out = (uint32_t)tensor_linear_qkv();
+    const uint32_t n_z = (uint32_t)tensor_linear_inner();
+    const uint32_t n_gates = QW3_N_LINEAR_V_HEADS;
+    const uint32_t n_gate_pair = n_gates * 2u;
+    const uint32_t gate_offset = n_out;
+    const uint32_t alpha_offset = gate_offset + n_z;
+    const uint32_t beta_offset = alpha_offset + n_gates;
+    const uint32_t conv_offset = beta_offset + n_gates;
+    const uint32_t inner_offset = conv_offset + n_out;
+    const uint32_t attn_offset = inner_offset + n_z;
+    const uint32_t router_offset = attn_offset + QW3_N_EMBD;
+    const uint32_t moe_hidden_offset = router_offset + QW3_N_EXPERT;
+    const uint32_t shared_gate_offset =
+        moe_hidden_offset + QW3_N_EXPERT_USED * QW3_N_FF_EXP;
+    const uint32_t shared_up_offset = shared_gate_offset + QW3_N_FF_SHARED;
+    const uint32_t shared_hidden_offset = shared_up_offset + QW3_N_FF_SHARED;
+    const uint32_t shared_down_offset =
+        shared_hidden_offset + QW3_N_FF_SHARED;
+    const uint32_t shared_scalar_offset = shared_down_offset + QW3_N_EMBD;
+    const uint32_t stage_stride = shared_scalar_offset + 1u;
+    if (emb->type != QW3_TENSOR_Q8_0 || proj->type != QW3_TENSOR_Q8_0 ||
+        gate->type != QW3_TENSOR_Q8_0 || out_proj->type != QW3_TENSOR_Q8_0) {
+        fprintf(fp, "metal session prefill q8 batch: expected q8_0 embedding/projection tensors\n");
+        return -1;
+    }
+    if (alpha->type != QW3_TENSOR_F32 || beta->type != QW3_TENSOR_F32) {
+        fprintf(fp, "metal session prefill q8 batch: expected f32 alpha/beta tensors\n");
+        return -1;
+    }
+    if (router_proj->type != QW3_TENSOR_F32) {
+        fprintf(fp, "metal session prefill q8 batch: expected f32 router tensor\n");
+        return -1;
+    }
+    if (lw->ffn_gate_exps->type != QW3_TENSOR_IQ3_S ||
+        lw->ffn_up_exps->type != QW3_TENSOR_IQ3_S ||
+        lw->ffn_down_exps->type != QW3_TENSOR_IQ4_XS) {
+        fprintf(fp, "metal session prefill q8 batch: expected sparse MoE iq3_s/iq4_xs tensors\n");
+        return -1;
+    }
+    if (!lw->ffn_gate_inp_shexp ||
+        lw->ffn_gate_inp_shexp->type != QW3_TENSOR_F32 ||
+        lw->ffn_gate_shared->type != QW3_TENSOR_Q8_0 ||
+        lw->ffn_up_shared->type != QW3_TENSOR_Q8_0 ||
+        lw->ffn_down_shared->type != QW3_TENSOR_Q8_0) {
+        fprintf(fp, "metal session prefill q8 batch: expected shared MoE q8_0/f32 tensors\n");
+        return -1;
+    }
+    if (!tensor_is_dense_float(conv_w->type)) {
+        fprintf(fp, "metal session prefill q8 batch: expected f32 conv tensor\n");
+        return -1;
+    }
+    if (!tensor_is_dense_float(dt_bias->type) ||
+        !tensor_is_dense_float(ssm_a->type) ||
+        !tensor_is_dense_float(ssm_norm->type)) {
+        fprintf(fp, "metal session prefill q8 batch: expected f32 ssm tensors\n");
+        return -1;
+    }
+
+    uint32_t toks[4] = {
+        (uint32_t)token,
+        (uint32_t)token + 1u,
+        (uint32_t)token + 2u,
+        (uint32_t)token + 3u,
+    };
+    qw3_session *s = NULL;
+    float *x = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+    float *cpu_hidden =
+        qw3_xmalloc((size_t)n_tokens * QW3_N_EMBD * sizeof(float));
+    float *cpu_ffn =
+        qw3_xmalloc((size_t)n_tokens * QW3_N_EMBD * sizeof(float));
+    float *gpu_ffn =
+        qw3_xmalloc((size_t)n_tokens * QW3_N_EMBD * sizeof(float));
+    float *cpu_layer =
+        qw3_xcalloc((size_t)n_tokens * QW3_N_EMBD, sizeof(float));
+    float *gpu_layer =
+        qw3_xcalloc((size_t)n_tokens * QW3_N_EMBD, sizeof(float));
+    float *cpu_stage =
+        qw3_xcalloc((size_t)n_tokens * stage_stride, sizeof(float));
+    float *gpu_stage =
+        qw3_xcalloc((size_t)n_tokens * stage_stride, sizeof(float));
+    float *conv_state =
+        qw3_xcalloc((size_t)n_out * (QW3_N_LINEAR_CONV_K - 1),
+                    sizeof(float));
+    float *dn_state =
+        qw3_xcalloc((size_t)QW3_N_LINEAR_V_HEADS *
+                        QW3_N_LINEAR_HEAD_DIM * QW3_N_LINEAR_HEAD_DIM,
+                    sizeof(float));
+    float *moe_gate = qw3_xmalloc((size_t)QW3_N_FF_EXP * sizeof(float));
+    float *moe_up = qw3_xmalloc((size_t)QW3_N_FF_EXP * sizeof(float));
+    float *moe_hidden = qw3_xmalloc((size_t)QW3_N_FF_EXP * sizeof(float));
+    float *moe_down = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+    float *shared_gate =
+        qw3_xmalloc((size_t)QW3_N_FF_SHARED * sizeof(float));
+    float *shared_up =
+        qw3_xmalloc((size_t)QW3_N_FF_SHARED * sizeof(float));
+    float *shared_hidden =
+        qw3_xmalloc((size_t)QW3_N_FF_SHARED * sizeof(float));
+    float *shared_down =
+        qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+    bool cpu_ok = true;
+    for (uint32_t t = 0; cpu_ok && t < n_tokens; t++) {
+        cpu_ok = tensor_read_dense_row(&e->model, emb, toks[t], x);
+        if (cpu_ok) {
+            memcpy(cpu_hidden + (size_t)t * QW3_N_EMBD, x,
+                   (size_t)QW3_N_EMBD * sizeof(float));
+            cpu_rmsnorm(x, x, &e->model, norm_w, QW3_N_EMBD);
+            cpu_ok = cpu_matvec_q8_0(&e->model, proj, x,
+                                     cpu_stage + (size_t)t * stage_stride) &&
+                     cpu_matvec_q8_0(&e->model, gate, x,
+                                     cpu_stage + (size_t)t * stage_stride +
+                                         gate_offset) &&
+                     cpu_matvec_dense(&e->model, alpha, x,
+                                      cpu_stage + (size_t)t * stage_stride +
+                                          alpha_offset) &&
+                     cpu_matvec_dense(&e->model, beta, x,
+                                      cpu_stage + (size_t)t * stage_stride +
+                                          beta_offset) &&
+                     cpu_deltanet_conv1d_step(
+                         &e->model, lw,
+                         cpu_stage + (size_t)t * stage_stride,
+                         conv_state,
+                         cpu_stage + (size_t)t * stage_stride + conv_offset);
+            if (cpu_ok) {
+                float *conv = cpu_stage + (size_t)t * stage_stride + conv_offset;
+                const uint32_t qk_n =
+                    QW3_N_LINEAR_QK_HEADS * QW3_N_LINEAR_HEAD_DIM;
+                for (int h = 0; h < QW3_N_LINEAR_QK_HEADS; h++) {
+                    cpu_l2_norm_head(conv + h * QW3_N_LINEAR_HEAD_DIM,
+                                     conv + h * QW3_N_LINEAR_HEAD_DIM,
+                                     QW3_N_LINEAR_HEAD_DIM);
+                    cpu_l2_norm_head(conv + qk_n +
+                                         h * QW3_N_LINEAR_HEAD_DIM,
+                                     conv + qk_n +
+                                         h * QW3_N_LINEAR_HEAD_DIM,
+                                         QW3_N_LINEAR_HEAD_DIM);
+                }
+                float *inner = cpu_stage + (size_t)t * stage_stride +
+                               inner_offset;
+                const float *z = cpu_stage + (size_t)t * stage_stride +
+                                 gate_offset;
+                const float *alpha_v = cpu_stage + (size_t)t * stage_stride +
+                                       alpha_offset;
+                const float *beta_v = cpu_stage + (size_t)t * stage_stride +
+                                      beta_offset;
+                for (int hv = 0; hv < QW3_N_LINEAR_V_HEADS; hv++) {
+                    const int hk = hv % QW3_N_LINEAR_QK_HEADS;
+                    const float *qh = conv + hk * QW3_N_LINEAR_HEAD_DIM;
+                    const float *kh = conv + qk_n +
+                                      hk * QW3_N_LINEAR_HEAD_DIM;
+                    const float *vh = conv + 2 * qk_n +
+                                      hv * QW3_N_LINEAR_HEAD_DIM;
+                    float *sh = dn_state +
+                                (size_t)hv * QW3_N_LINEAR_HEAD_DIM *
+                                    QW3_N_LINEAR_HEAD_DIM;
+                    const float b = 1.0f / (1.0f + expf(-beta_v[hv]));
+                    const float a_raw = alpha_v[hv] +
+                        tensor_read_dense_1d(&e->model, dt_bias, (uint64_t)hv);
+                    const float g = expf(cpu_softplus(a_raw) *
+                        tensor_read_dense_1d(&e->model, ssm_a, (uint64_t)hv));
+                    float core[QW3_N_LINEAR_HEAD_DIM];
+                    for (int i = 0; i < QW3_N_LINEAR_HEAD_DIM; i++) {
+                        for (int j = 0; j < QW3_N_LINEAR_HEAD_DIM; j++) {
+                            sh[i * QW3_N_LINEAR_HEAD_DIM + j] *= g;
+                        }
+                    }
+                    for (int j = 0; j < QW3_N_LINEAR_HEAD_DIM; j++) {
+                        float sk = 0.0f;
+                        for (int i = 0; i < QW3_N_LINEAR_HEAD_DIM; i++) {
+                            sk += sh[i * QW3_N_LINEAR_HEAD_DIM + j] * kh[i];
+                        }
+                        const float d = (vh[j] - sk) * b;
+                        for (int i = 0; i < QW3_N_LINEAR_HEAD_DIM; i++) {
+                            sh[i * QW3_N_LINEAR_HEAD_DIM + j] += kh[i] * d;
+                        }
+                    }
+                    double ss = 0.0;
+                    for (int j = 0; j < QW3_N_LINEAR_HEAD_DIM; j++) {
+                        float acc = 0.0f;
+                        for (int i = 0; i < QW3_N_LINEAR_HEAD_DIM; i++) {
+                            acc += sh[i * QW3_N_LINEAR_HEAD_DIM + j] * qh[i];
+                        }
+                        core[j] = acc / sqrtf((float)QW3_N_LINEAR_HEAD_DIM);
+                        ss += (double)core[j] * (double)core[j];
+                    }
+                    const float scale = 1.0f /
+                        sqrtf((float)(ss / QW3_N_LINEAR_HEAD_DIM) +
+                              QW3_RMS_EPS);
+                    for (int j = 0; j < QW3_N_LINEAR_HEAD_DIM; j++) {
+                        inner[hv * QW3_N_LINEAR_HEAD_DIM + j] =
+                            core[j] * scale *
+                            tensor_read_dense_1d(&e->model, ssm_norm,
+                                                 (uint64_t)j) *
+                            cpu_silu(z[hv * QW3_N_LINEAR_HEAD_DIM + j]);
+                    }
+                }
+                cpu_ok = cpu_matvec_q8_0(
+                    &e->model, out_proj, inner,
+                    cpu_stage + (size_t)t * stage_stride + attn_offset);
+                if (cpu_ok) {
+                    float *resid = cpu_stage + (size_t)t * stage_stride +
+                                   attn_offset;
+                    for (int i = 0; i < QW3_N_EMBD; i++) {
+                        resid[i] += cpu_hidden[(size_t)t * QW3_N_EMBD + i];
+                        cpu_layer[(size_t)t * QW3_N_EMBD + i] = resid[i];
+                    }
+                    cpu_rmsnorm(cpu_ffn + (size_t)t * QW3_N_EMBD, resid,
+                                &e->model, lw->ffn_norm, QW3_N_EMBD);
+                    cpu_ok = cpu_matvec_dense(
+                        &e->model, router_proj,
+                        cpu_ffn + (size_t)t * QW3_N_EMBD,
+                        cpu_stage + (size_t)t * stage_stride +
+                            router_offset);
+                    if (cpu_ok) {
+                        int ids[QW3_N_EXPERT_USED];
+                        float scores[QW3_N_EXPERT_USED];
+                        float weights[QW3_N_EXPERT_USED];
+                        topk_desc(cpu_stage + (size_t)t * stage_stride +
+                                      router_offset,
+                                  QW3_N_EXPERT, QW3_N_EXPERT_USED, ids,
+                                  scores);
+                        float max_route = scores[0];
+                        float route_sum = 0.0f;
+                        for (int k = 0; k < QW3_N_EXPERT_USED; k++) {
+                            weights[k] = expf(scores[k] - max_route);
+                            route_sum += weights[k];
+                        }
+                        for (int k = 0; cpu_ok && k < QW3_N_EXPERT_USED; k++) {
+                            weights[k] /= route_sum;
+                            cpu_ok =
+                                cpu_matvec_iq3_s_expert(
+                                    &e->model, lw->ffn_gate_exps, ids[k],
+                                    cpu_ffn + (size_t)t * QW3_N_EMBD,
+                                    moe_gate) &&
+                                cpu_matvec_iq3_s_expert(
+                                    &e->model, lw->ffn_up_exps, ids[k],
+                                    cpu_ffn + (size_t)t * QW3_N_EMBD,
+                                    moe_up);
+                            if (!cpu_ok) break;
+                            for (int i = 0; i < QW3_N_FF_EXP; i++) {
+                                moe_hidden[i] = cpu_silu(moe_gate[i]) * moe_up[i];
+                                cpu_stage[(size_t)t * stage_stride +
+                                          moe_hidden_offset +
+                                          (size_t)k * QW3_N_FF_EXP + i] =
+                                    moe_hidden[i];
+                            }
+                            cpu_ok = cpu_matvec_iq4_xs_expert(
+                                &e->model, lw->ffn_down_exps, ids[k],
+                                moe_hidden, moe_down);
+                            if (!cpu_ok) break;
+                            for (int i = 0; i < QW3_N_EMBD; i++) {
+                                cpu_layer[(size_t)t * QW3_N_EMBD + i] +=
+                                    weights[k] * moe_down[i];
+                            }
+                        }
+                        if (cpu_ok) {
+                            cpu_ok =
+                                cpu_matvec_q8_0(
+                                    &e->model, lw->ffn_gate_shared,
+                                    cpu_ffn + (size_t)t * QW3_N_EMBD,
+                                    shared_gate) &&
+                                cpu_matvec_q8_0(
+                                    &e->model, lw->ffn_up_shared,
+                                    cpu_ffn + (size_t)t * QW3_N_EMBD,
+                                    shared_up);
+                        }
+                        if (cpu_ok) {
+                            for (int i = 0; i < QW3_N_FF_SHARED; i++) {
+                                shared_hidden[i] =
+                                    cpu_silu(shared_gate[i]) * shared_up[i];
+                                cpu_stage[(size_t)t * stage_stride +
+                                          shared_hidden_offset + i] =
+                                    shared_hidden[i];
+                            }
+                            cpu_ok = cpu_matvec_q8_0(
+                                &e->model, lw->ffn_down_shared,
+                                shared_hidden, shared_down);
+                        }
+                        if (cpu_ok) {
+                            float shared_raw = 0.0f;
+                            cpu_ok = cpu_dot_dense_1d(
+                                &e->model, lw->ffn_gate_inp_shexp,
+                                cpu_ffn + (size_t)t * QW3_N_EMBD,
+                                &shared_raw);
+                            cpu_stage[(size_t)t * stage_stride +
+                                      shared_scalar_offset] = shared_raw;
+                            const float shared_scale =
+                                1.0f / (1.0f + expf(-shared_raw));
+                            for (int i = 0; i < QW3_N_EMBD; i++) {
+                                cpu_layer[(size_t)t * QW3_N_EMBD + i] +=
+                                    shared_scale * shared_down[i];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    int gpu_ok = 0;
+    if (cpu_ok && qw3_session_create(&s, e, ctx_size) == 0 && s && s->metal) {
+        gpu_ok = qw3_metal_session_batch_embed_q8_0(
+                     s->metal, emb->offset, toks, n_tokens, QW3_N_EMBD) &&
+                 qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
+                     s->metal, norm_w->offset, n_tokens, QW3_N_EMBD,
+                     QW3_RMS_EPS) &&
+                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                     s->metal, proj->offset, n_tokens, QW3_N_EMBD, n_out,
+                     0, stage_stride) &&
+                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                     s->metal, gate->offset, n_tokens, QW3_N_EMBD, n_z,
+                     gate_offset, stage_stride) &&
+                 qw3_metal_session_batch_matmul_f32_pair_x1_to_scratch(
+                     s->metal, alpha->offset, beta->offset, n_tokens,
+                     QW3_N_EMBD, n_gates, alpha_offset, beta_offset,
+                     stage_stride) &&
+                 qw3_metal_session_batch_conv1d_step_from_scratch(
+                     s->metal, conv_w->offset, 0, n_tokens, n_out, 0,
+                     conv_offset, stage_stride) &&
+                 qw3_metal_session_batch_l2norm_qk_from_scratch(
+                     s->metal, n_tokens, conv_offset, stage_stride,
+                     QW3_N_LINEAR_QK_HEADS, QW3_N_LINEAR_HEAD_DIM,
+                     QW3_RMS_EPS) &&
+                 qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
+                     s->metal, dt_bias->offset, ssm_a->offset,
+                     ssm_norm->offset, 0, n_tokens, conv_offset,
+                     gate_offset, alpha_offset, beta_offset, inner_offset,
+                     stage_stride, QW3_N_LINEAR_QK_HEADS,
+                     QW3_N_LINEAR_V_HEADS, QW3_N_LINEAR_HEAD_DIM,
+                     QW3_RMS_EPS) &&
+                 qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                     s->metal, out_proj->offset, n_tokens, n_z,
+                     QW3_N_EMBD, inner_offset, attn_offset, stage_stride) &&
+                 qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
+                     s->metal, lw->ffn_norm->offset, n_tokens,
+                     QW3_N_EMBD, attn_offset, stage_stride, QW3_RMS_EPS) &&
+                 qw3_metal_session_batch_matmul_f32_x1_to_scratch(
+                     s->metal, router_proj->offset, n_tokens, QW3_N_EMBD,
+                     QW3_N_EXPERT, router_offset, stage_stride) &&
+                 qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
+                     s->metal, lw->ffn_gate_exps->offset,
+                     lw->ffn_up_exps->offset, lw->ffn_down_exps->offset,
+                     (uint32_t)lw->ffn_down_exps->type, n_tokens,
+                     QW3_N_EXPERT_USED, QW3_N_EMBD, QW3_N_FF_EXP,
+                     router_offset, moe_hidden_offset, stage_stride) &&
+                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                     s->metal, lw->ffn_gate_shared->offset, n_tokens,
+                     QW3_N_EMBD, QW3_N_FF_SHARED, shared_gate_offset,
+                     stage_stride) &&
+                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                     s->metal, lw->ffn_up_shared->offset, n_tokens,
+                     QW3_N_EMBD, QW3_N_FF_SHARED, shared_up_offset,
+                     stage_stride) &&
+                 qw3_metal_session_batch_silu_mul_scratch_to_scratch(
+                     s->metal, n_tokens, QW3_N_FF_SHARED,
+                     shared_gate_offset, shared_up_offset,
+                     shared_hidden_offset, stage_stride) &&
+                 qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                     s->metal, lw->ffn_down_shared->offset, n_tokens,
+                     QW3_N_FF_SHARED, QW3_N_EMBD, shared_hidden_offset,
+                     shared_down_offset, stage_stride) &&
+                 qw3_metal_session_batch_matmul_f32_x1_to_scratch(
+                     s->metal, lw->ffn_gate_inp_shexp->offset, n_tokens,
+                     QW3_N_EMBD, 1, shared_scalar_offset, stage_stride) &&
+                 qw3_metal_session_batch_sigmoid_scale_scratch_add_x0(
+                     s->metal, n_tokens, QW3_N_EMBD, shared_down_offset,
+                     shared_scalar_offset, stage_stride) &&
+                 qw3_metal_session_read_batch_x0(s->metal, gpu_layer,
+                                                 n_tokens, QW3_N_EMBD) &&
+                 qw3_metal_session_read_batch_x1(s->metal, gpu_ffn, n_tokens,
+                                                 QW3_N_EMBD) &&
+                 qw3_metal_session_read_batch_scratch(s->metal, gpu_stage,
+                                                      n_tokens, stage_stride);
+    }
+
+    float qkv_maxdiff = 0.0f, gate_maxdiff = 0.0f, f32_maxdiff = 0.0f;
+    float convnorm_maxdiff = 0.0f, inner_maxdiff = 0.0f, attn_maxdiff = 0.0f;
+    float ffn_maxdiff = 0.0f, router_maxdiff = 0.0f, layer_maxdiff = 0.0f;
+    double qkv_rmsdiff = 0.0, gate_rmsdiff = 0.0, f32_rmsdiff = 0.0;
+    double convnorm_rmsdiff = 0.0, inner_rmsdiff = 0.0, attn_rmsdiff = 0.0;
+    double ffn_rmsdiff = 0.0, router_rmsdiff = 0.0, layer_rmsdiff = 0.0;
+    uint64_t qkv_count = 0, gate_count = 0, f32_count = 0, conv_count = 0;
+    uint64_t inner_count = 0, attn_count = 0, ffn_count = 0, router_count = 0;
+    uint64_t layer_count = 0;
+    if (gpu_ok) {
+        for (uint32_t t = 0; t < n_tokens; t++) {
+            const size_t base = (size_t)t * stage_stride;
+            for (uint32_t i = 0; i < n_out; i++) {
+                float d = fabsf(cpu_stage[base + i] - gpu_stage[base + i]);
+                if (d > qkv_maxdiff) qkv_maxdiff = d;
+                qkv_rmsdiff += (double)d * (double)d;
+                qkv_count++;
+            }
+            for (uint32_t i = 0; i < n_z; i++) {
+                float d = fabsf(cpu_stage[base + gate_offset + i] -
+                                gpu_stage[base + gate_offset + i]);
+                if (d > gate_maxdiff) gate_maxdiff = d;
+                gate_rmsdiff += (double)d * (double)d;
+                gate_count++;
+            }
+            for (uint32_t i = 0; i < n_gate_pair; i++) {
+                float d = fabsf(cpu_stage[base + alpha_offset + i] -
+                                gpu_stage[base + alpha_offset + i]);
+                if (d > f32_maxdiff) f32_maxdiff = d;
+                f32_rmsdiff += (double)d * (double)d;
+                f32_count++;
+            }
+            for (uint32_t i = 0; i < n_out; i++) {
+                float d = fabsf(cpu_stage[base + conv_offset + i] -
+                                gpu_stage[base + conv_offset + i]);
+                if (d > convnorm_maxdiff) convnorm_maxdiff = d;
+                convnorm_rmsdiff += (double)d * (double)d;
+                conv_count++;
+            }
+            for (uint32_t i = 0; i < n_z; i++) {
+                float d = fabsf(cpu_stage[base + inner_offset + i] -
+                                gpu_stage[base + inner_offset + i]);
+                if (d > inner_maxdiff) inner_maxdiff = d;
+                inner_rmsdiff += (double)d * (double)d;
+                inner_count++;
+            }
+            for (uint32_t i = 0; i < QW3_N_EMBD; i++) {
+                float cpu_attn = cpu_stage[base + attn_offset + i] -
+                                 cpu_hidden[(size_t)t * QW3_N_EMBD + i];
+                float d = fabsf(cpu_attn - gpu_stage[base + attn_offset + i]);
+                if (d > attn_maxdiff) attn_maxdiff = d;
+                attn_rmsdiff += (double)d * (double)d;
+                attn_count++;
+            }
+            for (uint32_t i = 0; i < QW3_N_EMBD; i++) {
+                float d = fabsf(cpu_ffn[(size_t)t * QW3_N_EMBD + i] -
+                                gpu_ffn[(size_t)t * QW3_N_EMBD + i]);
+                if (d > ffn_maxdiff) ffn_maxdiff = d;
+                ffn_rmsdiff += (double)d * (double)d;
+                ffn_count++;
+            }
+            for (uint32_t i = 0; i < QW3_N_EXPERT; i++) {
+                float d = fabsf(cpu_stage[base + router_offset + i] -
+                                gpu_stage[base + router_offset + i]);
+                if (d > router_maxdiff) router_maxdiff = d;
+                router_rmsdiff += (double)d * (double)d;
+                router_count++;
+            }
+            for (uint32_t i = 0; i < QW3_N_EMBD; i++) {
+                float d = fabsf(cpu_layer[(size_t)t * QW3_N_EMBD + i] -
+                                gpu_layer[(size_t)t * QW3_N_EMBD + i]);
+                if (d > layer_maxdiff) layer_maxdiff = d;
+                layer_rmsdiff += (double)d * (double)d;
+                layer_count++;
+            }
+        }
+        qkv_rmsdiff = sqrt(qkv_rmsdiff / (double)qkv_count);
+        gate_rmsdiff = sqrt(gate_rmsdiff / (double)gate_count);
+        f32_rmsdiff = sqrt(f32_rmsdiff / (double)f32_count);
+        convnorm_rmsdiff = sqrt(convnorm_rmsdiff / (double)conv_count);
+        inner_rmsdiff = sqrt(inner_rmsdiff / (double)inner_count);
+        attn_rmsdiff = sqrt(attn_rmsdiff / (double)attn_count);
+        ffn_rmsdiff = sqrt(ffn_rmsdiff / (double)ffn_count);
+        router_rmsdiff = sqrt(router_rmsdiff / (double)router_count);
+        layer_rmsdiff = sqrt(layer_rmsdiff / (double)layer_count);
+    }
+    fprintf(fp,
+            "metal session prefill q8 batch: %s token=%d n_tokens=%u stride=%u qkv_maxdiff=%.7g qkv_rmsdiff=%.7g gate_maxdiff=%.7g gate_rmsdiff=%.7g f32_maxdiff=%.7g f32_rmsdiff=%.7g convnorm_maxdiff=%.7g convnorm_rmsdiff=%.7g inner_maxdiff=%.7g inner_rmsdiff=%.7g attn_maxdiff=%.7g attn_rmsdiff=%.7g ffn_maxdiff=%.7g ffn_rmsdiff=%.7g router_maxdiff=%.7g router_rmsdiff=%.7g layer_maxdiff=%.7g layer_rmsdiff=%.7g qkv_first=[%.7g %.7g %.7g %.7g] router_first=[%.7g %.7g %.7g %.7g]\n",
+            gpu_ok ? "ok" : "failed", token, n_tokens, stage_stride,
+            qkv_maxdiff, qkv_rmsdiff, gate_maxdiff, gate_rmsdiff,
+            f32_maxdiff, f32_rmsdiff, convnorm_maxdiff, convnorm_rmsdiff,
+            inner_maxdiff, inner_rmsdiff, attn_maxdiff, attn_rmsdiff,
+            ffn_maxdiff, ffn_rmsdiff, router_maxdiff, router_rmsdiff,
+            layer_maxdiff, layer_rmsdiff,
+            gpu_stage[0], gpu_stage[1], gpu_stage[2], gpu_stage[3],
+            gpu_stage[router_offset], gpu_stage[router_offset + 1],
+            gpu_stage[router_offset + 2], gpu_stage[router_offset + 3]);
+    qw3_session_free(s);
+    free(shared_down);
+    free(shared_hidden);
+    free(shared_up);
+    free(shared_gate);
+    free(moe_down);
+    free(moe_hidden);
+    free(moe_up);
+    free(moe_gate);
+    free(dn_state);
+    free(conv_state);
+    free(gpu_stage);
+    free(cpu_stage);
+    free(gpu_layer);
+    free(cpu_layer);
+    free(gpu_ffn);
+    free(cpu_ffn);
+    free(cpu_hidden);
+    free(x);
+    return gpu_ok ? 0 : -1;
+#endif
+}
+
+int qw3_engine_metal_session_gqa_prefill_batch_test(qw3_engine *e, int token,
+                                                    int ctx_size, FILE *fp) {
+    if (!e || !fp || ctx_size <= 0) return -1;
+#ifdef QW3_NO_METAL
+    (void)e; (void)token; (void)ctx_size;
+    fprintf(fp, "metal session gqa prefill batch: unavailable in QW3_NO_METAL build\n");
+    return -1;
+#else
+    if (e->backend != QW3_BACKEND_METAL || !e->metal_ready) {
+        fprintf(fp, "metal session gqa prefill batch: Metal backend is not initialized\n");
+        return -1;
+    }
+    if (token < 0 || token + 3 >= QW3_N_VOCAB) {
+        fprintf(fp, "metal session gqa prefill batch: token %d cannot form a 4-token run\n",
+                token);
+        return -1;
+    }
+
+    const int il = 3;
+    const uint32_t n_tokens = 4;
+    const qw3_layer_weights *lw = &e->weights.layer[il];
+    const qw3_tensor *emb = e->weights.token_embd;
+    const uint32_t q_n = QW3_N_HEAD * QW3_N_HEAD_DIM;
+    const uint32_t qg_n = (uint32_t)tensor_cols_qg();
+    const uint32_t kv_n = (uint32_t)tensor_cols_kv();
+    const uint32_t qg_offset = 0;
+    const uint32_t k_offset = qg_offset + qg_n;
+    const uint32_t v_offset = k_offset + kv_n;
+    const uint32_t q_tmp_offset = v_offset + kv_n;
+    const uint32_t k_tmp_offset = q_tmp_offset + q_n;
+    const uint32_t q_rope_offset = k_tmp_offset + kv_n;
+    const uint32_t k_rope_offset = q_rope_offset + q_n;
+    const uint32_t gate_offset = k_rope_offset + kv_n;
+    const uint32_t inner_offset = gate_offset + q_n;
+    const uint32_t out_offset = inner_offset + q_n;
+    const uint32_t stage_stride = out_offset + QW3_N_EMBD;
+
+    if (qg_n != 2u * q_n ||
+        emb->type != QW3_TENSOR_Q8_0 ||
+        lw->attn_q_proj->type != QW3_TENSOR_Q8_0 ||
+        lw->attn_k_proj->type != QW3_TENSOR_Q8_0 ||
+        lw->attn_v_proj->type != QW3_TENSOR_Q8_0 ||
+        lw->attn_o_proj->type != QW3_TENSOR_Q8_0 ||
+        !tensor_is_dense_float(lw->attn_q_norm->type) ||
+        !tensor_is_dense_float(lw->attn_k_norm->type)) {
+        fprintf(fp, "metal session gqa prefill batch: unexpected layer-3 tensor layout\n");
+        return -1;
+    }
+
+    uint32_t toks[4] = {
+        (uint32_t)token,
+        (uint32_t)token + 1u,
+        (uint32_t)token + 2u,
+        (uint32_t)token + 3u,
+    };
+    qw3_session *s = NULL;
+    float *x = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+    float *cpu_q = qw3_xmalloc((size_t)n_tokens * q_n * sizeof(float));
+    float *cpu_k = qw3_xmalloc((size_t)n_tokens * kv_n * sizeof(float));
+    float *cpu_v = qw3_xmalloc((size_t)n_tokens * kv_n * sizeof(float));
+    float *cpu_gate = qw3_xmalloc((size_t)n_tokens * q_n * sizeof(float));
+    float *cpu_inner = qw3_xmalloc((size_t)n_tokens * q_n * sizeof(float));
+    float *cpu_out = qw3_xmalloc((size_t)n_tokens * QW3_N_EMBD * sizeof(float));
+    float *gpu_stage =
+        qw3_xcalloc((size_t)n_tokens * stage_stride, sizeof(float));
+
+    bool cpu_ok = true;
+    for (uint32_t t = 0; cpu_ok && t < n_tokens; t++) {
+        cpu_ok = tensor_read_dense_row(&e->model, emb, toks[t], x) &&
+                 cpu_gqa_project_token(
+                     e, il, (int)t, x,
+                     cpu_q + (size_t)t * q_n,
+                     cpu_k + (size_t)t * kv_n,
+                     cpu_v + (size_t)t * kv_n,
+                     cpu_gate + (size_t)t * q_n);
+        if (cpu_ok) {
+            cpu_gqa_attend_inner(
+                cpu_q + (size_t)t * q_n,
+                cpu_gate + (size_t)t * q_n,
+                cpu_k, cpu_v, (int)t + 1,
+                cpu_inner + (size_t)t * q_n);
+            cpu_ok = cpu_matvec_q8_0(
+                &e->model, lw->attn_o_proj,
+                cpu_inner + (size_t)t * q_n,
+                cpu_out + (size_t)t * QW3_N_EMBD);
+        }
+    }
+
+    int gpu_ok = 0;
+    if (cpu_ok && qw3_session_create(&s, e, ctx_size) == 0 && s && s->metal) {
+        gpu_ok = qw3_metal_session_batch_embed_q8_0(
+                     s->metal, emb->offset, toks, n_tokens, QW3_N_EMBD) &&
+                 qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
+                     s->metal, lw->attn_norm->offset, n_tokens,
+                     QW3_N_EMBD, QW3_RMS_EPS) &&
+                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                     s->metal, lw->attn_q_proj->offset, n_tokens,
+                     QW3_N_EMBD, qg_n, qg_offset, stage_stride) &&
+                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                     s->metal, lw->attn_k_proj->offset, n_tokens,
+                     QW3_N_EMBD, kv_n, k_offset, stage_stride) &&
+                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                     s->metal, lw->attn_v_proj->offset, n_tokens,
+                     QW3_N_EMBD, kv_n, v_offset, stage_stride) &&
+                 qw3_metal_session_batch_gqa_norm_rope_from_scratch(
+                     s->metal, lw->attn_q_norm->offset,
+                     lw->attn_k_norm->offset, n_tokens, QW3_N_HEAD,
+                     QW3_N_HEAD_KV, QW3_N_HEAD_DIM, QW3_ROPE_DIM, 0,
+                     QW3_ROPE_THETA, QW3_RMS_EPS, qg_offset, k_offset,
+                     q_tmp_offset, k_tmp_offset, q_rope_offset,
+                     k_rope_offset, gate_offset, stage_stride) &&
+                 qw3_metal_session_batch_gqa_write_cache_from_scratch(
+                     s->metal, 0, 0, n_tokens, QW3_N_HEAD_KV,
+                     QW3_N_HEAD_DIM, k_rope_offset, v_offset,
+                     stage_stride) &&
+                 qw3_metal_session_batch_gqa_cached_attn_from_scratch(
+                     s->metal, 0, 0, n_tokens, QW3_N_HEAD,
+                     QW3_N_HEAD_KV, QW3_N_HEAD_DIM, q_rope_offset,
+                     gate_offset, inner_offset, stage_stride) &&
+                 qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                     s->metal, lw->attn_o_proj->offset, n_tokens,
+                     q_n, QW3_N_EMBD, inner_offset, out_offset,
+                     stage_stride) &&
+                 qw3_metal_session_read_batch_scratch(
+                     s->metal, gpu_stage, n_tokens, stage_stride);
+    }
+
+    float q_maxdiff = 0.0f, k_maxdiff = 0.0f, v_maxdiff = 0.0f;
+    float gate_maxdiff = 0.0f, inner_maxdiff = 0.0f, out_maxdiff = 0.0f;
+    double q_rmsdiff = 0.0, k_rmsdiff = 0.0, v_rmsdiff = 0.0;
+    double gate_rmsdiff = 0.0, inner_rmsdiff = 0.0, out_rmsdiff = 0.0;
+    uint64_t q_count = 0, k_count = 0, v_count = 0;
+    uint64_t gate_count = 0, inner_count = 0, out_count = 0;
+    if (gpu_ok) {
+        for (uint32_t t = 0; t < n_tokens; t++) {
+            const size_t base = (size_t)t * stage_stride;
+            for (uint32_t i = 0; i < q_n; i++) {
+                float d = fabsf(cpu_q[(size_t)t * q_n + i] -
+                                gpu_stage[base + q_rope_offset + i]);
+                if (d > q_maxdiff) q_maxdiff = d;
+                q_rmsdiff += (double)d * (double)d;
+                q_count++;
+
+                d = fabsf(cpu_gate[(size_t)t * q_n + i] -
+                          gpu_stage[base + gate_offset + i]);
+                if (d > gate_maxdiff) gate_maxdiff = d;
+                gate_rmsdiff += (double)d * (double)d;
+                gate_count++;
+
+                d = fabsf(cpu_inner[(size_t)t * q_n + i] -
+                          gpu_stage[base + inner_offset + i]);
+                if (d > inner_maxdiff) inner_maxdiff = d;
+                inner_rmsdiff += (double)d * (double)d;
+                inner_count++;
+            }
+            for (uint32_t i = 0; i < kv_n; i++) {
+                float d = fabsf(cpu_k[(size_t)t * kv_n + i] -
+                                gpu_stage[base + k_rope_offset + i]);
+                if (d > k_maxdiff) k_maxdiff = d;
+                k_rmsdiff += (double)d * (double)d;
+                k_count++;
+
+                d = fabsf(cpu_v[(size_t)t * kv_n + i] -
+                          gpu_stage[base + v_offset + i]);
+                if (d > v_maxdiff) v_maxdiff = d;
+                v_rmsdiff += (double)d * (double)d;
+                v_count++;
+            }
+            for (uint32_t i = 0; i < QW3_N_EMBD; i++) {
+                float d = fabsf(cpu_out[(size_t)t * QW3_N_EMBD + i] -
+                                gpu_stage[base + out_offset + i]);
+                if (d > out_maxdiff) out_maxdiff = d;
+                out_rmsdiff += (double)d * (double)d;
+                out_count++;
+            }
+        }
+        q_rmsdiff = sqrt(q_rmsdiff / (double)q_count);
+        k_rmsdiff = sqrt(k_rmsdiff / (double)k_count);
+        v_rmsdiff = sqrt(v_rmsdiff / (double)v_count);
+        gate_rmsdiff = sqrt(gate_rmsdiff / (double)gate_count);
+        inner_rmsdiff = sqrt(inner_rmsdiff / (double)inner_count);
+        out_rmsdiff = sqrt(out_rmsdiff / (double)out_count);
+    }
+
+    fprintf(fp,
+            "metal session gqa prefill batch: %s token=%d n_tokens=%u stride=%u q_maxdiff=%.7g q_rmsdiff=%.7g k_maxdiff=%.7g k_rmsdiff=%.7g v_maxdiff=%.7g v_rmsdiff=%.7g gate_maxdiff=%.7g gate_rmsdiff=%.7g inner_maxdiff=%.7g inner_rmsdiff=%.7g out_maxdiff=%.7g out_rmsdiff=%.7g q0=[%.7g %.7g %.7g %.7g] inner0=[%.7g %.7g %.7g %.7g]\n",
+            gpu_ok ? "ok" : "failed", token, n_tokens, stage_stride,
+            q_maxdiff, q_rmsdiff, k_maxdiff, k_rmsdiff,
+            v_maxdiff, v_rmsdiff, gate_maxdiff, gate_rmsdiff,
+            inner_maxdiff, inner_rmsdiff, out_maxdiff, out_rmsdiff,
+            gpu_stage[q_rope_offset], gpu_stage[q_rope_offset + 1],
+            gpu_stage[q_rope_offset + 2], gpu_stage[q_rope_offset + 3],
+            gpu_stage[inner_offset], gpu_stage[inner_offset + 1],
+            gpu_stage[inner_offset + 2], gpu_stage[inner_offset + 3]);
+
+    qw3_session_free(s);
+    free(gpu_stage);
+    free(cpu_out);
+    free(cpu_inner);
+    free(cpu_gate);
+    free(cpu_v);
+    free(cpu_k);
+    free(cpu_q);
+    free(x);
+    return gpu_ok ? 0 : -1;
+#endif
+}
+
 int qw3_engine_metal_session_z_test(qw3_engine *e, int token,
                                     int ctx_size, FILE *fp) {
     if (!e || !fp || ctx_size <= 0) return -1;
@@ -10719,6 +11518,259 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
 }
 
 static int
+qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
+                                          int n_tokens, char *err,
+                                          size_t errlen, int logits_mode) {
+#ifdef QW3_NO_METAL
+    (void)s; (void)tokens; (void)n_tokens; (void)err; (void)errlen;
+    (void)logits_mode;
+    return -1;
+#else
+    if (!s || !s->engine || !s->metal || !tokens || n_tokens <= 0) return -1;
+    if (s->kv.pos + (uint64_t)n_tokens > (uint64_t)s->ctx_size) {
+        if (err && errlen) snprintf(err, errlen, "context is full");
+        return -1;
+    }
+    for (int i = 0; i < n_tokens; i++) {
+        if (tokens[i] < 0 || tokens[i] >= QW3_N_VOCAB) {
+            if (err && errlen) {
+                snprintf(err, errlen, "token %d is outside vocab", tokens[i]);
+            }
+            return -1;
+        }
+    }
+
+    qw3_engine *e = s->engine;
+    const uint32_t pos0 = (uint32_t)s->kv.pos;
+    const uint32_t ntok = (uint32_t)n_tokens;
+    const uint32_t n_qkv = (uint32_t)tensor_linear_qkv();
+    const uint32_t n_z = (uint32_t)tensor_linear_inner();
+    const uint32_t q_n = QW3_N_HEAD * QW3_N_HEAD_DIM;
+    const uint32_t qg_n = (uint32_t)tensor_cols_qg();
+    const uint32_t kv_n = (uint32_t)tensor_cols_kv();
+    if (qg_n != 2u * q_n) {
+        if (err && errlen) snprintf(err, errlen, "unexpected GQA q/g layout");
+        return -1;
+    }
+
+    const uint32_t lin_gate_offset = n_qkv;
+    const uint32_t lin_alpha_offset = lin_gate_offset + n_z;
+    const uint32_t lin_beta_offset = lin_alpha_offset + QW3_N_LINEAR_V_HEADS;
+    const uint32_t lin_conv_offset = lin_beta_offset + QW3_N_LINEAR_V_HEADS;
+    const uint32_t lin_inner_offset = lin_conv_offset + n_qkv;
+    const uint32_t lin_attn_offset = lin_inner_offset + n_z;
+
+    const uint32_t gqa_qg_offset = 0;
+    const uint32_t gqa_k_offset = gqa_qg_offset + qg_n;
+    const uint32_t gqa_v_offset = gqa_k_offset + kv_n;
+    const uint32_t gqa_q_tmp_offset = gqa_v_offset + kv_n;
+    const uint32_t gqa_k_tmp_offset = gqa_q_tmp_offset + q_n;
+    const uint32_t gqa_q_rope_offset = gqa_k_tmp_offset + kv_n;
+    const uint32_t gqa_k_rope_offset = gqa_q_rope_offset + q_n;
+    const uint32_t gqa_gate_offset = gqa_k_rope_offset + kv_n;
+    const uint32_t gqa_inner_offset = gqa_gate_offset + q_n;
+    const uint32_t gqa_attn_offset = gqa_inner_offset + q_n;
+
+    const uint32_t lin_attn_end = lin_attn_offset + QW3_N_EMBD;
+    const uint32_t gqa_attn_end = gqa_attn_offset + QW3_N_EMBD;
+    const uint32_t router_offset =
+        lin_attn_end > gqa_attn_end ? lin_attn_end : gqa_attn_end;
+    const uint32_t moe_hidden_offset = router_offset + QW3_N_EXPERT;
+    const uint32_t shared_gate_offset =
+        moe_hidden_offset + QW3_N_EXPERT_USED * QW3_N_FF_EXP;
+    const uint32_t shared_up_offset = shared_gate_offset + QW3_N_FF_SHARED;
+    const uint32_t shared_hidden_offset = shared_up_offset + QW3_N_FF_SHARED;
+    const uint32_t shared_down_offset =
+        shared_hidden_offset + QW3_N_FF_SHARED;
+    const uint32_t shared_scalar_offset = shared_down_offset + QW3_N_EMBD;
+    const uint32_t stage_stride = shared_scalar_offset + 1u;
+
+    uint32_t *btoks = qw3_xmalloc((size_t)ntok * sizeof(uint32_t));
+    for (uint32_t i = 0; i < ntok; i++) btoks[i] = (uint32_t)tokens[i];
+
+    int ok = qw3_metal_begin_commands() &&
+             qw3_metal_session_batch_embed_q8_0(
+                 s->metal, e->weights.token_embd->offset, btoks, ntok,
+                 QW3_N_EMBD);
+    const int profile = getenv("QW3_METAL_PREFILL_PROFILE") != NULL;
+    double profile_t0 = profile ? qw3_now_sec() : 0.0;
+#define QW3_PREFILL_PROFILE_STAGE(stage_name, layer_id) do {                 \
+        if (profile && ok) {                                                 \
+            ok = qw3_metal_synchronize();                                    \
+            const double profile_t1 = qw3_now_sec();                         \
+            fprintf(stderr,                                                  \
+                    "qw3 metal prefill profile pos=%u ntok=%u layer=%d "     \
+                    "stage=%s ms=%.3f\n",                                   \
+                    pos0, ntok, (layer_id), (stage_name),                    \
+                    (profile_t1 - profile_t0) * 1000.0);                    \
+            profile_t0 = profile_t1;                                         \
+            if (ok) ok = qw3_metal_begin_commands();                         \
+        }                                                                    \
+    } while (0)
+    QW3_PREFILL_PROFILE_STAGE("embed", -1);
+    int full_slot = 0;
+    int linear_slot = 0;
+    for (int il = 0; ok && il < QW3_N_LAYER; il++) {
+        const qw3_layer_weights *lw = &e->weights.layer[il];
+        ok = qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
+            s->metal, lw->attn_norm->offset, ntok, QW3_N_EMBD,
+            QW3_RMS_EPS);
+        if (ok && qw3_layer_is_full_attention((uint32_t)il)) {
+            ok =
+                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                    s->metal, lw->attn_q_proj->offset, ntok, QW3_N_EMBD,
+                    qg_n, gqa_qg_offset, stage_stride) &&
+                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                    s->metal, lw->attn_k_proj->offset, ntok, QW3_N_EMBD,
+                    kv_n, gqa_k_offset, stage_stride) &&
+                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                    s->metal, lw->attn_v_proj->offset, ntok, QW3_N_EMBD,
+                    kv_n, gqa_v_offset, stage_stride) &&
+                qw3_metal_session_batch_gqa_norm_rope_from_scratch(
+                    s->metal, lw->attn_q_norm->offset,
+                    lw->attn_k_norm->offset, ntok, QW3_N_HEAD,
+                    QW3_N_HEAD_KV, QW3_N_HEAD_DIM, QW3_ROPE_DIM,
+                    pos0, QW3_ROPE_THETA, QW3_RMS_EPS, gqa_qg_offset,
+                    gqa_k_offset, gqa_q_tmp_offset, gqa_k_tmp_offset,
+                    gqa_q_rope_offset, gqa_k_rope_offset, gqa_gate_offset,
+                    stage_stride) &&
+                qw3_metal_session_batch_gqa_write_cache_from_scratch(
+                    s->metal, (uint32_t)full_slot, pos0, ntok,
+                    QW3_N_HEAD_KV, QW3_N_HEAD_DIM, gqa_k_rope_offset,
+                    gqa_v_offset, stage_stride) &&
+                qw3_metal_session_batch_gqa_cached_attn_from_scratch(
+                    s->metal, (uint32_t)full_slot, pos0, ntok,
+                    QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
+                    gqa_q_rope_offset, gqa_gate_offset, gqa_inner_offset,
+                    stage_stride) &&
+                qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                    s->metal, lw->attn_o_proj->offset, ntok, q_n,
+                    QW3_N_EMBD, gqa_inner_offset, gqa_attn_offset,
+                    stage_stride);
+            if (ok) {
+                ok = qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
+                    s->metal, lw->ffn_norm->offset, ntok, QW3_N_EMBD,
+                    gqa_attn_offset, stage_stride, QW3_RMS_EPS);
+            }
+            QW3_PREFILL_PROFILE_STAGE("full_attn", il);
+            full_slot++;
+        } else if (ok) {
+            ok =
+                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                    s->metal, lw->linear_qkv_proj->offset, ntok,
+                    QW3_N_EMBD, n_qkv, 0, stage_stride) &&
+                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                    s->metal, lw->linear_gate_proj->offset, ntok,
+                    QW3_N_EMBD, n_z, lin_gate_offset, stage_stride) &&
+                qw3_metal_session_batch_matmul_f32_pair_x1_to_scratch(
+                    s->metal, lw->linear_ssm_alpha->offset,
+                    lw->linear_ssm_beta->offset, ntok, QW3_N_EMBD,
+                    QW3_N_LINEAR_V_HEADS, lin_alpha_offset,
+                    lin_beta_offset, stage_stride) &&
+                qw3_metal_session_batch_conv1d_step_from_scratch(
+                    s->metal, lw->linear_conv_weight->offset,
+                    (uint32_t)linear_slot, ntok, n_qkv, 0,
+                    lin_conv_offset, stage_stride) &&
+                qw3_metal_session_batch_l2norm_qk_from_scratch(
+                    s->metal, ntok, lin_conv_offset, stage_stride,
+                    QW3_N_LINEAR_QK_HEADS, QW3_N_LINEAR_HEAD_DIM,
+                    QW3_RMS_EPS) &&
+                qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
+                    s->metal, lw->linear_ssm_dt_bias->offset,
+                    lw->linear_ssm_a->offset, lw->linear_ssm_norm->offset,
+                    (uint32_t)linear_slot, ntok, lin_conv_offset,
+                    lin_gate_offset, lin_alpha_offset, lin_beta_offset,
+                    lin_inner_offset, stage_stride, QW3_N_LINEAR_QK_HEADS,
+                    QW3_N_LINEAR_V_HEADS, QW3_N_LINEAR_HEAD_DIM,
+                    QW3_RMS_EPS) &&
+                qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                    s->metal, lw->linear_ssm_out->offset, ntok, n_z,
+                    QW3_N_EMBD, lin_inner_offset, lin_attn_offset,
+                    stage_stride) &&
+                qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
+                    s->metal, lw->ffn_norm->offset, ntok, QW3_N_EMBD,
+                    lin_attn_offset, stage_stride, QW3_RMS_EPS);
+            QW3_PREFILL_PROFILE_STAGE("linear_attn", il);
+            linear_slot++;
+        }
+
+        if (ok) {
+            ok =
+                qw3_metal_session_batch_matmul_f32_x1_to_scratch(
+                    s->metal, lw->ffn_gate_inp->offset, ntok, QW3_N_EMBD,
+                    QW3_N_EXPERT, router_offset, stage_stride) &&
+                qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
+                    s->metal, lw->ffn_gate_exps->offset,
+                    lw->ffn_up_exps->offset, lw->ffn_down_exps->offset,
+                    (uint32_t)lw->ffn_down_exps->type, ntok,
+                    QW3_N_EXPERT_USED, QW3_N_EMBD, QW3_N_FF_EXP,
+                    router_offset, moe_hidden_offset, stage_stride);
+            QW3_PREFILL_PROFILE_STAGE("moe_sparse", il);
+        }
+        if (ok) {
+            ok =
+                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                    s->metal, lw->ffn_gate_shared->offset, ntok,
+                    QW3_N_EMBD, QW3_N_FF_SHARED, shared_gate_offset,
+                    stage_stride) &&
+                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                    s->metal, lw->ffn_up_shared->offset, ntok,
+                    QW3_N_EMBD, QW3_N_FF_SHARED, shared_up_offset,
+                    stage_stride) &&
+                qw3_metal_session_batch_silu_mul_scratch_to_scratch(
+                    s->metal, ntok, QW3_N_FF_SHARED, shared_gate_offset,
+                    shared_up_offset, shared_hidden_offset, stage_stride) &&
+                qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                    s->metal, lw->ffn_down_shared->offset, ntok,
+                    QW3_N_FF_SHARED, QW3_N_EMBD, shared_hidden_offset,
+                    shared_down_offset, stage_stride) &&
+                qw3_metal_session_batch_matmul_f32_x1_to_scratch(
+                    s->metal, lw->ffn_gate_inp_shexp->offset, ntok,
+                    QW3_N_EMBD, 1, shared_scalar_offset, stage_stride) &&
+                qw3_metal_session_batch_sigmoid_scale_scratch_add_x0(
+                    s->metal, ntok, QW3_N_EMBD, shared_down_offset,
+                    shared_scalar_offset, stage_stride);
+            QW3_PREFILL_PROFILE_STAGE("moe_shared", il);
+        }
+    }
+#undef QW3_PREFILL_PROFILE_STAGE
+
+    if (ok) ok = qw3_metal_synchronize();
+    if (ok && logits_mode != QW3_METAL_LOGITS_DEFER) {
+        ok = qw3_metal_session_copy_batch_x0_to_x0(
+                 s->metal, ntok - 1u, QW3_N_EMBD) &&
+             qw3_metal_session_rmsnorm_weight_f32(
+                 s->metal, e->weights.output_norm->offset,
+                 QW3_N_EMBD, QW3_RMS_EPS, NULL);
+        if (ok && e->weights.output->type == QW3_TENSOR_Q8_0) {
+            ok = qw3_metal_session_matvec_q8_0_x1_to_logits(
+                s->metal, e->weights.output->offset, QW3_N_EMBD,
+                QW3_N_VOCAB,
+                logits_mode == QW3_METAL_LOGITS_READ ? s->logits : NULL);
+        } else if (ok && e->weights.output->type == QW3_TENSOR_Q6_K) {
+            ok = qw3_metal_session_matvec_q6_k_x1_to_logits(
+                s->metal, e->weights.output->offset, QW3_N_EMBD,
+                QW3_N_VOCAB,
+                logits_mode == QW3_METAL_LOGITS_READ ? s->logits : NULL);
+        } else {
+            ok = 0;
+        }
+    }
+
+    if (ok) {
+        for (int i = 0; i < n_tokens; i++) token_vec_push(&s->tokens, tokens[i]);
+        s->kv.pos += n_tokens;
+        s->valid = true;
+    } else if (err && errlen) {
+        snprintf(err, errlen, "Metal session batch prefill failed");
+    }
+
+    free(btoks);
+    return ok ? 0 : -1;
+#endif
+}
+
+static int
 qw3_metal_session_eval_token_mode(qw3_session *s, int token,
                                   char *err, size_t errlen,
                                   int logits_mode) {
@@ -11163,7 +12215,10 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
         }
     }
 
-    if (ok && logits_mode == QW3_METAL_LOGITS_GPU) {
+    if (ok && logits_mode == QW3_METAL_LOGITS_DEFER) {
+        ok = batch_open ? qw3_metal_commit_commands() : 1;
+        batch_open = 0;
+    } else if (ok && logits_mode == QW3_METAL_LOGITS_GPU) {
         double t0 = profile ? qw3_now_sec() : 0.0;
         if (profile) {
             ok = qw3_metal_synchronize();
@@ -11271,7 +12326,14 @@ qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                                      int read_logits) {
     return qw3_metal_session_eval_token_mode(
         s, token, err, errlen,
-        read_logits ? QW3_METAL_LOGITS_READ : QW3_METAL_LOGITS_GPU);
+        read_logits < 0 ? QW3_METAL_LOGITS_DEFER :
+        (read_logits ? QW3_METAL_LOGITS_READ : QW3_METAL_LOGITS_GPU));
+}
+
+static int
+qw3_metal_session_eval_token_defer_logits(qw3_session *s, int token,
+                                          char *err, size_t errlen) {
+    return qw3_metal_session_eval_token_slow_ex(s, token, err, errlen, -1);
 }
 
 static int __attribute__((unused))
@@ -11430,9 +12492,32 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
     char err[256] = {0};
     int ok = qw3_session_create(&gpu, e, ctx_size) == 0;
     const double t_prefill0 = qw3_now_sec();
-    for (int i = 0; ok && i < prompt->len; i++) {
-        ok = qw3_metal_session_eval_token_slow_ex(gpu, prompt->v[i],
-                                                  err, sizeof(err), 0) == 0;
+    const int prefill_batch = qw3_metal_prefill_batch_size();
+    if (prefill_batch > 1) {
+        for (int i = 0; ok && i < prompt->len;) {
+            int n = prompt->len - i;
+            if (n > prefill_batch) n = prefill_batch;
+            const int last = i + n == prompt->len;
+            int rc = 0;
+            if (n > 1) {
+                rc = qw3_metal_session_eval_prefill_batch_mode(
+                    gpu, prompt->v + i, n, err, sizeof(err),
+                    last ? QW3_METAL_LOGITS_GPU : QW3_METAL_LOGITS_DEFER);
+            } else {
+                rc = last ?
+                    qw3_metal_session_eval_token_slow_ex(
+                        gpu, prompt->v[i], err, sizeof(err), 0) :
+                    qw3_metal_session_eval_token_defer_logits(
+                        gpu, prompt->v[i], err, sizeof(err));
+            }
+            ok = rc == 0;
+            i += n;
+        }
+    } else {
+        for (int i = 0; ok && i < prompt->len; i++) {
+            ok = qw3_metal_session_eval_token_slow_ex(gpu, prompt->v[i],
+                                                      err, sizeof(err), 0) == 0;
+        }
     }
     const double t_prefill1 = qw3_now_sec();
     const double t_gen0 = qw3_now_sec();
@@ -11515,12 +12600,54 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
 
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
-    for (int i = 0; i < prompt->len; i++) {
-        if (qw3_metal_session_eval_token_slow_ex(s, prompt->v[i],
-                                                 err, sizeof(err), 0) != 0) {
-            fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
-            qw3_session_free(s);
-            return -1;
+    const int prefill_batch = qw3_metal_prefill_batch_size();
+    if (prefill_batch > 1) {
+        for (int i = 0; i < prompt->len;) {
+            int n = prompt->len - i;
+            if (n > prefill_batch) n = prefill_batch;
+            const int last = i + n == prompt->len;
+            int prc = 0;
+            if (n > 1) {
+                prc = qw3_metal_session_eval_prefill_batch_mode(
+                    s, prompt->v + i, n, err, sizeof(err),
+                    last ? QW3_METAL_LOGITS_GPU : QW3_METAL_LOGITS_DEFER);
+            } else {
+                prc = last ?
+                    qw3_metal_session_eval_token_slow_ex(
+                        s, prompt->v[i], err, sizeof(err), 0) :
+                    qw3_metal_session_eval_token_defer_logits(
+                        s, prompt->v[i], err, sizeof(err));
+            }
+            if (prc != 0) {
+                fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
+                qw3_session_free(s);
+                return -1;
+            }
+            i += n;
+        }
+    } else {
+        const int defer_interval = qw3_prefill_defer_interval();
+        int deferred = 0;
+        for (int i = 0; i < prompt->len; i++) {
+            const int last = i + 1 == prompt->len;
+            int prc = last ?
+                qw3_metal_session_eval_token_slow_ex(s, prompt->v[i],
+                                                     err, sizeof(err), 0) :
+                qw3_metal_session_eval_token_defer_logits(s, prompt->v[i],
+                                                          err, sizeof(err));
+            if (prc != 0) {
+                fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
+                qw3_session_free(s);
+                return -1;
+            }
+            if (!last && ++deferred >= defer_interval) {
+                if (!qw3_metal_synchronize()) {
+                    fprintf(stderr, "qw3: Metal deferred prefill failed\n");
+                    qw3_session_free(s);
+                    return -1;
+                }
+                deferred = 0;
+            }
         }
     }
     const double t_prefill_end = qw3_now_sec();
@@ -11608,14 +12735,54 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
 
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
-    for (int i = 0; i < prompt->len; i++) {
-        const int last = i + 1 == prompt->len;
-        if (qw3_metal_session_eval_token_slow_ex(s, prompt->v[i],
-                                                 err, sizeof(err),
-                                                 last ? 1 : 0) != 0) {
-            fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
-            qw3_session_free(s);
-            return -1;
+    const int prefill_batch = qw3_metal_prefill_batch_size();
+    if (prefill_batch > 1) {
+        for (int i = 0; i < prompt->len;) {
+            int n = prompt->len - i;
+            if (n > prefill_batch) n = prefill_batch;
+            const int last = i + n == prompt->len;
+            int prc = 0;
+            if (n > 1) {
+                prc = qw3_metal_session_eval_prefill_batch_mode(
+                    s, prompt->v + i, n, err, sizeof(err),
+                    last ? QW3_METAL_LOGITS_READ : QW3_METAL_LOGITS_DEFER);
+            } else {
+                prc = last ?
+                    qw3_metal_session_eval_token_slow_ex(
+                        s, prompt->v[i], err, sizeof(err), 1) :
+                    qw3_metal_session_eval_token_defer_logits(
+                        s, prompt->v[i], err, sizeof(err));
+            }
+            if (prc != 0) {
+                fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
+                qw3_session_free(s);
+                return -1;
+            }
+            i += n;
+        }
+    } else {
+        const int defer_interval = qw3_prefill_defer_interval();
+        int deferred = 0;
+        for (int i = 0; i < prompt->len; i++) {
+            const int last = i + 1 == prompt->len;
+            int prc = last ?
+                qw3_metal_session_eval_token_slow_ex(s, prompt->v[i],
+                                                     err, sizeof(err), 1) :
+                qw3_metal_session_eval_token_defer_logits(s, prompt->v[i],
+                                                          err, sizeof(err));
+            if (prc != 0) {
+                fprintf(stderr, "qw3: Metal session prefill failed: %s\n", err);
+                qw3_session_free(s);
+                return -1;
+            }
+            if (!last && ++deferred >= defer_interval) {
+                if (!qw3_metal_synchronize()) {
+                    fprintf(stderr, "qw3: Metal deferred prefill failed\n");
+                    qw3_session_free(s);
+                    return -1;
+                }
+                deferred = 0;
+            }
         }
     }
     const double t_prefill_end = qw3_now_sec();

@@ -141,6 +141,10 @@ int qw3_engine_metal_session_rmsnorm_test(qw3_engine *e, int token,
                                           int ctx_size, FILE *fp);
 int qw3_engine_metal_session_qkv_test(qw3_engine *e, int token,
                                       int ctx_size, FILE *fp);
+int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
+                                                   int ctx_size, FILE *fp);
+int qw3_engine_metal_session_gqa_prefill_batch_test(qw3_engine *e, int token,
+                                                    int ctx_size, FILE *fp);
 int qw3_engine_metal_session_z_test(qw3_engine *e, int token,
                                     int ctx_size, FILE *fp);
 int qw3_engine_metal_session_conv_test(qw3_engine *e, int token,
