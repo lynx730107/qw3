@@ -774,11 +774,11 @@ static int qw3_prefill_defer_interval(void) {
 
 static int qw3_metal_prefill_batch_size(void) {
     const char *env = getenv("QW3_METAL_PREFILL_BATCH");
-    if (!env || !env[0]) return 256;
+    if (!env || !env[0]) return 1024;
     char *end = NULL;
     long v = strtol(env, &end, 10);
     if (end == env || v < 1) return 1;
-    if (v > 256) return 256;
+    if (v > 1024) return 1024;
     return (int)v;
 }
 
@@ -9003,9 +9003,18 @@ int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
         fprintf(fp, "metal session prefill q8 batch: Metal backend is not initialized\n");
         return -1;
     }
-    if (token < 0 || token + 3 >= QW3_N_VOCAB) {
-        fprintf(fp, "metal session prefill q8 batch: token %d cannot form a 4-token run\n",
-                token);
+    uint32_t n_tokens = 4;
+    const char *ntok_env = getenv("QW3_METAL_PREFILL_TEST_TOKENS");
+    if (ntok_env && ntok_env[0]) {
+        char *end = NULL;
+        long v = strtol(ntok_env, &end, 10);
+        if (end != ntok_env && v > 0 && v <= 256) {
+            n_tokens = (uint32_t)v;
+        }
+    }
+    if (token < 0 || token + (int)n_tokens - 1 >= QW3_N_VOCAB) {
+        fprintf(fp, "metal session prefill q8 batch: token %d cannot form a %u-token run\n",
+                token, n_tokens);
         return -1;
     }
     const qw3_layer_weights *lw = &e->weights.layer[0];
@@ -9021,7 +9030,6 @@ int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
     const qw3_tensor *ssm_norm = lw->linear_ssm_norm;
     const qw3_tensor *out_proj = lw->linear_ssm_out;
     const qw3_tensor *router_proj = lw->ffn_gate_inp;
-    const uint32_t n_tokens = 4;
     const uint32_t n_out = (uint32_t)tensor_linear_qkv();
     const uint32_t n_z = (uint32_t)tensor_linear_inner();
     const uint32_t n_gates = QW3_N_LINEAR_V_HEADS;
@@ -9080,12 +9088,10 @@ int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
         return -1;
     }
 
-    uint32_t toks[4] = {
-        (uint32_t)token,
-        (uint32_t)token + 1u,
-        (uint32_t)token + 2u,
-        (uint32_t)token + 3u,
-    };
+    uint32_t *toks = qw3_xmalloc((size_t)n_tokens * sizeof(uint32_t));
+    for (uint32_t i = 0; i < n_tokens; i++) {
+        toks[i] = (uint32_t)token + i;
+    }
     qw3_session *s = NULL;
     float *x = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
     float *cpu_hidden =
@@ -9511,6 +9517,7 @@ int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
     free(gpu_ffn);
     free(cpu_ffn);
     free(cpu_hidden);
+    free(toks);
     free(x);
     return gpu_ok ? 0 : -1;
 #endif
