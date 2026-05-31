@@ -27,8 +27,9 @@ typedef enum {
 
 typedef enum {
     QW3_THINK_NONE,
-    QW3_THINK_ON,
-    QW3_THINK_HIGH,
+        QW3_THINK_ON,
+        QW3_THINK_HIGH,
+        QW3_THINK_ON,
 } qw3_think_mode;
 
 /* Default sampling parameters. */

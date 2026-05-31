@@ -28,15 +28,7 @@ typedef enum {
 typedef enum {
     QW3_THINK_NONE,
     QW3_THINK_ON,
-    QW3_THINK_HIGH,
 } qw3_think_mode;
-
-/* Default sampling parameters. */
-#define QW3_DEFAULT_TOP_P 1.0f
-#define QW3_DEFAULT_MIN_P 0.05f
-
-/* Downgrade THINK_HIGH to THINK_ON or THINK_NONE based on context size. */
-qw3_think_mode qw3_think_mode_for_context(qw3_think_mode mode, int ctx_size);
 
 typedef enum {
     QW3_LOG_DEFAULT,

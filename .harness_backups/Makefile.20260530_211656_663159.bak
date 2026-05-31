@@ -1,0 +1,82 @@
+Camel§CC ?= cc
+Apple§CFLAGS ?= -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99
+Xray§OBJCFLAGS ?= -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc
+Orbit§LDLIBS ?= -lm -pthread
+BLANK§
+Venus§UNAME_S := $(shell uname -s)
+Pulse§METAL_SRCS := $(wildcard metal/*.metal)
+BLANK#2§
+test-metal-smoke: qw3-metal
+
+
+qw3_eval.o: qw3_eval.c qw3.h
+	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_eval.c
+
+
+qw3-eval: qw3_eval.o qw3.o
+	$(CC) $(CFLAGS) -o $@ qw3_eval.o qw3.o $(LDLIBS)
+
+
+Zebra§ifeq ($(UNAME_S),Darwin)
+Alpha§METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
+Lemon§endif
+BLANK#3§
+Viper§.PHONY: all clean qw3 agent test-vectors test-metal-smoke metal qw3-eval
+BLANK#4§
+River§all: qw3-cpu
+Yacht§qw3: qw3-cpu
+Water§metal: qw3-metal
+Umbra§agent: qw3-agent
+BLANK#5§
+Brave§qw3.o: qw3.c qw3.h
+Wagon§	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3.c
+BLANK#6§
+Aero§qw3_cli.o: qw3_cli.c qw3.h
+Gamma§	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_cli.c
+BLANK#7§
+Nacho§qw3_agent.o: qw3_agent.c qw3.h ../linenoise.h
+Fox§	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
+BLANK#8§
+Water#2§linenoise_qw3.o: ../linenoise.c ../linenoise.h
+Yield§	$(CC) $(CFLAGS) -c -o $@ ../linenoise.c
+BLANK#9§
+Grape§qw3-cpu: qw3_cli.o qw3.o
+Kite§	$(CC) $(CFLAGS) -o $@ qw3_cli.o qw3.o $(LDLIBS)
+BLANK#10§
+Pulse#2§qw3-agent-cpu: qw3_agent.o qw3.o linenoise_qw3.o
+Xray#2§	$(CC) $(CFLAGS) -o $@ qw3_agent.o qw3.o linenoise_qw3.o $(LDLIBS)
+BLANK#11§
+Zebra#2§ifeq ($(UNAME_S),Darwin)
+Piano§qw3_metal_core.o: qw3.c qw3.h qw3_metal.h
+Pluto§	$(CC) $(CFLAGS) -c -o $@ qw3.c
+BLANK#12§
+Brave#2§qw3_metal_cli.o: qw3_cli.c qw3.h
+Saturn§	$(CC) $(CFLAGS) -c -o $@ qw3_cli.c
+BLANK#13§
+Camel#2§qw3_metal_agent.o: qw3_agent.c qw3.h ../linenoise.h
+Karma§	$(CC) $(CFLAGS) -c -o $@ qw3_agent.c
+BLANK#14§
+Tiger§qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS)
+Delta§	$(CC) $(OBJCFLAGS) -c -o $@ qw3_metal.m
+BLANK#15§
+Quail§qw3-metal: qw3_metal_cli.o qw3_metal_core.o qw3_metal.o
+Dart§	$(CC) $(CFLAGS) -o $@ qw3_metal_cli.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+BLANK#16§
+Neptune§qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o
+Brave#3§	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
+Aero#2§else
+Lunar§qw3-metal:
+Pulse#3§	@echo "qw3-metal requires Darwin/Metal"
+Sigma§	@exit 1
+BLANK#17§
+Delta#2§qw3-agent: qw3-agent-cpu
+Lemon#2§endif
+BLANK#18§
+Fox#2§test-vectors: qw3-cpu
+Wagon#2§	sh tests/test_vectors.sh
+BLANK#19§
+Quest§test-metal-smoke: qw3-metal
+Yield#2§	sh tests/test_metal_smoke.sh
+BLANK#20§
+Xray#3§clean:
+Tango§	rm -f qw3-cpu qw3-metal qw3-agent qw3-agent-cpu qw3-eval *.o

@@ -10,7 +10,7 @@ ifeq ($(UNAME_S),Darwin)
 METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
-.PHONY: all clean qw3 agent test-vectors test-metal-smoke metal qw3-eval qw3-eval-metal
+.PHONY: all clean qw3 agent test-vectors test-metal-smoke metal
 
 all: qw3-cpu
 qw3: qw3-cpu
@@ -43,7 +43,7 @@ qw3_metal_cli.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_cli.c
 
 qw3_metal_agent.o: qw3_agent.c qw3.h ../linenoise.h
-	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
+	$(CC) $(CFLAGS) -c -o $@ qw3_agent.c
 
 qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS)
 	$(CC) $(OBJCFLAGS) -c -o $@ qw3_metal.m
@@ -58,14 +58,15 @@ qw3-metal:
 	@echo "qw3-metal requires Darwin/Metal"
 	@exit 1
 
-qw3-agent: qw3-agent-cpu
-endif
-
-qw3_eval.o: qw3_eval.c qw3.h
-	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_eval.c
-
 qw3-eval: qw3_eval.o qw3.o
 	$(CC) $(CFLAGS) -o $@ qw3_eval.o qw3.o $(LDLIBS)
+
+
+qw3-eval: qw3-eval-cpu
+
+
+qw3-agent: qw3-agent-cpu
+endif
 
 test-vectors: qw3-cpu
 	sh tests/test_vectors.sh
@@ -73,13 +74,5 @@ test-vectors: qw3-cpu
 test-metal-smoke: qw3-metal
 	sh tests/test_metal_smoke.sh
 
-ifeq ($(UNAME_S),Darwin)
-qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h
-	$(CC) $(CFLAGS) -c -o $@ qw3_eval.c
-
-qw3-eval-metal: qw3_eval_metal.o qw3_metal_core.o qw3_metal.o
-	$(CC) $(CFLAGS) -o $@ qw3_eval_metal.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
-endif
-
 clean:
-	rm -f qw3-cpu qw3-metal qw3-agent qw3-agent-cpu qw3-eval qw3-eval-metal *.o
+	rm -f qw3-cpu qw3-metal qw3-agent qw3-agent-cpu *.o

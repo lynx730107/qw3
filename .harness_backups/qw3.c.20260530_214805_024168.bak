@@ -731,14 +731,6 @@ bool qw3_think_mode_enabled(qw3_think_mode mode) {
     return mode != QW3_THINK_NONE;
 }
 
-qw3_think_mode qw3_think_mode_for_context(qw3_think_mode mode, int ctx_size) {
-    if (mode == QW3_THINK_HIGH && ctx_size > 8192)
-        return QW3_THINK_ON;
-    if (mode == QW3_THINK_HIGH && ctx_size > 16384)
-        return QW3_THINK_NONE;
-    return mode;
-}
-
 const char *qw3_think_mode_name(qw3_think_mode mode) {
     switch (mode) {
     case QW3_THINK_NONE: return "none";
@@ -11532,6 +11524,181 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
 #endif
 }
 
+#if 0
+int qw3_metal_session_eval_prefill_batch_mode_mixed(qw3_session *s, const qw3_tokens *prompt, char *err, size_t errlen) {
+    qw3_engine *e = s->engine;
+    const uint32_t ntok = (uint32_t)prompt->len;
+    if (ntok == 0) return 0;
+
+    // =========================================================================
+    // 1. EMBEDDING IN BATCH (Ottimizzato)
+    // =========================================================================
+    // Prepariamo il buffer dei token contiguo per caricarlo tutto insieme sulla GPU
+    uint32_t *btoks = malloc(ntok * sizeof(uint32_t));
+    if (!btoks) {
+        snprintf(err, errlen, "Out of memory allocating btoks");
+        return -1;
+    }
+    for (uint32_t i = 0; i < ntok; i++) {
+        btoks[i] = prompt->v[i];
+    }
+
+    // Carica tutti i vettori di embedding in un'unica passata GPU
+    if (!qw3_metal_session_batch_embed_q8_0(s->metal, e->weights.token_embd->offset, btoks, ntok, QW3_N_EMBD)) {
+        snprintf(err, errlen, "Batched token embedding failed");
+        free(btoks);
+        return -1;
+    }
+    free(btoks);
+
+    // Passo fondamentale: lo stride necessario per saltare da un token all'altro nello scratch
+    const uint32_t stage_stride = shared_scalar_offset + 1u;
+
+    // =========================================================================
+    // 2. CICLO SUI LAYER (40 Layer totali)
+    // =========================================================================
+    for (int il = 0; il < QW3_N_LAYER; il++) {
+        qw3_layer_weights *lw = &e->weights.layers[il];
+        
+        // Determiniamo lo slot di memoria persistente per gli stati ricorrenti del layer
+        // (Adattalo se la tua architettura usa una mappatura diversa per linear_slot)
+        const int linear_slot = il; 
+
+        if (qw3_layer_is_full_attention(il)) {
+            // -----------------------------------------------------------------
+            // LAYER GQA (Attenzione Standard): 100% PARALLELO IN BATCH
+            // -----------------------------------------------------------------
+            // Calcolo combinato di Q, K, V per tutti i token contemporaneamente
+            if (!qw3_metal_session_batch_matmul_x1_to_scratch(s->metal, ..., ntok, stage_stride)) {
+                snprintf(err, errlen, "Layer %d (GQA): Batched projection failed", il);
+                return -1;
+            }
+
+            // Scrittura globale della cache KV per l'intera sequenza
+            if (!qw3_metal_session_batch_gqa_write_cache_from_scratch(s->metal, ..., ntok, stage_stride)) {
+                snprintf(err, errlen, "Layer %d (GQA): Batched cache write failed", il);
+                return -1;
+            }
+
+            // Calcolo dell'attenzione causale mascherata bidimensionale (tutto il prompt insieme)
+            if (!qw3_metal_session_batch_gqa_cached_attn_from_scratch(s->metal, ..., ntok, stage_stride)) {
+                snprintf(err, errlen, "Layer %d (GQA): Batched attention failed", il);
+                return -1;
+            }
+        } 
+        else {
+            // -----------------------------------------------------------------
+            // LAYER LINEARE (Gated DeltaNet): STRATEGIA MISTA
+            // -----------------------------------------------------------------
+            
+            // FASE A (BATCH): Eseguiamo il MatMul pesante delle proiezioni iniziali.
+            // Calcoliamo i vettori QKV intermedi, i Gate, Alpha e Beta per TUTTI gli ntok token.
+            // Questo satura la GPU e riempie lo scratch buffer in parallelo.
+            if (!qw3_metal_session_batch_matmul_f32_pair_x1_to_scratch(
+                    s->metal, lw->linear_proj_weight->offset, ntok, 
+                    lin_qkv_offset, lin_gate_offset, lin_alpha_offset, lin_beta_offset, stage_stride)) {
+                snprintf(err, errlen, "Layer %d (Linear): Batched input projection failed", il);
+                return -1;
+            }
+
+            // FASE B (SEQUENZIALE): Evoluzione temporale dello stato hidden ricorrente.
+            // Per preservare la causalità e lo scorrimento dei token nel tempo,
+            // iteriamo token-per-token (t). Spostiamo gli offset dello scratch usando lo stage_stride.
+            for (uint32_t t = 0; t < ntok; t++) {
+                
+                // NOTA: Se nel tuo engine gli offset sono espressi in BYTE anziché in ELEMENTI float,
+                // moltiplica il fattore di spostamento per sizeof(float), es: (t * stage_stride * 4)
+                uint32_t t_lin_conv_offset  = lin_conv_offset  + (t * stage_stride);
+                uint32_t t_lin_gate_offset  = lin_gate_offset  + (t * stage_stride);
+                uint32_t t_lin_alpha_offset = lin_alpha_offset + (t * stage_stride);
+                uint32_t t_lin_beta_offset  = lin_beta_offset  + (t * stage_stride);
+                uint32_t t_lin_inner_offset = lin_inner_offset + (t * stage_stride);
+
+                // Eseguiamo lo step di Convoluzione causale 1D per il singolo token 't' (Forziamo ntok = 1)
+                // Questo aggiorna correttamente lo shift-register temporale dello slot
+                if (!qw3_metal_session_batch_conv1d_step_from_scratch(
+                        s->metal, 
+                        lw->linear_conv_weight->offset, 
+                        (uint32_t)linear_slot, 
+                        1u, // Forza Batch Size = 1 per avanzamento sequenziale
+                        n_qkv, 
+                        0, 
+                        t_lin_conv_offset, 
+                        stage_stride)) {
+                    snprintf(err, errlen, "Layer %d: Sequential Conv1D step failed at token %u", il, t);
+                    return -1;
+                }
+
+                // Eseguiamo il kernel fuso DeltaNet/GDN per il singolo token 't' (Forziamo ntok = 1)
+                // Questo aggiorna la matrice di stato S nascosta nello slot ereditando la storia dal token t-1
+                if (!qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
+                        s->metal, 
+                        lw->linear_ssm_dt_bias->offset, 
+                        lw->linear_ssm_a->offset, 
+                        lw->linear_ssm_norm->offset, 
+                        (uint32_t)linear_slot, 
+                        1u, // Forza Batch Size = 1 per preservare la ricorrenza
+                        t_lin_conv_offset, 
+                        t_lin_gate_offset, 
+                        t_lin_alpha_offset, 
+                        t_lin_beta_offset, 
+                        t_lin_inner_offset, 
+                        stage_stride,
+                        ...)) { // Passa gli eventuali argomenti residui richiesti dal tuo kernel
+                    snprintf(err, errlen, "Layer %d: Sequential DeltaNet step failed at token %u", il, t);
+                    return -1;
+                }
+            }
+            
+            // FASE C (BATCH): Proiezione finale del blocco lineare (Output MatMul)
+            // Una volta ricavato l'output temporale corretto per tutti i token, li proiettiamo indietro in batch
+            if (!qw3_metal_session_batch_matmul_linear_output(s->metal, ..., ntok, stage_stride)) {
+                return -1;
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // 3. MIXTURE OF EXPERTS (MoE) IN BATCH (Ottimizzato)
+        // ---------------------------------------------------------------------
+        // Il routing MoE e il calcolo degli esperti non hanno dipendenze temporali tra token:
+        // ogni token sceglie i suoi 8 esperti in modo isolato. Eseguiamo tutto in Batch su 'ntok'.
+        if (!qw3_metal_session_batch_moe_router_scratch(s->metal, ..., ntok, stage_stride)) return -1;
+        if (!qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(s->metal, ..., ntok, stage_stride)) return -1;
+        if (!qw3_metal_session_batch_shared_expert_scratch(s->metal, ..., ntok, stage_stride)) return -1;
+
+        // Somma residuale finale del blocco layer su tutti i token contemporaneamente
+        if (!qw3_metal_session_batch_residual_add_x0(s->metal, ..., ntok, stage_stride)) return -1;
+    }
+
+    // =========================================================================
+    // 4. CALCOLO SELETTIVO DEI LOGITS (Solo l'ultimo token)
+    // =========================================================================
+    // Per evitare inutili sprechi di calcolo sul vocabolario, estraiamo solo lo stato 
+    // dell'ultimo token (ntok - 1) per preparare la generazione successiva.
+    if (logits_mode != QW3_METAL_LOGITS_DEFER) {
+        if (!qw3_metal_session_copy_batch_x0_to_x0(s->metal, ntok - 1u, QW3_N_EMBD)) {
+            snprintf(err, errlen, "Failed to isolate last token hidden state");
+            return -1;
+        }
+        // RMSNorm finale e proiezione sui Logits dell'ultimo token
+        if (!qw3_metal_session_rmsnorm_final(s->metal, ...)) return -1;
+        if (!qw3_metal_session_matmul_output_logits(s->metal, ...)) return -1;
+    }
+
+    // =========================================================================
+    // 5. UNICA SINCRONIZZAZIONE METAL
+    // =========================================================================
+    // Svuotiamo la coda di comandi asincroni accumulati. Un solo blocco CPU-GPU finale.
+    if (!qw3_metal_synchronize()) {
+        snprintf(err, errlen, "Metal synchronization failed at the end of mixed prefill");
+        return -1;
+    }
+
+    // Avanziamo la posizione della finestra di contesto della sessione
+    s->kv.pos += ntok;
+    return 0;
+}
+#endif
 
 static int
 qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
@@ -12617,7 +12784,6 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
     const int prefill_batch = qw3_metal_prefill_batch_size();
-     
     if (prefill_batch > 1) {
         for (int i = 0; i < prompt->len;) {
             int n = prompt->len - i;
