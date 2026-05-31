@@ -9457,6 +9457,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         getenv("QW3_METAL_MOE_MAP_GATEUP_DISABLE") == NULL;
     const int use_mapped_down =
         down_type == 23 && n_tokens >= 32 &&
+        getenv("QW3_METAL_MOE_MAP_DOWN") != NULL &&
         getenv("QW3_METAL_MOE_MAP_DOWN_DISABLE") == NULL;
     const int use_mapped_moe = use_mapped_gateup || use_mapped_down;
     if (!obj.prefillX0 || !obj.prefillX1 || !obj.prefillScratch ||

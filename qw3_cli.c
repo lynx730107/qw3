@@ -16,7 +16,7 @@
 #include "qw3.h"
 
 #ifndef QW3_CLI_ENABLE_INTERNAL_TESTS
-#define QW3_CLI_ENABLE_INTERNAL_TESTS 0
+#define QW3_CLI_ENABLE_INTERNAL_TESTS 1
 #endif
 
 typedef struct {

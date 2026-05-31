@@ -782,7 +782,7 @@ static int qw3_prefill_defer_interval(void) {
 
 static int qw3_metal_prefill_batch_size(void) {
     const char *env = getenv("QW3_METAL_PREFILL_BATCH");
-    if (!env || !env[0]) return 1024;
+    if (!env || !env[0]) return 256;
     char *end = NULL;
     long v = strtol(env, &end, 10);
     if (end == env || v < 1) return 1;

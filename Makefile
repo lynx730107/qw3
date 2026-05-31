@@ -10,7 +10,7 @@ ifeq ($(UNAME_S),Darwin)
 METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
-.PHONY: all clean qw3 agent test-vectors test-metal-smoke metal qw3-eval qw3-eval-metal
+.PHONY: all clean qw3 agent test-vectors test-metal-smoke test-metal-logits metal qw3-eval qw3-eval-metal
 
 all: qw3-cpu
 qw3: qw3-cpu
@@ -21,7 +21,7 @@ qw3.o: qw3.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3.c
 
 qw3_cli.o: qw3_cli.c qw3.h
-	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_cli.c
+	$(CC) $(CFLAGS) -DQW3_NO_METAL -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
 qw3_agent.o: qw3_agent.c qw3.h ../linenoise.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
@@ -40,7 +40,7 @@ qw3_metal_core.o: qw3.c qw3.h qw3_metal.h
 	$(CC) $(CFLAGS) -c -o $@ qw3.c
 
 qw3_metal_cli.o: qw3_cli.c qw3.h
-	$(CC) $(CFLAGS) -c -o $@ qw3_cli.c
+	$(CC) $(CFLAGS) -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
 qw3_metal_agent.o: qw3_agent.c qw3.h ../linenoise.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
@@ -72,6 +72,9 @@ test-vectors: qw3-cpu
 
 test-metal-smoke: qw3-metal
 	sh tests/test_metal_smoke.sh
+
+test-metal-logits: qw3-metal
+	sh tests/test_metal_logits_regression.sh
 
 ifeq ($(UNAME_S),Darwin)
 qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h

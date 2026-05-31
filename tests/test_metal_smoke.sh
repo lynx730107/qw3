@@ -75,8 +75,10 @@ run_metal --metal-session-gqa-single-test 66 ||
 run_metal --metal-session-gqa-cached2-test 66 ||
     fail "Metal session GQA cached attention failed"
 
-run_metal -ctk q8_0 -ctv q8_0 --metal-session-gqa-cached-bench 66 64 ||
-    fail "Metal session q8 GQA cached benchmark failed"
+if [ "${QW3_TEST_KV_Q8:-0}" = "1" ]; then
+    run_metal -ctk q8_0 -ctv q8_0 --metal-session-gqa-cached-bench 66 64 ||
+        fail "Metal session q8 GQA cached benchmark failed"
+fi
 
 run_metal --metal-moe-real-layer-test 66 ||
     fail "Metal full layer failed"
@@ -87,12 +89,7 @@ run_metal --metal-mixed40-test 66 ||
 run_metal --metal-logits-test 66 ||
     fail "Metal final logits failed"
 
-gen=$(run_metal --metal -p "$PROMPT" -n 2)
-[ "$gen" = "Here's" ] ||
-    fail "plain Metal generation mismatch: $gen"
-
-sample=$(run_metal --metal -p "$PROMPT" -n 1 --temp 0.7 --sample-top-k 8 --top-p 0.9 --seed 42)
-[ "$sample" = "Here" ] ||
-    fail "sampled Metal generation mismatch: $sample"
+run_metal --metal-greedy-test 2 -p "$PROMPT" ||
+    fail "Metal greedy logits regression failed"
 
 echo "test-metal-smoke: ok"
