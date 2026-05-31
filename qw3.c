@@ -782,7 +782,7 @@ static int qw3_prefill_defer_interval(void) {
 
 static int qw3_metal_prefill_batch_size(void) {
     const char *env = getenv("QW3_METAL_PREFILL_BATCH");
-    if (!env || !env[0]) return 1;
+    if (!env || !env[0]) return 1024;
     char *end = NULL;
     long v = strtol(env, &end, 10);
     if (end == env || v < 1) return 1;
@@ -12475,6 +12475,83 @@ int qw3_engine_metal_session_decode_test(qw3_engine *e,
 #endif
 }
 
+#ifndef QW3_NO_METAL
+static void qw3_metal_debug_conv_state_diff(qw3_session *ref,
+                                            qw3_session *gpu,
+                                            FILE *fp) {
+    if (!ref || !gpu || !ref->metal || !gpu->metal || !fp) return;
+    const uint32_t n_channels = (uint32_t)tensor_linear_qkv();
+    const size_t n = (size_t)n_channels * 3u;
+    float *a = qw3_xmalloc(n * sizeof(float));
+    float *b = qw3_xmalloc(n * sizeof(float));
+    for (uint32_t slot = 0; slot < QW3_N_LINEAR_LAYERS; slot++) {
+        if (!qw3_metal_session_read_conv_state(ref->metal, slot, n_channels, a) ||
+            !qw3_metal_session_read_conv_state(gpu->metal, slot, n_channels, b)) {
+            fprintf(fp, "metal state conv: read failed slot=%u\n", slot);
+            break;
+        }
+        float maxdiff = 0.0f;
+        double rmsdiff = 0.0;
+        size_t maxi = 0;
+        for (size_t i = 0; i < n; i++) {
+            float d = fabsf(a[i] - b[i]);
+            if (d > maxdiff) {
+                maxdiff = d;
+                maxi = i;
+            }
+            rmsdiff += (double)d * (double)d;
+        }
+        rmsdiff = sqrt(rmsdiff / (double)n);
+        if (maxdiff > 1e-4f) {
+            fprintf(fp,
+                    "metal state conv: slot=%u maxdiff=%.7g rmsdiff=%.7g idx=%zu ref=%.7g gpu=%.7g\n",
+                    slot, maxdiff, rmsdiff, maxi, a[maxi], b[maxi]);
+        }
+    }
+    free(b);
+    free(a);
+}
+
+static void qw3_metal_debug_deltanet_state_diff(qw3_session *ref,
+                                                qw3_session *gpu,
+                                                FILE *fp) {
+    if (!ref || !gpu || !ref->metal || !gpu->metal || !fp) return;
+    const uint32_t v_heads = QW3_N_LINEAR_V_HEADS;
+    const uint32_t head_dim = QW3_N_LINEAR_HEAD_DIM;
+    const size_t n = (size_t)v_heads * head_dim * head_dim;
+    float *a = qw3_xmalloc(n * sizeof(float));
+    float *b = qw3_xmalloc(n * sizeof(float));
+    for (uint32_t slot = 0; slot < QW3_N_LINEAR_LAYERS; slot++) {
+        if (!qw3_metal_session_read_deltanet_state(ref->metal, slot, v_heads,
+                                                   head_dim, a) ||
+            !qw3_metal_session_read_deltanet_state(gpu->metal, slot, v_heads,
+                                                   head_dim, b)) {
+            fprintf(fp, "metal state deltanet: read failed slot=%u\n", slot);
+            break;
+        }
+        float maxdiff = 0.0f;
+        double rmsdiff = 0.0;
+        size_t maxi = 0;
+        for (size_t i = 0; i < n; i++) {
+            float d = fabsf(a[i] - b[i]);
+            if (d > maxdiff) {
+                maxdiff = d;
+                maxi = i;
+            }
+            rmsdiff += (double)d * (double)d;
+        }
+        rmsdiff = sqrt(rmsdiff / (double)n);
+        if (maxdiff > 1e-4f) {
+            fprintf(fp,
+                    "metal state deltanet: slot=%u maxdiff=%.7g rmsdiff=%.7g idx=%zu ref=%.7g gpu=%.7g\n",
+                    slot, maxdiff, rmsdiff, maxi, a[maxi], b[maxi]);
+        }
+    }
+    free(b);
+    free(a);
+}
+#endif
+
 int qw3_engine_metal_greedy_test(qw3_engine *e, const qw3_tokens *prompt,
                                  int ctx_size, int n_steps, FILE *fp) {
     if (!e || !prompt || !fp || ctx_size <= 0 || n_steps < 0) return -1;
@@ -12497,6 +12574,12 @@ int qw3_engine_metal_greedy_test(qw3_engine *e, const qw3_tokens *prompt,
     if (ok) {
         ok = qw3_session_sync(gpu, prompt, err, sizeof(err)) == 0;
     }
+#ifndef QW3_NO_METAL
+    if (ok && getenv("QW3_METAL_STATE_DIFF_PROMPT") != NULL) {
+        qw3_metal_debug_deltanet_state_diff(cpu, gpu, fp);
+        qw3_metal_debug_conv_state_diff(cpu, gpu, fp);
+    }
+#endif
     for (int step = 0; ok && step < n_steps; step++) {
         if (gpu->kv.pos >= ctx_size) {
             fprintf(fp, "metal greedy: context full at step %d len=%d ctx=%d\n",
@@ -12527,6 +12610,12 @@ int qw3_engine_metal_greedy_test(qw3_engine *e, const qw3_tokens *prompt,
             fprintf(fp,
                     "metal greedy: mismatch step=%d cpu_top0=%d gpu_top0=%u maxdiff=%.7g rmsdiff=%.7g\n",
                     step, cpu_ids[0], gpu_top0, maxdiff, rmsdiff);
+#ifndef QW3_NO_METAL
+            if (getenv("QW3_METAL_STATE_DIFF") != NULL) {
+                qw3_metal_debug_deltanet_state_diff(cpu, gpu, fp);
+                qw3_metal_debug_conv_state_diff(cpu, gpu, fp);
+            }
+#endif
             ok = 0;
             break;
         }

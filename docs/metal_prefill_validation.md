@@ -10,14 +10,11 @@ Default safety policy:
 - `QW3_METAL_PREFILL_CONCURRENT=1` enables the llama.cpp-style concurrent
   Metal encoder for prefill frontiers. It is opt-in until it shows a real speed
   win on long prompts.
-- `QW3_METAL_PREFILL_BATCH` defaults to 1. Batched Metal prefill is opt-in
-  until the full-session logits and greedy regression paths are clean.
-- Expert-major MoE gate/up is enabled only inside opt-in batch prefill with at
-  least 32 tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy
-  comparisons.
-- Expert-major MoE down is enabled only inside opt-in IQ4_XS batch prefill with
-  at least 32 tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy
-  comparisons.
+- `QW3_METAL_PREFILL_BATCH` defaults to 1024, the current Metal batch cap.
+- Expert-major MoE gate/up is enabled inside batch prefill with at least 32
+  tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
+- Expert-major MoE down is enabled inside IQ4_XS batch prefill with at least 32
+  tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy comparisons.
 - `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
   gate/up/SwiGLU kernel. It is not default because the current version is
   correct but slower on the validation prompt.

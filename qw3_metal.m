@@ -77,6 +77,7 @@ static id<MTLComputePipelineState> g_matmul_f32_pair_batch4_pipeline;
 static id<MTLComputePipelineState> g_deltanet_conv1d_zero_pipeline;
 static id<MTLComputePipelineState> g_deltanet_conv1d_step_pipeline;
 static id<MTLComputePipelineState> g_deltanet_conv1d_batch_pipeline;
+static id<MTLComputePipelineState> g_deltanet_conv1d_batch_state_pipeline;
 static id<MTLComputePipelineState> g_l2norm_heads_pipeline;
 static id<MTLComputePipelineState> g_l2norm_qk_batch_pipeline;
 static id<MTLComputePipelineState> g_gqa_q_norm_gate_pipeline;
@@ -1562,11 +1563,23 @@ static NSString *qw3_metal_kernel_source(void) {
             "    }\n"
             "    float y = sum / (1.0f + exp(-sum));\n"
             "    scratch[uint64_t(t) * args.stride + args.conv_offset + ch] = y;\n"
-            "    if (t + 1u == args.n_tokens) {\n"
-            "        for (int j = 0; j < 3; j++) {\n"
-            "            int idx = int(args.n_tokens) - 3 + j;\n"
-            "            st[j] = idx < 0 ? st[3 + idx] : scratch[uint64_t(uint(idx)) * args.stride + args.qkv_offset + ch];\n"
+            "}\n"
+            "kernel void qw3_deltanet_conv1d_batch_state(constant qw3_conv1d_batch_args &args,\n"
+            "                                            device const float *scratch,\n"
+            "                                            device float *state,\n"
+            "                                            uint ch [[thread_position_in_grid]]) {\n"
+            "    if (ch >= args.n_channels) return;\n"
+            "    device float *st = state + uint64_t(ch) * 3ull;\n"
+            "    float s0 = st[0], s1 = st[1], s2 = st[2];\n"
+            "    for (int j = 0; j < 3; j++) {\n"
+            "        int idx = int(args.n_tokens) - 3 + j;\n"
+            "        float v = 0.0f;\n"
+            "        if (idx < 0) {\n"
+            "            v = (idx == -3) ? s0 : ((idx == -2) ? s1 : s2);\n"
+            "        } else {\n"
+            "            v = scratch[uint64_t(uint(idx)) * args.stride + args.qkv_offset + ch];\n"
             "        }\n"
+            "        st[j] = v;\n"
             "    }\n"
             "}\n"
             "struct qw3_l2norm_args { uint head_dim; float eps; };\n"
@@ -2489,11 +2502,11 @@ static NSString *qw3_metal_kernel_source(void) {
             "        float b = sh[0];\n"
             "        float g = sh[1];\n"
             "        float sk = 0.0f;\n"
-            "        for (uint i = 0; i < args.head_dim; i++) sk += st[i * args.head_dim + j] * kh[i];\n"
+            "        for (uint i = 0; i < args.head_dim; i++) sk += st[j * args.head_dim + i] * kh[i];\n"
             "        float d = b * (vh[j] - sk * g);\n"
             "        float sum = 0.0f;\n"
             "        for (uint i = 0; i < args.head_dim; i++) {\n"
-            "            uint idx = i * args.head_dim + j;\n"
+            "            uint idx = j * args.head_dim + i;\n"
             "            float sv = st[idx] * g + kh[i] * d;\n"
             "            st[idx] = sv;\n"
             "            sum += sv * qh[i];\n"
@@ -4662,6 +4675,7 @@ static int qw3_metal_compile_kernels(void) {
         g_deltanet_conv1d_zero_pipeline &&
         g_deltanet_conv1d_step_pipeline &&
         g_deltanet_conv1d_batch_pipeline &&
+        g_deltanet_conv1d_batch_state_pipeline &&
         g_l2norm_heads_pipeline &&
         g_l2norm_qk_batch_pipeline &&
         g_gqa_q_norm_gate_pipeline && g_gqa_k_norm_pipeline &&
@@ -5283,6 +5297,18 @@ static int qw3_metal_compile_kernels(void) {
         [g_device newComputePipelineStateWithFunction:fn error:&error];
     if (!g_deltanet_conv1d_batch_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_conv1d_batch failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_deltanet_conv1d_batch_state"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_deltanet_conv1d_batch_state not found\n");
+        return 0;
+    }
+    g_deltanet_conv1d_batch_state_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_deltanet_conv1d_batch_state_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_conv1d_batch_state failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -7019,6 +7045,16 @@ int qw3_metal_session_batch_conv1d_step_from_scratch(
     if (threads > 256) threads = 256;
     [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * n_channels, 1, 1)
     threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    [enc setComputePipelineState:g_deltanet_conv1d_batch_state_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+    [enc setBuffer:obj.convState offset:(NSUInteger)state_offset atIndex:2];
+    NSUInteger state_threads =
+        g_deltanet_conv1d_batch_state_pipeline.maxTotalThreadsPerThreadgroup;
+    if (state_threads > 256) state_threads = 256;
+    [enc dispatchThreads:MTLSizeMake((NSUInteger)n_channels, 1, 1)
+    threadsPerThreadgroup:MTLSizeMake(state_threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {
@@ -7418,6 +7454,80 @@ int qw3_metal_session_read_batch_scratch(qw3_metal_session *s, float *out,
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {
         fprintf(stderr, "qw3: Metal batch scratch read command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    memcpy(out, readback.contents, (size_t)bytes);
+    return 1;
+}
+
+int qw3_metal_session_read_conv_state(qw3_metal_session *s,
+                                      uint32_t layer_slot,
+                                      uint32_t n_channels, float *out) {
+    if (!s || !s->obj || !out || n_channels == 0 ||
+        layer_slot >= QW3_METAL_N_LINEAR_LAYERS) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes = (uint64_t)n_channels * 3ull * sizeof(float);
+    const uint64_t offset = (uint64_t)layer_slot * bytes;
+    if (!obj.convState || obj.convState.length < offset ||
+        obj.convState.length - offset < bytes) {
+        return 0;
+    }
+
+    id<MTLBuffer> readback = [g_device newBufferWithLength:(NSUInteger)bytes
+                                                    options:MTLResourceStorageModeShared];
+    if (!readback) return 0;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:obj.convState sourceOffset:(NSUInteger)offset
+                toBuffer:readback destinationOffset:0
+                    size:(NSUInteger)bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal session conv-state read command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+    memcpy(out, readback.contents, (size_t)bytes);
+    return 1;
+}
+
+int qw3_metal_session_read_deltanet_state(qw3_metal_session *s,
+                                          uint32_t layer_slot,
+                                          uint32_t v_heads,
+                                          uint32_t head_dim, float *out) {
+    if (!s || !s->obj || !out || v_heads == 0 || head_dim == 0 ||
+        layer_slot >= QW3_METAL_N_LINEAR_LAYERS) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes =
+        (uint64_t)v_heads * head_dim * head_dim * sizeof(float);
+    const uint64_t offset = (uint64_t)layer_slot * bytes;
+    if (!obj.deltanetState || obj.deltanetState.length < offset ||
+        obj.deltanetState.length - offset < bytes) {
+        return 0;
+    }
+
+    id<MTLBuffer> readback = [g_device newBufferWithLength:(NSUInteger)bytes
+                                                    options:MTLResourceStorageModeShared];
+    if (!readback) return 0;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:obj.deltanetState sourceOffset:(NSUInteger)offset
+                toBuffer:readback destinationOffset:0
+                    size:(NSUInteger)bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal session DeltaNet-state read command failed: %s\n",
                 [[cb.error localizedDescription] UTF8String]);
         return 0;
     }
@@ -11655,6 +11765,7 @@ void qw3_metal_cleanup(void) {
     g_deltanet_conv1d_zero_pipeline = nil;
     g_deltanet_conv1d_step_pipeline = nil;
     g_deltanet_conv1d_batch_pipeline = nil;
+    g_deltanet_conv1d_batch_state_pipeline = nil;
     g_l2norm_heads_pipeline = nil;
     g_l2norm_qk_batch_pipeline = nil;
     g_gqa_q_norm_gate_pipeline = nil;

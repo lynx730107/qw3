@@ -140,6 +140,13 @@ int qw3_metal_session_read_batch_x1(qw3_metal_session *s, float *out,
 int qw3_metal_session_read_batch_scratch(qw3_metal_session *s, float *out,
                                          uint32_t n_tokens,
                                          uint32_t n_out);
+int qw3_metal_session_read_conv_state(qw3_metal_session *s,
+                                      uint32_t layer_slot,
+                                      uint32_t n_channels, float *out);
+int qw3_metal_session_read_deltanet_state(qw3_metal_session *s,
+                                          uint32_t layer_slot,
+                                          uint32_t v_heads,
+                                          uint32_t head_dim, float *out);
 int qw3_metal_session_copy_batch_x0_to_x0(qw3_metal_session *s,
                                           uint32_t row, uint32_t n);
 int qw3_metal_session_write_x0(qw3_metal_session *s, const float *x,
