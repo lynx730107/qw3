@@ -10,7 +10,7 @@ ifeq ($(UNAME_S),Darwin)
 METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
-.PHONY: all clean qw3 agent test-vectors test-metal-smoke test-metal-logits metal qw3-eval qw3-eval-metal
+.PHONY: all clean qw3 agent test-vectors test-metal-smoke test-metal-logits test-metal-logits-concurrent metal qw3-eval qw3-eval-metal
 
 all: qw3-cpu
 qw3: qw3-cpu
@@ -75,6 +75,9 @@ test-metal-smoke: qw3-metal
 
 test-metal-logits: qw3-metal
 	sh tests/test_metal_logits_regression.sh
+
+test-metal-logits-concurrent: qw3-metal
+	QW3_METAL_PREFILL_CONCURRENT=1 sh tests/test_metal_logits_regression.sh
 
 ifeq ($(UNAME_S),Darwin)
 qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h

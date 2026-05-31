@@ -22,6 +22,7 @@ static id<MTLDevice> g_device;
 static id<MTLCommandQueue> g_queue;
 static id<MTLCommandBuffer> g_batch_cb;
 static id<MTLComputeCommandEncoder> g_batch_enc;
+static int g_batch_concurrent;
 static NSMutableArray<id<MTLCommandBuffer>> *g_pending_cbs;
 
 static NSMutableArray<id<MTLBuffer>> *g_model_buffers;
@@ -144,7 +145,11 @@ static id<MTLCommandBuffer> qw3_metal_command_buffer(int *owned) {
 
 static id<MTLComputeCommandEncoder> qw3_metal_compute_encoder(id<MTLCommandBuffer> cb) {
     if (g_batch_cb && cb == g_batch_cb) {
-        if (!g_batch_enc) g_batch_enc = [cb computeCommandEncoder];
+        if (!g_batch_enc) {
+            g_batch_enc = g_batch_concurrent ?
+                [cb computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent] :
+                [cb computeCommandEncoder];
+        }
         return g_batch_enc;
     }
     return [cb computeCommandEncoder];
@@ -5620,12 +5625,33 @@ const char *qw3_metal_device_name(void) {
 int qw3_metal_begin_commands(void) {
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (g_batch_cb) return 0;
+    g_batch_concurrent = 0;
     if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
     } else {
         g_batch_cb = [g_queue commandBuffer];
     }
     return g_batch_cb != nil;
+}
+
+int qw3_metal_begin_commands_concurrent(void) {
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (g_batch_cb) return 0;
+    g_batch_concurrent = 1;
+    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+        g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+    } else {
+        g_batch_cb = [g_queue commandBuffer];
+    }
+    if (!g_batch_cb) g_batch_concurrent = 0;
+    return g_batch_cb != nil;
+}
+
+int qw3_metal_batch_barrier(void) {
+    if (!g_batch_cb || !g_batch_concurrent) return 1;
+    if (!g_batch_enc) return 1;
+    [g_batch_enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    return 1;
 }
 
 int qw3_metal_flush_commands(void) {
@@ -5643,6 +5669,7 @@ int qw3_metal_flush_commands(void) {
     }
     if (!g_batch_cb) {
         (void)qw3_metal_wait_pending_command_buffers("command batch");
+        g_batch_concurrent = 0;
         return 0;
     }
     return 1;
@@ -5654,6 +5681,7 @@ int qw3_metal_commit_commands(void) {
     qw3_metal_close_batch_encoder();
     id<MTLCommandBuffer> cb = g_batch_cb;
     g_batch_cb = nil;
+    g_batch_concurrent = 0;
     [cb commit];
     [g_pending_cbs addObject:cb];
     return 1;
@@ -5664,6 +5692,7 @@ int qw3_metal_end_commands(void) {
     qw3_metal_close_batch_encoder();
     id<MTLCommandBuffer> cb = g_batch_cb;
     g_batch_cb = nil;
+    g_batch_concurrent = 0;
     return qw3_metal_finish_command_buffer(cb, 1, "command batch");
 }
 
@@ -9476,6 +9505,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
             n_active, NULL, NULL)) {
         return 0;
     }
+    if (!qw3_metal_batch_barrier()) return 0;
 
     const uint64_t iq3_row_bytes = (uint64_t)(n_embd / 256u) * 110ull;
     const uint64_t iq3_expert_bytes = iq3_row_bytes * (uint64_t)n_ff;
@@ -9548,6 +9578,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         [enc dispatchThreads:MTLSizeMake(QW3_METAL_N_EXPERT, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(QW3_METAL_N_EXPERT, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
+        if (!qw3_metal_batch_barrier()) return 0;
         enc = qw3_metal_compute_encoder(cb);
     }
     if (use_mapped_gateup) {
@@ -9582,6 +9613,8 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
 
+        if (!qw3_metal_batch_barrier()) return 0;
+
         enc = qw3_metal_compute_encoder(cb);
         [enc setComputePipelineState:g_moe_swiglu_slots_to_hidden_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
@@ -9594,6 +9627,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         [enc dispatchThreads:MTLSizeMake(n_tokens * n_active * n_ff, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
+        if (!qw3_metal_batch_barrier()) return 0;
     } else {
         [enc setComputePipelineState:g_moe_iq3_s_prefill_batch_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
@@ -9608,6 +9642,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                                               n_active * n_tokens, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
+        if (!qw3_metal_batch_barrier()) return 0;
     }
 
     if (use_mapped_down) {
@@ -9626,6 +9661,8 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
 
+        if (!qw3_metal_batch_barrier()) return 0;
+
         struct {
             uint32_t n_tokens;
             uint32_t n_active;
@@ -9643,6 +9680,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         [enc dispatchThreads:MTLSizeMake(n_tokens * n_embd, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
+        if (!qw3_metal_batch_barrier()) return 0;
     } else {
         enc = qw3_metal_compute_encoder(cb);
         [enc setComputePipelineState:down_type == 23 ?
@@ -9659,6 +9697,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                                               1, 1)
             threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
+        if (!qw3_metal_batch_barrier()) return 0;
     }
 
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
@@ -10511,6 +10550,8 @@ int qw3_metal_session_batch_gqa_norm_rope_from_scratch(
     [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_kv_heads, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_batch_barrier()) return 0;
 
     struct {
         uint32_t n_tokens;

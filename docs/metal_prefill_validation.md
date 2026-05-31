@@ -7,6 +7,9 @@ default.
 
 Default safety policy:
 - `QW3_METAL_KV_Q8_0` is not part of the default validation path.
+- `QW3_METAL_PREFILL_CONCURRENT=1` enables the llama.cpp-style concurrent
+  Metal encoder for prefill frontiers. It is opt-in until it shows a real speed
+  win on long prompts.
 - Expert-major MoE gate/up is opt-in with `QW3_METAL_MOE_MAP_GATEUP=1`.
 - Expert-major MoE down is opt-in with `QW3_METAL_MOE_MAP_DOWN=1`.
 - `QW3_METAL_PREFILL_BATCH` defaults to the conservative batch size in code;
@@ -24,6 +27,7 @@ Useful commands:
 ```sh
 make qw3-metal
 make test-metal-logits
+make test-metal-logits-concurrent
 ./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 \
   --metal-session-decode-test -p "ciao"
 env QW3_METAL_PREFILL_TEST_TOKENS=64 ./qw3-metal \

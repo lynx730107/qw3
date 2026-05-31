@@ -11604,12 +11604,20 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
     uint32_t *btoks = qw3_xmalloc((size_t)ntok * sizeof(uint32_t));
     for (uint32_t i = 0; i < ntok; i++) btoks[i] = (uint32_t)tokens[i];
 
-    int ok = qw3_metal_begin_commands() &&
+    const int concurrent_prefill =
+        getenv("QW3_METAL_PREFILL_CONCURRENT") != NULL &&
+        getenv("QW3_METAL_PREFILL_CONCURRENT_DISABLE") == NULL;
+    int ok = (concurrent_prefill ?
+              qw3_metal_begin_commands_concurrent() :
+              qw3_metal_begin_commands()) &&
              qw3_metal_session_batch_embed_q8_0(
                  s->metal, e->weights.token_embd->offset, btoks, ntok,
                  QW3_N_EMBD);
     const int profile = getenv("QW3_METAL_PREFILL_PROFILE") != NULL;
     double profile_t0 = profile ? qw3_now_sec() : 0.0;
+#define QW3_PREFILL_BARRIER() do {                                          \
+        if (concurrent_prefill && ok) ok = qw3_metal_batch_barrier();        \
+    } while (0)
 #define QW3_PREFILL_PROFILE_STAGE(stage_name, layer_id) do {                 \
         if (profile && ok) {                                                 \
             ok = qw3_metal_synchronize();                                    \
@@ -11620,10 +11628,13 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     pos0, ntok, (layer_id), (stage_name),                    \
                     (profile_t1 - profile_t0) * 1000.0);                    \
             profile_t0 = profile_t1;                                         \
-            if (ok) ok = qw3_metal_begin_commands();                         \
+            if (ok) ok = concurrent_prefill ?                                \
+                qw3_metal_begin_commands_concurrent() :                      \
+                qw3_metal_begin_commands();                                  \
         }                                                                    \
     } while (0)
     QW3_PREFILL_PROFILE_STAGE("embed", -1);
+    QW3_PREFILL_BARRIER();
     int full_slot = 0;
     int linear_slot = 0;
     for (int il = 0; ok && il < QW3_N_LAYER; il++) {
@@ -11631,6 +11642,7 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
         ok = qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
             s->metal, lw->attn_norm->offset, ntok, QW3_N_EMBD,
             QW3_RMS_EPS);
+        QW3_PREFILL_BARRIER();
         if (ok && qw3_layer_is_full_attention((uint32_t)il)) {
             ok =
                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
@@ -11641,33 +11653,47 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     kv_n, gqa_k_offset, stage_stride) &&
                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
                     s->metal, lw->attn_v_proj->offset, ntok, QW3_N_EMBD,
-                    kv_n, gqa_v_offset, stage_stride) &&
-                qw3_metal_session_batch_gqa_norm_rope_from_scratch(
+                    kv_n, gqa_v_offset, stage_stride);
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_gqa_norm_rope_from_scratch(
                     s->metal, lw->attn_q_norm->offset,
                     lw->attn_k_norm->offset, ntok, QW3_N_HEAD,
                     QW3_N_HEAD_KV, QW3_N_HEAD_DIM, QW3_ROPE_DIM,
                     pos0, QW3_ROPE_THETA, QW3_RMS_EPS, gqa_qg_offset,
                     gqa_k_offset, gqa_q_tmp_offset, gqa_k_tmp_offset,
                     gqa_q_rope_offset, gqa_k_rope_offset, gqa_gate_offset,
-                    stage_stride) &&
-                qw3_metal_session_batch_gqa_write_cache_from_scratch(
+                    stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_gqa_write_cache_from_scratch(
                     s->metal, (uint32_t)full_slot, pos0, ntok,
                     QW3_N_HEAD_KV, QW3_N_HEAD_DIM, gqa_k_rope_offset,
-                    gqa_v_offset, stage_stride) &&
-                qw3_metal_session_batch_gqa_cached_attn_from_scratch(
+                    gqa_v_offset, stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_gqa_cached_attn_from_scratch(
                     s->metal, (uint32_t)full_slot, pos0, ntok,
                     QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
                     gqa_q_rope_offset, gqa_gate_offset, gqa_inner_offset,
-                    stage_stride) &&
-                qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                    stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
                     s->metal, lw->attn_o_proj->offset, ntok, q_n,
                     QW3_N_EMBD, gqa_inner_offset, gqa_attn_offset,
                     stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
             if (ok) {
                 ok = qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
                     s->metal, lw->ffn_norm->offset, ntok, QW3_N_EMBD,
                     gqa_attn_offset, stage_stride, QW3_RMS_EPS);
             }
+            QW3_PREFILL_BARRIER();
             QW3_PREFILL_PROFILE_STAGE("full_attn", il);
             full_slot++;
         } else if (ok) {
@@ -11682,30 +11708,46 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     s->metal, lw->linear_ssm_alpha->offset,
                     lw->linear_ssm_beta->offset, ntok, QW3_N_EMBD,
                     QW3_N_LINEAR_V_HEADS, lin_alpha_offset,
-                    lin_beta_offset, stage_stride) &&
-                qw3_metal_session_batch_conv1d_step_from_scratch(
+                    lin_beta_offset, stage_stride);
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_conv1d_step_from_scratch(
                     s->metal, lw->linear_conv_weight->offset,
                     (uint32_t)linear_slot, ntok, n_qkv, 0,
-                    lin_conv_offset, stage_stride) &&
-                qw3_metal_session_batch_l2norm_qk_from_scratch(
+                    lin_conv_offset, stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_l2norm_qk_from_scratch(
                     s->metal, ntok, lin_conv_offset, stage_stride,
                     QW3_N_LINEAR_QK_HEADS, QW3_N_LINEAR_HEAD_DIM,
-                    QW3_RMS_EPS) &&
-                qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
+                    QW3_RMS_EPS);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
                     s->metal, lw->linear_ssm_dt_bias->offset,
                     lw->linear_ssm_a->offset, lw->linear_ssm_norm->offset,
                     (uint32_t)linear_slot, ntok, lin_conv_offset,
                     lin_gate_offset, lin_alpha_offset, lin_beta_offset,
                     lin_inner_offset, stage_stride, QW3_N_LINEAR_QK_HEADS,
                     QW3_N_LINEAR_V_HEADS, QW3_N_LINEAR_HEAD_DIM,
-                    QW3_RMS_EPS) &&
-                qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                    QW3_RMS_EPS);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
                     s->metal, lw->linear_ssm_out->offset, ntok, n_z,
                     QW3_N_EMBD, lin_inner_offset, lin_attn_offset,
-                    stage_stride) &&
-                qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
+                    stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
                     s->metal, lw->ffn_norm->offset, ntok, QW3_N_EMBD,
                     lin_attn_offset, stage_stride, QW3_RMS_EPS);
+            }
+            QW3_PREFILL_BARRIER();
             QW3_PREFILL_PROFILE_STAGE("linear_attn", il);
             linear_slot++;
         }
@@ -11714,13 +11756,17 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
             ok =
                 qw3_metal_session_batch_matmul_f32_x1_to_scratch(
                     s->metal, lw->ffn_gate_inp->offset, ntok, QW3_N_EMBD,
-                    QW3_N_EXPERT, router_offset, stage_stride) &&
-                qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
+                    QW3_N_EXPERT, router_offset, stage_stride);
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                     s->metal, lw->ffn_gate_exps->offset,
                     lw->ffn_up_exps->offset, lw->ffn_down_exps->offset,
                     (uint32_t)lw->ffn_down_exps->type, ntok,
                     QW3_N_EXPERT_USED, QW3_N_EMBD, QW3_N_FF_EXP,
                     router_offset, moe_hidden_offset, stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
             QW3_PREFILL_PROFILE_STAGE("moe_sparse", il);
         }
         if (ok) {
@@ -11733,22 +11779,33 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     s->metal, lw->ffn_up_shared->offset, ntok,
                     QW3_N_EMBD, QW3_N_FF_SHARED, shared_up_offset,
                     stage_stride) &&
-                qw3_metal_session_batch_silu_mul_scratch_to_scratch(
-                    s->metal, ntok, QW3_N_FF_SHARED, shared_gate_offset,
-                    shared_up_offset, shared_hidden_offset, stage_stride) &&
-                qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
-                    s->metal, lw->ffn_down_shared->offset, ntok,
-                    QW3_N_FF_SHARED, QW3_N_EMBD, shared_hidden_offset,
-                    shared_down_offset, stage_stride) &&
                 qw3_metal_session_batch_matmul_f32_x1_to_scratch(
                     s->metal, lw->ffn_gate_inp_shexp->offset, ntok,
-                    QW3_N_EMBD, 1, shared_scalar_offset, stage_stride) &&
-                qw3_metal_session_batch_sigmoid_scale_scratch_add_x0(
+                    QW3_N_EMBD, 1, shared_scalar_offset, stage_stride);
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_silu_mul_scratch_to_scratch(
+                    s->metal, ntok, QW3_N_FF_SHARED, shared_gate_offset,
+                    shared_up_offset, shared_hidden_offset, stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
+                    s->metal, lw->ffn_down_shared->offset, ntok,
+                    QW3_N_FF_SHARED, QW3_N_EMBD, shared_hidden_offset,
+                    shared_down_offset, stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
+            if (ok) {
+                ok = qw3_metal_session_batch_sigmoid_scale_scratch_add_x0(
                     s->metal, ntok, QW3_N_EMBD, shared_down_offset,
                     shared_scalar_offset, stage_stride);
+            }
+            QW3_PREFILL_BARRIER();
             QW3_PREFILL_PROFILE_STAGE("moe_shared", il);
         }
     }
+#undef QW3_PREFILL_BARRIER
 #undef QW3_PREFILL_PROFILE_STAGE
 
     if (ok) ok = qw3_metal_synchronize();
