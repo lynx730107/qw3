@@ -782,7 +782,7 @@ static int qw3_prefill_defer_interval(void) {
 
 static int qw3_metal_prefill_batch_size(void) {
     const char *env = getenv("QW3_METAL_PREFILL_BATCH");
-    if (!env || !env[0]) return 1024;
+    if (!env || !env[0]) return 1;
     char *end = NULL;
     long v = strtol(env, &end, 10);
     if (end == env || v < 1) return 1;
@@ -12435,9 +12435,11 @@ int qw3_engine_metal_session_decode_test(qw3_engine *e,
              qw3_session_create(&cpu, e, ctx_size) == 0 &&
              qw3_session_create(&gpu, e, ctx_size) == 0;
     for (int i = 0; ok && i < prompt->len; i++) {
-        ok = qw3_session_eval(cpu, prompt->v[i], err, sizeof(err)) == 0 &&
-             qw3_metal_session_eval_token_slow(gpu, prompt->v[i],
+        ok = qw3_metal_session_eval_token_slow(cpu, prompt->v[i],
                                                err, sizeof(err)) == 0;
+    }
+    if (ok) {
+        ok = qw3_session_sync(gpu, prompt, err, sizeof(err)) == 0;
     }
     float maxdiff = 0.0f;
     double rmsdiff = 0.0;
@@ -12489,9 +12491,11 @@ int qw3_engine_metal_greedy_test(qw3_engine *e, const qw3_tokens *prompt,
     int ok = qw3_session_create(&cpu, e, ctx_size) == 0 &&
              qw3_session_create(&gpu, e, ctx_size) == 0;
     for (int i = 0; ok && i < prompt->len; i++) {
-        ok = qw3_session_eval(cpu, prompt->v[i], err, sizeof(err)) == 0 &&
-             qw3_metal_session_eval_token_slow(gpu, prompt->v[i],
+        ok = qw3_metal_session_eval_token_slow(cpu, prompt->v[i],
                                                err, sizeof(err)) == 0;
+    }
+    if (ok) {
+        ok = qw3_session_sync(gpu, prompt, err, sizeof(err)) == 0;
     }
     for (int step = 0; ok && step < n_steps; step++) {
         if (gpu->kv.pos >= ctx_size) {

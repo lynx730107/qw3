@@ -10,12 +10,14 @@ Default safety policy:
 - `QW3_METAL_PREFILL_CONCURRENT=1` enables the llama.cpp-style concurrent
   Metal encoder for prefill frontiers. It is opt-in until it shows a real speed
   win on long prompts.
-- Expert-major MoE gate/up is the default for batch prefill with at least 32
-  tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
-- Expert-major MoE down is the default for IQ4_XS batch prefill with at least
-  32 tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy comparisons.
-- `QW3_METAL_PREFILL_BATCH` defaults to 1024, the current Metal batch cap;
-  larger caps must pass the logits regression before becoming available.
+- `QW3_METAL_PREFILL_BATCH` defaults to 1. Batched Metal prefill is opt-in
+  until the full-session logits and greedy regression paths are clean.
+- Expert-major MoE gate/up is enabled only inside opt-in batch prefill with at
+  least 32 tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy
+  comparisons.
+- Expert-major MoE down is enabled only inside opt-in IQ4_XS batch prefill with
+  at least 32 tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy
+  comparisons.
 - `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
   gate/up/SwiGLU kernel. It is not default because the current version is
   correct but slower on the validation prompt.
@@ -31,7 +33,9 @@ Required checks after each Metal prefill change:
 2. Run `make test-metal-logits`.
 3. If the change touches a layer-local primitive, run the matching
    `--metal-session-...-test` diagnostic as well.
-4. Only then benchmark with `--metal-run` or `qw3-agent`.
+4. For batched prefill work, also run the logits tests with the target
+   `QW3_METAL_PREFILL_BATCH` value before enabling it by default.
+5. Only then benchmark with `--metal-run` or `qw3-agent`.
 
 Useful commands:
 
@@ -41,6 +45,8 @@ make test-metal-logits
 make test-metal-logits-concurrent
 ./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 \
   --metal-session-decode-test -p "ciao"
+./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 \
+  --metal-greedy-test 4 -p "ciao"
 env QW3_METAL_PREFILL_TEST_TOKENS=64 ./qw3-metal \
   -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 \
   --metal-session-prefill-q8-batch-test 66

@@ -23,6 +23,9 @@ run_metal --metal-logits-test 66 ||
 run_metal --metal-session-decode-test -p "ciao" ||
     fail "short prompt session logits diverged"
 
+run_metal --metal-greedy-test 4 -p "ciao" ||
+    fail "short prompt greedy tokens diverged"
+
 run_metal --metal-session-decode-test -p "crea un file c helloworld.c, mettilo nella cartella corrente" ||
     fail "agent-like prompt session logits diverged"
 
