@@ -43,7 +43,7 @@ qw3_metal_cli.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
 qw3_metal_agent.o: qw3_agent.c qw3.h ../linenoise.h
-	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
+	$(CC) $(CFLAGS) -c -o $@ qw3_agent.c
 
 qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS)
 	$(CC) $(OBJCFLAGS) -c -o $@ qw3_metal.m

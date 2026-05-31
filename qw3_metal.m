@@ -63,8 +63,11 @@ static id<MTLComputePipelineState> g_moe_down_iq4_xs_prefill_reduce_pipeline;
 static id<MTLComputePipelineState> g_moe_down_q6_k_prefill_reduce_pipeline;
 static id<MTLComputePipelineState> g_moe_topk_expert_map_pipeline;
 static id<MTLComputePipelineState> g_moe_iq3_s_prefill_mapped_pipeline;
+static id<MTLComputePipelineState> g_moe_iq3_s_prefill_pair_mapped_pipeline;
 static id<MTLComputePipelineState> g_moe_swiglu_slots_to_hidden_pipeline;
+static id<MTLComputePipelineState> g_moe_swiglu_slots_to_hidden_f16_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_prefill_mapped_pipeline;
+static id<MTLComputePipelineState> g_moe_down_iq4_xs_prefill_mapped_f16_pipeline;
 static id<MTLComputePipelineState> g_moe_down_prefill_reduce_slots_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pair_pipeline;
@@ -137,7 +140,7 @@ static id<MTLCommandBuffer> qw3_metal_command_buffer(int *owned) {
         return g_batch_cb;
     }
     if (owned) *owned = 1;
-    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+    if (getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
         return [g_queue commandBufferWithUnretainedReferences];
     }
     return [g_queue commandBuffer];
@@ -233,6 +236,7 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic, strong) id<MTLBuffer> moePairIds;
 @property(nonatomic, strong) id<MTLBuffer> prefillMoeGate;
 @property(nonatomic, strong) id<MTLBuffer> prefillMoeUp;
+@property(nonatomic, strong) id<MTLBuffer> prefillMoeMidF16;
 @property(nonatomic, strong) id<MTLBuffer> prefillMoeDown;
 @property(nonatomic) qw3_metal_session_info info;
 @property(nonatomic) uint32_t ctxSize;
@@ -3957,6 +3961,139 @@ static NSString *qw3_metal_kernel_source(void) {
             "        for (; i < nr0; i += 32) dst[i] = src[i];\n"
             "    }\n"
             "}\n"
+            "kernel void qw3_moe_iq3_s_swiglu_prefill_pair_mapped(constant qw3_moe_prefill_batch_args &args,\n"
+            "                                                       device const uchar *gate_weights,\n"
+            "                                                       device const uchar *up_weights,\n"
+            "                                                       device const float *x1,\n"
+            "                                                       device float *scratch,\n"
+            "                                                       device const uchar *kgrid,\n"
+            "                                                       device const uint *counts,\n"
+            "                                                       device const int *pair_ids,\n"
+            "                                                       threadgroup char *shmem [[threadgroup(0)]],\n"
+            "                                                       uint3 group [[threadgroup_position_in_grid]],\n"
+            "                                                       ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                                       ushort sgitg [[simdgroup_index_in_threadgroup]]) {\n"
+            "    threadgroup half *sa = (threadgroup half *)shmem;\n"
+            "    threadgroup half *sb = (threadgroup half *)(shmem + 4096);\n"
+            "    constexpr int NR0 = 64;\n"
+            "    constexpr int NR1 = 32;\n"
+            "    constexpr int NK = 32;\n"
+            "    constexpr int NL0 = NK / 16;\n"
+            "    constexpr int NL1 = NK / 8;\n"
+            "    uint expert = group.z;\n"
+            "    uint r0u = group.y * NR0;\n"
+            "    uint r1u = group.x * NR1;\n"
+            "    uint count = counts[expert];\n"
+            "    if (r0u >= args.n_ff || r1u >= count) return;\n"
+            "    int nr0 = int(min(uint(NR0), args.n_ff - r0u));\n"
+            "    int nr1 = int(min(uint(NR1), count - r1u));\n"
+            "    int lr0 = min(int(tid) / NL0, nr0 - 1);\n"
+            "    int lr1 = min(int(tid) / NL1, nr1 - 1);\n"
+            "    short il0 = short(tid % NL0);\n"
+            "    uint row = r0u + uint(lr0);\n"
+            "    uint map_base = expert * args.n_tokens + r1u;\n"
+            "    simdgroup_half8x8 ma[4];\n"
+            "    simdgroup_half8x8 mb[2];\n"
+            "    simdgroup_float8x8 mc_gate[8];\n"
+            "    simdgroup_float8x8 mc_up[8];\n"
+            "    for (short i = 0; i < 8; i++) {\n"
+            "        mc_gate[i] = make_filled_simdgroup_matrix<float, 8>(0.0f);\n"
+            "        mc_up[i] = make_filled_simdgroup_matrix<float, 8>(0.0f);\n"
+            "    }\n"
+            "    for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        device const uchar *wrow_gate = gate_weights + uint64_t(expert) * uint64_t(args.iq3_expert_bytes) + uint64_t(row) * uint64_t(args.iq3_row_bytes);\n"
+            "        for (short i = 0; i < 16; i++) {\n"
+            "            uint k = loop_k + uint(16 * il0 + i);\n"
+            "            const short sx = short(2 * il0 + i / 8);\n"
+            "            const short sy = short((tid / NL0) / 8);\n"
+            "            const short lx = short((tid / NL0) % 8);\n"
+            "            const short ly = short(i % 8);\n"
+            "            const short ib = short(8 * sx + sy);\n"
+            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant_k_expanded(wrow_gate, kgrid, k) : half(0.0f);\n"
+            "        }\n"
+            "        int pid = pair_ids[map_base + uint(lr1)];\n"
+            "        uint token = uint(pid) / args.n_active;\n"
+            "        device const float *x = x1 + uint64_t(token) * uint64_t(args.n_embd) + uint64_t(loop_k);\n"
+            "        for (short i = 0; i < 8; i++) {\n"
+            "            const short sx = short(tid % NL1);\n"
+            "            const short sy = short((tid / NL1) / 8);\n"
+            "            const short lx = i;\n"
+            "            const short ly = short((tid / NL1) % 8);\n"
+            "            const short ib = short(4 * sx + sy);\n"
+            "            uint kk = uint(8 * sx + i);\n"
+            "            *(sb + 64 * ib + 8 * ly + lx) = (uint(lr1) < uint(nr1) && loop_k + kk < args.n_in) ? half(x[kk]) : half(0.0f);\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        threadgroup const half *lsma = sa + 4 * 64 * (sgitg % 2);\n"
+            "        threadgroup const half *lsmb = sb + 2 * 64 * (sgitg / 2);\n"
+            "        for (short ik = 0; ik < NK / 8; ik++) {\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 4; i++) simdgroup_load(ma[i], lsma + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 2; i++) simdgroup_load(mb[i], lsmb + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 8; i++) simdgroup_multiply_accumulate(mc_gate[i], mb[i / 4], ma[i % 4], mc_gate[i]);\n"
+            "            lsma += 8 * 64;\n"
+            "            lsmb += 4 * 64;\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        device const uchar *wrow_up = up_weights + uint64_t(expert) * uint64_t(args.iq3_expert_bytes) + uint64_t(row) * uint64_t(args.iq3_row_bytes);\n"
+            "        for (short i = 0; i < 16; i++) {\n"
+            "            uint k = loop_k + uint(16 * il0 + i);\n"
+            "            const short sx = short(2 * il0 + i / 8);\n"
+            "            const short sy = short((tid / NL0) / 8);\n"
+            "            const short lx = short((tid / NL0) % 8);\n"
+            "            const short ly = short(i % 8);\n"
+            "            const short ib = short(8 * sx + sy);\n"
+            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant_k_expanded(wrow_up, kgrid, k) : half(0.0f);\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        lsma = sa + 4 * 64 * (sgitg % 2);\n"
+            "        lsmb = sb + 2 * 64 * (sgitg / 2);\n"
+            "        for (short ik = 0; ik < NK / 8; ik++) {\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 4; i++) simdgroup_load(ma[i], lsma + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 2; i++) simdgroup_load(mb[i], lsmb + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 8; i++) simdgroup_multiply_accumulate(mc_up[i], mb[i / 4], ma[i % 4], mc_up[i]);\n"
+            "            lsma += 8 * 64;\n"
+            "            lsmb += 4 * 64;\n"
+            "        }\n"
+            "    }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    threadgroup float *tmp_gate = (threadgroup float *)shmem;\n"
+            "    threadgroup float *tmp_up = tmp_gate + NR0 * NR1;\n"
+            "    threadgroup float *gate_dst = tmp_gate + 32 * (sgitg & 1) + (16 * (sgitg >> 1)) * NR0;\n"
+            "    threadgroup float *up_dst = tmp_up + 32 * (sgitg & 1) + (16 * (sgitg >> 1)) * NR0;\n"
+            "    for (short i = 0; i < 8; i++) {\n"
+            "        simdgroup_store(mc_gate[i], gate_dst + 8 * (i % 4) + 8 * NR0 * (i / 4), NR0, 0, false);\n"
+            "        simdgroup_store(mc_up[i], up_dst + 8 * (i % 4) + 8 * NR0 * (i / 4), NR0, 0, false);\n"
+            "    }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    for (short j = short(sgitg); j < nr1; j += 4) {\n"
+            "        int pid = pair_ids[map_base + uint(j)];\n"
+            "        uint token = uint(pid) / args.n_active;\n"
+            "        uint slot = uint(pid) - token * args.n_active;\n"
+            "        device float *dst = scratch + uint64_t(token) * uint64_t(args.stride) + uint64_t(args.hidden_offset) + uint64_t(slot) * uint64_t(args.n_ff) + uint64_t(r0u);\n"
+            "        threadgroup float *src_gate = tmp_gate + int(j) * NR0;\n"
+            "        threadgroup float *src_up = tmp_up + int(j) * NR0;\n"
+            "        int i = int(tid & 31u);\n"
+            "        device float4 *dst4 = (device float4 *)dst;\n"
+            "        threadgroup float4 *gate4 = (threadgroup float4 *)src_gate;\n"
+            "        threadgroup float4 *up4 = (threadgroup float4 *)src_up;\n"
+            "        for (; i < nr0 / 4; i += 32) {\n"
+            "            float4 g = gate4[i];\n"
+            "            dst4[i] = (g / (float4(1.0f) + exp(-g))) * up4[i];\n"
+            "        }\n"
+            "        i = 4 * (nr0 / 4) + int(tid & 31u);\n"
+            "        for (; i < nr0; i += 32) {\n"
+            "            float g = src_gate[i];\n"
+            "            dst[i] = (g / (1.0f + exp(-g))) * src_up[i];\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
             "kernel void qw3_moe_swiglu_slots_to_hidden(constant qw3_moe_prefill_batch_args &args,\n"
             "                                          device const float *gate_slots,\n"
             "                                          device const float *up_slots,\n"
@@ -3970,6 +4107,16 @@ static NSString *qw3_metal_kernel_source(void) {
             "    uint slot = pair - token * args.n_active;\n"
             "    float g = gate_slots[gid];\n"
             "    scratch[uint64_t(token) * uint64_t(args.stride) + uint64_t(args.hidden_offset) + uint64_t(slot) * uint64_t(args.n_ff) + row] = (g / (1.0f + exp(-g))) * up_slots[gid];\n"
+            "}\n"
+            "kernel void qw3_moe_swiglu_slots_to_hidden_f16(constant qw3_moe_prefill_batch_args &args,\n"
+            "                                              device const float *gate_slots,\n"
+            "                                              device const float *up_slots,\n"
+            "                                              device half *mid,\n"
+            "                                              uint gid [[thread_position_in_grid]]) {\n"
+            "    uint total = args.n_tokens * args.n_active * args.n_ff;\n"
+            "    if (gid >= total) return;\n"
+            "    float g = gate_slots[gid];\n"
+            "    mid[gid] = half((g / (1.0f + exp(-g))) * up_slots[gid]);\n"
             "}\n"
             "inline half qw3_iq4xs_dequant_k(device const uchar *row, uint k) {\n"
             "    uint block = k >> 8u;\n"
@@ -3994,6 +4141,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                                 device float *down_slots,\n"
             "                                                 device const uint *counts,\n"
             "                                                 device const int *pair_ids,\n"
+            "                                                 device const float *router_weights,\n"
             "                                                 threadgroup char *shmem [[threadgroup(0)]],\n"
             "                                                 uint3 group [[threadgroup_position_in_grid]],\n"
             "                                                 ushort tid [[thread_index_in_threadgroup]],\n"
@@ -4068,12 +4216,101 @@ static NSString *qw3_metal_kernel_source(void) {
             "        int pid = pair_ids[map_base + uint(j)];\n"
             "        device float *dst = down_slots + uint64_t(uint(pid)) * uint64_t(args.n_embd) + uint64_t(r0u);\n"
             "        threadgroup float *src = ((threadgroup float *)shmem) + int(j) * NR0;\n"
+            "        float scale = router_weights[uint(pid)];\n"
             "        int i = int(tid & 31u);\n"
             "        device float4 *dst4 = (device float4 *)dst;\n"
             "        threadgroup float4 *src4 = (threadgroup float4 *)src;\n"
-            "        for (; i < nr0 / 4; i += 32) dst4[i] = src4[i];\n"
+            "        for (; i < nr0 / 4; i += 32) dst4[i] = src4[i] * scale;\n"
             "        i = 4 * (nr0 / 4) + int(tid & 31u);\n"
-            "        for (; i < nr0; i += 32) dst[i] = src[i];\n"
+            "        for (; i < nr0; i += 32) dst[i] = src[i] * scale;\n"
+            "    }\n"
+            "}\n"
+            "kernel void qw3_moe_down_iq4_xs_prefill_mapped_f16(constant qw3_moe_prefill_batch_args &args,\n"
+            "                                                     device const uchar *weights,\n"
+            "                                                     device const half *mid,\n"
+            "                                                     device float *down_slots,\n"
+            "                                                     device const uint *counts,\n"
+            "                                                     device const int *pair_ids,\n"
+            "                                                     device const float *router_weights,\n"
+            "                                                     threadgroup char *shmem [[threadgroup(0)]],\n"
+            "                                                     uint3 group [[threadgroup_position_in_grid]],\n"
+            "                                                     ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                                     ushort sgitg [[simdgroup_index_in_threadgroup]]) {\n"
+            "    threadgroup half *sa = (threadgroup half *)shmem;\n"
+            "    threadgroup half *sb = (threadgroup half *)(shmem + 4096);\n"
+            "    constexpr int NR0 = 64;\n"
+            "    constexpr int NR1 = 32;\n"
+            "    constexpr int NK = 32;\n"
+            "    constexpr int NL0 = NK / 16;\n"
+            "    constexpr int NL1 = NK / 8;\n"
+            "    uint expert = group.z;\n"
+            "    uint r0u = group.y * NR0;\n"
+            "    uint r1u = group.x * NR1;\n"
+            "    uint count = counts[expert];\n"
+            "    if (r0u >= args.n_embd || r1u >= count) return;\n"
+            "    int nr0 = int(min(uint(NR0), args.n_embd - r0u));\n"
+            "    int nr1 = int(min(uint(NR1), count - r1u));\n"
+            "    int lr0 = min(int(tid) / NL0, nr0 - 1);\n"
+            "    int lr1 = min(int(tid) / NL1, nr1 - 1);\n"
+            "    short il0 = short(tid % NL0);\n"
+            "    uint row = r0u + uint(lr0);\n"
+            "    uint map_base = expert * args.n_tokens + r1u;\n"
+            "    simdgroup_half8x8 ma[4];\n"
+            "    simdgroup_half8x8 mb[2];\n"
+            "    simdgroup_float8x8 mc[8];\n"
+            "    for (short i = 0; i < 8; i++) mc[i] = make_filled_simdgroup_matrix<float, 8>(0.0f);\n"
+            "    for (uint loop_k = 0u; loop_k < args.n_ff; loop_k += NK) {\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        device const uchar *wrow = weights + uint64_t(expert) * uint64_t(args.down_expert_bytes) + uint64_t(row) * uint64_t(args.down_row_bytes);\n"
+            "        for (short i = 0; i < 16; i++) {\n"
+            "            uint k = loop_k + uint(16 * il0 + i);\n"
+            "            const short sx = short(2 * il0 + i / 8);\n"
+            "            const short sy = short((tid / NL0) / 8);\n"
+            "            const short lx = short((tid / NL0) % 8);\n"
+            "            const short ly = short(i % 8);\n"
+            "            const short ib = short(8 * sx + sy);\n"
+            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_ff ? qw3_iq4xs_dequant_k(wrow, k) : half(0.0f);\n"
+            "        }\n"
+            "        int pid = pair_ids[map_base + uint(lr1)];\n"
+            "        device const half *hidden = mid + uint64_t(uint(pid)) * uint64_t(args.n_ff) + uint64_t(loop_k);\n"
+            "        for (short i = 0; i < 8; i++) {\n"
+            "            const short sx = short(tid % NL1);\n"
+            "            const short sy = short((tid / NL1) / 8);\n"
+            "            const short lx = i;\n"
+            "            const short ly = short((tid / NL1) % 8);\n"
+            "            const short ib = short(4 * sx + sy);\n"
+            "            uint kk = uint(8 * sx + i);\n"
+            "            *(sb + 64 * ib + 8 * ly + lx) = (uint(lr1) < uint(nr1) && loop_k + kk < args.n_ff) ? hidden[kk] : half(0.0f);\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        threadgroup const half *lsma = sa + 4 * 64 * (sgitg % 2);\n"
+            "        threadgroup const half *lsmb = sb + 2 * 64 * (sgitg / 2);\n"
+            "        for (short ik = 0; ik < NK / 8; ik++) {\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 4; i++) simdgroup_load(ma[i], lsma + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 2; i++) simdgroup_load(mb[i], lsmb + 64 * i, 8, 0, false);\n"
+            "            simdgroup_barrier(mem_flags::mem_none);\n"
+            "            for (short i = 0; i < 8; i++) simdgroup_multiply_accumulate(mc[i], mb[i / 4], ma[i % 4], mc[i]);\n"
+            "            lsma += 8 * 64;\n"
+            "            lsmb += 4 * 64;\n"
+            "        }\n"
+            "    }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    threadgroup float *tmp = ((threadgroup float *)shmem) + 32 * (sgitg & 1) + (16 * (sgitg >> 1)) * NR0;\n"
+            "    for (short i = 0; i < 8; i++) simdgroup_store(mc[i], tmp + 8 * (i % 4) + 8 * NR0 * (i / 4), NR0, 0, false);\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    for (short j = short(sgitg); j < nr1; j += 4) {\n"
+            "        int pid = pair_ids[map_base + uint(j)];\n"
+            "        device float *dst = down_slots + uint64_t(uint(pid)) * uint64_t(args.n_embd) + uint64_t(r0u);\n"
+            "        threadgroup float *src = ((threadgroup float *)shmem) + int(j) * NR0;\n"
+            "        float scale = router_weights[uint(pid)];\n"
+            "        int i = int(tid & 31u);\n"
+            "        device float4 *dst4 = (device float4 *)dst;\n"
+            "        threadgroup float4 *src4 = (threadgroup float4 *)src;\n"
+            "        for (; i < nr0 / 4; i += 32) dst4[i] = src4[i] * scale;\n"
+            "        i = 4 * (nr0 / 4) + int(tid & 31u);\n"
+            "        for (; i < nr0; i += 32) dst[i] = src[i] * scale;\n"
             "    }\n"
             "}\n"
             "struct qw3_moe_down_slot_reduce_args { uint n_tokens; uint n_active; uint n_embd; };\n"
@@ -4089,7 +4326,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float sum = 0.0f;\n"
             "    for (uint slot = 0u; slot < args.n_active; slot++) {\n"
             "        uint pair = token * args.n_active + slot;\n"
-            "        sum += router_weights[pair] * down_slots[uint64_t(pair) * uint64_t(args.n_embd) + row];\n"
+            "        sum += down_slots[uint64_t(pair) * uint64_t(args.n_embd) + row];\n"
             "    }\n"
             "    x0[uint64_t(token) * uint64_t(args.n_embd) + row] += sum;\n"
             "}\n"
@@ -4412,8 +4649,11 @@ static int qw3_metal_compile_kernels(void) {
         g_moe_down_q6_k_prefill_reduce_pipeline &&
         g_moe_topk_expert_map_pipeline &&
         g_moe_iq3_s_prefill_mapped_pipeline &&
+        g_moe_iq3_s_prefill_pair_mapped_pipeline &&
         g_moe_swiglu_slots_to_hidden_pipeline &&
+        g_moe_swiglu_slots_to_hidden_f16_pipeline &&
         g_moe_down_iq4_xs_prefill_mapped_pipeline &&
+        g_moe_down_iq4_xs_prefill_mapped_f16_pipeline &&
         g_moe_down_prefill_reduce_slots_pipeline &&
         g_matvec_f32_pipeline && g_matvec_f32_pair_pipeline &&
         g_matvec_f32_fast_pipeline &&
@@ -4878,6 +5118,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_moe_iq3_s_swiglu_prefill_pair_mapped"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_iq3_s_swiglu_prefill_pair_mapped not found\n");
+        return 0;
+    }
+    g_moe_iq3_s_prefill_pair_mapped_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_moe_iq3_s_prefill_pair_mapped_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_iq3_s_swiglu_prefill_pair_mapped failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_moe_swiglu_slots_to_hidden"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_moe_swiglu_slots_to_hidden not found\n");
@@ -4890,6 +5142,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_moe_swiglu_slots_to_hidden_f16"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_swiglu_slots_to_hidden_f16 not found\n");
+        return 0;
+    }
+    g_moe_swiglu_slots_to_hidden_f16_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_moe_swiglu_slots_to_hidden_f16_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_swiglu_slots_to_hidden_f16 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_moe_down_iq4_xs_prefill_mapped"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_moe_down_iq4_xs_prefill_mapped not found\n");
@@ -4899,6 +5163,18 @@ static int qw3_metal_compile_kernels(void) {
         [g_device newComputePipelineStateWithFunction:fn error:&error];
     if (!g_moe_down_iq4_xs_prefill_mapped_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_iq4_xs_prefill_mapped failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_moe_down_iq4_xs_prefill_mapped_f16"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_moe_down_iq4_xs_prefill_mapped_f16 not found\n");
+        return 0;
+    }
+    g_moe_down_iq4_xs_prefill_mapped_f16_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_moe_down_iq4_xs_prefill_mapped_f16_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_iq4_xs_prefill_mapped_f16 failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -5626,7 +5902,7 @@ int qw3_metal_begin_commands(void) {
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (g_batch_cb) return 0;
     g_batch_concurrent = 0;
-    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+    if (getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
     } else {
         g_batch_cb = [g_queue commandBuffer];
@@ -5638,7 +5914,7 @@ int qw3_metal_begin_commands_concurrent(void) {
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (g_batch_cb) return 0;
     g_batch_concurrent = 1;
-    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+    if (getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
     } else {
         g_batch_cb = [g_queue commandBuffer];
@@ -5662,7 +5938,7 @@ int qw3_metal_flush_commands(void) {
     g_batch_cb = nil;
     [cb commit];
     [g_pending_cbs addObject:cb];
-    if (getenv("QW3_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL) {
+    if (getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
     } else {
         g_batch_cb = [g_queue commandBuffer];
@@ -5805,7 +6081,8 @@ static int qw3_metal_session_ensure_moe_map_buffers(QW3MetalSessionObj *obj,
                                                      uint32_t n_embd,
                                                      uint32_t n_ff,
                                                      int need_gateup,
-                                                     int need_down) {
+                                                     int need_down,
+                                                     int need_mid_f16) {
     if (!obj || n_tokens == 0 || n_active == 0 ||
         n_expert == 0 || (need_down && n_embd == 0) ||
         (need_gateup && n_ff == 0)) {
@@ -5820,6 +6097,9 @@ static int qw3_metal_session_ensure_moe_map_buffers(QW3MetalSessionObj *obj,
     const uint64_t gateup_bytes = need_gateup ?
         (uint64_t)n_tokens * (uint64_t)n_active *
         (uint64_t)n_ff * sizeof(float) : 0;
+    const uint64_t mid_f16_bytes = need_mid_f16 ?
+        (uint64_t)n_tokens * (uint64_t)n_active *
+        (uint64_t)n_ff * sizeof(uint16_t) : 0;
     if (!obj.moeExpertCounts || obj.moeExpertCounts.length < counts_bytes) {
         obj.moeExpertCounts = qw3_metal_new_private_buffer(counts_bytes);
     }
@@ -5834,12 +6114,17 @@ static int qw3_metal_session_ensure_moe_map_buffers(QW3MetalSessionObj *obj,
         (!obj.prefillMoeUp || obj.prefillMoeUp.length < gateup_bytes)) {
         obj.prefillMoeUp = qw3_metal_new_private_buffer(gateup_bytes);
     }
+    if (need_mid_f16 &&
+        (!obj.prefillMoeMidF16 || obj.prefillMoeMidF16.length < mid_f16_bytes)) {
+        obj.prefillMoeMidF16 = qw3_metal_new_private_buffer(mid_f16_bytes);
+    }
     if (need_down &&
         (!obj.prefillMoeDown || obj.prefillMoeDown.length < down_bytes)) {
         obj.prefillMoeDown = qw3_metal_new_private_buffer(down_bytes);
     }
     return obj.moeExpertCounts && obj.moePairIds &&
            (!need_gateup || (obj.prefillMoeGate && obj.prefillMoeUp)) &&
+           (!need_mid_f16 || obj.prefillMoeMidF16) &&
            (!need_down || obj.prefillMoeDown);
 }
 
@@ -9482,12 +9767,17 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     const uint64_t x_bytes = (uint64_t)n_tokens * n_embd * sizeof(float);
     const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
     const int use_mapped_gateup =
-        n_tokens >= 32 && getenv("QW3_METAL_MOE_MAP_GATEUP") != NULL &&
-        getenv("QW3_METAL_MOE_MAP_GATEUP_DISABLE") == NULL;
+        n_tokens >= 32 && getenv("QW3_METAL_MOE_MAP_GATEUP_DISABLE") == NULL;
+    const int use_mapped_gateup_pair =
+        use_mapped_gateup && getenv("QW3_METAL_MOE_MAP_GATEUP_PAIR") != NULL &&
+        getenv("QW3_METAL_MOE_MAP_GATEUP_PAIR_DISABLE") == NULL;
     const int use_mapped_down =
         down_type == 23 && n_tokens >= 32 &&
-        getenv("QW3_METAL_MOE_MAP_DOWN") != NULL &&
         getenv("QW3_METAL_MOE_MAP_DOWN_DISABLE") == NULL;
+    const int use_mapped_mid_f16 =
+        use_mapped_gateup && use_mapped_down && !use_mapped_gateup_pair &&
+        getenv("QW3_METAL_MOE_MID_F16") != NULL &&
+        getenv("QW3_METAL_MOE_MID_F16_DISABLE") == NULL;
     const int use_mapped_moe = use_mapped_gateup || use_mapped_down;
     if (!obj.prefillX0 || !obj.prefillX1 || !obj.prefillScratch ||
         obj.prefillX0.length < x_bytes || obj.prefillX1.length < x_bytes ||
@@ -9496,7 +9786,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         (use_mapped_moe &&
          !qw3_metal_session_ensure_moe_map_buffers(
              obj, n_tokens, n_active, QW3_METAL_N_EXPERT, n_embd, n_ff,
-             use_mapped_gateup, use_mapped_down))) {
+             use_mapped_gateup, use_mapped_down, use_mapped_mid_f16))) {
         return 0;
     }
 
@@ -9581,7 +9871,24 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         if (!qw3_metal_batch_barrier()) return 0;
         enc = qw3_metal_compute_encoder(cb);
     }
-    if (use_mapped_gateup) {
+    if (use_mapped_gateup_pair) {
+        [enc setComputePipelineState:g_moe_iq3_s_prefill_pair_mapped_pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:gate_w offset:(NSUInteger)gate_inner atIndex:1];
+        [enc setBuffer:up_w offset:(NSUInteger)up_inner atIndex:2];
+        [enc setBuffer:obj.prefillX1 offset:0 atIndex:3];
+        [enc setBuffer:obj.prefillScratch offset:0 atIndex:4];
+        [enc setBuffer:kgb offset:0 atIndex:5];
+        [enc setBuffer:obj.moeExpertCounts offset:0 atIndex:6];
+        [enc setBuffer:obj.moePairIds offset:0 atIndex:7];
+        [enc setThreadgroupMemoryLength:16384u atIndex:0];
+        [enc dispatchThreadgroups:MTLSizeMake((n_tokens + 31u) / 32u,
+                                              (n_ff + 63u) / 64u,
+                                              QW3_METAL_N_EXPERT)
+            threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+        if (!qw3_metal_batch_barrier()) return 0;
+    } else if (use_mapped_gateup) {
         [enc setComputePipelineState:g_moe_iq3_s_prefill_mapped_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:gate_w offset:(NSUInteger)gate_inner atIndex:1];
@@ -9616,12 +9923,17 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         if (!qw3_metal_batch_barrier()) return 0;
 
         enc = qw3_metal_compute_encoder(cb);
-        [enc setComputePipelineState:g_moe_swiglu_slots_to_hidden_pipeline];
+        [enc setComputePipelineState:use_mapped_mid_f16 ?
+         g_moe_swiglu_slots_to_hidden_f16_pipeline :
+         g_moe_swiglu_slots_to_hidden_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:obj.prefillMoeGate offset:0 atIndex:1];
         [enc setBuffer:obj.prefillMoeUp offset:0 atIndex:2];
-        [enc setBuffer:obj.prefillScratch offset:0 atIndex:3];
-        NSUInteger threads = g_moe_swiglu_slots_to_hidden_pipeline.maxTotalThreadsPerThreadgroup;
+        [enc setBuffer:use_mapped_mid_f16 ? obj.prefillMoeMidF16 : obj.prefillScratch
+               offset:0 atIndex:3];
+        NSUInteger threads = (use_mapped_mid_f16 ?
+                              g_moe_swiglu_slots_to_hidden_f16_pipeline :
+                              g_moe_swiglu_slots_to_hidden_pipeline).maxTotalThreadsPerThreadgroup;
         if (threads > 256) threads = 256;
         if (threads < 32) threads = 32;
         [enc dispatchThreads:MTLSizeMake(n_tokens * n_active * n_ff, 1, 1)
@@ -9647,13 +9959,17 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
 
     if (use_mapped_down) {
         enc = qw3_metal_compute_encoder(cb);
-        [enc setComputePipelineState:g_moe_down_iq4_xs_prefill_mapped_pipeline];
+        [enc setComputePipelineState:use_mapped_mid_f16 ?
+         g_moe_down_iq4_xs_prefill_mapped_f16_pipeline :
+         g_moe_down_iq4_xs_prefill_mapped_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
-        [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
+        [enc setBuffer:use_mapped_mid_f16 ? obj.prefillMoeMidF16 : obj.prefillScratch
+               offset:0 atIndex:2];
         [enc setBuffer:obj.prefillMoeDown offset:0 atIndex:3];
         [enc setBuffer:obj.moeExpertCounts offset:0 atIndex:4];
         [enc setBuffer:obj.moePairIds offset:0 atIndex:5];
+        [enc setBuffer:obj.routerWeights offset:0 atIndex:6];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake((n_tokens + 31u) / 32u,
                                               (n_embd + 63u) / 64u,
@@ -11325,8 +11641,11 @@ void qw3_metal_cleanup(void) {
     g_moe_down_q6_k_prefill_reduce_pipeline = nil;
     g_moe_topk_expert_map_pipeline = nil;
     g_moe_iq3_s_prefill_mapped_pipeline = nil;
+    g_moe_iq3_s_prefill_pair_mapped_pipeline = nil;
     g_moe_swiglu_slots_to_hidden_pipeline = nil;
+    g_moe_swiglu_slots_to_hidden_f16_pipeline = nil;
     g_moe_down_iq4_xs_prefill_mapped_pipeline = nil;
+    g_moe_down_iq4_xs_prefill_mapped_f16_pipeline = nil;
     g_moe_down_prefill_reduce_slots_pipeline = nil;
     g_matvec_f32_pipeline = nil;
     g_matvec_f32_pair_pipeline = nil;

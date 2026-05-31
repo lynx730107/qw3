@@ -10,10 +10,21 @@ Default safety policy:
 - `QW3_METAL_PREFILL_CONCURRENT=1` enables the llama.cpp-style concurrent
   Metal encoder for prefill frontiers. It is opt-in until it shows a real speed
   win on long prompts.
-- Expert-major MoE gate/up is opt-in with `QW3_METAL_MOE_MAP_GATEUP=1`.
-- Expert-major MoE down is opt-in with `QW3_METAL_MOE_MAP_DOWN=1`.
-- `QW3_METAL_PREFILL_BATCH` defaults to the conservative batch size in code;
-  larger batches must pass the logits regression before becoming default.
+- Expert-major MoE gate/up is the default for batch prefill with at least 32
+  tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
+- Expert-major MoE down is the default for IQ4_XS batch prefill with at least
+  32 tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy comparisons.
+- `QW3_METAL_PREFILL_BATCH` defaults to 1024, the current Metal batch cap;
+  larger caps must pass the logits regression before becoming available.
+- `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
+  gate/up/SwiGLU kernel. It is not default because the current version is
+  correct but slower on the validation prompt.
+- `QW3_METAL_MOE_MID_F16=1` enables the DS4-style F16 routed-MoE intermediate.
+  It is correct under logits regression, but remains opt-in until it shows a
+  repeatable speed win on long prompts.
+- Metal command buffers use unretained references by default, matching
+  llama.cpp's graph compute path. Set `QW3_METAL_RETAINED_COMMAND_BUFFERS=1`
+  for legacy comparisons.
 
 Required checks after each Metal prefill change:
 1. Build `qw3-metal`.
