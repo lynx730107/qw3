@@ -35,6 +35,9 @@ Default safety policy:
 - `QW3_METAL_MOE_MID_F16=1` enables the DS4-style F16 routed-MoE intermediate.
   It is correct under logits regression, but remains opt-in until it shows a
   repeatable speed win on long prompts.
+- Linear-attention batch DeltaNet uses the tiled recurrent core plus a separate
+  gated RMSNorm node by default. Set `QW3_METAL_BATCH_GDN_LEGACY=1` for the
+  old scalar fused GDN kernel.
 - Metal command buffers use unretained references by default, matching
   llama.cpp's graph compute path. Set `QW3_METAL_RETAINED_COMMAND_BUFFERS=1`
   for legacy comparisons.
@@ -178,3 +181,24 @@ Profile notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
 - Q8 qkv/gate plus F32 alpha/beta projections: about 52-54 ms per linear
   layer, with layer 0 warmup and layer 32 outliers.
 - Output projection: about 17 ms. Conv1d and q/k l2norm are each around 2 ms.
+
+## 2026-06-01 DeltaNet Batch Tiled Core
+
+The batch DeltaNet GDN path now uses a tiled recurrent core derived from the
+single-token simdgroup/float4 kernel, followed by a separate batch gated RMSNorm
+node. This mirrors the llama.cpp graph-node direction better than the previous
+single scalar fused kernel: the recurrent state update is vectorized per state
+row, while normalization remains a separate row-reduction node.
+
+Validation after the change:
+- `make qw3-metal`
+- `env QW3_METAL_BATCH_GDN_TILED=1 make test-metal-logits` while opt-in
+- `make test-metal-logits` after promoting tiled GDN to default
+- `make test-metal-smoke`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 --nothink -p ciao -n 32`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- Tiled path, opt-in before promotion: 3413 prompt tokens, 15535.6 ms prefill.
+- Tiled path, default after promotion: 3413 prompt tokens, 15270.0 ms prefill.
+- Previous default after GQA block4: 3413 prompt tokens, 16352.2-16820.1 ms
+  prefill.
