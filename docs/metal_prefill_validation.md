@@ -17,6 +17,11 @@ Default safety policy:
   tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy comparisons.
 - GQA batch prefill fuses RMSNorm, Q gate copy, and RoPE by default. Set
   `QW3_METAL_GQA_NORM_ROPE_SPLIT=1` for the legacy split-kernel comparison.
+- GQA cached prefill attention uses the `block2` query-grouped kernel by
+  default. Set `QW3_METAL_GQA_ATTEND_BLOCK1=1` for the legacy one-query kernel.
+- `QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` is a diagnostic-only sync profiler
+  for GQA prefill stages: attention norm, qkv projection, norm/RoPE, cache
+  write, attend, output projection, residual norm.
 - `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` is a diagnostic-only sync profiler
   for the batched routed MoE stages: map, gate, up, activation, down, reduce.
 - `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
@@ -62,6 +67,8 @@ per-dimension `exp()` work while preserving the same logits boundary.
 Validation after the change:
 - `make qw3-metal`
 - `make test-metal-logits`
+- `make test-metal-smoke`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 --nothink -p ciao -n 32`
 - `make test-metal-smoke`
 - `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 2048 --nothink -p ciao -n 32`
 
@@ -125,3 +132,27 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
 - After this change: 3413 prompt tokens, 17839.4 ms prefill.
 - `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows mapped IQ3_S gate/up dropping
   from about 46-47 ms each per layer to about 35-36 ms each per layer.
+
+## 2026-06-01 GQA Cached Attention Block2
+
+The cached GQA prefill attention path now groups two causal query positions per
+threadgroup. This is the first conservative step toward the llama.cpp
+flash-attention direction: K/V are reused across adjacent queries and the
+online softmax remains per query/head, so the logits boundary stays unchanged.
+The old one-query path remains available with `QW3_METAL_GQA_ATTEND_BLOCK1=1`.
+
+`QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` was added to split the full-attention
+stage into graph-like nodes. On the 3413-token validation prompt it showed that
+`attend` dominated GQA, at roughly 520-545 ms per full-attention layer before
+this change.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- New `block2` default: 3413 prompt tokens, 17358.6 ms prefill.
+- Legacy `QW3_METAL_GQA_ATTEND_BLOCK1=1`: 3413 prompt tokens, 18002.7 ms
+  prefill.
+- GQA profiler with `block2` shows the `attend` substage around 437-465 ms per
+  full-attention layer.

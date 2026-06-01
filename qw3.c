@@ -11614,7 +11614,10 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                  s->metal, e->weights.token_embd->offset, btoks, ntok,
                  QW3_N_EMBD);
     const int profile = getenv("QW3_METAL_PREFILL_PROFILE") != NULL;
+    const int profile_gqa =
+        getenv("QW3_METAL_PROFILE_PREFILL_GQA_SYNC") != NULL;
     double profile_t0 = profile ? qw3_now_sec() : 0.0;
+    double profile_gqa_t0 = 0.0;
 #define QW3_PREFILL_BARRIER() do {                                          \
         if (concurrent_prefill && ok) ok = qw3_metal_batch_barrier();        \
     } while (0)
@@ -11633,17 +11636,41 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                 qw3_metal_begin_commands();                                  \
         }                                                                    \
     } while (0)
+#define QW3_PREFILL_PROFILE_GQA_START(layer_id) do {                         \
+        if (profile_gqa && ok &&                                             \
+            qw3_layer_is_full_attention((uint32_t)(layer_id))) {             \
+            profile_gqa_t0 = qw3_now_sec();                                  \
+        }                                                                    \
+    } while (0)
+#define QW3_PREFILL_PROFILE_GQA_STAGE(stage_name, layer_id) do {             \
+        if (profile_gqa && ok) {                                             \
+            ok = qw3_metal_synchronize();                                    \
+            const double profile_gqa_t1 = qw3_now_sec();                     \
+            fprintf(stderr,                                                  \
+                    "qw3 metal prefill gqa profile pos=%u ntok=%u "          \
+                    "layer=%d stage=%s ms=%.3f\n",                          \
+                    pos0, ntok, (layer_id), (stage_name),                    \
+                    (profile_gqa_t1 - profile_gqa_t0) * 1000.0);             \
+            profile_gqa_t0 = profile_gqa_t1;                                 \
+            if (ok) ok = concurrent_prefill ?                                \
+                qw3_metal_begin_commands_concurrent() :                      \
+                qw3_metal_begin_commands();                                  \
+        }                                                                    \
+    } while (0)
     QW3_PREFILL_PROFILE_STAGE("embed", -1);
     QW3_PREFILL_BARRIER();
     int full_slot = 0;
     int linear_slot = 0;
     for (int il = 0; ok && il < QW3_N_LAYER; il++) {
         const qw3_layer_weights *lw = &e->weights.layer[il];
+        const int is_full_attn = qw3_layer_is_full_attention((uint32_t)il);
+        QW3_PREFILL_PROFILE_GQA_START(il);
         ok = qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
             s->metal, lw->attn_norm->offset, ntok, QW3_N_EMBD,
             QW3_RMS_EPS);
         QW3_PREFILL_BARRIER();
-        if (ok && qw3_layer_is_full_attention((uint32_t)il)) {
+        if (ok && is_full_attn) {
+            QW3_PREFILL_PROFILE_GQA_STAGE("attn_norm", il);
             ok =
                 qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
                     s->metal, lw->attn_q_proj->offset, ntok, QW3_N_EMBD,
@@ -11655,6 +11682,7 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     s->metal, lw->attn_v_proj->offset, ntok, QW3_N_EMBD,
                     kv_n, gqa_v_offset, stage_stride);
             QW3_PREFILL_BARRIER();
+            QW3_PREFILL_PROFILE_GQA_STAGE("qkv_proj", il);
             if (ok) {
                 ok = qw3_metal_session_batch_gqa_norm_rope_from_scratch(
                     s->metal, lw->attn_q_norm->offset,
@@ -11666,6 +11694,7 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     stage_stride);
             }
             QW3_PREFILL_BARRIER();
+            QW3_PREFILL_PROFILE_GQA_STAGE("norm_rope", il);
             if (ok) {
                 ok = qw3_metal_session_batch_gqa_write_cache_from_scratch(
                     s->metal, (uint32_t)full_slot, pos0, ntok,
@@ -11673,6 +11702,7 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     gqa_v_offset, stage_stride);
             }
             QW3_PREFILL_BARRIER();
+            QW3_PREFILL_PROFILE_GQA_STAGE("write_cache", il);
             if (ok) {
                 ok = qw3_metal_session_batch_gqa_cached_attn_from_scratch(
                     s->metal, (uint32_t)full_slot, pos0, ntok,
@@ -11681,6 +11711,7 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     stage_stride);
             }
             QW3_PREFILL_BARRIER();
+            QW3_PREFILL_PROFILE_GQA_STAGE("attend", il);
             if (ok) {
                 ok = qw3_metal_session_batch_matmul_q8_0_scratch_to_scratch(
                     s->metal, lw->attn_o_proj->offset, ntok, q_n,
@@ -11688,12 +11719,14 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                     stage_stride);
             }
             QW3_PREFILL_BARRIER();
+            QW3_PREFILL_PROFILE_GQA_STAGE("out_proj", il);
             if (ok) {
                 ok = qw3_metal_session_batch_residual_rmsnorm_update_x0_from_scratch(
                     s->metal, lw->ffn_norm->offset, ntok, QW3_N_EMBD,
                     gqa_attn_offset, stage_stride, QW3_RMS_EPS);
             }
             QW3_PREFILL_BARRIER();
+            QW3_PREFILL_PROFILE_GQA_STAGE("residual_norm", il);
             QW3_PREFILL_PROFILE_STAGE("full_attn", il);
             full_slot++;
         } else if (ok) {
@@ -11806,6 +11839,8 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
         }
     }
 #undef QW3_PREFILL_BARRIER
+#undef QW3_PREFILL_PROFILE_GQA_START
+#undef QW3_PREFILL_PROFILE_GQA_STAGE
 #undef QW3_PREFILL_PROFILE_STAGE
 
     if (ok) ok = qw3_metal_synchronize();

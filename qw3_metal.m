@@ -95,6 +95,7 @@ static id<MTLComputePipelineState> g_gqa_attend_n_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_attend_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_write_cache_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_inner_pipeline;
+static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block2_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_split_partial_pipeline;
@@ -2154,6 +2155,128 @@ static NSString *qw3_metal_kernel_source(void) {
             "                uint gid = qh * args.head_dim + i;\n"
             "                float sig = 1.0f / (1.0f + exp(-qrow[args.gate_offset + gid]));\n"
             "                qrow[args.out_offset + gid] = (acc[gh] / tg_denom[gh]) * sig;\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "kernel void qw3_gqa_prefill_cached_attend_block2(constant qw3_gqa_prefill_cached_attn_args &args,\n"
+            "                                                device float *scratch,\n"
+            "                                                device const float *k_cache,\n"
+            "                                                device const float *v_cache,\n"
+            "                                                threadgroup float *sh,\n"
+            "                                                uint group [[threadgroup_position_in_grid]],\n"
+            "                                                ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                                ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                                ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                                ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint query0 = (group / args.n_kv_heads) * 2u;\n"
+            "    uint kvh = group - (group / args.n_kv_heads) * args.n_kv_heads;\n"
+            "    if (query0 >= args.n_tokens || kvh >= args.n_kv_heads || args.head_dim > uint(nt)) return;\n"
+            "    uint query1 = query0 + 1u;\n"
+            "    bool valid1 = query1 < args.n_tokens;\n"
+            "    uint max_query = valid1 ? query1 : query0;\n"
+            "    uint n_ctx = args.pos0 + max_query + 1u;\n"
+            "    if (n_ctx > args.ctx_size) return;\n"
+            "    uint i = uint(tid);\n"
+            "    uint group_heads = args.n_heads / args.n_kv_heads;\n"
+            "    if (group_heads == 0u || group_heads > 8u) return;\n"
+            "    uint first_qh = kvh * group_heads;\n"
+            "    uint kv_n = args.n_kv_heads * args.head_dim;\n"
+            "    device float *qrow0 = scratch + uint64_t(query0) * args.stride;\n"
+            "    device float *qrow1 = valid1 ? (scratch + uint64_t(query1) * args.stride) : qrow0;\n"
+            "    float scale = rsqrt(float(args.head_dim));\n"
+            "    threadgroup float *dots = sh;\n"
+            "    threadgroup float *tg_max = sh + 128u;\n"
+            "    threadgroup float *tg_denom = sh + 144u;\n"
+            "    threadgroup float *tg_prev = sh + 160u;\n"
+            "    threadgroup float *tg_cur = sh + 176u;\n"
+            "    float qv0[8];\n"
+            "    float qv1[8];\n"
+            "    float acc0[8];\n"
+            "    float acc1[8];\n"
+            "    for (uint gh = 0; gh < 8u; gh++) {\n"
+            "        uint qh = first_qh + gh;\n"
+            "        bool active = gh < group_heads && i < args.head_dim && qh < args.n_heads;\n"
+            "        qv0[gh] = active ? qrow0[args.q_offset + uint64_t(qh) * args.head_dim + i] : 0.0f;\n"
+            "        qv1[gh] = (active && valid1) ? qrow1[args.q_offset + uint64_t(qh) * args.head_dim + i] : 0.0f;\n"
+            "        acc0[gh] = 0.0f;\n"
+            "        acc1[gh] = 0.0f;\n"
+            "    }\n"
+            "    if (tid < 16u) {\n"
+            "        tg_max[tid] = -FLT_MAX;\n"
+            "        tg_denom[tid] = 0.0f;\n"
+            "        tg_prev[tid] = 1.0f;\n"
+            "        tg_cur[tid] = 0.0f;\n"
+            "    }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
+            "    for (uint src = 0; src < n_ctx; src++) {\n"
+            "        float kval = (i < args.head_dim) ? k_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        bool causal0 = src <= args.pos0 + query0;\n"
+            "        bool causal1 = valid1 && src <= args.pos0 + query1;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            bool active = gh < group_heads && i < args.head_dim;\n"
+            "            float part0 = (active && causal0) ? qv0[gh] * kval : 0.0f;\n"
+            "            float part1 = (active && causal1) ? qv1[gh] * kval : 0.0f;\n"
+            "            part0 = simd_sum(part0);\n"
+            "            part1 = simd_sum(part1);\n"
+            "            if (lane == 0) {\n"
+            "                dots[gh * 8u + uint(simd_idx)] = part0;\n"
+            "                dots[64u + gh * 8u + uint(simd_idx)] = part1;\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            float dot0 = (gh < group_heads && uint(tid) < n_simd) ? dots[gh * 8u + uint(tid)] : 0.0f;\n"
+            "            float dot1 = (gh < group_heads && uint(tid) < n_simd) ? dots[64u + gh * 8u + uint(tid)] : 0.0f;\n"
+            "            dot0 = simd_sum(dot0);\n"
+            "            dot1 = simd_sum(dot1);\n"
+            "            if (tid == 0) {\n"
+            "                dots[gh] = dot0;\n"
+            "                dots[64u + gh] = dot1;\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        if (uint(tid) < 16u) {\n"
+            "            uint idx = uint(tid);\n"
+            "            uint b = idx >> 3u;\n"
+            "            uint gh = idx & 7u;\n"
+            "            bool causal = (b == 0u) ? causal0 : causal1;\n"
+            "            if (gh < group_heads && causal) {\n"
+            "                float score = dots[b * 64u + gh] * scale;\n"
+            "                float next_max = max(tg_max[idx], score);\n"
+            "                float prev_scale = exp(tg_max[idx] - next_max);\n"
+            "                float cur_scale = exp(score - next_max);\n"
+            "                tg_denom[idx] = tg_denom[idx] * prev_scale + cur_scale;\n"
+            "                tg_max[idx] = next_max;\n"
+            "                tg_prev[idx] = prev_scale;\n"
+            "                tg_cur[idx] = cur_scale;\n"
+            "            } else {\n"
+            "                tg_prev[idx] = 1.0f;\n"
+            "                tg_cur[idx] = 0.0f;\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        float vv = (i < args.head_dim) ? v_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            if (gh < group_heads) {\n"
+            "                acc0[gh] = acc0[gh] * tg_prev[gh] + vv * tg_cur[gh];\n"
+            "                acc1[gh] = acc1[gh] * tg_prev[8u + gh] + vv * tg_cur[8u + gh];\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    }\n"
+            "    if (i < args.head_dim) {\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            uint qh = first_qh + gh;\n"
+            "            if (gh < group_heads && qh < args.n_heads) {\n"
+            "                uint gid = qh * args.head_dim + i;\n"
+            "                float sig0 = 1.0f / (1.0f + exp(-qrow0[args.gate_offset + gid]));\n"
+            "                qrow0[args.out_offset + gid] = (acc0[gh] / tg_denom[gh]) * sig0;\n"
+            "                if (valid1) {\n"
+            "                    float sig1 = 1.0f / (1.0f + exp(-qrow1[args.gate_offset + gid]));\n"
+            "                    qrow1[args.out_offset + gid] = (acc1[gh] / tg_denom[8u + gh]) * sig1;\n"
+            "                }\n"
             "            }\n"
             "        }\n"
             "    }\n"
@@ -5010,6 +5133,7 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_prefill_attend_inner_pipeline &&
         g_gqa_prefill_write_cache_pipeline &&
         g_gqa_prefill_cached_attend_inner_pipeline &&
+        g_gqa_prefill_cached_attend_block2_pipeline &&
         g_gqa_kv_quant_q8_pipeline &&
         g_gqa_attend_n_q8_inner_pipeline &&
         g_gqa_attend_n_q8_split_partial_pipeline &&
@@ -5836,6 +5960,18 @@ static int qw3_metal_compile_kernels(void) {
         [g_device newComputePipelineStateWithFunction:fn error:&error];
     if (!g_gqa_prefill_cached_attend_inner_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_gqa_prefill_cached_attend_inner failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_prefill_cached_attend_block2"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_prefill_cached_attend_block2 not found\n");
+        return 0;
+    }
+    g_gqa_prefill_cached_attend_block2_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_prefill_cached_attend_block2_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_prefill_cached_attend_block2 failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -11742,10 +11878,15 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
         obj.gqaV.length < cache_offset + cache_layer_bytes) {
         return 0;
     }
+    const int use_block2 =
+        getenv("QW3_METAL_GQA_ATTEND_BLOCK1") == NULL && n_tokens >= 2u;
+    id<MTLComputePipelineState> attend_pipeline = use_block2 ?
+        g_gqa_prefill_cached_attend_block2_pipeline :
+        g_gqa_prefill_cached_attend_inner_pipeline;
     NSUInteger threads = ((NSUInteger)head_dim + 31u) & ~(NSUInteger)31u;
     if (threads < 32u) threads = 32u;
     if (threads > 256u ||
-        threads > g_gqa_prefill_cached_attend_inner_pipeline.maxTotalThreadsPerThreadgroup) {
+        threads > attend_pipeline.maxTotalThreadsPerThreadgroup) {
         return 0;
     }
 
@@ -11769,13 +11910,16 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
     if (!enc) return 0;
-    [enc setComputePipelineState:g_gqa_prefill_cached_attend_inner_pipeline];
+    [enc setComputePipelineState:attend_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
     [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
     [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
-    [enc setThreadgroupMemoryLength:96u * sizeof(float) atIndex:0];
-    [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_kv_heads, 1, 1)
+    [enc setThreadgroupMemoryLength:(use_block2 ? 192u : 96u) * sizeof(float)
+                            atIndex:0];
+    const NSUInteger query_groups = use_block2 ?
+        ((NSUInteger)n_tokens + 1u) / 2u : (NSUInteger)n_tokens;
+    [enc dispatchThreadgroups:MTLSizeMake(query_groups * n_kv_heads, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
@@ -12308,6 +12452,7 @@ void qw3_metal_cleanup(void) {
     g_gqa_prefill_attend_inner_pipeline = nil;
     g_gqa_prefill_write_cache_pipeline = nil;
     g_gqa_prefill_cached_attend_inner_pipeline = nil;
+    g_gqa_prefill_cached_attend_block2_pipeline = nil;
     g_gqa_kv_quant_q8_pipeline = nil;
     g_gqa_attend_n_q8_inner_pipeline = nil;
     g_gqa_attend_n_q8_split_partial_pipeline = nil;
