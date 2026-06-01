@@ -85,6 +85,8 @@ static id<MTLComputePipelineState> g_gqa_q_norm_gate_pipeline;
 static id<MTLComputePipelineState> g_gqa_k_norm_pipeline;
 static id<MTLComputePipelineState> g_gqa_q_norm_gate_batch_pipeline;
 static id<MTLComputePipelineState> g_gqa_k_norm_batch_pipeline;
+static id<MTLComputePipelineState> g_gqa_q_norm_gate_rope_batch_pipeline;
+static id<MTLComputePipelineState> g_gqa_k_norm_rope_batch_pipeline;
 static id<MTLComputePipelineState> g_rope_heads_pipeline;
 static id<MTLComputePipelineState> g_rope_heads_batch_pipeline;
 static id<MTLComputePipelineState> g_gqa_single_token_inner_pipeline;
@@ -1739,6 +1741,80 @@ static NSString *qw3_metal_kernel_source(void) {
             "    ss = simd_sum(ss);\n"
             "    float scale = rsqrt(ss / float(args.head_dim) + args.eps);\n"
             "    for (uint i = tid; i < args.head_dim; i += nt) yo[i] = kh[i] * scale * w[i];\n"
+            "}\n"
+            "struct qw3_gqa_norm_rope_batch_args { uint n_tokens; uint n_heads; uint head_dim; uint rope_dim; uint pos0; uint in_offset; uint out_offset; uint gate_offset; uint stride; float theta; float eps; };\n"
+            "kernel void qw3_gqa_q_norm_gate_rope_batch(constant qw3_gqa_norm_rope_batch_args &args,\n"
+            "                                           device float *scratch,\n"
+            "                                           device const float *w,\n"
+            "                                           threadgroup float *sh,\n"
+            "                                           uint group [[threadgroup_position_in_grid]],\n"
+            "                                           ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                           ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                           ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                           ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint t = group / args.n_heads;\n"
+            "    uint head = group - t * args.n_heads;\n"
+            "    if (t >= args.n_tokens || head >= args.n_heads) return;\n"
+            "    device float *row = scratch + uint64_t(t) * args.stride;\n"
+            "    device const float *qh = row + args.in_offset + uint64_t(head) * uint64_t(args.head_dim) * 2ull;\n"
+            "    device const float *gh = qh + args.head_dim;\n"
+            "    device float *yo = row + args.out_offset + uint64_t(head) * args.head_dim;\n"
+            "    device float *go = row + args.gate_offset + uint64_t(head) * args.head_dim;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) ss += qh[i] * qh[i];\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = rsqrt(ss / float(args.head_dim) + args.eps);\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) {\n"
+            "        go[i] = gh[i];\n"
+            "        if (i >= args.rope_dim) { yo[i] = qh[i] * scale * w[i]; continue; }\n"
+            "        uint p = i & ~1u;\n"
+            "        float freq = pow(args.theta, -float(p) / float(args.rope_dim));\n"
+            "        float ang = float(args.pos0 + t) * freq;\n"
+            "        float c = cos(ang);\n"
+            "        float s = sin(ang);\n"
+            "        float x0 = qh[p + 0u] * scale * w[p + 0u];\n"
+            "        float x1 = qh[p + 1u] * scale * w[p + 1u];\n"
+            "        yo[i] = (i & 1u) ? (x0 * s + x1 * c) : (x0 * c - x1 * s);\n"
+            "    }\n"
+            "}\n"
+            "kernel void qw3_gqa_k_norm_rope_batch(constant qw3_gqa_norm_rope_batch_args &args,\n"
+            "                                      device float *scratch,\n"
+            "                                      device const float *w,\n"
+            "                                      threadgroup float *sh,\n"
+            "                                      uint group [[threadgroup_position_in_grid]],\n"
+            "                                      ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                      ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                      ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                      ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint t = group / args.n_heads;\n"
+            "    uint head = group - t * args.n_heads;\n"
+            "    if (t >= args.n_tokens || head >= args.n_heads) return;\n"
+            "    device float *row = scratch + uint64_t(t) * args.stride;\n"
+            "    device const float *kh = row + args.in_offset + uint64_t(head) * args.head_dim;\n"
+            "    device float *yo = row + args.out_offset + uint64_t(head) * args.head_dim;\n"
+            "    float ss = 0.0f;\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) ss += kh[i] * kh[i];\n"
+            "    ss = simd_sum(ss);\n"
+            "    if (lane == 0) sh[simd_idx] = ss;\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    ss = lane < 32 ? sh[lane] : 0.0f;\n"
+            "    ss = simd_sum(ss);\n"
+            "    float scale = rsqrt(ss / float(args.head_dim) + args.eps);\n"
+            "    for (uint i = tid; i < args.head_dim; i += nt) {\n"
+            "        if (i >= args.rope_dim) { yo[i] = kh[i] * scale * w[i]; continue; }\n"
+            "        uint p = i & ~1u;\n"
+            "        float freq = pow(args.theta, -float(p) / float(args.rope_dim));\n"
+            "        float ang = float(args.pos0 + t) * freq;\n"
+            "        float c = cos(ang);\n"
+            "        float s = sin(ang);\n"
+            "        float x0 = kh[p + 0u] * scale * w[p + 0u];\n"
+            "        float x1 = kh[p + 1u] * scale * w[p + 1u];\n"
+            "        yo[i] = (i & 1u) ? (x0 * s + x1 * c) : (x0 * c - x1 * s);\n"
+            "    }\n"
             "}\n"
             "struct qw3_rope_args { uint n_heads; uint head_dim; uint rope_dim; int pos; float theta; };\n"
             "kernel void qw3_rope_heads(constant qw3_rope_args &args,\n"
@@ -4877,6 +4953,8 @@ static int qw3_metal_compile_kernels(void) {
         g_l2norm_qk_batch_pipeline &&
         g_gqa_q_norm_gate_pipeline && g_gqa_k_norm_pipeline &&
         g_gqa_q_norm_gate_batch_pipeline && g_gqa_k_norm_batch_pipeline &&
+        g_gqa_q_norm_gate_rope_batch_pipeline &&
+        g_gqa_k_norm_rope_batch_pipeline &&
         g_rope_heads_pipeline && g_rope_heads_batch_pipeline &&
         g_gqa_single_token_inner_pipeline &&
         g_gqa_attend2_inner_pipeline &&
@@ -5590,6 +5668,30 @@ static int qw3_metal_compile_kernels(void) {
         [g_device newComputePipelineStateWithFunction:fn error:&error];
     if (!g_gqa_k_norm_batch_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_gqa_k_norm_batch failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_q_norm_gate_rope_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_q_norm_gate_rope_batch not found\n");
+        return 0;
+    }
+    g_gqa_q_norm_gate_rope_batch_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_q_norm_gate_rope_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_q_norm_gate_rope_batch failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_k_norm_rope_batch"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_k_norm_rope_batch not found\n");
+        return 0;
+    }
+    g_gqa_k_norm_rope_batch_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_k_norm_rope_batch_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_k_norm_rope_batch failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -11195,6 +11297,65 @@ int qw3_metal_session_batch_gqa_norm_rope_from_scratch(
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
 
+    if (getenv("QW3_METAL_GQA_NORM_ROPE_SPLIT") == NULL) {
+        struct {
+            uint32_t n_tokens;
+            uint32_t n_heads;
+            uint32_t head_dim;
+            uint32_t rope_dim;
+            uint32_t pos0;
+            uint32_t in_offset;
+            uint32_t out_offset;
+            uint32_t gate_offset;
+            uint32_t stride;
+            float theta;
+            float eps;
+        } q_fused_args = {
+            n_tokens, n_heads, head_dim, rope_dim, pos0, qg_offset,
+            q_rope_offset, gate_offset, stride, rope_theta, eps
+        };
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:g_gqa_q_norm_gate_rope_batch_pipeline];
+        [enc setBytes:&q_fused_args length:sizeof(q_fused_args) atIndex:0];
+        [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+        [enc setBuffer:qw offset:(NSUInteger)q_inner atIndex:2];
+        [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+        NSUInteger threads =
+            g_gqa_q_norm_gate_rope_batch_pipeline.maxTotalThreadsPerThreadgroup;
+        if (threads > 256) threads = 256;
+        if (threads < 32) threads = 32;
+        [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_heads, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+
+        __typeof__(q_fused_args) k_fused_args = {
+            n_tokens, n_kv_heads, head_dim, rope_dim, pos0, k_offset,
+            k_rope_offset, 0, stride, rope_theta, eps
+        };
+        enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:g_gqa_k_norm_rope_batch_pipeline];
+        [enc setBytes:&k_fused_args length:sizeof(k_fused_args) atIndex:0];
+        [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
+        [enc setBuffer:kw offset:(NSUInteger)k_inner atIndex:2];
+        [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+        threads = g_gqa_k_norm_rope_batch_pipeline.maxTotalThreadsPerThreadgroup;
+        if (threads > 256) threads = 256;
+        if (threads < 32) threads = 32;
+        [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens * n_kv_heads, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+
+        if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+        if (cb.status == MTLCommandBufferStatusError) {
+            fprintf(stderr, "qw3: Metal batch fused GQA norm/RoPE command failed: %s\n",
+                    [[cb.error localizedDescription] UTF8String]);
+            return 0;
+        }
+        return 1;
+    }
+
     struct {
         uint32_t n_tokens;
         uint32_t n_heads;
@@ -12046,6 +12207,8 @@ void qw3_metal_cleanup(void) {
     g_gqa_k_norm_pipeline = nil;
     g_gqa_q_norm_gate_batch_pipeline = nil;
     g_gqa_k_norm_batch_pipeline = nil;
+    g_gqa_q_norm_gate_rope_batch_pipeline = nil;
+    g_gqa_k_norm_rope_batch_pipeline = nil;
     g_rope_heads_pipeline = nil;
     g_rope_heads_batch_pipeline = nil;
     g_gqa_single_token_inner_pipeline = nil;

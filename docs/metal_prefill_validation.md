@@ -15,6 +15,8 @@ Default safety policy:
   tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
 - Expert-major MoE down is enabled inside IQ4_XS batch prefill with at least 32
   tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy comparisons.
+- GQA batch prefill fuses RMSNorm, Q gate copy, and RoPE by default. Set
+  `QW3_METAL_GQA_NORM_ROPE_SPLIT=1` for the legacy split-kernel comparison.
 - `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
   gate/up/SwiGLU kernel. It is not default because the current version is
   correct but slower on the validation prompt.
@@ -83,3 +85,21 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
 - No-profile run: 3413 prompt tokens, 18892.8 ms prefill.
 - Profile run: Q6_K layers 34, 38, and 39 dropped from about 287 ms sparse MoE
   to about 179 ms, matching the IQ4_XS mapped layer range.
+
+## 2026-06-01 GQA Norm/RoPE Fusion
+
+GQA batch prefill now fuses Q RMSNorm, Q gate copy, and RoPE into one kernel,
+and fuses K RMSNorm plus RoPE into one kernel. The split path remains available
+through `QW3_METAL_GQA_NORM_ROPE_SPLIT=1`. This mirrors the llama.cpp graph
+direction of reducing small intermediate kernels around attention setup, while
+leaving the logits boundary unchanged.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `make test-metal-smoke`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 --nothink -p ciao -n 32`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- Fused path: 3413 prompt tokens, 18797.2 ms prefill.
+- Legacy split path: 3413 prompt tokens, 18900.8 ms prefill.
