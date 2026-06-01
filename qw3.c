@@ -14115,6 +14115,45 @@ static float sample_rng_float(uint64_t *rng) {
     return (float)((x >> 11) * (1.0 / 9007199254740992.0));
 }
 
+static float sample_apply_repeat_penalty(float logit, float penalty) {
+    return logit < 0.0f ? logit * penalty : logit / penalty;
+}
+
+static unsigned char *sample_recent_token_map(const int *recent_tokens,
+                                              int n_recent_tokens,
+                                              float repeat_penalty) {
+    if (!recent_tokens || n_recent_tokens <= 0 || repeat_penalty <= 1.0f) {
+        return NULL;
+    }
+    unsigned char *seen = calloc((size_t)QW3_N_VOCAB, 1);
+    if (!seen) return NULL;
+    for (int i = 0; i < n_recent_tokens; i++) {
+        int tok = recent_tokens[i];
+        if (tok >= 0 && tok < QW3_N_VOCAB) seen[tok] = 1;
+    }
+    return seen;
+}
+
+static int qw3_session_argmax_with_repetition(qw3_session *s,
+                                              const unsigned char *seen,
+                                              float repeat_penalty) {
+    if (!seen || repeat_penalty <= 1.0f) return qw3_session_argmax(s);
+    int best = 0;
+    float bestv = seen[0] ? sample_apply_repeat_penalty(s->logits[0],
+                                                        repeat_penalty)
+                          : s->logits[0];
+    for (int i = 1; i < QW3_N_VOCAB; i++) {
+        float v = seen[i] ? sample_apply_repeat_penalty(s->logits[i],
+                                                        repeat_penalty)
+                          : s->logits[i];
+        if (v > bestv) {
+            bestv = v;
+            best = i;
+        }
+    }
+    return best;
+}
+
 int qw3_session_sample(qw3_session *s, float temperature, int top_k,
                        float top_p, float min_p, uint64_t *rng) {
     if (!s) return -1;
@@ -14129,6 +14168,86 @@ int qw3_session_sample(qw3_session *s, float temperature, int top_k,
         items[i].logit = s->logits[i];
         items[i].prob = 0.0f;
     }
+    qsort(items, QW3_N_VOCAB, sizeof(*items), sample_item_cmp_desc);
+
+    int n = top_k;
+    const float max_logit = items[0].logit;
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        float p = expf((items[i].logit - max_logit) / temperature);
+        items[i].prob = p;
+        sum += p;
+    }
+    if (sum <= 0.0) {
+        int id = items[0].id;
+        free(items);
+        return id;
+    }
+    for (int i = 0; i < n; i++) items[i].prob = (float)(items[i].prob / sum);
+
+    if (min_p > 0.0f) {
+        const float floor_p = items[0].prob * min_p;
+        int kept = 1;
+        while (kept < n && items[kept].prob >= floor_p) kept++;
+        n = kept;
+    }
+    if (top_p < 1.0f) {
+        float cdf = 0.0f;
+        int kept = 0;
+        while (kept < n) {
+            cdf += items[kept].prob;
+            kept++;
+            if (cdf >= top_p) break;
+        }
+        if (kept > 0) n = kept;
+    }
+
+    sum = 0.0;
+    for (int i = 0; i < n; i++) sum += items[i].prob;
+    float r = sample_rng_float(rng) * (float)sum;
+    int id = items[n - 1].id;
+    float cdf = 0.0f;
+    for (int i = 0; i < n; i++) {
+        cdf += items[i].prob;
+        if (r <= cdf) {
+            id = items[i].id;
+            break;
+        }
+    }
+    free(items);
+    return id;
+}
+
+int qw3_session_sample_repetition(qw3_session *s, float temperature, int top_k,
+                                  float top_p, float min_p, uint64_t *rng,
+                                  const int *recent_tokens,
+                                  int n_recent_tokens,
+                                  float repeat_penalty) {
+    if (!s) return -1;
+    if (repeat_penalty <= 1.0f || !recent_tokens || n_recent_tokens <= 0) {
+        return qw3_session_sample(s, temperature, top_k, top_p, min_p, rng);
+    }
+    unsigned char *seen = sample_recent_token_map(recent_tokens,
+                                                  n_recent_tokens,
+                                                  repeat_penalty);
+    if (temperature <= 0.0f || !rng) {
+        int id = qw3_session_argmax_with_repetition(s, seen, repeat_penalty);
+        free(seen);
+        return id;
+    }
+    if (top_p <= 0.0f || top_p > 1.0f) top_p = 1.0f;
+    if (min_p < 0.0f) min_p = 0.0f;
+    if (top_k <= 0 || top_k > QW3_N_VOCAB) top_k = QW3_N_VOCAB;
+
+    qw3_sample_item *items = qw3_xmalloc((size_t)QW3_N_VOCAB * sizeof(*items));
+    for (int i = 0; i < QW3_N_VOCAB; i++) {
+        items[i].id = i;
+        items[i].logit = seen && seen[i] ?
+            sample_apply_repeat_penalty(s->logits[i], repeat_penalty) :
+            s->logits[i];
+        items[i].prob = 0.0f;
+    }
+    free(seen);
     qsort(items, QW3_N_VOCAB, sizeof(*items), sample_item_cmp_desc);
 
     int n = top_k;

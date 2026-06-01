@@ -46,6 +46,8 @@ typedef struct {
     int sample_top_k;
     float top_p;
     float min_p;
+    float repeat_penalty;
+    int repeat_last_n;
     uint64_t rng;
 } sample_opts;
 
@@ -1397,10 +1399,22 @@ static int generate_once(agent_state *a, char **assistant_text) {
         int n_generated = 0;
         const double t_gen0 = agent_now_sec();
         for (int i = 0; i < a->cfg.n_predict; i++) {
-            int token = qw3_session_sample(
+            const int repeat_last_n = a->cfg.sample.repeat_last_n;
+            const int generated_len = emit.generated.len;
+            int repeat_len = generated_len;
+            const int *repeat_tokens = emit.generated.v;
+            if (repeat_last_n <= 0 || a->cfg.sample.repeat_penalty <= 1.0f) {
+                repeat_len = 0;
+                repeat_tokens = NULL;
+            } else if (repeat_len > repeat_last_n) {
+                repeat_tokens = emit.generated.v + (repeat_len - repeat_last_n);
+                repeat_len = repeat_last_n;
+            }
+            int token = qw3_session_sample_repetition(
                 a->session, a->cfg.sample.temperature,
                 a->cfg.sample.sample_top_k, a->cfg.sample.top_p,
-                a->cfg.sample.min_p, &a->cfg.sample.rng);
+                a->cfg.sample.min_p, &a->cfg.sample.rng,
+                repeat_tokens, repeat_len, a->cfg.sample.repeat_penalty);
             if (token < 0) {
                 rc = -1;
                 break;
@@ -1546,6 +1560,8 @@ static void print_help(void) {
         "  --sample-top-k N     Sampling top-k (default: 40)\n"
         "  --top-p N            Sampling top-p (default: 0.95)\n"
         "  --min-p N            Sampling min-p (default: 0)\n"
+        "  --repeat-penalty N   Repetition penalty (default: 1.08, 1 disables)\n"
+        "  --repeat-last-n N    Generated tokens to penalize (default: 256)\n"
         "  --seed N             Sampling seed\n"
         "  --cpu                Use CPU backend\n"
         "  --metal              Use Metal backend\n"
@@ -1577,6 +1593,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     cfg->sample.sample_top_k = 40;
     cfg->sample.top_p = 0.95f;
     cfg->sample.min_p = 0.0f;
+    cfg->sample.repeat_penalty = 1.08f;
+    cfg->sample.repeat_last_n = 256;
     cfg->sample.rng = 0x123456789abcdef0ull;
 #ifdef QW3_NO_METAL
     cfg->backend = QW3_BACKEND_CPU;
@@ -1632,6 +1650,10 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->sample.top_p = strtof(argv[++i], NULL);
         } else if (!strcmp(argv[i], "--min-p") && i + 1 < argc) {
             cfg->sample.min_p = strtof(argv[++i], NULL);
+        } else if (!strcmp(argv[i], "--repeat-penalty") && i + 1 < argc) {
+            cfg->sample.repeat_penalty = strtof(argv[++i], NULL);
+        } else if (!strcmp(argv[i], "--repeat-last-n") && i + 1 < argc) {
+            cfg->sample.repeat_last_n = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--seed") && i + 1 < argc) {
             cfg->sample.rng = strtoull(argv[++i], NULL, 10);
         } else if (!strcmp(argv[i], "--cpu")) {
