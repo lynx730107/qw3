@@ -206,3 +206,24 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
 - Tiled path, default after promotion: 3413 prompt tokens, 15270.0 ms prefill.
 - Previous default after GQA block4: 3413 prompt tokens, 16352.2-16820.1 ms
   prefill.
+
+## 2026-06-01 IQ4_XS Down Prefill Dequant
+
+The mapped routed-MoE IQ4_XS down kernels now dequantize 16 contiguous values
+from one pre-decoded block scale and q-byte pointer instead of rebuilding the
+IQ4_XS block metadata for each scalar `k`. This mirrors the earlier IQ3_S
+gate/up improvement and applies to the legacy scratch, compact F32, and F16-mid
+mapped down variants.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `make test-metal-smoke`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- Compact F32 mid default before this change: 3413 prompt tokens, 15312.8 ms
+  prefill.
+- After this change: 3413 prompt tokens, 14964.5-14972.1 ms prefill across two
+  no-profile runs.
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows routed-MoE down dropping from
+  about 68.3 ms/layer to about 56.7 ms/layer.
