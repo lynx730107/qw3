@@ -10,7 +10,7 @@ Default safety policy:
 - `QW3_METAL_PREFILL_CONCURRENT=1` enables the llama.cpp-style concurrent
   Metal encoder for prefill frontiers. It is opt-in until it shows a real speed
   win on long prompts.
-- `QW3_METAL_PREFILL_BATCH` defaults to 1024, the current Metal batch cap.
+- `QW3_METAL_PREFILL_BATCH` defaults to 4096, the current Metal batch cap.
 - Expert-major MoE gate/up is enabled inside batch prefill with at least 32
   tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
 - Expert-major MoE down is enabled inside IQ4_XS batch prefill with at least 32
@@ -48,3 +48,20 @@ env QW3_METAL_PREFILL_TEST_TOKENS=64 ./qw3-metal \
   -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 \
   --metal-session-prefill-q8-batch-test 66
 ```
+
+## 2026-06-01 GQA Prefill Softmax Check
+
+The GQA prefill attention kernels compute the online softmax max/denominator
+once per grouped-query head in threadgroup memory. This removes redundant
+per-dimension `exp()` work while preserving the same logits boundary.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `make test-metal-smoke`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 2048 --nothink -p ciao -n 32`
+
+Benchmark notes on Apple M5:
+- `docs/metal_prefill_validation.md`: 733 prompt tokens, 4220.0 ms prefill.
+- `/private/tmp/qw3_prefill_3k.md`: 3413 prompt tokens, 19221.7 ms prefill
+  (about 177.6 tok/s). Previous default-batch result was about 163 tok/s.
