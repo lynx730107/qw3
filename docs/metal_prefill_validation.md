@@ -17,6 +17,8 @@ Default safety policy:
   tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy comparisons.
 - GQA batch prefill fuses RMSNorm, Q gate copy, and RoPE by default. Set
   `QW3_METAL_GQA_NORM_ROPE_SPLIT=1` for the legacy split-kernel comparison.
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` is a diagnostic-only sync profiler
+  for the batched routed MoE stages: map, gate, up, activation, down, reduce.
 - `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
   gate/up/SwiGLU kernel. It is not default because the current version is
   correct but slower on the validation prompt.
@@ -103,3 +105,23 @@ Validation after the change:
 Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
 - Fused path: 3413 prompt tokens, 18797.2 ms prefill.
 - Legacy split path: 3413 prompt tokens, 18900.8 ms prefill.
+
+## 2026-06-01 IQ3_S Gate/Up Prefill Dequant
+
+The mapped IQ3_S routed-MoE gate/up kernel now dequantizes each 16-value
+sub-block from precomputed block pointers, scales, qh bits, signs, and expanded
+grid entries. This follows llama.cpp's `dequantize_iq3_s` shape more closely
+than the old per-element `k` decoder, while keeping the same mapped
+`mul_mm_id`-style tiling.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `make test-metal-smoke`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 --nothink -p ciao -n 32`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- Before this change: 3413 prompt tokens, 18797.2 ms prefill.
+- After this change: 3413 prompt tokens, 17839.4 ms prefill.
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows mapped IQ3_S gate/up dropping
+  from about 46-47 ms each per layer to about 35-36 ms each per layer.

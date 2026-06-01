@@ -4007,6 +4007,14 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float sign = (uint(s) & (1u << (j + (second ? 4u : 0u)))) ? -1.0f : 1.0f;\n"
             "    return half(db * float(kgrid[(idx & 511u) * 4u + j]) * sign);\n"
             "}\n"
+            "inline half qw3_iq3s_dequant16_expanded(float dl, device const uchar *qs16, uchar qh16, device const uchar *signs16, device const uchar *kgrid, uint i) {\n"
+            "    uint qn = i >> 2u;\n"
+            "    uint j = i & 3u;\n"
+            "    uint idx = uint(qs16[qn]) | ((uint(qh16) << (8u - qn)) & 256u);\n"
+            "    uchar sb = signs16[qn >> 1u];\n"
+            "    float sign = (uint(sb) & (1u << (j + 4u * (qn & 1u)))) ? -1.0f : 1.0f;\n"
+            "    return half(dl * float(kgrid[(idx & 511u) * 4u + j]) * sign);\n"
+            "}\n"
             "kernel void qw3_moe_iq3_s_prefill_mapped(constant qw3_moe_prefill_batch_args &args,\n"
             "                                         device const uchar *weights,\n"
             "                                         device const float *x1,\n"
@@ -4050,6 +4058,21 @@ static NSString *qw3_metal_kernel_source(void) {
             "    for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "        device const uchar *wrow = weights + uint64_t(expert) * uint64_t(args.iq3_expert_bytes) + uint64_t(row) * uint64_t(args.iq3_row_bytes);\n"
+            "        uint il_base = (loop_k & 255u) >> 4u;\n"
+            "        uint block_k = loop_k >> 8u;\n"
+            "        device const uchar *blk = wrow + uint64_t(block_k) * 110ull;\n"
+            "        float d = float(*((device const half *)blk));\n"
+            "        device const uchar *qs = blk + 2u;\n"
+            "        device const uchar *qh = qs + 64u;\n"
+            "        device const uchar *signs = qh + 8u;\n"
+            "        device const uchar *scales = signs + 32u;\n"
+            "        uint il = il_base + uint(il0);\n"
+            "        uint ib32 = il >> 1u;\n"
+            "        uint half_il = il & 1u;\n"
+            "        float dl = d * float(1u + 2u * ((uint(scales[ib32 >> 1u]) >> (4u * (ib32 & 1u))) & 15u));\n"
+            "        device const uchar *qs16 = qs + 8u * ib32 + 4u * half_il;\n"
+            "        device const uchar *signs16 = signs + 4u * ib32 + 2u * half_il;\n"
+            "        uchar qh16 = uchar(uint(qh[ib32]) >> (4u * half_il));\n"
             "        for (short i = 0; i < 16; i++) {\n"
             "            uint k = loop_k + uint(16 * il0 + i);\n"
             "            const short sx = short(2 * il0 + i / 8);\n"
@@ -4057,7 +4080,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "            const short lx = short((tid / NL0) % 8);\n"
             "            const short ly = short(i % 8);\n"
             "            const short ib = short(8 * sx + sy);\n"
-            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant_k_expanded(wrow, kgrid, k) : half(0.0f);\n"
+            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant16_expanded(dl, qs16, qh16, signs16, kgrid, uint(i)) : half(0.0f);\n"
             "        }\n"
             "        int pid = pair_ids[map_base + uint(lr1)];\n"
             "        uint token = uint(pid) / args.n_active;\n"
@@ -4149,6 +4172,21 @@ static NSString *qw3_metal_kernel_source(void) {
             "    for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "        device const uchar *wrow_gate = gate_weights + uint64_t(expert) * uint64_t(args.iq3_expert_bytes) + uint64_t(row) * uint64_t(args.iq3_row_bytes);\n"
+            "        uint il_base = (loop_k & 255u) >> 4u;\n"
+            "        uint block_k = loop_k >> 8u;\n"
+            "        uint il = il_base + uint(il0);\n"
+            "        uint ib32 = il >> 1u;\n"
+            "        uint half_il = il & 1u;\n"
+            "        device const uchar *blk_gate = wrow_gate + uint64_t(block_k) * 110ull;\n"
+            "        float d_gate = float(*((device const half *)blk_gate));\n"
+            "        device const uchar *qs_gate = blk_gate + 2u;\n"
+            "        device const uchar *qh_gate = qs_gate + 64u;\n"
+            "        device const uchar *signs_gate = qh_gate + 8u;\n"
+            "        device const uchar *scales_gate = signs_gate + 32u;\n"
+            "        float dl_gate = d_gate * float(1u + 2u * ((uint(scales_gate[ib32 >> 1u]) >> (4u * (ib32 & 1u))) & 15u));\n"
+            "        device const uchar *qs16_gate = qs_gate + 8u * ib32 + 4u * half_il;\n"
+            "        device const uchar *signs16_gate = signs_gate + 4u * ib32 + 2u * half_il;\n"
+            "        uchar qh16_gate = uchar(uint(qh_gate[ib32]) >> (4u * half_il));\n"
             "        for (short i = 0; i < 16; i++) {\n"
             "            uint k = loop_k + uint(16 * il0 + i);\n"
             "            const short sx = short(2 * il0 + i / 8);\n"
@@ -4156,7 +4194,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "            const short lx = short((tid / NL0) % 8);\n"
             "            const short ly = short(i % 8);\n"
             "            const short ib = short(8 * sx + sy);\n"
-            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant_k_expanded(wrow_gate, kgrid, k) : half(0.0f);\n"
+            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant16_expanded(dl_gate, qs16_gate, qh16_gate, signs16_gate, kgrid, uint(i)) : half(0.0f);\n"
             "        }\n"
             "        int pid = pair_ids[map_base + uint(lr1)];\n"
             "        uint token = uint(pid) / args.n_active;\n"
@@ -4185,6 +4223,16 @@ static NSString *qw3_metal_kernel_source(void) {
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "        device const uchar *wrow_up = up_weights + uint64_t(expert) * uint64_t(args.iq3_expert_bytes) + uint64_t(row) * uint64_t(args.iq3_row_bytes);\n"
+            "        device const uchar *blk_up = wrow_up + uint64_t(block_k) * 110ull;\n"
+            "        float d_up = float(*((device const half *)blk_up));\n"
+            "        device const uchar *qs_up = blk_up + 2u;\n"
+            "        device const uchar *qh_up = qs_up + 64u;\n"
+            "        device const uchar *signs_up = qh_up + 8u;\n"
+            "        device const uchar *scales_up = signs_up + 32u;\n"
+            "        float dl_up = d_up * float(1u + 2u * ((uint(scales_up[ib32 >> 1u]) >> (4u * (ib32 & 1u))) & 15u));\n"
+            "        device const uchar *qs16_up = qs_up + 8u * ib32 + 4u * half_il;\n"
+            "        device const uchar *signs16_up = signs_up + 4u * ib32 + 2u * half_il;\n"
+            "        uchar qh16_up = uchar(uint(qh_up[ib32]) >> (4u * half_il));\n"
             "        for (short i = 0; i < 16; i++) {\n"
             "            uint k = loop_k + uint(16 * il0 + i);\n"
             "            const short sx = short(2 * il0 + i / 8);\n"
@@ -4192,7 +4240,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "            const short lx = short((tid / NL0) % 8);\n"
             "            const short ly = short(i % 8);\n"
             "            const short ib = short(8 * sx + sy);\n"
-            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant_k_expanded(wrow_up, kgrid, k) : half(0.0f);\n"
+            "            *(sa + 64 * ib + 8 * ly + lx) = k < args.n_in ? qw3_iq3s_dequant16_expanded(dl_up, qs16_up, qh16_up, signs16_up, kgrid, uint(i)) : half(0.0f);\n"
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "        lsma = sa + 4 * 64 * (sgitg % 2);\n"
@@ -10296,6 +10344,39 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
+    const int profile_prefill_moe =
+        getenv("QW3_METAL_PROFILE_PREFILL_MOE_SYNC") != NULL;
+    const int profile_prefill_moe_batched = g_batch_cb != nil;
+    const int profile_prefill_moe_concurrent = g_batch_concurrent;
+    double profile_prefill_moe_t0 =
+        profile_prefill_moe ? [NSDate timeIntervalSinceReferenceDate] : 0.0;
+#define QW3_PROFILE_PREFILL_MOE_STAGE(stage_name) do {                              \
+        if (profile_prefill_moe) {                                                  \
+            if (profile_prefill_moe_batched) {                                      \
+                if (!qw3_metal_synchronize()) return 0;                             \
+            } else if (!qw3_metal_finish_command_buffer(cb, owned,                  \
+                                                        "prefill MoE profile")) {   \
+                return 0;                                                           \
+            }                                                                       \
+            const double profile_prefill_moe_t1 = [NSDate timeIntervalSinceReferenceDate]; \
+            fprintf(stderr,                                                         \
+                    "qw3 metal prefill moe stage tokens=%u active=%u down_type=%u " \
+                    "mapped=%u/%u pair=%u mid=%s compact=%u stage=%s ms=%.3f\n",   \
+                    n_tokens, n_active, down_type,                                  \
+                    (uint32_t)use_mapped_gateup, (uint32_t)use_mapped_down,         \
+                    (uint32_t)use_mapped_gateup_pair,                               \
+                    use_mapped_mid_f16 ? "f16" : "f32",                            \
+                    (uint32_t)use_compact_moe_blocks, (stage_name),                 \
+                    (profile_prefill_moe_t1 - profile_prefill_moe_t0) * 1000.0);    \
+            if (profile_prefill_moe_batched &&                                      \
+                !(profile_prefill_moe_concurrent ?                                  \
+                  qw3_metal_begin_commands_concurrent() :                           \
+                  qw3_metal_begin_commands())) return 0;                            \
+            cb = qw3_metal_command_buffer(&owned);                                  \
+            if (!cb) return 0;                                                      \
+            profile_prefill_moe_t0 = [NSDate timeIntervalSinceReferenceDate];        \
+        }                                                                           \
+    } while (0)
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
     if (use_mapped_moe) {
         struct {
@@ -10324,6 +10405,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         }
         qw3_metal_end_compute_encoder(cb, enc);
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("map");
         enc = qw3_metal_compute_encoder(cb);
     }
     if (use_mapped_gateup_pair) {
@@ -10350,6 +10432,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         }
         qw3_metal_end_compute_encoder(cb, enc);
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("gate_up_pair");
     } else if (use_mapped_gateup) {
         [enc setComputePipelineState:g_moe_iq3_s_prefill_mapped_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
@@ -10372,6 +10455,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         }
         qw3_metal_end_compute_encoder(cb, enc);
+        QW3_PROFILE_PREFILL_MOE_STAGE("gate");
 
         enc = qw3_metal_compute_encoder(cb);
         [enc setComputePipelineState:g_moe_iq3_s_prefill_mapped_pipeline];
@@ -10397,6 +10481,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         qw3_metal_end_compute_encoder(cb, enc);
 
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("up");
 
         enc = qw3_metal_compute_encoder(cb);
         [enc setComputePipelineState:use_mapped_mid_f16 ?
@@ -10416,6 +10501,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("activation");
     } else {
         [enc setComputePipelineState:g_moe_iq3_s_prefill_batch_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
@@ -10431,6 +10517,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
             threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("gate_up_legacy");
     }
 
     if (use_mapped_down) {
@@ -10463,6 +10550,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         qw3_metal_end_compute_encoder(cb, enc);
 
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("down");
 
         struct {
             uint32_t n_tokens;
@@ -10482,6 +10570,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("reduce");
     } else {
         enc = qw3_metal_compute_encoder(cb);
         [enc setComputePipelineState:down_type == 23 ?
@@ -10496,9 +10585,10 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         [enc setThreadgroupMemoryLength:16 * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 1u) / 2u) * n_tokens,
                                               1, 1)
-            threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+        threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
         if (!qw3_metal_batch_barrier()) return 0;
+        QW3_PROFILE_PREFILL_MOE_STAGE("down_reduce_legacy");
     }
 
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
@@ -10507,6 +10597,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                 [[cb.error localizedDescription] UTF8String]);
         return 0;
     }
+#undef QW3_PROFILE_PREFILL_MOE_STAGE
     return 1;
 }
 
