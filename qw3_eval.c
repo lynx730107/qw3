@@ -1359,6 +1359,94 @@ static void buf_appendf(byte_buf *b, const char *fmt, ...) {
     free(tmp);
 }
 
+static int utf8_read_cp(const char *s, size_t len, size_t *pos, uint32_t *cp) {
+    unsigned char c = (unsigned char)s[*pos];
+    if (c < 0x80) {
+        *cp = c;
+        (*pos)++;
+        return 1;
+    }
+    if ((c & 0xe0) == 0xc0 && *pos + 1 < len) {
+        *cp = ((uint32_t)(c & 0x1f) << 6) |
+              ((uint32_t)((unsigned char)s[*pos + 1] & 0x3f));
+        *pos += 2;
+        return 1;
+    }
+    if ((c & 0xf0) == 0xe0 && *pos + 2 < len) {
+        *cp = ((uint32_t)(c & 0x0f) << 12) |
+              ((uint32_t)((unsigned char)s[*pos + 1] & 0x3f) << 6) |
+              ((uint32_t)((unsigned char)s[*pos + 2] & 0x3f));
+        *pos += 3;
+        return 1;
+    }
+    if ((c & 0xf8) == 0xf0 && *pos + 3 < len) {
+        *cp = ((uint32_t)(c & 0x07) << 18) |
+              ((uint32_t)((unsigned char)s[*pos + 1] & 0x3f) << 12) |
+              ((uint32_t)((unsigned char)s[*pos + 2] & 0x3f) << 6) |
+              ((uint32_t)((unsigned char)s[*pos + 3] & 0x3f));
+        *pos += 4;
+        return 1;
+    }
+    *cp = c;
+    (*pos)++;
+    return 0;
+}
+
+static int gpt2_codepoint_to_byte(uint32_t cp, unsigned char *out) {
+    if ((cp >= 33 && cp <= 126) || (cp >= 161 && cp <= 172) || cp >= 174) {
+        if (cp <= 255) {
+            *out = (unsigned char)cp;
+            return 1;
+        }
+    }
+    uint32_t n = 0;
+    for (uint32_t b = 0; b < 256; b++) {
+        if ((b >= 33 && b <= 126) || (b >= 161 && b <= 172) || b >= 174) {
+            continue;
+        }
+        if (cp == 256 + n) {
+            *out = (unsigned char)b;
+            return 1;
+        }
+        n++;
+    }
+    return 0;
+}
+
+static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len) {
+    size_t raw_len = 0;
+    char *raw = qw3_token_text(engine, token, &raw_len);
+    if (!raw) {
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+    char *out = malloc(raw_len + 1);
+    if (!out) {
+        free(raw);
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+    size_t ip = 0;
+    size_t op = 0;
+    while (ip < raw_len) {
+        uint32_t cp = 0;
+        size_t before = ip;
+        utf8_read_cp(raw, raw_len, &ip, &cp);
+        unsigned char b = 0;
+        if (gpt2_codepoint_to_byte(cp, &b)) {
+            out[op++] = (char)b;
+        } else {
+            size_t n = ip - before;
+            memcpy(out + op, raw + before, n);
+            op += n;
+        }
+    }
+    out[op] = '\0';
+    free(raw);
+    if (out_len) *out_len = op;
+    return out;
+}
+
 static int eval_case_nchoices(const eval_case *tc) {
     int n = 0;
     while (n < EVAL_MAX_CHOICES && tc->choice[n]) n++;
@@ -3535,7 +3623,21 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
         }
 
         size_t len = 0;
-        char *text = qw3_token_text(engine, token, &len);
+        char *text = token_decoded_text(engine, token, &len);
+        if (!text) {
+            plain_reset_color(use_plain_color);
+            ui->generated_tokens[idx] = ui->generated;
+            tui_run_clock_stop(ui);
+            fprintf(stderr, "qw3-eval: failed to decode token %d for %s\n", token, tc->id);
+            trace_write_case(trace, cfg, tc, idx, ui->ncases, "ERROR", "token decode failed",
+                             system, question, raw.v ? raw.v : "", think_mode,
+                             prompt_tokens, ui->generated, now_sec() - t0, "?",
+                             &think_close);
+            free(question);
+            qw3_tokens_free(&think_close_tokens);
+            buf_free(&raw);
+            return EVAL_RUN_ERROR;
+        }
         buf_append(&raw, text, len);
         ui->generated++;
         ui->generated_tokens[idx] = ui->generated;
