@@ -65,3 +65,21 @@ Benchmark notes on Apple M5:
 - `docs/metal_prefill_validation.md`: 733 prompt tokens, 4220.0 ms prefill.
 - `/private/tmp/qw3_prefill_3k.md`: 3413 prompt tokens, 19221.7 ms prefill
   (about 177.6 tok/s). Previous default-batch result was about 163 tok/s.
+
+## 2026-06-01 Q6_K MoE Down Mapping
+
+Q6_K expert-down prefill now uses the same expert-mapped tiled path as the
+IQ4_XS down projection. This follows the llama.cpp direction for quantized
+prefill: use `mul_mm`/`mul_mm_id`-style tiled work instead of a row-wise
+reduce path for sparse expert matmuls.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `make test-metal-smoke`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 2048 --nothink -p ciao -n 32`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- No-profile run: 3413 prompt tokens, 18892.8 ms prefill.
+- Profile run: Q6_K layers 34, 38, and 39 dropped from about 287 ms sparse MoE
+  to about 179 ms, matching the IQ4_XS mapped layer range.
