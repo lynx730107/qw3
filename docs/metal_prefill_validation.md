@@ -23,6 +23,10 @@ Default safety policy:
 - `QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` is a diagnostic-only sync profiler
   for GQA prefill stages: attention norm, qkv projection, norm/RoPE, cache
   write, attend, output projection, residual norm.
+- `QW3_METAL_PROFILE_PREFILL_LINEAR_SYNC=1` is a diagnostic-only sync profiler
+  for linear-attention prefill stages: attention norm, qkv/gate/alpha/beta
+  projection, conv1d, q/k l2norm, DeltaNet GDN, output projection, residual
+  norm.
 - `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` is a diagnostic-only sync profiler
   for the batched routed MoE stages: map, gate, up, activation, down, reduce.
 - `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
@@ -161,3 +165,16 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
   prefill.
 - GQA profiler with `block4` shows the `attend` substage around 362-386 ms per
   full-attention layer.
+
+## 2026-06-01 Linear-Attention Prefill Profiler
+
+`QW3_METAL_PROFILE_PREFILL_LINEAR_SYNC=1` splits the linear-attention prefill
+stage into graph-like nodes, matching the same profiling style used for GQA and
+MoE. It is diagnostic-only and does not alter the default execution path.
+
+Profile notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- Typical linear layer total: about 165-170 ms.
+- DeltaNet GDN dominates: about 89-93 ms per linear layer.
+- Q8 qkv/gate plus F32 alpha/beta projections: about 52-54 ms per linear
+  layer, with layer 0 warmup and layer 32 outliers.
+- Output projection: about 17 ms. Conv1d and q/k l2norm are each around 2 ms.
