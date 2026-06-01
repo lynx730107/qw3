@@ -35,6 +35,10 @@ Default safety policy:
 - `QW3_METAL_MOE_MID_F16=1` enables the DS4-style F16 routed-MoE intermediate.
   It is correct under logits regression, but remains opt-in until it shows a
   repeatable speed win on long prompts.
+- The routed-MoE IQ4_XS down path uses a compact F32 SwiGLU intermediate by
+  default. This keeps the previous F32 precision while avoiding the larger
+  token-stride scratch layout for the down projection. Set
+  `QW3_METAL_MOE_MID_F32_DISABLE=1` for legacy comparisons.
 - Linear-attention batch DeltaNet uses the tiled recurrent core plus a separate
   gated RMSNorm node by default. Set `QW3_METAL_BATCH_GDN_LEGACY=1` for the
   old scalar fused GDN kernel.
