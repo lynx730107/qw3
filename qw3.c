@@ -3769,6 +3769,13 @@ void qw3_session_set_progress(qw3_session *s, qw3_session_progress_fn fn,
     s->progress_ud = ud;
 }
 
+static void qw3_session_progress(qw3_session *s, const char *event,
+                                 int current, int total) {
+    if (s && s->progress_fn) {
+        s->progress_fn(s->progress_ud, event, current, total);
+    }
+}
+
 int qw3_session_common_prefix(qw3_session *s, const qw3_tokens *prompt) {
     if (!s || !prompt) return 0;
     int n = s->tokens.len < prompt->len ? s->tokens.len : prompt->len;
@@ -3978,6 +3985,11 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
         qw3_session_invalidate(s);
         common = 0;
     }
+    const int total_prefill = prompt->len - common;
+    int done_prefill = 0;
+    if (total_prefill > 0) {
+        qw3_session_progress(s, "prefill_chunk", 0, total_prefill);
+    }
 #ifndef QW3_NO_METAL
     if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal) {
         const int prefill_batch = qw3_session_uses_partial_metal(s) ?
@@ -4002,6 +4014,9 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
                 }
                 if (rc != 0) return -1;
                 i += n;
+                done_prefill += n;
+                qw3_session_progress(s, "prefill_chunk",
+                                     done_prefill, total_prefill);
             }
         } else {
             const int defer_interval = qw3_prefill_defer_interval();
@@ -4022,6 +4037,9 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
                     }
                     deferred = 0;
                 }
+                done_prefill++;
+                qw3_session_progress(s, "prefill_chunk",
+                                     done_prefill, total_prefill);
             }
         }
         return 0;
@@ -4029,6 +4047,8 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
 #endif
     for (int i = common; i < prompt->len; i++) {
         if (qw3_session_eval(s, prompt->v[i], err, errlen) != 0) return -1;
+        done_prefill++;
+        qw3_session_progress(s, "prefill_chunk", done_prefill, total_prefill);
     }
     return 0;
 }

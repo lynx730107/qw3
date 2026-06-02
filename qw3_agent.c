@@ -105,6 +105,8 @@ typedef struct {
 
 typedef void (*agent_output_fn)(void *ud, const char *s, size_t n);
 typedef bool (*agent_interrupt_fn)(void *ud);
+typedef void (*agent_progress_fn)(void *ud, const char *phase,
+                                  int current, int total, double tps);
 
 typedef struct {
     agent_output_fn write;
@@ -130,6 +132,9 @@ typedef struct {
     bool output_color;
     agent_interrupt_fn should_interrupt;
     void *interrupt_ud;
+    agent_progress_fn progress_update;
+    void *progress_ud;
+    double progress_start_sec;
 } agent_state;
 
 typedef struct {
@@ -1578,6 +1583,17 @@ static void append_generated_assistant(agent_state *a,
     }
 }
 
+static void agent_prefill_progress(void *ud, const char *event,
+                                   int current, int total) {
+    agent_state *a = (agent_state *)ud;
+    if (!a || !event || strcmp(event, "prefill_chunk")) return;
+    double elapsed = agent_now_sec() - a->progress_start_sec;
+    double tps = elapsed > 0.001 ? (double)current / elapsed : 0.0;
+    if (a->progress_update) {
+        a->progress_update(a->progress_ud, "prefill", current, total, tps);
+    }
+}
+
 static int generate_once(agent_state *a, char **assistant_text) {
     *assistant_text = NULL;
     qw3_chat_append_assistant_prefix(a->engine, &a->transcript,
@@ -1598,11 +1614,27 @@ static int generate_once(agent_state *a, char **assistant_text) {
     int cached = (common == session_pos && a->transcript.len >= common) ?
                  common : 0;
     const double t_prefill0 = agent_now_sec();
+    a->progress_start_sec = t_prefill0;
+    qw3_session_set_progress(a->session, agent_prefill_progress, a);
     if (qw3_session_sync(a->session, &a->transcript, err, sizeof(err)) != 0) {
+        qw3_session_set_progress(a->session, NULL, NULL);
+        if (a->progress_update) {
+            a->progress_update(a->progress_ud, "prefill_done", 0, 0, 0.0);
+        }
         agent_statusf(a, "agent: prefill failed: %s\n", err);
         rc = -1;
     } else {
+        qw3_session_set_progress(a->session, NULL, NULL);
         const double t_prefill1 = agent_now_sec();
+        const int prefill_tokens_done = a->transcript.len - cached;
+        if (a->progress_update) {
+            double prefill_s_done = t_prefill1 - t_prefill0;
+            double tps_done = prefill_s_done > 0.0 ?
+                (double)prefill_tokens_done / prefill_s_done : 0.0;
+            a->progress_update(a->progress_ud, "prefill_done",
+                               prefill_tokens_done, prefill_tokens_done,
+                               tps_done);
+        }
         rc = 0;
         const int eos = qw3_token_eos(a->engine);
         int n_generated = 0;
@@ -2118,6 +2150,10 @@ typedef struct {
     int turn_rc;
     char *job;
     strbuf out;
+    bool progress_active;
+    int progress_current;
+    int progress_total;
+    double progress_tps;
 } agent_worker;
 
 static volatile sig_atomic_t g_agent_sigint = 0;
@@ -2169,6 +2205,38 @@ static bool agent_worker_is_busy(agent_worker *w) {
     bool busy = w->busy || w->has_job;
     pthread_mutex_unlock(&w->mu);
     return busy;
+}
+
+static void agent_worker_progress_snapshot(agent_worker *w, bool *busy,
+                                           bool *active, int *current,
+                                           int *total, double *tps) {
+    pthread_mutex_lock(&w->mu);
+    if (busy) *busy = w->busy || w->has_job;
+    if (active) *active = w->progress_active;
+    if (current) *current = w->progress_current;
+    if (total) *total = w->progress_total;
+    if (tps) *tps = w->progress_tps;
+    pthread_mutex_unlock(&w->mu);
+}
+
+static void agent_worker_progress_update(void *ud, const char *phase,
+                                         int current, int total, double tps) {
+    agent_worker *w = (agent_worker *)ud;
+    if (!w || !phase) return;
+    pthread_mutex_lock(&w->mu);
+    if (!strcmp(phase, "prefill_done")) {
+        w->progress_active = false;
+        w->progress_current = current;
+        w->progress_total = total;
+        w->progress_tps = tps;
+    } else if (!strcmp(phase, "prefill")) {
+        w->progress_active = total > 0;
+        w->progress_current = current;
+        w->progress_total = total;
+        w->progress_tps = tps;
+    }
+    pthread_mutex_unlock(&w->mu);
+    agent_worker_wake(w);
 }
 
 static int agent_worker_submit(agent_worker *w, const char *message) {
@@ -2275,6 +2343,8 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     a->output_color = isatty(STDOUT_FILENO);
     a->should_interrupt = agent_worker_should_interrupt;
     a->interrupt_ud = w;
+    a->progress_update = agent_worker_progress_update;
+    a->progress_ud = w;
     if (pthread_create(&w->thread, NULL, agent_worker_main, w) != 0) {
         close(w->wake_rd);
         close(w->wake_wr);
@@ -2334,9 +2404,32 @@ static void agent_queue_free(agent_input_queue *q) {
 static void agent_update_editor_status(struct linenoiseState *edit,
                                        agent_worker *w,
                                        const agent_input_queue *q) {
-    bool busy = agent_worker_is_busy(w);
+    bool busy = false;
+    bool progress_active = false;
+    int progress_current = 0;
+    int progress_total = 0;
+    double progress_tps = 0.0;
+    agent_worker_progress_snapshot(w, &busy, &progress_active,
+                                   &progress_current, &progress_total,
+                                   &progress_tps);
     char status[160];
-    if (busy) {
+    if (busy && progress_active && progress_total > 0) {
+        int pct = (int)((100.0 * (double)progress_current /
+                         (double)progress_total) + 0.5);
+        if (pct < 0) pct = 0;
+        if (pct > 100) pct = 100;
+        char bar[19];
+        int fill = (int)((18.0 * (double)progress_current /
+                          (double)progress_total) + 0.5);
+        if (fill < 0) fill = 0;
+        if (fill > 18) fill = 18;
+        for (int i = 0; i < 18; i++) bar[i] = i < fill ? '=' : '.';
+        bar[18] = '\0';
+        snprintf(status, sizeof(status),
+                 "prefill [%s] %d/%d %d%% %.1f tok/s  queued=%d",
+                 bar, progress_current, progress_total, pct, progress_tps,
+                 q ? q->len : 0);
+    } else if (busy) {
         snprintf(status, sizeof(status),
                  "state=running  queued=%d  ctx=busy  tools=%s  think=%s",
                  q ? q->len : 0,
@@ -2384,11 +2477,11 @@ static void agent_display_worker_output(agent_worker *w,
         if (edit) linenoiseHide(edit);
         fwrite(out, 1, strlen(out), stdout);
         fflush(stdout);
-        if (edit) {
-            agent_update_editor_status(edit, w, q);
-            linenoiseShow(edit);
-        }
         free(out);
+    }
+    if (edit) {
+        agent_update_editor_status(edit, w, q);
+        linenoiseShow(edit);
     }
     if (done) {
         *turn_done = true;
@@ -2576,6 +2669,8 @@ static int interactive_loop_worker(agent_state *a) {
     a->status_ud = NULL;
     a->should_interrupt = NULL;
     a->interrupt_ud = NULL;
+    a->progress_update = NULL;
+    a->progress_ud = NULL;
     return rc;
 }
 
@@ -2618,6 +2713,43 @@ static int interactive_loop_blocking(agent_state *a) {
 static int interactive_loop(agent_state *a) {
     if (isatty(STDIN_FILENO)) return interactive_loop_worker(a);
     return interactive_loop_blocking(a);
+}
+
+typedef struct {
+    bool active;
+} agent_direct_progress;
+
+static bool agent_direct_progress_enabled(void) {
+    const char *force = getenv("QW3_AGENT_PROGRESS");
+    return (force && force[0] && strcmp(force, "0")) || isatty(STDERR_FILENO);
+}
+
+static void agent_direct_progress_update(void *ud, const char *phase,
+                                         int current, int total, double tps) {
+    agent_direct_progress *p = (agent_direct_progress *)ud;
+    if (!p || !phase) return;
+    if (!strcmp(phase, "prefill_done")) {
+        if (p->active) {
+            fprintf(stderr, "\n");
+            fflush(stderr);
+            p->active = false;
+        }
+        return;
+    }
+    if (strcmp(phase, "prefill") || total <= 0) return;
+    int pct = (int)((100.0 * (double)current / (double)total) + 0.5);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    char bar[25];
+    int fill = (int)((24.0 * (double)current / (double)total) + 0.5);
+    if (fill < 0) fill = 0;
+    if (fill > 24) fill = 24;
+    for (int i = 0; i < 24; i++) bar[i] = i < fill ? '=' : '.';
+    bar[24] = '\0';
+    fprintf(stderr, "\rprefill [%s] %d/%d %d%% %.1f tok/s",
+            bar, current, total, pct, tps);
+    fflush(stderr);
+    p->active = true;
 }
 
 int main(int argc, char **argv) {
@@ -2677,8 +2809,17 @@ int main(int argc, char **argv) {
     }
 
     int rc = 0;
+    agent_direct_progress direct_progress = {0};
     if (a.cfg.prompt) {
+        if (agent_direct_progress_enabled()) {
+            a.progress_update = agent_direct_progress_update;
+            a.progress_ud = &direct_progress;
+        }
         rc = run_agent_turn(&a, a.cfg.prompt) == 0 ? 0 : 1;
+        if (direct_progress.active) {
+            fprintf(stderr, "\n");
+            direct_progress.active = false;
+        }
         if (rc == 0 && a.cfg.conversation) store_save(&a, a.cfg.conversation);
     } else {
         rc = interactive_loop(&a);
