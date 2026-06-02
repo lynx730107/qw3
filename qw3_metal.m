@@ -2188,9 +2188,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "    uint kvh = group % args.n_kv_heads;\n"
             "    uint split = group / args.n_kv_heads;\n"
             "    if (kvh >= args.n_kv_heads || split >= args.n_splits || args.head_dim > uint(nt)) return;\n"
-            "    uint span = (args.n_ctx + args.n_splits - 1u) / args.n_splits;\n"
-            "    uint t0 = split * span;\n"
-            "    uint t1 = min(args.n_ctx, t0 + span);\n"
+            "    uint t0 = uint((uint64_t(split) * uint64_t(args.n_ctx)) / uint64_t(args.n_splits));\n"
+            "    uint t1 = uint((uint64_t(split + 1u) * uint64_t(args.n_ctx)) / uint64_t(args.n_splits));\n"
             "    if (t0 >= t1) return;\n"
             "    uint i = uint(tid);\n"
             "    uint group_heads = args.n_heads / args.n_kv_heads;\n"
@@ -2832,9 +2831,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "    uint kvh = group % args.n_kv_heads;\n"
             "    uint split = group / args.n_kv_heads;\n"
             "    if (kvh >= args.n_kv_heads || split >= args.n_splits || args.head_dim > uint(nt)) return;\n"
-            "    uint span = (args.n_ctx + args.n_splits - 1u) / args.n_splits;\n"
-            "    uint t0 = split * span;\n"
-            "    uint t1 = min(args.n_ctx, t0 + span);\n"
+            "    uint t0 = uint((uint64_t(split) * uint64_t(args.n_ctx)) / uint64_t(args.n_splits));\n"
+            "    uint t1 = uint((uint64_t(split + 1u) * uint64_t(args.n_ctx)) / uint64_t(args.n_splits));\n"
             "    if (t0 >= t1) return;\n"
             "    uint i = uint(tid);\n"
             "    uint group_heads = args.n_heads / args.n_kv_heads;\n"
@@ -7700,7 +7698,7 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
         gqa_kv_q8 && getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL;
     const char *split_attn_env = getenv("QW3_METAL_GQA_SPLIT_ATTN");
     const BOOL gqa_split_attn =
-        !gqa_kv_q8 && split_attn_env && strcmp(split_attn_env, "0") != 0;
+        !gqa_kv_q8 && (!split_attn_env || strcmp(split_attn_env, "0") != 0);
     const uint32_t gqa_max_q8_splits = !gqa_split_q8 ||
         getenv("QW3_METAL_Q8_SPLIT_32") != NULL ? 32u :
         (getenv("QW3_METAL_Q8_SPLIT_64") != NULL ? 64u :
@@ -13434,6 +13432,7 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
         [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads * n_splits, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
         qw3_metal_end_compute_encoder(cb, enc);
 
         enc = qw3_metal_compute_encoder(cb);
@@ -13445,6 +13444,7 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
         [enc setBuffer:obj.inner offset:0 atIndex:3];
         [enc dispatchThreadgroups:MTLSizeMake(n_heads, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
         qw3_metal_end_compute_encoder(cb, enc);
     } else if (split_q8) {
         uint32_t active_max_splits = obj.gqaMaxQ8Splits;

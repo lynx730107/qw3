@@ -11623,7 +11623,23 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
         return -1;
     }
 
-    const int il = 3;
+    int il = 3;
+    const char *layer_env = getenv("QW3_METAL_GQA_BENCH_LAYER");
+    if (layer_env && layer_env[0]) {
+        char *end = NULL;
+        long v = strtol(layer_env, &end, 10);
+        if (end != layer_env && v >= 0 && v < QW3_N_LAYER) il = (int)v;
+    }
+    if (!qw3_layer_is_full_attention((uint32_t)il)) {
+        fprintf(fp,
+                "metal session gqa cached bench: layer %d is not full-attention\n",
+                il);
+        return -1;
+    }
+    uint32_t full_slot = 0;
+    for (int j = 0; j < il; j++) {
+        if (qw3_layer_is_full_attention((uint32_t)j)) full_slot++;
+    }
     const int iters = 64;
     const qw3_layer_weights *lw = &e->weights.layer[il];
     const uint32_t qg_n = (uint32_t)tensor_cols_qg();
@@ -11665,7 +11681,7 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
                 lw->attn_v_proj->offset, lw->attn_q_norm->offset,
                 lw->attn_k_norm->offset, qg_n, q_n, kv_n,
                 QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
-                QW3_ROPE_DIM, 0, (uint32_t)pos, QW3_ROPE_THETA,
+                QW3_ROPE_DIM, full_slot, (uint32_t)pos, QW3_ROPE_THETA,
                 QW3_RMS_EPS, q_out,
                 k_cache + (size_t)pos * kv_n,
                 v_cache + (size_t)pos * kv_n,
@@ -11683,7 +11699,7 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     }
     if (ok) {
         ok = qw3_metal_session_gqa_cached_attn_out(
-                 s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, 0,
+                 s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, full_slot,
                  QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
                  QW3_N_EMBD, gpu_out) &&
              qw3_metal_synchronize();
@@ -11703,7 +11719,7 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
         const double t0 = qw3_now_sec();
         for (int i = 0; ok && i < iters; i++) {
             ok = qw3_metal_session_gqa_cached_attn_out(
-                s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, 0,
+                s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, full_slot,
                 QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
                 QW3_N_EMBD, NULL);
         }
@@ -11712,8 +11728,8 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     }
 
     fprintf(fp,
-            "metal session gqa cached bench: %s token=%d layer=3 n_ctx=%d iters=%d fill_ms=%.3f attend_total_ms=%.3f attend_ms=%.4f maxdiff=%.7g rmsdiff=%.7g out0=[%.7g %.7g %.7g %.7g]\n",
-            ok ? "ok" : "failed", token, n_ctx, iters, fill_ms,
+            "metal session gqa cached bench: %s token=%d layer=%d slot=%u n_ctx=%d iters=%d fill_ms=%.3f attend_total_ms=%.3f attend_ms=%.4f maxdiff=%.7g rmsdiff=%.7g out0=[%.7g %.7g %.7g %.7g]\n",
+            ok ? "ok" : "failed", token, il, full_slot, n_ctx, iters, fill_ms,
             attend_ms, attend_ms / (double)iters, maxdiff, rmsdiff,
             gpu_out[0], gpu_out[1], gpu_out[2], gpu_out[3]);
     qw3_session_free(s);
