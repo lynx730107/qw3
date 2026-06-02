@@ -19,6 +19,8 @@
 #define QW3_CLI_ENABLE_INTERNAL_TESTS 1
 #endif
 
+#define QW3_CLI_N_LAYER 40
+
 typedef struct {
     qw3_engine *engine;
     qw3_tokens *capture;
@@ -361,6 +363,7 @@ static int cli_public_option_takes_value(const char *arg) {
            !strcmp(arg, "--min-p") ||
            !strcmp(arg, "--seed") ||
            !strcmp(arg, "--ctx") ||
+           !strcmp(arg, "--ngl") ||
            !strcmp(arg, "-ctk") ||
            !strcmp(arg, "--ctk") ||
            !strcmp(arg, "-ctv") ||
@@ -584,6 +587,7 @@ static void usage(void) {
         "  --min-p N    Sampling min-p relative floor (default: 0)\n"
         "  --seed N     Sampling seed (default: fixed)\n"
         "  --ctx N      Context size (default: 32768)\n"
+        "  --ngl N      Metal layers to keep on GPU, 0..40 (default: 40)\n"
         "  -ctk TYPE    Metal K cache type: f32, f16, or q8_0 (use with -ctv)\n"
         "  -ctv TYPE    Metal V cache type: f32, f16, or q8_0 (use with -ctk)\n"
         "  --kv-f16     Use f16 Metal GQA KV cache (recommended for large ctx)\n"
@@ -775,6 +779,8 @@ int main(int argc, char **argv) {
     char *system_owned = NULL;
     int n_predict = 512;
     int ctx_size = 32768;
+    int ngl = -1;
+    int ngl_set = 0;
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
     const char *cache_type_alias = NULL;
@@ -936,6 +942,10 @@ int main(int argc, char **argv) {
             sample.rng = strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--ctx") == 0 && i + 1 < argc) {
             ctx_size = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--ngl") == 0 && i + 1 < argc) {
+            ngl = atoi(argv[++i]);
+            ngl_set = 1;
+            backend = QW3_BACKEND_METAL;
         } else if ((strcmp(argv[i], "-ctk") == 0 ||
                     strcmp(argv[i], "--ctk") == 0) && i + 1 < argc) {
             cache_type_k = argv[++i];
@@ -1216,6 +1226,20 @@ int main(int argc, char **argv) {
         fprintf(stderr, "qw3: backend %s is not supported by this binary\n",
                 qw3_backend_name(backend));
         return 1;
+    }
+    if (ngl_set) {
+        if (backend != QW3_BACKEND_METAL) {
+            fprintf(stderr, "qw3: --ngl is available only with the Metal backend\n");
+            return 1;
+        }
+        if (ngl < 0 || ngl > QW3_CLI_N_LAYER) {
+            fprintf(stderr, "qw3: --ngl must be in the range 0..%d\n",
+                    QW3_CLI_N_LAYER);
+            return 1;
+        }
+        char ngl_env[16];
+        snprintf(ngl_env, sizeof(ngl_env), "%d", ngl);
+        setenv("QW3_METAL_NGL", ngl_env, 1);
     }
     if (cache_type_alias) {
         if (cache_type_k || cache_type_v) {

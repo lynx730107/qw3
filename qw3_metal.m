@@ -164,6 +164,39 @@ static int qw3_metal_env_bool(const char *name) {
     return 1;
 }
 
+static int qw3_metal_layer_is_full_attention(uint32_t il) {
+    return ((il + 1u) % 4u) == 0u;
+}
+
+static uint32_t qw3_metal_env_n_gpu_layers(void) {
+    const char *env = getenv("QW3_METAL_NGL");
+    if (!env || !env[0]) return 40u;
+    char *end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env) return 40u;
+    if (v < 0) return 40u;
+    if (v > 40) return 40u;
+    return (uint32_t)v;
+}
+
+static void qw3_metal_count_layer_types_before(uint32_t n_layers,
+                                               uint32_t *n_full,
+                                               uint32_t *n_linear) {
+    if (n_layers > 40u) n_layers = 40u;
+    uint32_t full = 0;
+    uint32_t linear = 0;
+    for (uint32_t il = 0; il < n_layers; il++) {
+        if (qw3_metal_layer_is_full_attention(il)) full++;
+        else linear++;
+    }
+    if (n_full) *n_full = full;
+    if (n_linear) *n_linear = linear;
+}
+
+static uint64_t qw3_metal_alloc_size(uint64_t bytes) {
+    return bytes ? bytes : 1ull;
+}
+
 static int qw3_metal_device_name_contains(const char *needle) {
     return g_device_name[0] != '\0' && strstr(g_device_name, needle) != NULL;
 }
@@ -385,6 +418,8 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic) BOOL gqaKvF16;
 @property(nonatomic) BOOL gqaSplitQ8;
 @property(nonatomic) uint32_t gqaMaxQ8Splits;
+@property(nonatomic) uint32_t metalFullLayers;
+@property(nonatomic) uint32_t metalLinearLayers;
 @end
 
 @implementation QW3MetalSessionObj
@@ -395,6 +430,7 @@ struct qw3_metal_session {
 };
 
 enum {
+    QW3_METAL_N_LAYER = 40,
     QW3_METAL_N_FULL_ATTN_LAYERS = 10,
     QW3_METAL_N_LINEAR_LAYERS = 30,
     QW3_METAL_N_EMBD = 2048,
@@ -7529,20 +7565,25 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
         getenv("QW3_METAL_Q8_SPLIT_32") != NULL ? 32u :
         (getenv("QW3_METAL_Q8_SPLIT_64") != NULL ? 64u :
          (getenv("QW3_METAL_Q8_SPLIT_128") != NULL ? 128u : 256u));
+    uint32_t metal_full_layers = QW3_METAL_N_FULL_ATTN_LAYERS;
+    uint32_t metal_linear_layers = QW3_METAL_N_LINEAR_LAYERS;
+    qw3_metal_count_layer_types_before(qw3_metal_env_n_gpu_layers(),
+                                       &metal_full_layers,
+                                       &metal_linear_layers);
     const uint64_t gqa_cache_token_bytes = gqa_kv_q8 ?
         (uint64_t)QW3_METAL_N_HEAD_KV * (QW3_METAL_N_HEAD_DIM / 32u) * 34ull :
         (gqa_kv_f16 ?
          (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(uint16_t) :
          (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(float));
     const uint64_t gqa_kv_bytes =
-        (uint64_t)QW3_METAL_N_FULL_ATTN_LAYERS * ctx_size *
+        (uint64_t)metal_full_layers * ctx_size *
         gqa_cache_token_bytes;
     const uint64_t deltanet_state_bytes =
-        (uint64_t)QW3_METAL_N_LINEAR_LAYERS * QW3_METAL_N_LINEAR_V_HEADS *
+        (uint64_t)metal_linear_layers * QW3_METAL_N_LINEAR_V_HEADS *
         QW3_METAL_N_LINEAR_HEAD_DIM * QW3_METAL_N_LINEAR_HEAD_DIM *
         sizeof(float);
     const uint64_t conv_state_bytes =
-        (uint64_t)QW3_METAL_N_LINEAR_LAYERS * QW3_METAL_LINEAR_QKV *
+        (uint64_t)metal_linear_layers * QW3_METAL_LINEAR_QKV *
         (QW3_METAL_LINEAR_CONV_K - 1) * sizeof(float);
     const uint64_t logits_bytes = (uint64_t)vocab_size * sizeof(float);
     const uint64_t scratch_bytes = 32ull * QW3_METAL_N_EMBD * sizeof(float);
@@ -7567,6 +7608,8 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     obj.gqaKvF16 = gqa_kv_f16;
     obj.gqaSplitQ8 = gqa_split_q8;
     obj.gqaMaxQ8Splits = gqa_max_q8_splits;
+    obj.metalFullLayers = metal_full_layers;
+    obj.metalLinearLayers = metal_linear_layers;
     qw3_metal_session_info info = {
         .gqa_kv_bytes = 2 * gqa_kv_bytes,
         .deltanet_state_bytes = deltanet_state_bytes,
@@ -7583,10 +7626,12 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
                        info.scratch_bytes;
     obj.info = info;
 
-    obj.gqaK = qw3_metal_new_private_buffer(gqa_kv_bytes);
-    obj.gqaV = qw3_metal_new_private_buffer(gqa_kv_bytes);
-    obj.deltanetState = qw3_metal_new_private_buffer(deltanet_state_bytes);
-    obj.convState = qw3_metal_new_private_buffer(conv_state_bytes);
+    obj.gqaK = qw3_metal_new_private_buffer(qw3_metal_alloc_size(gqa_kv_bytes));
+    obj.gqaV = qw3_metal_new_private_buffer(qw3_metal_alloc_size(gqa_kv_bytes));
+    obj.deltanetState =
+        qw3_metal_new_private_buffer(qw3_metal_alloc_size(deltanet_state_bytes));
+    obj.convState =
+        qw3_metal_new_private_buffer(qw3_metal_alloc_size(conv_state_bytes));
     obj.logits = qw3_metal_new_private_buffer(logits_bytes);
     obj.x0 = qw3_metal_new_private_buffer((uint64_t)QW3_METAL_N_EMBD * sizeof(float));
     obj.x1 = qw3_metal_new_private_buffer((uint64_t)QW3_METAL_N_EMBD * sizeof(float));

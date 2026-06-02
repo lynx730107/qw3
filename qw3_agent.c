@@ -38,6 +38,8 @@
 #define QWEN_XML_TOOL_RESPONSE_BEGIN "<tool_response>"
 #define QWEN_XML_TOOL_RESPONSE_END "</tool_response>"
 
+#define QW3_AGENT_N_LAYER 40
+
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
 
@@ -1555,6 +1557,7 @@ static void print_help(void) {
         "  --system-file PATH   Read extra system prompt from a file\n"
         "  -n N                 Max tokens per assistant turn (default: 768)\n"
         "  --ctx N              Context size (default: 32768)\n"
+        "  --ngl N              Metal layers to keep on GPU, 0..40 (default: 40)\n"
         "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32, f16, or q8_0\n"
         "  --kv-f16             Use f16 Metal GQA KV cache (recommended for large ctx)\n"
         "  --kv-f32             Use f32 Metal GQA KV cache\n"
@@ -1607,6 +1610,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
     const char *cache_type_alias = NULL;
+    int ngl = -1;
+    int ngl_set = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
             print_help();
@@ -1638,6 +1643,10 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->n_predict = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--ctx") && i + 1 < argc) {
             cfg->ctx_size = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--ngl") && i + 1 < argc) {
+            ngl = atoi(argv[++i]);
+            ngl_set = 1;
+            cfg->backend = QW3_BACKEND_METAL;
         } else if ((!strcmp(argv[i], "-ctk") || !strcmp(argv[i], "--ctk")) &&
                    i + 1 < argc) {
             cache_type_k = argv[++i];
@@ -1711,6 +1720,20 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         fprintf(stderr, "agent: backend %s is not supported\n",
                 qw3_backend_name(cfg->backend));
         return -1;
+    }
+    if (ngl_set) {
+        if (cfg->backend != QW3_BACKEND_METAL) {
+            fprintf(stderr, "agent: --ngl is available only with the Metal backend\n");
+            return -1;
+        }
+        if (ngl < 0 || ngl > QW3_AGENT_N_LAYER) {
+            fprintf(stderr, "agent: --ngl must be in the range 0..%d\n",
+                    QW3_AGENT_N_LAYER);
+            return -1;
+        }
+        char ngl_env[16];
+        snprintf(ngl_env, sizeof(ngl_env), "%d", ngl);
+        setenv("QW3_METAL_NGL", ngl_env, 1);
     }
     if (cache_type_alias) {
         if (cache_type_k || cache_type_v) {

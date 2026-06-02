@@ -300,3 +300,38 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
   still around 367-382 ms per full-attention layer, so the remaining GQA
   bottleneck is kernel shape/FlashAttention-style tiling rather than cache
   bandwidth alone.
+
+## 2026-06-02 Partial Metal Layer Offload
+
+`QW3_METAL_NGL=N`, exposed as `--ngl N` on `qw3-metal` and `qw3-agent`, keeps
+only the first `N` transformer layers active on Metal and evaluates the
+remaining layers on the CPU reference path. This mirrors the operational role
+of llama.cpp `--ngl`: it reduces Metal KV/state residency for very large
+contexts, especially `--ctx 64000`, where f16 KV alone is still too much
+pressure on the 24 GB test machine.
+
+Current scope:
+- Valid range is `0..40`; default is `40` and preserves the full Metal path.
+- Partial offload disables the batched Metal prefill path for now, so it is a
+  correctness and residency feature first, not a prefill-speed feature.
+- The model tensor mmap is still global; the immediate win is lower active
+  Metal cache/state allocation and fewer layer weights touched by Metal.
+- The Metal prefix command buffer must be synchronized before reading the
+  boundary activation into the CPU tail; otherwise the CPU sees stale zeroed
+  `x0` and logits collapse to token `0`.
+
+Suggested 64k smoke shape:
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 64000 --kv-f16 --ngl 35 --nothink -p ciao -n 16`
+
+Validation after the first partial-offload implementation:
+- `make qw3-metal`
+- `make qw3-agent`
+- `make test-metal-logits`
+- `./qw3-metal ... --ctx 1024 --ngl 35 --metal-session-decode-test -p ciao`
+  passes with matching top logits.
+- `./qw3-metal ... --ctx 1024 --ngl 35 --nothink -p ciao -n 16` generates
+  the expected greeting, but at about 5.5 tok/s because layers 35..39 run on
+  CPU.
+- `./qw3-metal ... --ctx 64000 --kv-f16 --ngl 35 --nothink -p ciao -n 4`
+  starts successfully with a Metal memory estimate of 1057.6 MiB
+  (`gqa_kv=1000.0 MiB`, `deltanet=54.0 MiB`) and generates the expected prefix.
