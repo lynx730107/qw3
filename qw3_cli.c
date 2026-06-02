@@ -584,8 +584,11 @@ static void usage(void) {
         "  --min-p N    Sampling min-p relative floor (default: 0)\n"
         "  --seed N     Sampling seed (default: fixed)\n"
         "  --ctx N      Context size (default: 32768)\n"
-        "  -ctk TYPE    Metal K cache type: f32 or q8_0 (use with -ctv)\n"
-        "  -ctv TYPE    Metal V cache type: f32 or q8_0 (use with -ctk)\n"
+        "  -ctk TYPE    Metal K cache type: f32, f16, or q8_0 (use with -ctv)\n"
+        "  -ctv TYPE    Metal V cache type: f32, f16, or q8_0 (use with -ctk)\n"
+        "  --kv-f16     Use f16 Metal GQA KV cache (recommended for large ctx)\n"
+        "  --kv-f32     Use f32 Metal GQA KV cache\n"
+        "  --kv-q8      Use q8_0 Metal GQA KV cache (experimental)\n"
         "  --cpu        Use CPU backend\n"
         "  --metal      Use Metal backend when compiled in\n"
         "  --nothink    Disable thinking mode\n"
@@ -774,6 +777,7 @@ int main(int argc, char **argv) {
     int ctx_size = 32768;
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
+    const char *cache_type_alias = NULL;
     sample_opts sample = {
         .temperature = 0.0f,
         .sample_top_k = 40,
@@ -939,6 +943,15 @@ int main(int argc, char **argv) {
         } else if ((strcmp(argv[i], "-ctv") == 0 ||
                     strcmp(argv[i], "--ctv") == 0) && i + 1 < argc) {
             cache_type_v = argv[++i];
+            backend = QW3_BACKEND_METAL;
+        } else if (strcmp(argv[i], "--kv-f16") == 0) {
+            cache_type_alias = "f16";
+            backend = QW3_BACKEND_METAL;
+        } else if (strcmp(argv[i], "--kv-f32") == 0) {
+            cache_type_alias = "f32";
+            backend = QW3_BACKEND_METAL;
+        } else if (strcmp(argv[i], "--kv-q8") == 0) {
+            cache_type_alias = "q8_0";
             backend = QW3_BACKEND_METAL;
         } else if (strcmp(argv[i], "--cpu") == 0) {
             backend = QW3_BACKEND_CPU;
@@ -1204,6 +1217,15 @@ int main(int argc, char **argv) {
                 qw3_backend_name(backend));
         return 1;
     }
+    if (cache_type_alias) {
+        if (cache_type_k || cache_type_v) {
+            fprintf(stderr,
+                    "qw3: use either --kv-f16/--kv-f32/--kv-q8 or -ctk/-ctv, not both\n");
+            return 1;
+        }
+        cache_type_k = cache_type_alias;
+        cache_type_v = cache_type_alias;
+    }
     if (cache_type_k || cache_type_v) {
         if (backend != QW3_BACKEND_METAL) {
             fprintf(stderr, "qw3: -ctk/-ctv are available only with the Metal backend\n");
@@ -1217,11 +1239,16 @@ int main(int argc, char **argv) {
         }
         if (strcmp(cache_type_k, "q8_0") == 0) {
             setenv("QW3_METAL_KV_Q8_0", "1", 1);
+            setenv("QW3_METAL_KV_F16", "0", 1);
+        } else if (strcmp(cache_type_k, "f16") == 0) {
+            setenv("QW3_METAL_KV_Q8_0", "0", 1);
+            setenv("QW3_METAL_KV_F16", "1", 1);
         } else if (strcmp(cache_type_k, "f32") == 0) {
             setenv("QW3_METAL_KV_Q8_0", "0", 1);
+            setenv("QW3_METAL_KV_F16", "0", 1);
         } else {
             fprintf(stderr,
-                    "qw3: unsupported Metal KV cache type '%s' (expected f32 or q8_0)\n",
+                    "qw3: unsupported Metal KV cache type '%s' (expected f32, f16, or q8_0)\n",
                     cache_type_k);
             return 1;
         }

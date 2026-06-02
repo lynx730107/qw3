@@ -271,6 +271,11 @@ using q8 quantization. It updates both batched prefill cache writes and
 single-token decode cache writes, and the cached GQA attention kernels select
 f32 or f16 reads through an explicit `kv_type` argument. The default remains
 f32 because this is a memory feature, not a measured prefill speed win.
+The same mode is available from `qw3-metal` and `qw3-agent` with `--kv-f16`
+or with the llama-style spelling `-ctk f16 -ctv f16`. For large contexts on
+24 GB unified memory, this avoids the f32 GQA KV pressure that can make decode
+collapse at `--ctx 32000` and should be the first option to use for
+`--ctx 64000`.
 
 Validation after the change:
 - `make qw3-metal`
@@ -280,6 +285,15 @@ Validation after the change:
 Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
 - Default f32 KV after Metal4 MoE MPP promotion: 3413 prompt tokens, 13830.8 ms
   prefill.
+- `./qw3-agent ... --ctx 32000 --kv-f16 --nothink -p ciao -n 16` keeps the
+  GQA KV estimate at 625.0 MiB and decodes the short greeting at about
+  31 tok/s.
+- `./qw3-metal ... --ctx 64000 --kv-f16 --nothink -p ciao -n 16` starts and
+  generates the expected greeting, but the 1.25 GiB f16 GQA KV cache still
+  causes decode to drop to about 4 tok/s on the 24 GB test machine. This is the
+  same pressure point as f32 KV at `--ctx 32000`; making 64k fast will need a
+  further memory strategy, such as safe q8 KV, paged/growable KV, or CPU layer
+  offload.
 - `QW3_METAL_KV_F16=1`: 3413 prompt tokens, 13928.9 ms prefill in a no-profile
   run.
 - `QW3_METAL_KV_F16=1 QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` shows GQA `attend`

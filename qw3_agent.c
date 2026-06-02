@@ -1555,7 +1555,10 @@ static void print_help(void) {
         "  --system-file PATH   Read extra system prompt from a file\n"
         "  -n N                 Max tokens per assistant turn (default: 768)\n"
         "  --ctx N              Context size (default: 32768)\n"
-        "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32 or q8_0\n"
+        "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32, f16, or q8_0\n"
+        "  --kv-f16             Use f16 Metal GQA KV cache (recommended for large ctx)\n"
+        "  --kv-f32             Use f32 Metal GQA KV cache\n"
+        "  --kv-q8              Use q8_0 Metal GQA KV cache (experimental)\n"
         "  --temp N             Temperature (default: 0)\n"
         "  --sample-top-k N     Sampling top-k (default: 40)\n"
         "  --top-p N            Sampling top-p (default: 0.95)\n"
@@ -1603,6 +1606,7 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
 #endif
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
+    const char *cache_type_alias = NULL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
             print_help();
@@ -1641,6 +1645,15 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         } else if ((!strcmp(argv[i], "-ctv") || !strcmp(argv[i], "--ctv")) &&
                    i + 1 < argc) {
             cache_type_v = argv[++i];
+            cfg->backend = QW3_BACKEND_METAL;
+        } else if (!strcmp(argv[i], "--kv-f16")) {
+            cache_type_alias = "f16";
+            cfg->backend = QW3_BACKEND_METAL;
+        } else if (!strcmp(argv[i], "--kv-f32")) {
+            cache_type_alias = "f32";
+            cfg->backend = QW3_BACKEND_METAL;
+        } else if (!strcmp(argv[i], "--kv-q8")) {
+            cache_type_alias = "q8_0";
             cfg->backend = QW3_BACKEND_METAL;
         } else if (!strcmp(argv[i], "--temp") && i + 1 < argc) {
             cfg->sample.temperature = strtof(argv[++i], NULL);
@@ -1699,6 +1712,15 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
                 qw3_backend_name(cfg->backend));
         return -1;
     }
+    if (cache_type_alias) {
+        if (cache_type_k || cache_type_v) {
+            fprintf(stderr,
+                    "agent: use either --kv-f16/--kv-f32/--kv-q8 or -ctk/-ctv, not both\n");
+            return -1;
+        }
+        cache_type_k = cache_type_alias;
+        cache_type_v = cache_type_alias;
+    }
     if (cache_type_k || cache_type_v) {
         if (cfg->backend != QW3_BACKEND_METAL || !cache_type_k || !cache_type_v ||
             strcmp(cache_type_k, cache_type_v) != 0) {
@@ -1707,10 +1729,17 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         }
         if (!strcmp(cache_type_k, "q8_0")) {
             setenv("QW3_METAL_KV_Q8_0", "1", 1);
+            setenv("QW3_METAL_KV_F16", "0", 1);
+        } else if (!strcmp(cache_type_k, "f16")) {
+            setenv("QW3_METAL_KV_Q8_0", "0", 1);
+            setenv("QW3_METAL_KV_F16", "1", 1);
         } else if (!strcmp(cache_type_k, "f32")) {
             setenv("QW3_METAL_KV_Q8_0", "0", 1);
+            setenv("QW3_METAL_KV_F16", "0", 1);
         } else {
-            fprintf(stderr, "agent: unsupported KV cache type '%s'\n", cache_type_k);
+            fprintf(stderr,
+                    "agent: unsupported KV cache type '%s' (expected f32, f16, or q8_0)\n",
+                    cache_type_k);
             return -1;
         }
     }
