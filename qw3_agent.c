@@ -2019,6 +2019,23 @@ static bool generated_has_complete_tool_call(const char *text) {
            text_has_jsonish_tool_call(text);
 }
 
+static size_t marker_suffix_hold_len(const char *text, size_t len,
+                                     const char *marker) {
+    if (!text || !marker) return 0;
+    size_t marker_len = strlen(marker);
+    size_t max = len < marker_len ? len : marker_len - 1;
+    for (size_t n = max; n > 0; n--) {
+        if (!memcmp(text + len - n, marker, n)) return n;
+    }
+    return 0;
+}
+
+static size_t tool_marker_suffix_hold_len(const char *text, size_t len) {
+    size_t a = marker_suffix_hold_len(text, len, DSML_BEGIN);
+    size_t b = marker_suffix_hold_len(text, len, QWEN_XML_TOOL_CALL_BEGIN);
+    return a > b ? a : b;
+}
+
 static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
     const char *dsml = ctx->text.p ? strstr(ctx->text.p, DSML_BEGIN) : NULL;
     const char *native = ctx->text.p ? strstr(ctx->text.p, QWEN_XML_TOOL_CALL_BEGIN) : NULL;
@@ -2036,8 +2053,7 @@ static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
     } else if (final) {
         limit = ctx->text.len;
     } else {
-        size_t hold = strlen(DSML_BEGIN);
-        if (strlen(QWEN_XML_TOOL_CALL_BEGIN) > hold) hold = strlen(QWEN_XML_TOOL_CALL_BEGIN);
+        size_t hold = tool_marker_suffix_hold_len(ctx->text.p, ctx->text.len);
         limit = ctx->text.len > hold ? ctx->text.len - hold : 0;
     }
     if (limit > ctx->printed) {
