@@ -11611,6 +11611,20 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     const uint32_t kv_n = (uint32_t)tensor_cols_kv();
     qw3_session *s = NULL;
     int ok = qw3_session_create(&s, e, ctx_size) == 0 && s && s->metal;
+    float *q_last = qw3_xmalloc((size_t)q_n * sizeof(float));
+    float *gate_last = qw3_xmalloc((size_t)q_n * sizeof(float));
+    float *k_cache = qw3_xmalloc((size_t)n_ctx * kv_n * sizeof(float));
+    float *v_cache = qw3_xmalloc((size_t)n_ctx * kv_n * sizeof(float));
+    float *cpu_inner = qw3_xmalloc((size_t)q_n * sizeof(float));
+    float *cpu_out = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+    float *gpu_out = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+    memset(q_last, 0, (size_t)q_n * sizeof(float));
+    memset(gate_last, 0, (size_t)q_n * sizeof(float));
+    memset(k_cache, 0, (size_t)n_ctx * kv_n * sizeof(float));
+    memset(v_cache, 0, (size_t)n_ctx * kv_n * sizeof(float));
+    memset(cpu_inner, 0, (size_t)q_n * sizeof(float));
+    memset(cpu_out, 0, (size_t)QW3_N_EMBD * sizeof(float));
+    memset(gpu_out, 0, (size_t)QW3_N_EMBD * sizeof(float));
 
     double fill_ms = 0.0;
     if (ok) {
@@ -11624,23 +11638,44 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     if (ok) {
         const double t0 = qw3_now_sec();
         for (int pos = 0; ok && pos < n_ctx; pos++) {
+            float *q_out = (pos + 1 == n_ctx) ? q_last : NULL;
+            float *gate_out = (pos + 1 == n_ctx) ? gate_last : NULL;
             ok = qw3_metal_session_gqa_project_cache(
                 s->metal, lw->attn_q_proj->offset, lw->attn_k_proj->offset,
                 lw->attn_v_proj->offset, lw->attn_q_norm->offset,
                 lw->attn_k_norm->offset, qg_n, q_n, kv_n,
                 QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
                 QW3_ROPE_DIM, 0, (uint32_t)pos, QW3_ROPE_THETA,
-                QW3_RMS_EPS, NULL, NULL, NULL, NULL);
+                QW3_RMS_EPS, q_out,
+                k_cache + (size_t)pos * kv_n,
+                v_cache + (size_t)pos * kv_n,
+                gate_out);
         }
         if (ok) ok = qw3_metal_synchronize();
         fill_ms = (qw3_now_sec() - t0) * 1000.0;
+    }
+    float maxdiff = 0.0f;
+    double rmsdiff = 0.0;
+    if (ok) {
+        cpu_gqa_attend_inner(q_last, gate_last, k_cache, v_cache, n_ctx,
+                             cpu_inner);
+        ok = cpu_matvec_q8_0(&e->model, lw->attn_o_proj, cpu_inner, cpu_out);
     }
     if (ok) {
         ok = qw3_metal_session_gqa_cached_attn_out(
                  s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, 0,
                  QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
-                 QW3_N_EMBD, NULL) &&
+                 QW3_N_EMBD, gpu_out) &&
              qw3_metal_synchronize();
+    }
+    if (ok) {
+        for (int i = 0; i < QW3_N_EMBD; i++) {
+            float d = fabsf(cpu_out[i] - gpu_out[i]);
+            if (d > maxdiff) maxdiff = d;
+            rmsdiff += (double)d * d;
+        }
+        rmsdiff = sqrt(rmsdiff / (double)QW3_N_EMBD);
+        if (maxdiff > 0.05f || rmsdiff > 0.005) ok = 0;
     }
 
     double attend_ms = 0.0;
@@ -11657,10 +11692,18 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     }
 
     fprintf(fp,
-            "metal session gqa cached bench: %s token=%d layer=3 n_ctx=%d iters=%d fill_ms=%.3f attend_total_ms=%.3f attend_ms=%.4f\n",
+            "metal session gqa cached bench: %s token=%d layer=3 n_ctx=%d iters=%d fill_ms=%.3f attend_total_ms=%.3f attend_ms=%.4f maxdiff=%.7g rmsdiff=%.7g out0=[%.7g %.7g %.7g %.7g]\n",
             ok ? "ok" : "failed", token, n_ctx, iters, fill_ms,
-            attend_ms, attend_ms / (double)iters);
+            attend_ms, attend_ms / (double)iters, maxdiff, rmsdiff,
+            gpu_out[0], gpu_out[1], gpu_out[2], gpu_out[3]);
     qw3_session_free(s);
+    free(gpu_out);
+    free(cpu_out);
+    free(cpu_inner);
+    free(v_cache);
+    free(k_cache);
+    free(gate_last);
+    free(q_last);
     return ok ? 0 : -1;
 #endif
 }

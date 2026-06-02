@@ -104,6 +104,8 @@ static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block4_pipeline;
 static id<MTLComputePipelineState> g_gqa_store_token_cache_f16_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
+static id<MTLComputePipelineState> g_gqa_attend_n_split_partial_pipeline;
+static id<MTLComputePipelineState> g_gqa_attend_n_split_reduce_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_split_partial_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_split_reduce_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_zero_pipeline;
@@ -417,7 +419,9 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic) BOOL gqaKvQ8;
 @property(nonatomic) BOOL gqaKvF16;
 @property(nonatomic) BOOL gqaSplitQ8;
+@property(nonatomic) BOOL gqaSplitAttn;
 @property(nonatomic) uint32_t gqaMaxQ8Splits;
+@property(nonatomic) uint32_t gqaMaxAttnSplits;
 @property(nonatomic) uint32_t metalFullLayers;
 @property(nonatomic) uint32_t metalLinearLayers;
 @end
@@ -2166,6 +2170,113 @@ static NSString *qw3_metal_kernel_source(void) {
             "            }\n"
             "        }\n"
             "    }\n"
+            "}\n"
+            "struct qw3_gqa_split_args { uint n_ctx; uint n_heads; uint n_kv_heads; uint head_dim; uint n_splits; uint kv_type; };\n"
+            "kernel void qw3_gqa_attend_n_split_partial(constant qw3_gqa_split_args &args,\n"
+            "                                           device const float *q,\n"
+            "                                           device const float *k_cache,\n"
+            "                                           device const float *v_cache,\n"
+            "                                           device float *partial,\n"
+            "                                           device const half *k_cache_f16,\n"
+            "                                           device const half *v_cache_f16,\n"
+            "                                           threadgroup float *sh,\n"
+            "                                           uint group [[threadgroup_position_in_grid]],\n"
+            "                                           ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                           ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                           ushort lane [[thread_index_in_simdgroup]],\n"
+            "                                           ushort nt [[threads_per_threadgroup]]) {\n"
+            "    uint kvh = group % args.n_kv_heads;\n"
+            "    uint split = group / args.n_kv_heads;\n"
+            "    if (kvh >= args.n_kv_heads || split >= args.n_splits || args.head_dim > uint(nt)) return;\n"
+            "    uint span = (args.n_ctx + args.n_splits - 1u) / args.n_splits;\n"
+            "    uint t0 = split * span;\n"
+            "    uint t1 = min(args.n_ctx, t0 + span);\n"
+            "    if (t0 >= t1) return;\n"
+            "    uint i = uint(tid);\n"
+            "    uint group_heads = args.n_heads / args.n_kv_heads;\n"
+            "    if (group_heads == 0u || group_heads > 8u) return;\n"
+            "    uint first_qh = kvh * group_heads;\n"
+            "    float scale = rsqrt(float(args.head_dim));\n"
+            "    float qv[8];\n"
+            "    float max_score[8];\n"
+            "    float denom[8];\n"
+            "    float acc[8];\n"
+            "    for (uint gh = 0; gh < 8u; gh++) {\n"
+            "        uint qh = first_qh + gh;\n"
+            "        qv[gh] = (gh < group_heads && i < args.head_dim && qh < args.n_heads) ? q[uint64_t(qh) * args.head_dim + i] : 0.0f;\n"
+            "        max_score[gh] = -FLT_MAX;\n"
+            "        denom[gh] = 0.0f;\n"
+            "        acc[gh] = 0.0f;\n"
+            "    }\n"
+            "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
+            "    for (uint t = t0; t < t1; t++) {\n"
+            "        uint64_t kv_idx = (uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim + i;\n"
+            "        float kval = (i < args.head_dim) ? qw3_gqa_cache_load(k_cache, k_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            float part = (gh < group_heads && i < args.head_dim) ? qv[gh] * kval : 0.0f;\n"
+            "            part = simd_sum(part);\n"
+            "            if (lane == 0) sh[gh * 8u + uint(simd_idx)] = part;\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            float dot = (gh < group_heads && uint(tid) < n_simd) ? sh[gh * 8u + uint(tid)] : 0.0f;\n"
+            "            dot = simd_sum(dot);\n"
+            "            if (tid == 0) sh[gh] = dot;\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        float vv = (i < args.head_dim) ? qw3_gqa_cache_load(v_cache, v_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
+            "        for (uint gh = 0; gh < 8u; gh++) {\n"
+            "            if (gh < group_heads) {\n"
+            "                float score = sh[gh] * scale;\n"
+            "                float next_max = max(max_score[gh], score);\n"
+            "                float prev_scale = exp(max_score[gh] - next_max);\n"
+            "                float cur_scale = exp(score - next_max);\n"
+            "                acc[gh] = acc[gh] * prev_scale + vv * cur_scale;\n"
+            "                denom[gh] = denom[gh] * prev_scale + cur_scale;\n"
+            "                max_score[gh] = next_max;\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    }\n"
+            "    if (i < args.head_dim) {\n"
+            "        uint stride = args.head_dim + 2u;\n"
+            "        for (uint gh = 0; gh < group_heads; gh++) {\n"
+            "            uint qh = first_qh + gh;\n"
+            "            uint64_t base = (uint64_t(split) * args.n_heads + qh) * stride;\n"
+            "            partial[base + i] = acc[gh];\n"
+            "            if (i == 0u) {\n"
+            "                partial[base + args.head_dim] = denom[gh];\n"
+            "                partial[base + args.head_dim + 1u] = max_score[gh];\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "kernel void qw3_gqa_attend_n_split_reduce(constant qw3_gqa_split_args &args,\n"
+            "                                          device const float *gate,\n"
+            "                                          device const float *partial,\n"
+            "                                          device float *out,\n"
+            "                                          uint qh [[threadgroup_position_in_grid]],\n"
+            "                                          ushort tid [[thread_index_in_threadgroup]]) {\n"
+            "    if (qh >= args.n_heads || uint(tid) >= args.head_dim) return;\n"
+            "    uint i = uint(tid);\n"
+            "    uint stride = args.head_dim + 2u;\n"
+            "    float max_score = -FLT_MAX;\n"
+            "    float denom = 0.0f;\n"
+            "    float acc = 0.0f;\n"
+            "    for (uint split = 0; split < args.n_splits; split++) {\n"
+            "        uint64_t base = (uint64_t(split) * args.n_heads + qh) * stride;\n"
+            "        float local_denom = partial[base + args.head_dim];\n"
+            "        float local_max = partial[base + args.head_dim + 1u];\n"
+            "        float next_max = max(max_score, local_max);\n"
+            "        float prev_scale = exp(max_score - next_max);\n"
+            "        float cur_scale = exp(local_max - next_max);\n"
+            "        acc = acc * prev_scale + partial[base + i] * cur_scale;\n"
+            "        denom = denom * prev_scale + local_denom * cur_scale;\n"
+            "        max_score = next_max;\n"
+            "    }\n"
+            "    uint gid = qh * args.head_dim + i;\n"
+            "    float sig = 1.0f / (1.0f + exp(-gate[gid]));\n"
+            "    out[gid] = (acc / denom) * sig;\n"
             "}\n"
             "struct qw3_gqa_prefill_attn_args { uint n_tokens; uint n_heads; uint n_kv_heads; uint head_dim; uint q_offset; uint gate_offset; uint k_offset; uint v_offset; uint out_offset; uint stride; };\n"
             "kernel void qw3_gqa_prefill_attend_inner(constant qw3_gqa_prefill_attn_args &args,\n"
@@ -5908,6 +6019,8 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_store_token_cache_f16_pipeline &&
         g_gqa_kv_quant_q8_pipeline &&
         g_gqa_attend_n_q8_inner_pipeline &&
+        g_gqa_attend_n_split_partial_pipeline &&
+        g_gqa_attend_n_split_reduce_pipeline &&
         g_gqa_attend_n_q8_split_partial_pipeline &&
         g_gqa_attend_n_q8_split_reduce_pipeline &&
         g_deltanet_recur_zero_pipeline &&
@@ -6853,6 +6966,30 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_attend_n_split_partial"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_attend_n_split_partial not found\n");
+        return 0;
+    }
+    g_gqa_attend_n_split_partial_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_attend_n_split_partial_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_attend_n_split_partial failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_attend_n_split_reduce"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_attend_n_split_reduce not found\n");
+        return 0;
+    }
+    g_gqa_attend_n_split_reduce_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_attend_n_split_reduce_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_attend_n_split_reduce failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_gqa_attend_n_q8_split_partial"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_gqa_attend_n_q8_split_partial not found\n");
@@ -7561,10 +7698,12 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
         !gqa_kv_q8 && kv_f16_env && strcmp(kv_f16_env, "0") != 0;
     const BOOL gqa_split_q8 =
         gqa_kv_q8 && getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL;
+    const BOOL gqa_split_attn = !gqa_kv_q8;
     const uint32_t gqa_max_q8_splits = !gqa_split_q8 ||
         getenv("QW3_METAL_Q8_SPLIT_32") != NULL ? 32u :
         (getenv("QW3_METAL_Q8_SPLIT_64") != NULL ? 64u :
          (getenv("QW3_METAL_Q8_SPLIT_128") != NULL ? 128u : 256u));
+    const uint32_t gqa_max_attn_splits = gqa_split_attn ? 256u : 32u;
     uint32_t metal_full_layers = QW3_METAL_N_FULL_ATTN_LAYERS;
     uint32_t metal_linear_layers = QW3_METAL_N_LINEAR_LAYERS;
     qw3_metal_count_layer_types_before(qw3_metal_env_n_gpu_layers(),
@@ -7596,8 +7735,11 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
         (uint64_t)QW3_METAL_N_HEAD * QW3_METAL_N_HEAD_DIM * sizeof(float);
     const uint64_t gqa_kv_token_bytes =
         (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(float);
-    const uint64_t gqa_attn_partial_bytes = gqa_split_q8 ?
-        (uint64_t)gqa_max_q8_splits * QW3_METAL_N_HEAD *
+    const uint32_t gqa_max_splits =
+        gqa_max_q8_splits > gqa_max_attn_splits ?
+        gqa_max_q8_splits : gqa_max_attn_splits;
+    const uint64_t gqa_attn_partial_bytes = (gqa_split_q8 || gqa_split_attn) ?
+        (uint64_t)gqa_max_splits * QW3_METAL_N_HEAD *
             (QW3_METAL_N_HEAD_DIM + 2ull) * sizeof(float) :
         0ull;
 
@@ -7607,7 +7749,9 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     obj.gqaKvQ8 = gqa_kv_q8;
     obj.gqaKvF16 = gqa_kv_f16;
     obj.gqaSplitQ8 = gqa_split_q8;
+    obj.gqaSplitAttn = gqa_split_attn;
     obj.gqaMaxQ8Splits = gqa_max_q8_splits;
+    obj.gqaMaxAttnSplits = gqa_max_attn_splits;
     obj.metalFullLayers = metal_full_layers;
     obj.metalLinearLayers = metal_linear_layers;
     qw3_metal_session_info info = {
@@ -7663,7 +7807,7 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
         !obj.qkvConv || !obj.qNorm || !obj.kNorm || !obj.core || !obj.inner ||
         !obj.gqaTmpQ || !obj.gqaTmpK || !obj.gqaTokenQ || !obj.gqaTokenK ||
         !obj.gqaTokenV || !obj.gqaTokenGate || !obj.routerIds ||
-        (gqa_split_q8 && !obj.gqaAttnPartial) ||
+        ((gqa_split_q8 || gqa_split_attn) && !obj.gqaAttnPartial) ||
         !obj.routerWeights || !obj.argmaxVals || !obj.argmaxIdxs) {
         return NULL;
     }
@@ -13243,9 +13387,64 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
     if (threads > 256u) {
         return 0;
     }
+    const BOOL split_attn = !obj.gqaKvQ8 && obj.gqaSplitAttn && n_ctx >= 1024u;
     const BOOL split_q8 = obj.gqaKvQ8 && obj.gqaSplitQ8 &&
         (n_ctx >= 256u || getenv("QW3_METAL_Q8_SPLIT_FORCE") != NULL);
-    if (split_q8) {
+    if (split_attn) {
+        uint32_t active_max_splits = obj.gqaMaxAttnSplits;
+        if (active_max_splits > 32u && n_ctx < 2048u) {
+            active_max_splits = 32u;
+        } else if (active_max_splits > 64u && n_ctx < 4096u) {
+            active_max_splits = 64u;
+        } else if (active_max_splits > 128u && n_ctx < 16384u) {
+            active_max_splits = 128u;
+        }
+        const uint32_t n_splits =
+            n_ctx < active_max_splits ? n_ctx : active_max_splits;
+        const uint64_t split_bytes =
+            (uint64_t)n_splits * n_heads * (head_dim + 2u) * sizeof(float);
+        if (!obj.gqaAttnPartial || obj.gqaAttnPartial.length < split_bytes ||
+            threads > g_gqa_attend_n_split_partial_pipeline.maxTotalThreadsPerThreadgroup ||
+            threads > g_gqa_attend_n_split_reduce_pipeline.maxTotalThreadsPerThreadgroup) {
+            return 0;
+        }
+        struct {
+            uint32_t n_ctx;
+            uint32_t n_heads;
+            uint32_t n_kv_heads;
+            uint32_t head_dim;
+            uint32_t n_splits;
+            uint32_t kv_type;
+        } split_args = {
+            n_ctx, n_heads, n_kv_heads, head_dim, n_splits,
+            obj.gqaKvF16 ? 1u : 0u
+        };
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:g_gqa_attend_n_split_partial_pipeline];
+        [enc setBytes:&split_args length:sizeof(split_args) atIndex:0];
+        [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:1];
+        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
+        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
+        [enc setBuffer:obj.gqaAttnPartial offset:0 atIndex:4];
+        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:5];
+        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:6];
+        [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
+        [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads * n_splits, 1, 1)
+             threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+
+        enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:g_gqa_attend_n_split_reduce_pipeline];
+        [enc setBytes:&split_args length:sizeof(split_args) atIndex:0];
+        [enc setBuffer:obj.gqaTokenGate offset:0 atIndex:1];
+        [enc setBuffer:obj.gqaAttnPartial offset:0 atIndex:2];
+        [enc setBuffer:obj.inner offset:0 atIndex:3];
+        [enc dispatchThreadgroups:MTLSizeMake(n_heads, 1, 1)
+             threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    } else if (split_q8) {
         uint32_t active_max_splits = obj.gqaMaxQ8Splits;
         if (active_max_splits > 32u && n_ctx < 2048u) {
             active_max_splits = 32u;
@@ -13464,6 +13663,8 @@ void qw3_metal_cleanup(void) {
     g_gqa_store_token_cache_f16_pipeline = nil;
     g_gqa_kv_quant_q8_pipeline = nil;
     g_gqa_attend_n_q8_inner_pipeline = nil;
+    g_gqa_attend_n_split_partial_pipeline = nil;
+    g_gqa_attend_n_split_reduce_pipeline = nil;
     g_gqa_attend_n_q8_split_partial_pipeline = nil;
     g_gqa_attend_n_q8_split_reduce_pipeline = nil;
     g_deltanet_recur_zero_pipeline = nil;
