@@ -5,7 +5,11 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <math.h>
+#include <poll.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -99,6 +103,19 @@ typedef struct {
     sample_opts sample;
 } agent_config;
 
+typedef void (*agent_output_fn)(void *ud, const char *s, size_t n);
+typedef bool (*agent_interrupt_fn)(void *ud);
+
+typedef struct {
+    agent_output_fn write;
+    void *ud;
+    bool color;
+    bool in_think;
+    bool in_code;
+    char pending[32];
+    size_t pending_len;
+} agent_renderer;
+
 typedef struct {
     qw3_engine *engine;
     qw3_session *session;
@@ -106,6 +123,13 @@ typedef struct {
     agent_config cfg;
     char *last_read_path;
     int last_read_next;
+    agent_output_fn output_write;
+    void *output_ud;
+    agent_output_fn status_write;
+    void *status_ud;
+    bool output_color;
+    agent_interrupt_fn should_interrupt;
+    void *interrupt_ud;
 } agent_state;
 
 typedef struct {
@@ -114,6 +138,7 @@ typedef struct {
     strbuf text;
     size_t printed;
     bool printed_any;
+    agent_renderer renderer;
 } agent_emit_ctx;
 
 typedef struct {
@@ -177,6 +202,64 @@ static int sb_printf(strbuf *sb, const char *fmt, ...) {
     return 0;
 }
 
+static void agent_direct_write(void *ud, const char *s, size_t n) {
+    FILE *fp = ud ? (FILE *)ud : stdout;
+    if (!s || n == 0) return;
+    fwrite(s, 1, n, fp);
+    fflush(fp);
+}
+
+static void agent_output_write(agent_state *a, const char *s, size_t n) {
+    if (!s || n == 0) return;
+    if (a && a->output_write) {
+        a->output_write(a->output_ud, s, n);
+    } else {
+        agent_direct_write(stdout, s, n);
+    }
+}
+
+static void agent_status_write(agent_state *a, const char *s, size_t n) {
+    if (!s || n == 0) return;
+    if (a && a->status_write) {
+        a->status_write(a->status_ud, s, n);
+    } else {
+        agent_direct_write(stderr, s, n);
+    }
+}
+
+static void agent_statusf(agent_state *a, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    va_list ap2;
+    va_copy(ap2, ap);
+    int n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (n <= 0) {
+        va_end(ap2);
+        return;
+    }
+    char stack[512];
+    if ((size_t)n < sizeof(stack)) {
+        vsnprintf(stack, sizeof(stack), fmt, ap2);
+        va_end(ap2);
+        agent_status_write(a, stack, (size_t)n);
+        return;
+    }
+    char *buf = malloc((size_t)n + 1);
+    if (!buf) {
+        va_end(ap2);
+        return;
+    }
+    vsnprintf(buf, (size_t)n + 1, fmt, ap2);
+    va_end(ap2);
+    agent_status_write(a, buf, (size_t)n);
+    free(buf);
+}
+
+static bool agent_should_interrupt(agent_state *a) {
+    return a && a->should_interrupt && a->should_interrupt(a->interrupt_ud);
+}
+
 static double agent_now_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -206,6 +289,8 @@ static void sb_append_xml_escaped(strbuf *sb, const char *s) {
 
 static char *agent_strdup(const char *s);
 
+static char *native_tool_call_text(const tool_call_list *calls)
+    __attribute__((unused));
 static char *native_tool_call_text(const tool_call_list *calls) {
     strbuf sb;
     sb_init(&sb);
@@ -386,7 +471,7 @@ static int store_save(agent_state *a, const char *name) {
     if (!path) return -1;
     FILE *fp = fopen(path, "wb");
     if (!fp) {
-        fprintf(stderr, "agent: cannot save %s: %s\n", path, strerror(errno));
+        agent_statusf(a, "agent: cannot save %s: %s\n", path, strerror(errno));
         free(path);
         return -1;
     }
@@ -403,9 +488,10 @@ static int store_save(agent_state *a, const char *name) {
     }
     fclose(fp);
     if (rc == 0) {
-        fprintf(stderr, "agent: saved %s (%d tokens)\n", path, a->transcript.len);
+        agent_statusf(a, "agent: saved %s (%d tokens)\n",
+                      path, a->transcript.len);
     } else {
-        fprintf(stderr, "agent: failed while writing %s\n", path);
+        agent_statusf(a, "agent: failed while writing %s\n", path);
     }
     free(path);
     return rc;
@@ -439,8 +525,8 @@ static int store_load(agent_state *a, const char *name) {
             qw3_tokens_free(&a->transcript);
             a->transcript = next;
             if (a->session) qw3_session_invalidate(a->session);
-            fprintf(stderr, "agent: loaded %s (%d tokens)\n",
-                    path, a->transcript.len);
+            agent_statusf(a, "agent: loaded %s (%d tokens)\n",
+                          path, a->transcript.len);
         } else {
             qw3_tokens_free(&next);
         }
@@ -453,14 +539,14 @@ static int store_load(agent_state *a, const char *name) {
 static void store_list(agent_state *a) {
     DIR *dir = opendir(a->cfg.store_dir);
     if (!dir) {
-        fprintf(stderr, "agent: cannot open store %s\n", a->cfg.store_dir);
+        agent_statusf(a, "agent: cannot open store %s\n", a->cfg.store_dir);
         return;
     }
     struct dirent *de;
     while ((de = readdir(dir)) != NULL) {
         size_t n = strlen(de->d_name);
         if (n > 5 && strcmp(de->d_name + n - 5, ".qw3a") == 0) {
-            fprintf(stderr, "  %.*s\n", (int)(n - 5), de->d_name);
+            agent_statusf(a, "  %.*s\n", (int)(n - 5), de->d_name);
         }
     }
     closedir(dir);
@@ -1209,11 +1295,11 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls) {
     sb_init(&result);
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
-        fprintf(stderr, "\n[tool] %s\n", call->name);
+        agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
         sb_printf(&result, "<tool_result name=\"%s\">\n%s\n</tool_result>\n",
                   call->name, out ? out : "");
-        fprintf(stderr, "%s\n", out ? out : "");
+        agent_statusf(a, "%s\n", out ? out : "");
         free(out);
     }
     return result.p ? result.p : agent_strdup("");
@@ -1223,9 +1309,9 @@ static void execute_native_tools_append(agent_state *a,
                                         const tool_call_list *calls) {
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
-        fprintf(stderr, "\n[tool] %s\n", call->name);
+        agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
-        fprintf(stderr, "%s\n", out ? out : "");
+        agent_statusf(a, "%s\n", out ? out : "");
         char *response = native_tool_response_text(call->name, out ? out : "");
         qw3_chat_append_message(a->engine, &a->transcript, "user", response);
         free(response);
@@ -1244,8 +1330,10 @@ static int run_tool_dsml(agent_state *a, const char *dsml) {
     char *result = execute_tools(a, &calls);
     free_tool_calls(&calls);
     if (result) {
-        fputs(result, stdout);
-        if (result[0] && result[strlen(result) - 1] != '\n') fputc('\n', stdout);
+        agent_output_write(a, result, strlen(result));
+        if (result[0] && result[strlen(result) - 1] != '\n') {
+            agent_output_write(a, "\n", 1);
+        }
     }
     free(result);
     return 0;
@@ -1274,11 +1362,105 @@ static int run_tool_native(agent_state *a, const char *text) {
     }
     free_tool_calls(&calls);
     if (result.p) {
-        fputs(result.p, stdout);
-        if (result.p[0] && result.p[result.len - 1] != '\n') fputc('\n', stdout);
+        agent_output_write(a, result.p, result.len);
+        if (result.p[0] && result.p[result.len - 1] != '\n') {
+            agent_output_write(a, "\n", 1);
+        }
     }
     sb_free(&result);
     return 0;
+}
+
+static bool agent_prefix_match(const char *buf, size_t n, const char *lit) {
+    size_t ln = strlen(lit);
+    return n <= ln && memcmp(buf, lit, n) == 0;
+}
+
+static void agent_renderer_raw(agent_renderer *r, const char *s, size_t n) {
+    if (!r || !s || n == 0) return;
+    if (r->write) r->write(r->ud, s, n);
+}
+
+static void agent_renderer_apply(agent_renderer *r) {
+    if (!r || !r->color) return;
+    if (r->in_think) {
+        agent_renderer_raw(r, "\033[2;90m", 7);
+    } else if (r->in_code) {
+        agent_renderer_raw(r, "\033[33m", 5);
+    } else {
+        agent_renderer_raw(r, "\033[0m", 4);
+    }
+}
+
+static void agent_renderer_init(agent_renderer *r, agent_output_fn write,
+                                void *ud, bool color) {
+    memset(r, 0, sizeof(*r));
+    r->write = write ? write : agent_direct_write;
+    r->ud = write ? ud : stdout;
+    r->color = color;
+}
+
+static void agent_renderer_emit_byte(agent_renderer *r, char c) {
+    if (c == '`') {
+        r->in_code = !r->in_code;
+        agent_renderer_apply(r);
+        return;
+    }
+    agent_renderer_raw(r, &c, 1);
+}
+
+static void agent_renderer_flush_pending(agent_renderer *r) {
+    if (!r || r->pending_len == 0) return;
+    for (size_t i = 0; i < r->pending_len; i++) {
+        agent_renderer_emit_byte(r, r->pending[i]);
+    }
+    r->pending_len = 0;
+}
+
+static void agent_renderer_feed(agent_renderer *r, const char *s, size_t n) {
+    if (!r || !s || n == 0) return;
+    const char *think_begin = "<think>";
+    const char *think_end = "</think>";
+    for (size_t i = 0; i < n; i++) {
+        char c = s[i];
+        if (r->pending_len > 0 || c == '<') {
+            if (r->pending_len + 1 < sizeof(r->pending)) {
+                r->pending[r->pending_len++] = c;
+                r->pending[r->pending_len] = '\0';
+            } else {
+                agent_renderer_flush_pending(r);
+                agent_renderer_emit_byte(r, c);
+                continue;
+            }
+
+            if (!strcmp(r->pending, think_begin)) {
+                r->pending_len = 0;
+                r->in_think = true;
+                agent_renderer_apply(r);
+            } else if (!strcmp(r->pending, think_end)) {
+                r->pending_len = 0;
+                r->in_think = false;
+                agent_renderer_apply(r);
+            } else if (agent_prefix_match(r->pending, r->pending_len, think_begin) ||
+                       agent_prefix_match(r->pending, r->pending_len, think_end)) {
+                continue;
+            } else {
+                agent_renderer_flush_pending(r);
+            }
+        } else {
+            agent_renderer_emit_byte(r, c);
+        }
+    }
+}
+
+static void agent_renderer_finish(agent_renderer *r) {
+    if (!r) return;
+    agent_renderer_flush_pending(r);
+    if (r->color && (r->in_think || r->in_code)) {
+        r->in_think = false;
+        r->in_code = false;
+        agent_renderer_apply(r);
+    }
 }
 
 static bool range_is_space(const char *p, size_t len) {
@@ -1360,8 +1542,9 @@ static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
         limit = ctx->text.len > hold ? ctx->text.len - hold : 0;
     }
     if (limit > ctx->printed) {
-        fwrite(ctx->text.p + ctx->printed, 1, limit - ctx->printed, stdout);
-        fflush(stdout);
+        agent_renderer_feed(&ctx->renderer,
+                            ctx->text.p + ctx->printed,
+                            limit - ctx->printed);
         ctx->printed_any = true;
         ctx->printed = limit;
     }
@@ -1382,9 +1565,9 @@ static void agent_emit_token(void *ud, int token) {
 static void agent_emit_done(void *ud) {
     agent_emit_ctx *ctx = (agent_emit_ctx *)ud;
     agent_flush_visible(ctx, true);
+    agent_renderer_finish(&ctx->renderer);
     if (ctx->printed_any) {
-        fputc('\n', stdout);
-        fflush(stdout);
+        agent_renderer_raw(&ctx->renderer, "\n", 1);
     }
 }
 
@@ -1403,6 +1586,10 @@ static int generate_once(agent_state *a, char **assistant_text) {
     agent_emit_ctx emit;
     memset(&emit, 0, sizeof(emit));
     emit.engine = a->engine;
+    agent_renderer_init(&emit.renderer,
+                        a->output_write ? a->output_write : agent_direct_write,
+                        a->output_write ? a->output_ud : stdout,
+                        a->output_color && isatty(STDOUT_FILENO));
 
     int rc = -1;
     char err[256] = {0};
@@ -1412,7 +1599,7 @@ static int generate_once(agent_state *a, char **assistant_text) {
                  common : 0;
     const double t_prefill0 = agent_now_sec();
     if (qw3_session_sync(a->session, &a->transcript, err, sizeof(err)) != 0) {
-        fprintf(stderr, "agent: prefill failed: %s\n", err);
+        agent_statusf(a, "agent: prefill failed: %s\n", err);
         rc = -1;
     } else {
         const double t_prefill1 = agent_now_sec();
@@ -1421,6 +1608,7 @@ static int generate_once(agent_state *a, char **assistant_text) {
         int n_generated = 0;
         const double t_gen0 = agent_now_sec();
         for (int i = 0; i < a->cfg.n_predict; i++) {
+            if (agent_should_interrupt(a)) break;
             const int repeat_last_n = a->cfg.sample.repeat_last_n;
             const int generated_len = emit.generated.len;
             int repeat_len = generated_len;
@@ -1445,7 +1633,7 @@ static int generate_once(agent_state *a, char **assistant_text) {
             agent_emit_token(&emit, token);
             n_generated++;
             if (qw3_session_eval(a->session, token, err, sizeof(err)) != 0) {
-                fprintf(stderr, "agent: decode failed: %s\n", err);
+                agent_statusf(a, "agent: decode failed: %s\n", err);
                 rc = -1;
                 break;
             }
@@ -1459,15 +1647,15 @@ static int generate_once(agent_state *a, char **assistant_text) {
         const int prefill_tokens = a->transcript.len - cached;
         const double prefill_s = t_prefill1 - t_prefill0;
         const double gen_s = t_gen1 - t_gen0;
-        qw3_log(stderr, QW3_LOG_TIMING,
-                "qw3-agent: %s session timing: cached=%d prompt=%d "
-                "prefill=%d tokens %.1f ms (%.2f tok/s) | "
-                "generation=%d tokens %.1f ms (%.2f tok/s)\n",
-                qw3_backend_name(a->cfg.backend), cached, a->transcript.len,
-                prefill_tokens, prefill_s * 1000.0,
-                prefill_s > 0.0 ? (double)prefill_tokens / prefill_s : 0.0,
-                n_generated, gen_s * 1000.0,
-                gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
+        agent_statusf(a,
+                      "qw3-agent: %s session timing: cached=%d prompt=%d "
+                      "prefill=%d tokens %.1f ms (%.2f tok/s) | "
+                      "generation=%d tokens %.1f ms (%.2f tok/s)\n",
+                      qw3_backend_name(a->cfg.backend), cached,
+                      a->transcript.len, prefill_tokens, prefill_s * 1000.0,
+                      prefill_s > 0.0 ? (double)prefill_tokens / prefill_s : 0.0,
+                      n_generated, gen_s * 1000.0,
+                      gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
     }
 
     if (rc == 0) {
@@ -1483,8 +1671,8 @@ static int generate_once(agent_state *a, char **assistant_text) {
 static int run_agent_turn(agent_state *a, const char *user_message) {
     qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
     if (a->transcript.len >= a->cfg.ctx_size) {
-        fprintf(stderr, "agent: context full (%d/%d tokens)\n",
-                a->transcript.len, a->cfg.ctx_size);
+        agent_statusf(a, "agent: context full (%d/%d tokens)\n",
+                      a->transcript.len, a->cfg.ctx_size);
         return -1;
     }
 
@@ -1493,6 +1681,10 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         if (generate_once(a, &assistant) != 0) {
             free(assistant);
             return -1;
+        }
+        if (agent_should_interrupt(a)) {
+            free(assistant);
+            return 0;
         }
         tool_call_list native_calls;
         int n_native = parse_native_tool_calls(assistant ? assistant : "",
@@ -1520,7 +1712,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         free(tool_result);
         free(assistant);
     }
-    fprintf(stderr, "agent: max tool rounds reached\n");
+    agent_statusf(a, "agent: max tool rounds reached\n");
     return 0;
 }
 
@@ -1862,50 +2054,532 @@ static int handle_command(agent_state *a, char *line, char **message_out) {
         return -1;
     } else if (!strcmp(line, "/new")) {
         agent_init_transcript(a);
-        fprintf(stderr, "agent: new conversation\n");
+        agent_statusf(a, "agent: new conversation\n");
     } else if (!strcmp(line, "/ctx")) {
-        fprintf(stderr, "tokens=%d ctx=%d tools=%s think=%s\n",
-                a->transcript.len, a->cfg.ctx_size,
-                a->cfg.tools_enabled ? "on" : "off",
-                qw3_think_mode_name(a->cfg.think_mode));
+        agent_statusf(a, "tokens=%d ctx=%d tools=%s think=%s\n",
+                      a->transcript.len, a->cfg.ctx_size,
+                      a->cfg.tools_enabled ? "on" : "off",
+                      qw3_think_mode_name(a->cfg.think_mode));
     } else if (!strncmp(line, "/save", 5)) {
         const char *name = line[5] == ' ' ? line + 6 : a->cfg.conversation;
         if (!name || !name[0]) name = "default";
         store_save(a, name);
     } else if (!strncmp(line, "/load ", 6)) {
         if (store_load(a, line + 6) != 0) {
-            fprintf(stderr, "agent: cannot load %s\n", line + 6);
+            agent_statusf(a, "agent: cannot load %s\n", line + 6);
         }
     } else if (!strcmp(line, "/sessions")) {
         store_list(a);
     } else if (!strncmp(line, "/read ", 6)) {
         char *text = read_file_text(line + 6, NULL);
         if (!text) {
-            fprintf(stderr, "agent: cannot read %s: %s\n",
-                    line + 6, strerror(errno));
+            agent_statusf(a, "agent: cannot read %s: %s\n",
+                          line + 6, strerror(errno));
         } else {
             *message_out = text;
             return 1;
         }
     } else if (!strcmp(line, "/think")) {
         a->cfg.think_mode = QW3_THINK_ON;
-        fprintf(stderr, "agent: thinking enabled\n");
+        agent_statusf(a, "agent: thinking enabled\n");
     } else if (!strcmp(line, "/nothink")) {
         a->cfg.think_mode = QW3_THINK_NONE;
-        fprintf(stderr, "agent: thinking disabled\n");
+        agent_statusf(a, "agent: thinking disabled\n");
     } else if (!strcmp(line, "/tools on")) {
         a->cfg.tools_enabled = true;
-        fprintf(stderr, "agent: tools enabled\n");
+        agent_statusf(a, "agent: tools enabled\n");
     } else if (!strcmp(line, "/tools off")) {
         a->cfg.tools_enabled = false;
-        fprintf(stderr, "agent: tools disabled\n");
+        agent_statusf(a, "agent: tools disabled\n");
     } else {
-        fprintf(stderr, "agent: unknown command '%s'\n", line);
+        agent_statusf(a, "agent: unknown command '%s'\n", line);
     }
     return 0;
 }
 
-static int interactive_loop(agent_state *a) {
+typedef struct {
+    char **v;
+    int len;
+    int cap;
+} agent_input_queue;
+
+typedef struct {
+    agent_state *agent;
+    pthread_t thread;
+    pthread_mutex_t mu;
+    pthread_cond_t cond;
+    int wake_rd;
+    int wake_wr;
+    bool stop;
+    bool busy;
+    bool has_job;
+    bool interrupt;
+    bool turn_done;
+    int turn_rc;
+    char *job;
+    strbuf out;
+} agent_worker;
+
+static volatile sig_atomic_t g_agent_sigint = 0;
+
+static void agent_sigint_handler(int sig) {
+    (void)sig;
+    g_agent_sigint = 1;
+}
+
+static int agent_set_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return -1;
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+static void agent_worker_wake(agent_worker *w) {
+    if (!w || w->wake_wr < 0) return;
+    char b = 1;
+    ssize_t n = write(w->wake_wr, &b, 1);
+    (void)n;
+}
+
+static void agent_worker_drain_wake(agent_worker *w) {
+    char buf[64];
+    while (w && w->wake_rd >= 0 && read(w->wake_rd, buf, sizeof(buf)) > 0) {
+    }
+}
+
+static void agent_worker_output_write(void *ud, const char *s, size_t n) {
+    agent_worker *w = (agent_worker *)ud;
+    if (!w || !s || n == 0) return;
+    pthread_mutex_lock(&w->mu);
+    sb_append_n(&w->out, s, n);
+    pthread_mutex_unlock(&w->mu);
+    agent_worker_wake(w);
+}
+
+static bool agent_worker_should_interrupt(void *ud) {
+    agent_worker *w = (agent_worker *)ud;
+    if (!w) return false;
+    pthread_mutex_lock(&w->mu);
+    bool v = w->interrupt || w->stop;
+    pthread_mutex_unlock(&w->mu);
+    return v;
+}
+
+static bool agent_worker_is_busy(agent_worker *w) {
+    pthread_mutex_lock(&w->mu);
+    bool busy = w->busy || w->has_job;
+    pthread_mutex_unlock(&w->mu);
+    return busy;
+}
+
+static int agent_worker_submit(agent_worker *w, const char *message) {
+    if (!w || !message) return -1;
+    char *job = agent_strdup(message);
+    if (!job) return -1;
+    pthread_mutex_lock(&w->mu);
+    if (w->busy || w->has_job || w->stop) {
+        pthread_mutex_unlock(&w->mu);
+        free(job);
+        return -1;
+    }
+    w->job = job;
+    w->has_job = true;
+    w->interrupt = false;
+    pthread_cond_signal(&w->cond);
+    pthread_mutex_unlock(&w->mu);
+    agent_worker_wake(w);
+    return 0;
+}
+
+static void agent_worker_interrupt(agent_worker *w) {
+    if (!w) return;
+    pthread_mutex_lock(&w->mu);
+    if (w->busy || w->has_job) w->interrupt = true;
+    pthread_mutex_unlock(&w->mu);
+    agent_worker_wake(w);
+}
+
+static void agent_worker_collect(agent_worker *w, char **out,
+                                 bool *turn_done, int *turn_rc) {
+    *out = NULL;
+    *turn_done = false;
+    *turn_rc = 0;
+    pthread_mutex_lock(&w->mu);
+    if (w->out.len > 0) {
+        *out = malloc(w->out.len + 1);
+        if (*out) {
+            memcpy(*out, w->out.p, w->out.len + 1);
+            w->out.len = 0;
+            if (w->out.p) w->out.p[0] = '\0';
+        }
+    }
+    if (w->turn_done) {
+        *turn_done = true;
+        *turn_rc = w->turn_rc;
+        w->turn_done = false;
+    }
+    pthread_mutex_unlock(&w->mu);
+}
+
+static void *agent_worker_main(void *ud) {
+    agent_worker *w = (agent_worker *)ud;
+    for (;;) {
+        pthread_mutex_lock(&w->mu);
+        while (!w->stop && !w->has_job) {
+            pthread_cond_wait(&w->cond, &w->mu);
+        }
+        if (w->stop) {
+            pthread_mutex_unlock(&w->mu);
+            break;
+        }
+        char *job = w->job;
+        w->job = NULL;
+        w->has_job = false;
+        w->busy = true;
+        w->interrupt = false;
+        pthread_mutex_unlock(&w->mu);
+
+        int rc = run_agent_turn(w->agent, job);
+        free(job);
+        if (rc == 0 && w->agent->cfg.conversation) {
+            store_save(w->agent, w->agent->cfg.conversation);
+        }
+
+        pthread_mutex_lock(&w->mu);
+        w->busy = false;
+        w->turn_done = true;
+        w->turn_rc = rc;
+        pthread_mutex_unlock(&w->mu);
+        agent_worker_wake(w);
+    }
+    return NULL;
+}
+
+static int agent_worker_init(agent_worker *w, agent_state *a) {
+    memset(w, 0, sizeof(*w));
+    w->agent = a;
+    w->wake_rd = -1;
+    w->wake_wr = -1;
+    pthread_mutex_init(&w->mu, NULL);
+    pthread_cond_init(&w->cond, NULL);
+    sb_init(&w->out);
+    int pfd[2];
+    if (pipe(pfd) != 0) return -1;
+    w->wake_rd = pfd[0];
+    w->wake_wr = pfd[1];
+    (void)agent_set_nonblock(w->wake_rd);
+    (void)agent_set_nonblock(w->wake_wr);
+    a->output_write = agent_worker_output_write;
+    a->output_ud = w;
+    a->status_write = agent_worker_output_write;
+    a->status_ud = w;
+    a->output_color = isatty(STDOUT_FILENO);
+    a->should_interrupt = agent_worker_should_interrupt;
+    a->interrupt_ud = w;
+    if (pthread_create(&w->thread, NULL, agent_worker_main, w) != 0) {
+        close(w->wake_rd);
+        close(w->wake_wr);
+        w->wake_rd = -1;
+        w->wake_wr = -1;
+        return -1;
+    }
+    return 0;
+}
+
+static void agent_worker_destroy(agent_worker *w) {
+    if (!w) return;
+    pthread_mutex_lock(&w->mu);
+    w->stop = true;
+    w->interrupt = true;
+    free(w->job);
+    w->job = NULL;
+    pthread_cond_signal(&w->cond);
+    pthread_mutex_unlock(&w->mu);
+    agent_worker_wake(w);
+    pthread_join(w->thread, NULL);
+    if (w->wake_rd >= 0) close(w->wake_rd);
+    if (w->wake_wr >= 0) close(w->wake_wr);
+    sb_free(&w->out);
+    pthread_cond_destroy(&w->cond);
+    pthread_mutex_destroy(&w->mu);
+}
+
+static int agent_queue_push(agent_input_queue *q, const char *line) {
+    if (q->len == q->cap) {
+        int nc = q->cap ? q->cap * 2 : 8;
+        char **nv = realloc(q->v, (size_t)nc * sizeof(*nv));
+        if (!nv) return -1;
+        q->v = nv;
+        q->cap = nc;
+    }
+    q->v[q->len] = agent_strdup(line);
+    if (!q->v[q->len]) return -1;
+    q->len++;
+    return 0;
+}
+
+static char *agent_queue_pop(agent_input_queue *q) {
+    if (!q || q->len == 0) return NULL;
+    char *out = q->v[0];
+    memmove(q->v, q->v + 1, (size_t)(q->len - 1) * sizeof(*q->v));
+    q->len--;
+    return out;
+}
+
+static void agent_queue_free(agent_input_queue *q) {
+    for (int i = 0; i < q->len; i++) free(q->v[i]);
+    free(q->v);
+    memset(q, 0, sizeof(*q));
+}
+
+static void agent_update_editor_status(struct linenoiseState *edit,
+                                       agent_worker *w,
+                                       const agent_input_queue *q) {
+    bool busy = agent_worker_is_busy(w);
+    char status[160];
+    if (busy) {
+        snprintf(status, sizeof(status),
+                 "state=running  queued=%d  ctx=busy  tools=%s  think=%s",
+                 q ? q->len : 0,
+                 w->agent->cfg.tools_enabled ? "on" : "off",
+                 qw3_think_mode_name(w->agent->cfg.think_mode));
+    } else {
+        snprintf(status, sizeof(status),
+                 "state=ready  queued=%d  ctx=%d/%d  tools=%s  think=%s",
+                 q ? q->len : 0, w->agent->transcript.len,
+                 w->agent->cfg.ctx_size,
+                 w->agent->cfg.tools_enabled ? "on" : "off",
+                 qw3_think_mode_name(w->agent->cfg.think_mode));
+    }
+    linenoiseEditSetStatus(edit, status, "\033[7m", "\033[0m");
+}
+
+static int agent_submit_or_queue(agent_worker *w, agent_input_queue *q,
+                                 const char *message) {
+    if (!agent_worker_is_busy(w) && q->len == 0) {
+        return agent_worker_submit(w, message);
+    }
+    if (agent_queue_push(q, message) != 0) return -1;
+    agent_statusf(w->agent, "agent: queued prompt (%d pending)\n", q->len);
+    return 0;
+}
+
+static int agent_submit_next_if_idle(agent_worker *w, agent_input_queue *q) {
+    if (agent_worker_is_busy(w) || q->len == 0) return 0;
+    char *next = agent_queue_pop(q);
+    if (!next) return 0;
+    int rc = agent_worker_submit(w, next);
+    free(next);
+    return rc;
+}
+
+static void agent_display_worker_output(agent_worker *w,
+                                        struct linenoiseState *edit,
+                                        const agent_input_queue *q,
+                                        bool *turn_done, int *turn_rc) {
+    char *out = NULL;
+    bool done = false;
+    int rc = 0;
+    agent_worker_collect(w, &out, &done, &rc);
+    if (out) {
+        if (edit) linenoiseHide(edit);
+        fwrite(out, 1, strlen(out), stdout);
+        fflush(stdout);
+        if (edit) {
+            agent_update_editor_status(edit, w, q);
+            linenoiseShow(edit);
+        }
+        free(out);
+    }
+    if (done) {
+        *turn_done = true;
+        *turn_rc = rc;
+    }
+}
+
+static int agent_process_interactive_line(agent_state *a, agent_worker *w,
+                                          agent_input_queue *q, char *line) {
+    if (!line || !line[0]) return 0;
+    linenoiseHistoryAdd(line);
+    if (!strcmp(line, "/quit") || !strcmp(line, "/exit")) {
+        return -1;
+    }
+    if (!strcmp(line, "/interrupt") || !strcmp(line, "/stop")) {
+        agent_worker_interrupt(w);
+        agent_statusf(a, "agent: interrupt requested\n");
+        return 0;
+    }
+    if (line[0] == '/' && agent_worker_is_busy(w)) {
+        agent_statusf(a, "agent: busy; use /interrupt or wait for the prompt\n");
+        return 0;
+    }
+    if (line[0] == '/') {
+        char *message = NULL;
+        int action = handle_command(a, line, &message);
+        if (action < 0) {
+            free(message);
+            return -1;
+        }
+        if (action == 1) {
+            int rc = agent_submit_or_queue(w, q, message);
+            free(message);
+            return rc;
+        }
+        return 0;
+    }
+    return agent_submit_or_queue(w, q, line);
+}
+
+static int interactive_loop_worker(agent_state *a) {
+    char *hist = path_join(a->cfg.store_dir, "history");
+    if (hist) {
+        linenoiseHistorySetMaxLen(1000);
+        linenoiseHistoryLoad(hist);
+    }
+
+    agent_worker worker;
+    if (agent_worker_init(&worker, a) != 0) {
+        fprintf(stderr, "agent: cannot start worker thread\n");
+        free(hist);
+        return 1;
+    }
+
+    struct sigaction old_int;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = agent_sigint_handler;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, &old_int);
+
+    fprintf(stderr,
+            "qw3-agent ready. /help for commands. /interrupt stops generation. store=%s\n",
+            a->cfg.store_dir);
+
+    int rc = 0;
+    bool done = false;
+    agent_input_queue queue = {0};
+    struct linenoiseState edit;
+    char editbuf[16384];
+    bool edit_active = false;
+    if (linenoiseEditStart(&edit, STDIN_FILENO, STDOUT_FILENO, editbuf,
+                           sizeof(editbuf), "qw3-agent> ") != 0) {
+        rc = 1;
+        done = true;
+    } else {
+        edit_active = true;
+        agent_update_editor_status(&edit, &worker, &queue);
+        linenoiseShow(&edit);
+    }
+
+    while (!done) {
+        struct pollfd fds[2];
+        fds[0].fd = STDIN_FILENO;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+        fds[1].fd = worker.wake_rd;
+        fds[1].events = POLLIN;
+        fds[1].revents = 0;
+        int pr = poll(fds, 2, -1);
+        if (g_agent_sigint) {
+            g_agent_sigint = 0;
+            if (agent_worker_is_busy(&worker)) {
+                agent_worker_interrupt(&worker);
+                agent_statusf(a, "\nagent: interrupt requested\n");
+            } else {
+                linenoiseEditClear(&edit);
+            }
+        }
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            rc = 1;
+            break;
+        }
+        if (fds[1].revents & POLLIN) {
+            agent_worker_drain_wake(&worker);
+        }
+
+        bool turn_done = false;
+        int turn_rc = 0;
+        agent_display_worker_output(&worker, edit_active ? &edit : NULL,
+                                    &queue, &turn_done, &turn_rc);
+        if (turn_done) {
+            if (turn_rc != 0) rc = 1;
+            if (agent_submit_next_if_idle(&worker, &queue) != 0) rc = 1;
+            if (edit_active) {
+                agent_update_editor_status(&edit, &worker, &queue);
+                linenoiseShow(&edit);
+            }
+        }
+
+        if (fds[0].revents & (POLLIN | POLLHUP)) {
+            errno = 0;
+            char *line = linenoiseEditFeed(&edit);
+            if (line == linenoiseEditMore) {
+                continue;
+            }
+            if (!line) {
+                if (errno == EAGAIN) {
+                    if (agent_worker_is_busy(&worker)) {
+                        agent_worker_interrupt(&worker);
+                        agent_statusf(a, "\nagent: interrupt requested\n");
+                    }
+                    linenoiseEditClear(&edit);
+                    continue;
+                }
+                done = true;
+                break;
+            }
+
+            linenoiseEditStop(&edit);
+            edit_active = false;
+            int action = agent_process_interactive_line(a, &worker, &queue, line);
+            linenoiseFree(line);
+            if (action < 0) {
+                done = true;
+                break;
+            }
+
+            turn_done = false;
+            turn_rc = 0;
+            agent_display_worker_output(&worker, NULL, &queue,
+                                        &turn_done, &turn_rc);
+            if (turn_done) {
+                if (turn_rc != 0) rc = 1;
+                if (agent_submit_next_if_idle(&worker, &queue) != 0) rc = 1;
+            }
+
+            if (!done) {
+                if (linenoiseEditStart(&edit, STDIN_FILENO, STDOUT_FILENO,
+                                       editbuf, sizeof(editbuf),
+                                       "qw3-agent> ") != 0) {
+                    rc = 1;
+                    done = true;
+                } else {
+                    edit_active = true;
+                    agent_update_editor_status(&edit, &worker, &queue);
+                    linenoiseShow(&edit);
+                }
+            }
+        }
+    }
+
+    if (edit_active) linenoiseEditStop(&edit);
+    agent_queue_free(&queue);
+    sigaction(SIGINT, &old_int, NULL);
+    if (hist) {
+        linenoiseHistorySave(hist);
+        free(hist);
+    }
+    agent_worker_destroy(&worker);
+    a->output_write = NULL;
+    a->output_ud = NULL;
+    a->status_write = NULL;
+    a->status_ud = NULL;
+    a->should_interrupt = NULL;
+    a->interrupt_ud = NULL;
+    return rc;
+}
+
+static int interactive_loop_blocking(agent_state *a) {
     char *hist = path_join(a->cfg.store_dir, "history");
     if (hist) {
         linenoiseHistorySetMaxLen(1000);
@@ -1939,6 +2613,11 @@ static int interactive_loop(agent_state *a) {
         free(hist);
     }
     return rc;
+}
+
+static int interactive_loop(agent_state *a) {
+    if (isatty(STDIN_FILENO)) return interactive_loop_worker(a);
+    return interactive_loop_blocking(a);
 }
 
 int main(int argc, char **argv) {
