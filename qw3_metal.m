@@ -7698,7 +7698,9 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
         !gqa_kv_q8 && kv_f16_env && strcmp(kv_f16_env, "0") != 0;
     const BOOL gqa_split_q8 =
         gqa_kv_q8 && getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL;
-    const BOOL gqa_split_attn = !gqa_kv_q8;
+    const char *split_attn_env = getenv("QW3_METAL_GQA_SPLIT_ATTN");
+    const BOOL gqa_split_attn =
+        !gqa_kv_q8 && split_attn_env && strcmp(split_attn_env, "0") != 0;
     const uint32_t gqa_max_q8_splits = !gqa_split_q8 ||
         getenv("QW3_METAL_Q8_SPLIT_32") != NULL ? 32u :
         (getenv("QW3_METAL_Q8_SPLIT_64") != NULL ? 64u :
