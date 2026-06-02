@@ -7,6 +7,10 @@ default.
 
 Default safety policy:
 - `QW3_METAL_KV_Q8_0` is not part of the default validation path.
+- `QW3_METAL_KV_F16=1` enables an experimental f16 GQA KV cache. It is logits
+  safe under the regression tests and useful for memory pressure, but it is not
+  a default prefill speed path because it did not improve the long-prompt
+  benchmark on M5.
 - `QW3_METAL_PREFILL_CONCURRENT=1` enables the llama.cpp-style concurrent
   Metal encoder for prefill frontiers. It is opt-in until it shows a real speed
   win on long prompts.
@@ -259,3 +263,26 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
 - `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows mapped IQ3_S gate/up dropping
   from about 36 ms/layer to about 27 ms/layer, and compact IQ4_XS down dropping
   from about 56.7 ms/layer to about 41-43 ms/layer.
+
+## 2026-06-02 Experimental F16 GQA KV Cache
+
+`QW3_METAL_KV_F16=1` stores the GQA K/V cache as f16 instead of f32, without
+using q8 quantization. It updates both batched prefill cache writes and
+single-token decode cache writes, and the cached GQA attention kernels select
+f32 or f16 reads through an explicit `kv_type` argument. The default remains
+f32 because this is a memory feature, not a measured prefill speed win.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `env QW3_METAL_KV_F16=1 make test-metal-logits`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- Default f32 KV after Metal4 MoE MPP promotion: 3413 prompt tokens, 13830.8 ms
+  prefill.
+- `QW3_METAL_KV_F16=1`: 3413 prompt tokens, 13928.9 ms prefill in a no-profile
+  run.
+- `QW3_METAL_KV_F16=1 QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` shows GQA `attend`
+  still around 367-382 ms per full-attention layer, so the remaining GQA
+  bottleneck is kernel shape/FlashAttention-style tiling rather than cache
+  bandwidth alone.

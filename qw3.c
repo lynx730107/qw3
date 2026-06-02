@@ -833,6 +833,13 @@ qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
                 mem.scratch_bytes += q8_splits * QW3_N_HEAD *
                                      (QW3_N_HEAD_DIM + 2ull) * sizeof(float);
             }
+        } else {
+            const char *kv_f16_env = getenv("QW3_METAL_KV_F16");
+            if (kv_f16_env && strcmp(kv_f16_env, "0") != 0) {
+                mem.gqa_kv_bytes = (uint64_t)QW3_N_FULL_ATTN_LAYERS *
+                                   QW3_N_HEAD_KV * QW3_N_HEAD_DIM *
+                                   (uint64_t)ctx_size * 2ull * sizeof(uint16_t);
+            }
         }
         const uint64_t conv_bytes = (uint64_t)QW3_N_LINEAR_LAYERS *
                                     tensor_linear_qkv() *

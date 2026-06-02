@@ -101,6 +101,7 @@ static id<MTLComputePipelineState> g_gqa_prefill_write_cache_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block2_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block4_pipeline;
+static id<MTLComputePipelineState> g_gqa_store_token_cache_f16_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_split_partial_pipeline;
@@ -381,6 +382,7 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic) uint32_t pos;
 @property(nonatomic) uint32_t prefillCap;
 @property(nonatomic) BOOL gqaKvQ8;
+@property(nonatomic) BOOL gqaKvF16;
 @property(nonatomic) BOOL gqaSplitQ8;
 @property(nonatomic) uint32_t gqaMaxQ8Splits;
 @end
@@ -608,6 +610,16 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float vq = vd > 0.0f ? rint(v[base + uint(tid)] / vd) : 0.0f;\n"
             "    *((device char *)(kb + 2u + uint(tid))) = char(clamp(kq, -127.0f, 127.0f));\n"
             "    *((device char *)(vb + 2u + uint(tid))) = char(clamp(vq, -127.0f, 127.0f));\n"
+            "}\n"
+            "kernel void qw3_gqa_store_token_cache_f16(constant qw3_kv_quant_q8_args &args,\n"
+            "                                          device const float *k,\n"
+            "                                          device const float *v,\n"
+            "                                          device half *k_cache,\n"
+            "                                          device half *v_cache,\n"
+            "                                          uint gid [[thread_position_in_grid]]) {\n"
+            "    if (gid >= args.n) return;\n"
+            "    k_cache[gid] = half(k[gid]);\n"
+            "    v_cache[gid] = half(v[gid]);\n"
             "}\n"
             "struct qw3_matvec_q8_0_args { uint n_in; uint n_out; uint row_bytes; };\n"
             "kernel void qw3_matvec_q8_0(constant qw3_matvec_q8_0_args &args,\n"
@@ -2042,13 +2054,18 @@ static NSString *qw3_metal_kernel_source(void) {
             "    float sig = 1.0f / (1.0f + exp(-gate[gid]));\n"
             "    out[gid] = (w0 * v0 + w1 * v1) * sig;\n"
             "}\n"
-            "struct qw3_gqa_n_args { uint n_ctx; uint n_heads; uint n_kv_heads; uint head_dim; };\n"
+            "struct qw3_gqa_n_args { uint n_ctx; uint n_heads; uint n_kv_heads; uint head_dim; uint kv_type; };\n"
+            "inline float qw3_gqa_cache_load(device const float *f32_cache, device const half *f16_cache, uint64_t idx, uint kv_type) {\n"
+            "    return kv_type == 1u ? float(f16_cache[idx]) : f32_cache[idx];\n"
+            "}\n"
             "kernel void qw3_gqa_attend_n_inner(constant qw3_gqa_n_args &args,\n"
             "                                  device const float *q,\n"
             "                                  device const float *gate,\n"
             "                                  device const float *k_cache,\n"
             "                                  device const float *v_cache,\n"
             "                                  device float *out,\n"
+            "                                  device const half *k_cache_f16,\n"
+            "                                  device const half *v_cache_f16,\n"
             "                                  threadgroup float *sh,\n"
             "                                  uint h [[threadgroup_position_in_grid]],\n"
             "                                  ushort tid [[thread_index_in_threadgroup]],\n"
@@ -2075,8 +2092,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "    }\n"
             "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
             "    for (uint t = 0; t < args.n_ctx; t++) {\n"
-            "        device const float *kh = k_cache + (uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim;\n"
-            "        float kval = (i < args.head_dim) ? kh[i] : 0.0f;\n"
+            "        uint64_t kv_idx = (uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim + i;\n"
+            "        float kval = (i < args.head_dim) ? qw3_gqa_cache_load(k_cache, k_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        for (uint gh = 0; gh < 8u; gh++) {\n"
             "            float part = (gh < group_heads && i < args.head_dim) ? qv[gh] * kval : 0.0f;\n"
             "            part = simd_sum(part);\n"
@@ -2089,7 +2106,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "            if (tid == 0) sh[gh] = dot;\n"
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-            "        float vv = (i < args.head_dim) ? v_cache[(uint64_t(t) * args.n_kv_heads + kvh) * args.head_dim + i] : 0.0f;\n"
+            "        float vv = (i < args.head_dim) ? qw3_gqa_cache_load(v_cache, v_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        for (uint gh = 0; gh < 8u; gh++) {\n"
             "            if (gh < group_heads) {\n"
             "                float score = sh[gh] * scale;\n"
@@ -2193,11 +2210,13 @@ static NSString *qw3_metal_kernel_source(void) {
             "        }\n"
             "    }\n"
             "}\n"
-            "struct qw3_gqa_prefill_cache_args { uint n_tokens; uint n_kv_heads; uint head_dim; uint pos0; uint ctx_size; uint k_offset; uint v_offset; uint stride; };\n"
+            "struct qw3_gqa_prefill_cache_args { uint n_tokens; uint n_kv_heads; uint head_dim; uint pos0; uint ctx_size; uint k_offset; uint v_offset; uint stride; uint kv_type; };\n"
             "kernel void qw3_gqa_prefill_write_cache(constant qw3_gqa_prefill_cache_args &args,\n"
             "                                        device const float *scratch,\n"
             "                                        device float *k_cache,\n"
             "                                        device float *v_cache,\n"
+            "                                        device half *k_cache_f16,\n"
+            "                                        device half *v_cache_f16,\n"
             "                                        uint gid [[thread_position_in_grid]]) {\n"
             "    uint kv_n = args.n_kv_heads * args.head_dim;\n"
             "    uint total = args.n_tokens * kv_n;\n"
@@ -2208,14 +2227,23 @@ static NSString *qw3_metal_kernel_source(void) {
             "    if (pos >= args.ctx_size) return;\n"
             "    device const float *row = scratch + uint64_t(t) * args.stride;\n"
             "    uint64_t dst = uint64_t(pos) * kv_n + i;\n"
-            "    k_cache[dst] = row[args.k_offset + i];\n"
-            "    v_cache[dst] = row[args.v_offset + i];\n"
+            "    float kv = row[args.k_offset + i];\n"
+            "    float vv = row[args.v_offset + i];\n"
+            "    if (args.kv_type == 1u) {\n"
+            "        k_cache_f16[dst] = half(kv);\n"
+            "        v_cache_f16[dst] = half(vv);\n"
+            "    } else {\n"
+            "        k_cache[dst] = kv;\n"
+            "        v_cache[dst] = vv;\n"
+            "    }\n"
             "}\n"
-            "struct qw3_gqa_prefill_cached_attn_args { uint n_tokens; uint n_heads; uint n_kv_heads; uint head_dim; uint pos0; uint ctx_size; uint q_offset; uint gate_offset; uint out_offset; uint stride; };\n"
+            "struct qw3_gqa_prefill_cached_attn_args { uint n_tokens; uint n_heads; uint n_kv_heads; uint head_dim; uint pos0; uint ctx_size; uint q_offset; uint gate_offset; uint out_offset; uint stride; uint kv_type; };\n"
             "kernel void qw3_gqa_prefill_cached_attend_inner(constant qw3_gqa_prefill_cached_attn_args &args,\n"
             "                                               device float *scratch,\n"
             "                                               device const float *k_cache,\n"
             "                                               device const float *v_cache,\n"
+            "                                               device const half *k_cache_f16,\n"
+            "                                               device const half *v_cache_f16,\n"
             "                                               threadgroup float *sh,\n"
             "                                               uint group [[threadgroup_position_in_grid]],\n"
             "                                               ushort tid [[thread_index_in_threadgroup]],\n"
@@ -2250,7 +2278,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
             "    for (uint src = 0; src < n_ctx; src++) {\n"
-            "        float kval = (i < args.head_dim) ? k_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        uint64_t kv_idx = uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i;\n"
+            "        float kval = (i < args.head_dim) ? qw3_gqa_cache_load(k_cache, k_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        for (uint gh = 0; gh < 8u; gh++) {\n"
             "            float part = (gh < group_heads && i < args.head_dim) ? qv[gh] * kval : 0.0f;\n"
             "            part = simd_sum(part);\n"
@@ -2275,7 +2304,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "            tg_cur[gh] = cur_scale;\n"
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-            "        float vv = (i < args.head_dim) ? v_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        float vv = (i < args.head_dim) ? qw3_gqa_cache_load(v_cache, v_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        for (uint gh = 0; gh < 8u; gh++) {\n"
             "            if (gh < group_heads) {\n"
             "                acc[gh] = acc[gh] * tg_prev[gh] + vv * tg_cur[gh];\n"
@@ -2298,6 +2327,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                                device float *scratch,\n"
             "                                                device const float *k_cache,\n"
             "                                                device const float *v_cache,\n"
+            "                                                device const half *k_cache_f16,\n"
+            "                                                device const half *v_cache_f16,\n"
             "                                                threadgroup float *sh,\n"
             "                                                uint group [[threadgroup_position_in_grid]],\n"
             "                                                ushort tid [[thread_index_in_threadgroup]],\n"
@@ -2346,7 +2377,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
             "    for (uint src = 0; src < n_ctx; src++) {\n"
-            "        float kval = (i < args.head_dim) ? k_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        uint64_t kv_idx = uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i;\n"
+            "        float kval = (i < args.head_dim) ? qw3_gqa_cache_load(k_cache, k_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        bool causal0 = src <= args.pos0 + query0;\n"
             "        bool causal1 = valid1 && src <= args.pos0 + query1;\n"
             "        for (uint gh = 0; gh < 8u; gh++) {\n"
@@ -2392,7 +2424,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "            }\n"
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-            "        float vv = (i < args.head_dim) ? v_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        float vv = (i < args.head_dim) ? qw3_gqa_cache_load(v_cache, v_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        for (uint gh = 0; gh < 8u; gh++) {\n"
             "            if (gh < group_heads) {\n"
             "                acc0[gh] = acc0[gh] * tg_prev[gh] + vv * tg_cur[gh];\n"
@@ -2420,6 +2452,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                                device float *scratch,\n"
             "                                                device const float *k_cache,\n"
             "                                                device const float *v_cache,\n"
+            "                                                device const half *k_cache_f16,\n"
+            "                                                device const half *v_cache_f16,\n"
             "                                                threadgroup float *sh,\n"
             "                                                uint group [[threadgroup_position_in_grid]],\n"
             "                                                ushort tid [[thread_index_in_threadgroup]],\n"
@@ -2474,7 +2508,8 @@ static NSString *qw3_metal_kernel_source(void) {
             "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
             "    for (uint src = 0; src < n_ctx; src++) {\n"
-            "        float kval = (i < args.head_dim) ? k_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        uint64_t kv_idx = uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i;\n"
+            "        float kval = (i < args.head_dim) ? qw3_gqa_cache_load(k_cache, k_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        bool causal0 = src <= args.pos0 + query0;\n"
             "        bool causal1 = valid1 && src <= args.pos0 + query1;\n"
             "        bool causal2 = valid2 && src <= args.pos0 + query2;\n"
@@ -2532,7 +2567,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "            }\n"
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-            "        float vv = (i < args.head_dim) ? v_cache[uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i] : 0.0f;\n"
+            "        float vv = (i < args.head_dim) ? qw3_gqa_cache_load(v_cache, v_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "        for (uint gh = 0; gh < 8u; gh++) {\n"
             "            if (gh < group_heads) {\n"
             "                acc0[gh] = acc0[gh] * tg_prev[gh] + vv * tg_cur[gh];\n"
@@ -5834,6 +5869,7 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_prefill_cached_attend_inner_pipeline &&
         g_gqa_prefill_cached_attend_block2_pipeline &&
         g_gqa_prefill_cached_attend_block4_pipeline &&
+        g_gqa_store_token_cache_f16_pipeline &&
         g_gqa_kv_quant_q8_pipeline &&
         g_gqa_attend_n_q8_inner_pipeline &&
         g_gqa_attend_n_q8_split_partial_pipeline &&
@@ -6757,6 +6793,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_store_token_cache_f16"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_store_token_cache_f16 not found\n");
+        return 0;
+    }
+    g_gqa_store_token_cache_f16_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_store_token_cache_f16_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_store_token_cache_f16 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_gqa_attend_n_q8_inner"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_gqa_attend_n_q8_inner not found\n");
@@ -7472,6 +7520,9 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
 
     const char *kv_q8_env = getenv("QW3_METAL_KV_Q8_0");
     const BOOL gqa_kv_q8 = kv_q8_env && strcmp(kv_q8_env, "0") != 0;
+    const char *kv_f16_env = getenv("QW3_METAL_KV_F16");
+    const BOOL gqa_kv_f16 =
+        !gqa_kv_q8 && kv_f16_env && strcmp(kv_f16_env, "0") != 0;
     const BOOL gqa_split_q8 =
         gqa_kv_q8 && getenv("QW3_METAL_LEGACY_Q8_ATTN") == NULL;
     const uint32_t gqa_max_q8_splits = !gqa_split_q8 ||
@@ -7480,7 +7531,9 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
          (getenv("QW3_METAL_Q8_SPLIT_128") != NULL ? 128u : 256u));
     const uint64_t gqa_cache_token_bytes = gqa_kv_q8 ?
         (uint64_t)QW3_METAL_N_HEAD_KV * (QW3_METAL_N_HEAD_DIM / 32u) * 34ull :
-        (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(float);
+        (gqa_kv_f16 ?
+         (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(uint16_t) :
+         (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM * sizeof(float));
     const uint64_t gqa_kv_bytes =
         (uint64_t)QW3_METAL_N_FULL_ATTN_LAYERS * ctx_size *
         gqa_cache_token_bytes;
@@ -7511,6 +7564,7 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     obj.ctxSize = ctx_size;
     obj.vocabSize = vocab_size;
     obj.gqaKvQ8 = gqa_kv_q8;
+    obj.gqaKvF16 = gqa_kv_f16;
     obj.gqaSplitQ8 = gqa_split_q8;
     obj.gqaMaxQ8Splits = gqa_max_q8_splits;
     qw3_metal_session_info info = {
@@ -12654,7 +12708,8 @@ int qw3_metal_session_batch_gqa_write_cache_from_scratch(
         return 0;
     }
     const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
-    const uint64_t cache_token_bytes = (uint64_t)kv_n * sizeof(float);
+    const uint64_t cache_token_bytes =
+        (uint64_t)kv_n * (obj.gqaKvF16 ? sizeof(uint16_t) : sizeof(float));
     const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_token_bytes;
     const uint64_t cache_offset = (uint64_t)layer_slot * cache_layer_bytes;
     if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
@@ -12673,9 +12728,10 @@ int qw3_metal_session_batch_gqa_write_cache_from_scratch(
         uint32_t k_offset;
         uint32_t v_offset;
         uint32_t stride;
+        uint32_t kv_type;
     } args = {
         n_tokens, n_kv_heads, head_dim, pos0, obj.ctxSize,
-        k_offset, v_offset, stride
+        k_offset, v_offset, stride, obj.gqaKvF16 ? 1u : 0u
     };
 
     int owned = 0;
@@ -12687,6 +12743,8 @@ int qw3_metal_session_batch_gqa_write_cache_from_scratch(
     [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
     [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
     [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
+    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:4];
+    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:5];
     NSUInteger threads = g_gqa_prefill_write_cache_pipeline.maxTotalThreadsPerThreadgroup;
     if (threads > 256) threads = 256;
     [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * kv_n, 1, 1)
@@ -12729,7 +12787,8 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
         return 0;
     }
     const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
-    const uint64_t cache_token_bytes = (uint64_t)kv_n * sizeof(float);
+    const uint64_t cache_token_bytes =
+        (uint64_t)kv_n * (obj.gqaKvF16 ? sizeof(uint16_t) : sizeof(float));
     const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_token_bytes;
     const uint64_t cache_offset = (uint64_t)layer_slot * cache_layer_bytes;
     if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
@@ -12765,9 +12824,10 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
         uint32_t gate_offset;
         uint32_t out_offset;
         uint32_t stride;
+        uint32_t kv_type;
     } args = {
         n_tokens, n_heads, n_kv_heads, head_dim, pos0, obj.ctxSize,
-        q_offset, gate_offset, out_offset, stride
+        q_offset, gate_offset, out_offset, stride, obj.gqaKvF16 ? 1u : 0u
     };
 
     int owned = 0;
@@ -12779,6 +12839,8 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
     [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
     [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
     [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
+    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:4];
+    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:5];
     [enc setThreadgroupMemoryLength:
         (use_block4 ? 384u : (use_block2 ? 192u : 96u)) * sizeof(float)
                             atIndex:0];
@@ -12830,7 +12892,8 @@ int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
     const uint64_t q_bytes = (uint64_t)q_n * sizeof(float);
     const uint64_t kv_bytes = (uint64_t)kv_n * sizeof(float);
     const uint64_t cache_kv_bytes = obj.gqaKvQ8 ?
-        (uint64_t)(kv_n / 32u) * 34ull : kv_bytes;
+        (uint64_t)(kv_n / 32u) * 34ull :
+        (obj.gqaKvF16 ? (uint64_t)kv_n * sizeof(uint16_t) : kv_bytes);
     const uint64_t scratch_needed = (uint64_t)(qg_n + 2u * kv_n) * sizeof(float);
     const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_kv_bytes;
     const uint64_t cache_offset =
@@ -12934,7 +12997,7 @@ int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
     [blit copyFromBuffer:obj.scratch sourceOffset:(NSUInteger)v_offset * sizeof(float)
                 toBuffer:obj.gqaTokenV destinationOffset:0
                     size:(NSUInteger)kv_bytes];
-    if (!obj.gqaKvQ8) {
+    if (!obj.gqaKvQ8 && !obj.gqaKvF16) {
         [blit copyFromBuffer:obj.gqaTokenK sourceOffset:0
                     toBuffer:obj.gqaK destinationOffset:(NSUInteger)cache_offset
                         size:(NSUInteger)kv_bytes];
@@ -12978,7 +13041,24 @@ int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
     }
     [blit endEncoding];
 
-    if (obj.gqaKvQ8) {
+    if (obj.gqaKvF16) {
+        struct {
+            uint32_t n;
+        } store_args = { kv_n };
+        enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:g_gqa_store_token_cache_f16_pipeline];
+        [enc setBytes:&store_args length:sizeof(store_args) atIndex:0];
+        [enc setBuffer:obj.gqaTokenK offset:0 atIndex:1];
+        [enc setBuffer:obj.gqaTokenV offset:0 atIndex:2];
+        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:3];
+        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:4];
+        NSUInteger threads = g_gqa_store_token_cache_f16_pipeline.maxTotalThreadsPerThreadgroup;
+        if (threads > 256) threads = 256;
+        [enc dispatchThreads:MTLSizeMake(kv_n, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    } else if (obj.gqaKvQ8) {
         struct {
             uint32_t n;
         } quant_args = { kv_n };
@@ -13089,7 +13169,8 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
     const uint64_t inner_bytes = (uint64_t)inner_n * sizeof(float);
     const uint64_t kv_bytes = (uint64_t)kv_n * sizeof(float);
     const uint64_t cache_kv_bytes = obj.gqaKvQ8 ?
-        (uint64_t)(kv_n / 32u) * 34ull : kv_bytes;
+        (uint64_t)(kv_n / 32u) * 34ull :
+        (obj.gqaKvF16 ? (uint64_t)kv_n * sizeof(uint16_t) : kv_bytes);
     const uint64_t cache_offset =
         (uint64_t)layer_slot * (uint64_t)obj.ctxSize * cache_kv_bytes;
     const uint64_t cache_bytes = (uint64_t)n_ctx * cache_kv_bytes;
@@ -13107,7 +13188,8 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
         uint32_t n_heads;
         uint32_t n_kv_heads;
         uint32_t head_dim;
-    } args = { n_ctx, n_heads, n_kv_heads, head_dim };
+        uint32_t kv_type;
+    } args = { n_ctx, n_heads, n_kv_heads, head_dim, obj.gqaKvF16 ? 1u : 0u };
 
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
@@ -13182,6 +13264,10 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
         [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:3];
         [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:4];
         [enc setBuffer:obj.inner offset:0 atIndex:5];
+        if (!obj.gqaKvQ8) {
+            [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:6];
+            [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:7];
+        }
         [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
@@ -13330,6 +13416,7 @@ void qw3_metal_cleanup(void) {
     g_gqa_prefill_cached_attend_inner_pipeline = nil;
     g_gqa_prefill_cached_attend_block2_pipeline = nil;
     g_gqa_prefill_cached_attend_block4_pipeline = nil;
+    g_gqa_store_token_cache_f16_pipeline = nil;
     g_gqa_kv_quant_q8_pipeline = nil;
     g_gqa_attend_n_q8_inner_pipeline = nil;
     g_gqa_attend_n_q8_split_partial_pipeline = nil;
@@ -14305,7 +14392,8 @@ int qw3_metal_gqa_attend_n_inner(const float *q, const float *gate,
         uint32_t n_heads;
         uint32_t n_kv_heads;
         uint32_t head_dim;
-    } args = { n_ctx, n_heads, n_kv_heads, head_dim };
+        uint32_t kv_type;
+    } args = { n_ctx, n_heads, n_kv_heads, head_dim, 0u };
 
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
@@ -14317,6 +14405,8 @@ int qw3_metal_gqa_attend_n_inner(const float *q, const float *gate,
     [enc setBuffer:kb offset:0 atIndex:3];
     [enc setBuffer:vb offset:0 atIndex:4];
     [enc setBuffer:outb offset:0 atIndex:5];
+    [enc setBuffer:kb offset:0 atIndex:6];
+    [enc setBuffer:vb offset:0 atIndex:7];
     NSUInteger threads = ((NSUInteger)head_dim + 31u) & ~(NSUInteger)31u;
     if (threads < 32u) threads = 32u;
     if (threads > 256u ||
