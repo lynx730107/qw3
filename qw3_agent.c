@@ -39,6 +39,8 @@
 #define QWEN_XML_TOOL_RESPONSE_END "</tool_response>"
 
 #define QW3_AGENT_N_LAYER 40
+#define QW3_AGENT_READ_DEFAULT_LINES 512
+#define QW3_AGENT_READ_MAX_LINES 2000
 
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
@@ -242,10 +244,10 @@ static char *native_tool_declarations(void) {
     TOOL_DECL("read", "Read numbered lines from a text file.",
               TOOL_PARAM("path", "Path to read") ","
               TOOL_PARAM("start", "First 1-based line") ","
-              TOOL_PARAM("lines", "Maximum lines to return"));
+              TOOL_PARAM("lines", "Maximum lines to return; default 512"));
     TOOL_DECL("more", "Continue the previous read.",
               TOOL_PARAM("path", "Optional path") ","
-              TOOL_PARAM("lines", "Maximum lines to return"));
+              TOOL_PARAM("lines", "Maximum lines to return; default 512"));
     TOOL_DECL("list", "List files below a path.",
               TOOL_PARAM("path", "Directory path") ","
               TOOL_PARAM("depth", "Maximum recursion depth") ","
@@ -883,14 +885,32 @@ static int int_param(const tool_call *call, const char *name, int def) {
     return v && v[0] ? atoi(v) : def;
 }
 
+static int agent_env_int(const char *name, int def, int min, int max) {
+    const char *v = getenv(name);
+    if (!v || !v[0]) return def;
+    char *end = NULL;
+    long n = strtol(v, &end, 10);
+    if (end == v) return def;
+    if (n < min) return min;
+    if (n > max) return max;
+    return (int)n;
+}
+
 static char *tool_read(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     if (!path || !path[0]) path = tool_param_value(call, "file");
     if (!path || !path[0]) return agent_strdup("error: read requires path");
     int start = int_param(call, "start", 1);
-    int lines = int_param(call, "lines", 160);
+    const int max_lines = agent_env_int("QW3_AGENT_READ_MAX_LINES",
+                                        QW3_AGENT_READ_MAX_LINES,
+                                        1, 10000);
+    const int default_lines = agent_env_int("QW3_AGENT_READ_LINES",
+                                            QW3_AGENT_READ_DEFAULT_LINES,
+                                            1, max_lines);
+    int lines = int_param(call, "lines", default_lines);
     if (start < 1) start = 1;
-    if (lines <= 0 || lines > 400) lines = 160;
+    if (lines <= 0) lines = default_lines;
+    if (lines > max_lines) lines = max_lines;
 
     FILE *fp = fopen(path, "rb");
     if (!fp) {
