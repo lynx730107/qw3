@@ -15,6 +15,12 @@ Default safety policy:
   tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
 - Expert-major MoE down is enabled inside IQ4_XS batch prefill with at least 32
   tokens; set `QW3_METAL_MOE_MAP_DOWN_DISABLE=1` for legacy comparisons.
+- Metal4 TensorOps MoE kernels are enabled automatically on M5/M6/A19/A20
+  devices after a successful compile probe. Set `QW3_METAL_DISABLE_METAL4=1`
+  to disable the feature probe, or `QW3_METAL_MOE_MPP_DISABLE=1` for legacy
+  MoE prefill comparisons. Gate/up and down can also be disabled separately
+  with `QW3_METAL_MOE_MPP_GATEUP_DISABLE=1` and
+  `QW3_METAL_MOE_MPP_DOWN_DISABLE=1`.
 - GQA batch prefill fuses RMSNorm, Q gate copy, and RoPE by default. Set
   `QW3_METAL_GQA_NORM_ROPE_SPLIT=1` for the legacy split-kernel comparison.
 - GQA cached prefill attention uses the `block4` query-grouped kernel by
@@ -227,3 +233,29 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
   no-profile runs.
 - `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows routed-MoE down dropping from
   about 68.3 ms/layer to about 56.7 ms/layer.
+
+## 2026-06-02 Metal4 MoE TensorOps Prefill
+
+QW3 now probes the Metal4 Tensor API before compiling the main Metal shader
+library. On M5/M6/A19/A20 devices with a successful probe it defines
+`QW3_METAL_HAS_TENSOR` and enables TensorOps/MPP kernels by default for mapped
+IQ3_S gate/up and compact F32 IQ4_XS down prefill. The legacy kernels remain
+available through the documented opt-outs above.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `make test-metal-smoke`
+- `env QW3_METAL_MOE_MPP_GATEUP=1 make test-metal-logits`
+- `env QW3_METAL_MOE_MPP_DOWN=1 make test-metal-logits`
+- `env QW3_METAL_MOE_MPP_GATEUP=1 QW3_METAL_MOE_MPP_DOWN=1 make test-metal-logits`
+
+Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
+- Legacy current default before MPP promotion: 3413 prompt tokens, 15090.4 ms
+  prefill.
+- Down MPP only: 3413 prompt tokens, 14262.6 ms prefill.
+- Gate/up plus down MPP opt-in: 3413 prompt tokens, 13762.6 ms prefill.
+- Default after promotion: 3413 prompt tokens, 13830.8 ms prefill.
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows mapped IQ3_S gate/up dropping
+  from about 36 ms/layer to about 27 ms/layer, and compact IQ4_XS down dropping
+  from about 56.7 ms/layer to about 41-43 ms/layer.
