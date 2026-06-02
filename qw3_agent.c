@@ -90,6 +90,7 @@ typedef struct {
     char *system_prompt;
     char *store_dir;
     char *conversation;
+    char *chdir_path;
     const char *tool_dsml;
     char *tool_dsml_owned;
     const char *tool_native;
@@ -125,6 +126,11 @@ typedef struct {
     agent_config cfg;
     char *last_read_path;
     int last_read_next;
+    char *session_id;
+    char *session_title;
+    time_t session_created;
+    time_t session_updated;
+    bool session_stripped;
     agent_output_fn output_write;
     void *output_ud;
     agent_output_fn status_write;
@@ -293,6 +299,8 @@ static void sb_append_xml_escaped(strbuf *sb, const char *s) {
 }
 
 static char *agent_strdup(const char *s);
+static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len);
+static void agent_init_transcript(agent_state *a);
 
 static char *native_tool_call_text(const tool_call_list *calls)
     __attribute__((unused));
@@ -410,6 +418,14 @@ static int write_file_text(const char *path, const char *text) {
     return rc;
 }
 
+static int write_file_bytes(const char *path, const char *data, size_t n) {
+    FILE *fp = fopen(path, "wb");
+    if (!fp) return -1;
+    int rc = (fwrite(data ? data : "", 1, n, fp) == n) ? 0 : -1;
+    fclose(fp);
+    return rc;
+}
+
 static int ensure_dir(const char *path) {
     if (!path || !path[0]) return -1;
     if (mkdir(path, 0755) == 0 || errno == EEXIST) return 0;
@@ -455,29 +471,240 @@ static char *sanitized_name(const char *name) {
     return out;
 }
 
-static char *store_path(agent_state *a, const char *name) {
-    char *safe = sanitized_name(name);
+static char *store_path_ext(agent_state *a, const char *name,
+                            const char *ext) {
+    char *safe = sanitized_name(name && name[0] ? name : "default");
     if (!safe) return NULL;
-    size_t n = strlen(safe) + 7;
+    size_t ext_n = ext ? strlen(ext) : 0;
+    size_t n = strlen(safe) + ext_n + 1;
     char *file = malloc(n);
     if (!file) {
         free(safe);
         return NULL;
     }
-    snprintf(file, n, "%s.qw3a", safe);
+    snprintf(file, n, "%s%s", safe, ext ? ext : "");
     free(safe);
     char *path = path_join(a->cfg.store_dir, file);
     free(file);
     return path;
 }
 
-static int store_save(agent_state *a, const char *name) {
-    char *path = store_path(a, name);
+static char *store_path(agent_state *a, const char *name) {
+    return store_path_ext(a, name, ".qw3a");
+}
+
+static char *store_meta_path(agent_state *a, const char *name) {
+    return store_path_ext(a, name, ".meta");
+}
+
+static char *store_text_path(agent_state *a, const char *name) {
+    return store_path_ext(a, name, ".txt");
+}
+
+static uint64_t agent_hash_update(uint64_t h, const void *data, size_t n) {
+    const unsigned char *p = (const unsigned char *)data;
+    for (size_t i = 0; i < n; i++) {
+        h ^= (uint64_t)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+static char *agent_session_id_from_seed(const char *title,
+                                        const char *model_path,
+                                        time_t created) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t h = 1469598103934665603ull;
+    h = agent_hash_update(h, title ? title : "", strlen(title ? title : ""));
+    h = agent_hash_update(h, model_path ? model_path : "",
+                          strlen(model_path ? model_path : ""));
+    h = agent_hash_update(h, &created, sizeof(created));
+    h = agent_hash_update(h, &ts.tv_nsec, sizeof(ts.tv_nsec));
+    pid_t pid = getpid();
+    h = agent_hash_update(h, &pid, sizeof(pid));
+    char *out = malloc(17);
+    if (!out) return NULL;
+    snprintf(out, 17, "%016llx", (unsigned long long)h);
+    return out;
+}
+
+static char *agent_title_from_message(const char *msg) {
+    const char *p = msg ? msg : "";
+    while (*p && isspace((unsigned char)*p)) p++;
+    strbuf sb;
+    sb_init(&sb);
+    while (*p && *p != '\n' && *p != '\r' && sb.len < 72) {
+        unsigned char c = (unsigned char)*p++;
+        if (c < 32) continue;
+        sb_append_n(&sb, (const char *)&c, 1);
+    }
+    if (!sb.p || !sb.p[0]) {
+        sb_free(&sb);
+        return agent_strdup("untitled");
+    }
+    return sb.p;
+}
+
+static void agent_set_owned(char **dst, const char *src) {
+    char *next = agent_strdup(src ? src : "");
+    if (!next) return;
+    free(*dst);
+    *dst = next;
+}
+
+static void agent_clear_session_meta(agent_state *a) {
+    free(a->session_id);
+    free(a->session_title);
+    a->session_id = NULL;
+    a->session_title = NULL;
+    a->session_created = 0;
+    a->session_updated = 0;
+    a->session_stripped = false;
+}
+
+static void agent_note_user_message(agent_state *a, const char *msg) {
+    if (!a->session_created) a->session_created = time(NULL);
+    if (!a->session_title) a->session_title = agent_title_from_message(msg);
+    a->session_stripped = false;
+}
+
+static int agent_ensure_session_id(agent_state *a, const char *name) {
+    if (!a->session_created) a->session_created = time(NULL);
+    if (!a->session_title) a->session_title = agent_strdup("untitled");
+    if (name && name[0]) {
+        agent_set_owned(&a->session_id, name);
+    } else if (!a->session_id) {
+        a->session_id = agent_session_id_from_seed(
+            a->session_title, a->cfg.model_path, a->session_created);
+    }
+    return a->session_id ? 0 : -1;
+}
+
+static char *transcript_rendered_text(agent_state *a,
+                                      const qw3_tokens *tokens) {
+    strbuf out;
+    sb_init(&out);
+    if (!a || !tokens) return agent_strdup("");
+    for (int i = 0; i < tokens->len; i++) {
+        size_t n = 0;
+        char *t = token_decoded_text(a->engine, tokens->v[i], &n);
+        if (t && n) sb_append_n(&out, t, n);
+        free(t);
+    }
+    return out.p ? out.p : agent_strdup("");
+}
+
+typedef struct {
+    char *id;
+    char *title;
+    char *model;
+    char *backend;
+    char *think;
+    time_t created;
+    time_t updated;
+    int ctx;
+    int tokens;
+    bool tools;
+    bool stripped;
+} agent_session_meta;
+
+static void session_meta_free(agent_session_meta *m) {
+    if (!m) return;
+    free(m->id);
+    free(m->title);
+    free(m->model);
+    free(m->backend);
+    free(m->think);
+    memset(m, 0, sizeof(*m));
+}
+
+static bool str_bool(const char *s) {
+    return s && (!strcmp(s, "1") || !strcmp(s, "true") ||
+                 !strcmp(s, "on") || !strcmp(s, "yes"));
+}
+
+static int session_meta_read_path(const char *path, agent_session_meta *m) {
+    memset(m, 0, sizeof(*m));
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return -1;
+    char *line = NULL;
+    size_t cap = 0;
+    while (getline(&line, &cap, fp) >= 0) {
+        char *nl = strpbrk(line, "\r\n");
+        if (nl) *nl = '\0';
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq++ = '\0';
+        if (!strcmp(line, "id")) m->id = agent_strdup(eq);
+        else if (!strcmp(line, "title")) m->title = agent_strdup(eq);
+        else if (!strcmp(line, "model")) m->model = agent_strdup(eq);
+        else if (!strcmp(line, "backend")) m->backend = agent_strdup(eq);
+        else if (!strcmp(line, "think")) m->think = agent_strdup(eq);
+        else if (!strcmp(line, "created")) m->created = (time_t)strtoll(eq, NULL, 10);
+        else if (!strcmp(line, "updated")) m->updated = (time_t)strtoll(eq, NULL, 10);
+        else if (!strcmp(line, "ctx")) m->ctx = atoi(eq);
+        else if (!strcmp(line, "tokens")) m->tokens = atoi(eq);
+        else if (!strcmp(line, "tools")) m->tools = str_bool(eq);
+        else if (!strcmp(line, "stripped")) m->stripped = str_bool(eq);
+    }
+    free(line);
+    fclose(fp);
+    return m->id ? 0 : -1;
+}
+
+static int session_meta_write_path(const char *path,
+                                   const agent_session_meta *m) {
+    FILE *fp = fopen(path, "wb");
+    if (!fp) return -1;
+    fprintf(fp, "version=2\n");
+    fprintf(fp, "id=%s\n", m->id ? m->id : "");
+    fprintf(fp, "title=%s\n", m->title ? m->title : "untitled");
+    fprintf(fp, "created=%lld\n", (long long)m->created);
+    fprintf(fp, "updated=%lld\n", (long long)m->updated);
+    fprintf(fp, "model=%s\n", m->model ? m->model : "");
+    fprintf(fp, "backend=%s\n", m->backend ? m->backend : "");
+    fprintf(fp, "ctx=%d\n", m->ctx);
+    fprintf(fp, "think=%s\n", m->think ? m->think : "");
+    fprintf(fp, "tools=%d\n", m->tools ? 1 : 0);
+    fprintf(fp, "tokens=%d\n", m->tokens);
+    fprintf(fp, "stripped=%d\n", m->stripped ? 1 : 0);
+    int rc = ferror(fp) ? -1 : 0;
+    fclose(fp);
+    return rc;
+}
+
+static int store_read_tokens_path(const char *path, qw3_tokens *out,
+                                  uint32_t *ctx_size_out) {
+    memset(out, 0, sizeof(*out));
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return -1;
+    agent_store_header h = {0};
+    int rc = -1;
+    if (fread(&h, 1, sizeof(h), fp) == sizeof(h) &&
+        memcmp(h.magic, AGENT_STORE_MAGIC, sizeof(h.magic)) == 0 &&
+        h.version == AGENT_STORE_VERSION) {
+        rc = 0;
+        for (uint32_t i = 0; i < h.token_len; i++) {
+            int32_t tok = 0;
+            if (fread(&tok, 1, sizeof(tok), fp) != sizeof(tok)) {
+                rc = -1;
+                break;
+            }
+            qw3_tokens_push(out, (int)tok);
+        }
+        if (ctx_size_out) *ctx_size_out = h.ctx_size;
+    }
+    fclose(fp);
+    if (rc != 0) qw3_tokens_free(out);
+    return rc;
+}
+
+static int store_write_tokens_path(agent_state *a, const char *path) {
     if (!path) return -1;
     FILE *fp = fopen(path, "wb");
     if (!fp) {
         agent_statusf(a, "agent: cannot save %s: %s\n", path, strerror(errno));
-        free(path);
         return -1;
     }
     agent_store_header h = {0};
@@ -492,53 +719,153 @@ static int store_save(agent_state *a, const char *name) {
         if (fwrite(&tok, 1, sizeof(tok), fp) != sizeof(tok)) rc = -1;
     }
     fclose(fp);
-    if (rc == 0) {
-        agent_statusf(a, "agent: saved %s (%d tokens)\n",
-                      path, a->transcript.len);
-    } else {
-        agent_statusf(a, "agent: failed while writing %s\n", path);
-    }
+    return rc;
+}
+
+static int store_write_meta(agent_state *a, const char *id, bool stripped) {
+    char *path = store_meta_path(a, id);
+    if (!path) return -1;
+    agent_session_meta m = {0};
+    m.id = (char *)id;
+    m.title = a->session_title ? a->session_title : "untitled";
+    m.created = a->session_created ? a->session_created : time(NULL);
+    m.updated = a->session_updated ? a->session_updated : time(NULL);
+    m.model = (char *)a->cfg.model_path;
+    m.backend = (char *)qw3_backend_name(a->cfg.backend);
+    m.ctx = a->cfg.ctx_size;
+    m.think = (char *)qw3_think_mode_name(a->cfg.think_mode);
+    m.tools = a->cfg.tools_enabled;
+    m.tokens = a->transcript.len;
+    m.stripped = stripped;
+    int rc = session_meta_write_path(path, &m);
     free(path);
     return rc;
 }
 
-static int store_load(agent_state *a, const char *name) {
-    char *path = store_path(a, name);
-    if (!path) return -1;
-    FILE *fp = fopen(path, "rb");
-    if (!fp) {
-        free(path);
+static int store_save(agent_state *a, const char *name) {
+    if (agent_ensure_session_id(a, name) != 0) return -1;
+    a->session_updated = time(NULL);
+    const char *id = a->session_id;
+    char *text_path = store_text_path(a, id);
+    char *token_path = store_path(a, id);
+    if (!text_path || !token_path) {
+        free(text_path);
+        free(token_path);
         return -1;
     }
-    agent_store_header h = {0};
+
+    char *rendered = transcript_rendered_text(a, &a->transcript);
+    int rc = rendered ?
+        write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
+    free(rendered);
+    if (rc == 0 && !a->session_stripped) {
+        rc = store_write_tokens_path(a, token_path);
+    }
+    if (rc == 0 && a->session_stripped) {
+        (void)unlink(token_path);
+    }
+    if (rc == 0) rc = store_write_meta(a, id, a->session_stripped);
+    if (rc == 0) {
+        agent_statusf(a, "agent: saved %s (%d tokens%s)\n",
+                      id, a->transcript.len,
+                      a->session_stripped ? ", stripped" : "");
+    } else {
+        agent_statusf(a, "agent: failed while saving %s\n", id);
+    }
+    free(text_path);
+    free(token_path);
+    return rc;
+}
+
+static int store_load(agent_state *a, const char *name) {
+    char *token_path = store_path(a, name);
+    char *meta_path = store_meta_path(a, name);
+    char *text_path = store_text_path(a, name);
+    if (!token_path || !meta_path || !text_path) {
+        free(token_path);
+        free(meta_path);
+        free(text_path);
+        return -1;
+    }
+    agent_session_meta meta = {0};
+    int have_meta = session_meta_read_path(meta_path, &meta) == 0;
+    qw3_tokens next = {0};
     int rc = -1;
-    if (fread(&h, 1, sizeof(h), fp) == sizeof(h) &&
-        memcmp(h.magic, AGENT_STORE_MAGIC, sizeof(h.magic)) == 0 &&
-        h.version == AGENT_STORE_VERSION &&
-        h.token_len <= (uint32_t)a->cfg.ctx_size) {
-        qw3_tokens next = {0};
-        rc = 0;
-        for (uint32_t i = 0; i < h.token_len; i++) {
-            int32_t tok = 0;
-            if (fread(&tok, 1, sizeof(tok), fp) != sizeof(tok)) {
-                rc = -1;
-                break;
-            }
-            qw3_tokens_push(&next, (int)tok);
-        }
-        if (rc == 0) {
-            qw3_tokens_free(&a->transcript);
-            a->transcript = next;
-            if (a->session) qw3_session_invalidate(a->session);
-            agent_statusf(a, "agent: loaded %s (%d tokens)\n",
-                          path, a->transcript.len);
-        } else {
-            qw3_tokens_free(&next);
+    uint32_t saved_ctx = 0;
+    if (!have_meta || !meta.stripped) {
+        rc = store_read_tokens_path(token_path, &next, &saved_ctx);
+    }
+    if (rc != 0) {
+        size_t text_len = 0;
+        char *text = read_file_text(text_path, &text_len);
+        if (text) {
+            qw3_tokenize_rendered_chat(a->engine, text, &next);
+            free(text);
+            rc = 0;
         }
     }
-    fclose(fp);
-    free(path);
+    if (rc == 0 && next.len > a->cfg.ctx_size) {
+        agent_statusf(a, "agent: session %s has %d tokens, ctx=%d\n",
+                      name, next.len, a->cfg.ctx_size);
+        qw3_tokens_free(&next);
+        rc = -1;
+    }
+    if (rc == 0) {
+        qw3_tokens_free(&a->transcript);
+        a->transcript = next;
+        if (a->session) qw3_session_invalidate(a->session);
+        agent_clear_session_meta(a);
+        a->session_id = agent_strdup(have_meta && meta.id ? meta.id : name);
+        a->session_title = agent_strdup(have_meta && meta.title ? meta.title : name);
+        a->session_created = have_meta && meta.created ? meta.created : time(NULL);
+        a->session_updated = have_meta && meta.updated ? meta.updated : time(NULL);
+        a->session_stripped = have_meta ? meta.stripped : false;
+        agent_statusf(a, "agent: switched to %s (%d tokens%s)\n",
+                      a->session_id ? a->session_id : name, a->transcript.len,
+                      a->session_stripped ? ", stripped/rebuilt" : "");
+    }
+    (void)saved_ctx;
+    session_meta_free(&meta);
+    free(token_path);
+    free(meta_path);
+    free(text_path);
     return rc;
+}
+
+typedef struct {
+    char *id;
+    char *title;
+    time_t updated;
+    int tokens;
+    bool stripped;
+} store_list_item;
+
+static int store_list_cmp(const void *a, const void *b) {
+    const store_list_item *ia = (const store_list_item *)a;
+    const store_list_item *ib = (const store_list_item *)b;
+    if (ia->updated > ib->updated) return -1;
+    if (ia->updated < ib->updated) return 1;
+    return strcmp(ia->id ? ia->id : "", ib->id ? ib->id : "");
+}
+
+static int store_list_add(store_list_item **items, int *len, int *cap,
+                          const char *id, const char *title,
+                          time_t updated, int tokens, bool stripped) {
+    if (*len == *cap) {
+        int nc = *cap ? *cap * 2 : 16;
+        store_list_item *nv = realloc(*items, (size_t)nc * sizeof(*nv));
+        if (!nv) return -1;
+        *items = nv;
+        *cap = nc;
+    }
+    store_list_item *it = &(*items)[(*len)++];
+    memset(it, 0, sizeof(*it));
+    it->id = agent_strdup(id);
+    it->title = agent_strdup(title && title[0] ? title : "untitled");
+    it->updated = updated;
+    it->tokens = tokens;
+    it->stripped = stripped;
+    return it->id ? 0 : -1;
 }
 
 static void store_list(agent_state *a) {
@@ -547,14 +874,181 @@ static void store_list(agent_state *a) {
         agent_statusf(a, "agent: cannot open store %s\n", a->cfg.store_dir);
         return;
     }
+    store_list_item *items = NULL;
+    int len = 0;
+    int cap = 0;
     struct dirent *de;
     while ((de = readdir(dir)) != NULL) {
         size_t n = strlen(de->d_name);
-        if (n > 5 && strcmp(de->d_name + n - 5, ".qw3a") == 0) {
-            agent_statusf(a, "  %.*s\n", (int)(n - 5), de->d_name);
+        if (n > 5 && strcmp(de->d_name + n - 5, ".meta") == 0) {
+            char id[256];
+            snprintf(id, sizeof(id), "%.*s", (int)(n - 5), de->d_name);
+            char *mp = path_join(a->cfg.store_dir, de->d_name);
+            agent_session_meta meta = {0};
+            if (mp && session_meta_read_path(mp, &meta) == 0) {
+                store_list_add(&items, &len, &cap,
+                               meta.id ? meta.id : id,
+                               meta.title ? meta.title : id,
+                               meta.updated, meta.tokens, meta.stripped);
+            }
+            session_meta_free(&meta);
+            free(mp);
+        } else if (n > 5 && strcmp(de->d_name + n - 5, ".qw3a") == 0) {
+            char id[256];
+            snprintf(id, sizeof(id), "%.*s", (int)(n - 5), de->d_name);
+            char *mp = store_meta_path(a, id);
+            struct stat mst;
+            if (mp && stat(mp, &mst) != 0) {
+                char *tp = path_join(a->cfg.store_dir, de->d_name);
+                struct stat tst;
+                qw3_tokens toks = {0};
+                uint32_t saved_ctx = 0;
+                if (tp && stat(tp, &tst) == 0 &&
+                    store_read_tokens_path(tp, &toks, &saved_ctx) == 0) {
+                    store_list_add(&items, &len, &cap, id, id,
+                                   tst.st_mtime, toks.len, false);
+                    qw3_tokens_free(&toks);
+                }
+                free(tp);
+            }
+            free(mp);
         }
     }
     closedir(dir);
+    qsort(items, (size_t)len, sizeof(*items), store_list_cmp);
+    agent_statusf(a, "sessions in %s\n", a->cfg.store_dir);
+    for (int i = 0; i < len; i++) {
+        char tb[32];
+        struct tm tmv;
+        localtime_r(&items[i].updated, &tmv);
+        strftime(tb, sizeof(tb), "%Y-%m-%d %H:%M", &tmv);
+        agent_statusf(a, "  %-16s  %s  %7d  %s  %s\n",
+                      items[i].id ? items[i].id : "",
+                      tb, items[i].tokens,
+                      items[i].stripped ? "stripped" : "tokens  ",
+                      items[i].title ? items[i].title : "");
+        free(items[i].id);
+        free(items[i].title);
+    }
+    if (len == 0) agent_statusf(a, "  (none)\n");
+    free(items);
+}
+
+static bool store_current_id_matches(agent_state *a, const char *id) {
+    return a && a->session_id && id && !strcmp(a->session_id, id);
+}
+
+static int store_delete(agent_state *a, const char *name) {
+    if (!name || !name[0]) return -1;
+    char *token_path = store_path(a, name);
+    char *meta_path = store_meta_path(a, name);
+    char *text_path = store_text_path(a, name);
+    if (!token_path || !meta_path || !text_path) {
+        free(token_path);
+        free(meta_path);
+        free(text_path);
+        return -1;
+    }
+    int removed = 0;
+    if (unlink(token_path) == 0) removed++;
+    if (unlink(meta_path) == 0) removed++;
+    if (unlink(text_path) == 0) removed++;
+    free(token_path);
+    free(meta_path);
+    free(text_path);
+    if (removed == 0) {
+        agent_statusf(a, "agent: no session files for %s\n", name);
+        return -1;
+    }
+    if (store_current_id_matches(a, name)) {
+        agent_init_transcript(a);
+        agent_clear_session_meta(a);
+    }
+    agent_statusf(a, "agent: deleted %s\n", name);
+    return 0;
+}
+
+static int store_strip(agent_state *a, const char *name) {
+    const char *id = (name && name[0]) ? name : a->session_id;
+    if (!id || !id[0]) {
+        agent_statusf(a, "agent: /strip needs a session id\n");
+        return -1;
+    }
+    char *token_path = store_path(a, id);
+    char *meta_path = store_meta_path(a, id);
+    char *text_path = store_text_path(a, id);
+    if (!token_path || !meta_path || !text_path) {
+        free(token_path);
+        free(meta_path);
+        free(text_path);
+        return -1;
+    }
+
+    agent_session_meta meta = {0};
+    int have_meta = session_meta_read_path(meta_path, &meta) == 0;
+    int rc = 0;
+
+    if (store_current_id_matches(a, id)) {
+        char *rendered = transcript_rendered_text(a, &a->transcript);
+        rc = rendered ? write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
+        free(rendered);
+        if (!have_meta) {
+            meta.id = agent_strdup(id);
+            meta.title = agent_strdup(a->session_title ? a->session_title : id);
+            meta.created = a->session_created ? a->session_created : time(NULL);
+        }
+        meta.tokens = a->transcript.len;
+    } else {
+        struct stat st;
+        if (stat(text_path, &st) != 0 || st.st_size == 0) {
+            qw3_tokens toks = {0};
+            uint32_t saved_ctx = 0;
+            if (store_read_tokens_path(token_path, &toks, &saved_ctx) == 0) {
+                char *rendered = transcript_rendered_text(a, &toks);
+                rc = rendered ?
+                    write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
+                free(rendered);
+                if (!have_meta) {
+                    meta.id = agent_strdup(id);
+                    meta.title = agent_strdup(id);
+                    meta.created = time(NULL);
+                    meta.tokens = toks.len;
+                }
+                qw3_tokens_free(&toks);
+            } else {
+                rc = -1;
+            }
+        }
+    }
+
+    if (rc == 0) {
+        (void)unlink(token_path);
+        if (!meta.id) meta.id = agent_strdup(id);
+        if (!meta.title) meta.title = agent_strdup(id);
+        if (!meta.created) meta.created = time(NULL);
+        meta.updated = time(NULL);
+        agent_set_owned(&meta.model, a->cfg.model_path);
+        agent_set_owned(&meta.backend, qw3_backend_name(a->cfg.backend));
+        meta.ctx = a->cfg.ctx_size;
+        agent_set_owned(&meta.think, qw3_think_mode_name(a->cfg.think_mode));
+        meta.tools = a->cfg.tools_enabled;
+        meta.stripped = true;
+        rc = session_meta_write_path(meta_path, &meta);
+    }
+    if (rc == 0 && store_current_id_matches(a, id)) {
+        a->session_stripped = true;
+        a->session_updated = meta.updated;
+    }
+    if (rc == 0) {
+        agent_statusf(a, "agent: stripped %s\n", id);
+    } else {
+        agent_statusf(a, "agent: cannot strip %s\n", id);
+    }
+    session_meta_free(&meta);
+    free(token_path);
+    free(meta_path);
+    free(text_path);
+    return rc;
 }
 
 static int utf8_read_cp(const char *s, size_t len, size_t *pos, uint32_t *cp) {
@@ -1701,6 +2195,7 @@ static int generate_once(agent_state *a, char **assistant_text) {
 }
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
+    agent_note_user_message(a, user_message);
     qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
     if (a->transcript.len >= a->cfg.ctx_size) {
         agent_statusf(a, "agent: context full (%d/%d tokens)\n",
@@ -1818,6 +2313,7 @@ static void print_help(void) {
         "  --nothink            Disable thinking mode\n"
         "  --store-dir PATH     Conversation store directory\n"
         "  --conversation NAME  Load/save a named conversation\n"
+        "  --chdir PATH         Change working directory before loading/running\n"
         "  --no-tools           Disable tool execution\n"
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
         "  --tool-dsml-file PATH\n"
@@ -1827,7 +2323,8 @@ static void print_help(void) {
         "                       Execute Qwen tool_call text read from a file and exit\n"
         "  --help               Show help\n\n"
         "Interactive commands:\n"
-        "  /help, /quit, /new, /ctx, /save [name], /load name, /sessions\n"
+        "  /help, /quit, /new, /ctx, /save [name], /list, /switch id\n"
+        "  /del id, /strip [id], /load name, /sessions\n"
         "  /read PATH, /think, /nothink, /tools on|off\n");
 }
 
@@ -1932,6 +2429,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->store_dir = agent_strdup(argv[++i]);
         } else if (!strcmp(argv[i], "--conversation") && i + 1 < argc) {
             cfg->conversation = agent_strdup(argv[++i]);
+        } else if (!strcmp(argv[i], "--chdir") && i + 1 < argc) {
+            cfg->chdir_path = agent_strdup(argv[++i]);
         } else if (!strcmp(argv[i], "--no-tools")) {
             cfg->tools_enabled = false;
         } else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc) {
@@ -2026,11 +2525,13 @@ static void free_config(agent_config *cfg) {
     free(cfg->system_prompt);
     free(cfg->store_dir);
     free(cfg->conversation);
+    free(cfg->chdir_path);
     free(cfg->tool_dsml_owned);
     free(cfg->tool_native_owned);
 }
 
 static void agent_init_transcript(agent_state *a) {
+    agent_clear_session_meta(a);
     qw3_tokens_free(&a->transcript);
     memset(&a->transcript, 0, sizeof(a->transcript));
     qw3_chat_append_message(a->engine, &a->transcript,
@@ -2046,8 +2547,10 @@ static void interactive_help(void) {
         "  /new               Start a new conversation\n"
         "  /ctx               Print token count and context size\n"
         "  /save [name]       Save conversation\n"
-        "  /load name         Load conversation\n"
-        "  /sessions          List saved conversations\n"
+        "  /list              List saved conversations\n"
+        "  /switch id         Switch to a saved conversation\n"
+        "  /del id            Delete a saved conversation\n"
+        "  /strip [id]        Keep text/metadata and remove token payload\n"
         "  /read PATH         Send file content as the next message\n"
         "  /think             Enable thinking mode\n"
         "  /nothink           Disable thinking mode\n"
@@ -2094,14 +2597,26 @@ static int handle_command(agent_state *a, char *line, char **message_out) {
                       qw3_think_mode_name(a->cfg.think_mode));
     } else if (!strncmp(line, "/save", 5)) {
         const char *name = line[5] == ' ' ? line + 6 : a->cfg.conversation;
-        if (!name || !name[0]) name = "default";
+        if (name && !name[0]) name = NULL;
         store_save(a, name);
+    } else if (!strcmp(line, "/list") || !strcmp(line, "/sessions")) {
+        store_list(a);
+    } else if (!strncmp(line, "/switch ", 8)) {
+        if (a->session_id || a->session_title) (void)store_save(a, NULL);
+        if (store_load(a, line + 8) != 0) {
+            agent_statusf(a, "agent: cannot switch to %s\n", line + 8);
+        }
     } else if (!strncmp(line, "/load ", 6)) {
+        if (a->session_id || a->session_title) (void)store_save(a, NULL);
         if (store_load(a, line + 6) != 0) {
             agent_statusf(a, "agent: cannot load %s\n", line + 6);
         }
-    } else if (!strcmp(line, "/sessions")) {
-        store_list(a);
+    } else if (!strncmp(line, "/del ", 5)) {
+        (void)store_delete(a, line + 5);
+    } else if (!strcmp(line, "/strip")) {
+        (void)store_strip(a, NULL);
+    } else if (!strncmp(line, "/strip ", 7)) {
+        (void)store_strip(a, line + 7);
     } else if (!strncmp(line, "/read ", 6)) {
         char *text = read_file_text(line + 6, NULL);
         if (!text) {
@@ -2759,6 +3274,12 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
+    if (a.cfg.chdir_path && chdir(a.cfg.chdir_path) != 0) {
+        fprintf(stderr, "agent: cannot chdir to %s: %s\n",
+                a.cfg.chdir_path, strerror(errno));
+        free_config(&a.cfg);
+        return 1;
+    }
 
     if (a.cfg.tool_dsml) {
         int rc = run_tool_dsml(&a, a.cfg.tool_dsml);
@@ -2826,6 +3347,7 @@ int main(int argc, char **argv) {
     }
 
     free(a.last_read_path);
+    agent_clear_session_meta(&a);
     qw3_tokens_free(&a.transcript);
     qw3_session_free(a.session);
     qw3_engine_close(a.engine);
