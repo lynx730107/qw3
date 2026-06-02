@@ -2797,16 +2797,20 @@ static void agent_worker_interrupt(agent_worker *w) {
     agent_worker_wake(w);
 }
 
-static void agent_worker_collect(agent_worker *w, char **out,
+static void agent_worker_collect(agent_worker *w, char **out, size_t *out_len,
                                  bool *turn_done, int *turn_rc) {
     *out = NULL;
+    if (out_len) *out_len = 0;
     *turn_done = false;
     *turn_rc = 0;
     pthread_mutex_lock(&w->mu);
     if (w->out.len > 0) {
-        *out = malloc(w->out.len + 1);
+        size_t n = w->out.len;
+        *out = malloc(n + 1);
         if (*out) {
-            memcpy(*out, w->out.p, w->out.len + 1);
+            memcpy(*out, w->out.p, n);
+            (*out)[n] = '\0';
+            if (out_len) *out_len = n;
             w->out.len = 0;
             if (w->out.p) w->out.p[0] = '\0';
         }
@@ -2999,20 +3003,32 @@ static int agent_submit_next_if_idle(agent_worker *w, agent_input_queue *q) {
 static void agent_display_worker_output(agent_worker *w,
                                         struct linenoiseState *edit,
                                         const agent_input_queue *q,
+                                        bool *streaming_output,
                                         bool *turn_done, int *turn_rc) {
     char *out = NULL;
+    size_t out_len = 0;
     bool done = false;
     int rc = 0;
-    agent_worker_collect(w, &out, &done, &rc);
+    agent_worker_collect(w, &out, &out_len, &done, &rc);
+    bool busy_now = agent_worker_is_busy(w);
     if (out) {
-        if (edit) linenoiseHide(edit);
-        fwrite(out, 1, strlen(out), stdout);
+        if (edit && streaming_output && !*streaming_output) {
+            linenoiseHide(edit);
+        } else if (edit && !streaming_output) {
+            linenoiseHide(edit);
+        }
+        fwrite(out, 1, out_len, stdout);
         fflush(stdout);
+        if (streaming_output && busy_now) *streaming_output = true;
         free(out);
     }
+    if (!busy_now && streaming_output) *streaming_output = false;
+    if (done && streaming_output) *streaming_output = false;
     if (edit) {
-        agent_update_editor_status(edit, w, q);
-        linenoiseShow(edit);
+        if (!streaming_output || !*streaming_output) {
+            agent_update_editor_status(edit, w, q);
+            linenoiseShow(edit);
+        }
     }
     if (done) {
         *turn_done = true;
@@ -3084,6 +3100,7 @@ static int interactive_loop_worker(agent_state *a) {
     struct linenoiseState edit;
     char editbuf[16384];
     bool edit_active = false;
+    bool streaming_output = false;
     if (linenoiseEditStart(&edit, STDIN_FILENO, STDOUT_FILENO, editbuf,
                            sizeof(editbuf), "qw3-agent> ") != 0) {
         rc = 1;
@@ -3124,7 +3141,8 @@ static int interactive_loop_worker(agent_state *a) {
         bool turn_done = false;
         int turn_rc = 0;
         agent_display_worker_output(&worker, edit_active ? &edit : NULL,
-                                    &queue, &turn_done, &turn_rc);
+                                    &queue, &streaming_output,
+                                    &turn_done, &turn_rc);
         if (turn_done) {
             if (turn_rc != 0) rc = 1;
             if (agent_submit_next_if_idle(&worker, &queue) != 0) rc = 1;
@@ -3165,6 +3183,7 @@ static int interactive_loop_worker(agent_state *a) {
             turn_done = false;
             turn_rc = 0;
             agent_display_worker_output(&worker, NULL, &queue,
+                                        &streaming_output,
                                         &turn_done, &turn_rc);
             if (turn_done) {
                 if (turn_rc != 0) rc = 1;
@@ -3179,8 +3198,10 @@ static int interactive_loop_worker(agent_state *a) {
                     done = true;
                 } else {
                     edit_active = true;
-                    agent_update_editor_status(&edit, &worker, &queue);
-                    linenoiseShow(&edit);
+                    if (!streaming_output) {
+                        agent_update_editor_status(&edit, &worker, &queue);
+                        linenoiseShow(&edit);
+                    }
                 }
             }
         }
