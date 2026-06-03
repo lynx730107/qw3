@@ -213,10 +213,40 @@ static int sb_printf(strbuf *sb, const char *fmt, ...) {
     return 0;
 }
 
+static void agent_write_with_crlf(FILE *fp, const char *s, size_t n) {
+    if (!fp || !s || n == 0) return;
+    if (!isatty(fileno(fp))) {
+        fwrite(s, 1, n, fp);
+        return;
+    }
+
+    const char *p = s;
+    const char *end = s + n;
+    while (p < end) {
+        if (*p == '\r') {
+            if (p + 1 < end && p[1] == '\n') {
+                fwrite("\r\n", 1, 2, fp);
+                p += 2;
+            } else {
+                fwrite("\r", 1, 1, fp);
+                p++;
+            }
+        } else if (*p == '\n') {
+            fwrite("\r\n", 1, 2, fp);
+            p++;
+        } else {
+            const char *q = p;
+            while (q < end && *q != '\r' && *q != '\n') q++;
+            fwrite(p, 1, (size_t)(q - p), fp);
+            p = q;
+        }
+    }
+}
+
 static void agent_direct_write(void *ud, const char *s, size_t n) {
     FILE *fp = ud ? (FILE *)ud : stdout;
     if (!s || n == 0) return;
-    fwrite(s, 1, n, fp);
+    agent_write_with_crlf(fp, s, n);
     fflush(fp);
 }
 
@@ -3017,7 +3047,7 @@ static void agent_display_worker_output(agent_worker *w,
         } else if (edit && !streaming_output) {
             linenoiseHide(edit);
         }
-        fwrite(out, 1, out_len, stdout);
+        agent_write_with_crlf(stdout, out, out_len);
         fflush(stdout);
         if (streaming_output && busy_now) *streaming_output = true;
         free(out);
