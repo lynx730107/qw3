@@ -883,7 +883,7 @@ qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
             }
         } else {
             const char *kv_f16_env = getenv("QW3_METAL_KV_F16");
-            if (kv_f16_env && strcmp(kv_f16_env, "0") != 0) {
+            if (!kv_f16_env || strcmp(kv_f16_env, "0") != 0) {
                 mem.gqa_kv_bytes = (uint64_t)metal_full_layers *
                                    QW3_N_HEAD_KV * QW3_N_HEAD_DIM *
                                    (uint64_t)ctx_size * 2ull * sizeof(uint16_t);
