@@ -375,6 +375,8 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @interface QW3MetalSessionObj : NSObject
 @property(nonatomic, strong) id<MTLBuffer> gqaK;
 @property(nonatomic, strong) id<MTLBuffer> gqaV;
+@property(nonatomic, strong) NSArray<id<MTLBuffer>> *gqaKLayers;
+@property(nonatomic, strong) NSArray<id<MTLBuffer>> *gqaVLayers;
 @property(nonatomic, strong) id<MTLBuffer> deltanetState;
 @property(nonatomic, strong) id<MTLBuffer> convState;
 @property(nonatomic, strong) id<MTLBuffer> logits;
@@ -7528,6 +7530,61 @@ static id<MTLBuffer> qw3_metal_new_private_buffer(uint64_t bytes) {
                                  options:MTLResourceStorageModePrivate];
 }
 
+static NSArray<id<MTLBuffer>> *qw3_metal_new_private_buffer_layers(uint32_t n_layers,
+                                                                    uint64_t bytes) {
+    if (!g_device || n_layers == 0 || bytes == 0 ||
+        bytes > (uint64_t)NSUIntegerMax) {
+        return nil;
+    }
+    NSMutableArray<id<MTLBuffer>> *layers =
+        [NSMutableArray arrayWithCapacity:n_layers];
+    for (uint32_t i = 0; i < n_layers; i++) {
+        id<MTLBuffer> b = qw3_metal_new_private_buffer(bytes);
+        if (!b) return nil;
+        [layers addObject:b];
+    }
+    return [layers copy];
+}
+
+static int qw3_metal_gqa_layer_buffers(QW3MetalSessionObj *obj,
+                                       uint32_t layer_slot,
+                                       uint64_t cache_layer_bytes,
+                                       id<MTLBuffer> *k_buffer,
+                                       id<MTLBuffer> *v_buffer,
+                                       NSUInteger *offset) {
+    if (!obj || layer_slot >= obj.metalFullLayers ||
+        !k_buffer || !v_buffer || !offset) {
+        return 0;
+    }
+    if (obj.gqaKLayers.count > 0 || obj.gqaVLayers.count > 0) {
+        if (layer_slot >= obj.gqaKLayers.count ||
+            layer_slot >= obj.gqaVLayers.count) {
+            return 0;
+        }
+        id<MTLBuffer> kb = obj.gqaKLayers[layer_slot];
+        id<MTLBuffer> vb = obj.gqaVLayers[layer_slot];
+        if (!kb || !vb || kb.length < cache_layer_bytes ||
+            vb.length < cache_layer_bytes) {
+            return 0;
+        }
+        *k_buffer = kb;
+        *v_buffer = vb;
+        *offset = 0;
+        return 1;
+    }
+    const uint64_t cache_offset = (uint64_t)layer_slot * cache_layer_bytes;
+    if (!obj.gqaK || !obj.gqaV ||
+        obj.gqaK.length < cache_offset + cache_layer_bytes ||
+        obj.gqaV.length < cache_offset + cache_layer_bytes ||
+        cache_offset > (uint64_t)NSUIntegerMax) {
+        return 0;
+    }
+    *k_buffer = obj.gqaK;
+    *v_buffer = obj.gqaV;
+    *offset = (NSUInteger)cache_offset;
+    return 1;
+}
+
 static id<MTLBuffer> qw3_metal_iq3s_kgrid_buffer(void) {
     if (!g_device) return nil;
     if (!g_iq3s_kgrid_buffer) {
@@ -7770,8 +7827,24 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
                        info.scratch_bytes;
     obj.info = info;
 
-    obj.gqaK = qw3_metal_new_private_buffer(qw3_metal_alloc_size(gqa_kv_bytes));
-    obj.gqaV = qw3_metal_new_private_buffer(qw3_metal_alloc_size(gqa_kv_bytes));
+    const char *gqa_layer_buffers_env = getenv("QW3_METAL_GQA_LAYER_BUFFERS");
+    const BOOL gqa_layer_buffers = metal_full_layers > 0 &&
+        (!gqa_layer_buffers_env || strcmp(gqa_layer_buffers_env, "0") != 0);
+    if (gqa_layer_buffers) {
+        const uint64_t gqa_layer_bytes =
+            (uint64_t)ctx_size * gqa_cache_token_bytes;
+        obj.gqaKLayers =
+            qw3_metal_new_private_buffer_layers(metal_full_layers,
+                                                qw3_metal_alloc_size(gqa_layer_bytes));
+        obj.gqaVLayers =
+            qw3_metal_new_private_buffer_layers(metal_full_layers,
+                                                qw3_metal_alloc_size(gqa_layer_bytes));
+    } else {
+        obj.gqaK =
+            qw3_metal_new_private_buffer(qw3_metal_alloc_size(gqa_kv_bytes));
+        obj.gqaV =
+            qw3_metal_new_private_buffer(qw3_metal_alloc_size(gqa_kv_bytes));
+    }
     obj.deltanetState =
         qw3_metal_new_private_buffer(qw3_metal_alloc_size(deltanet_state_bytes));
     obj.convState =
@@ -7802,7 +7875,9 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     obj.argmaxIdxs = [g_device newBufferWithLength:(NSUInteger)(argmax_blocks * sizeof(uint32_t))
                                            options:MTLResourceStorageModeShared];
 
-    if (!obj.gqaK || !obj.gqaV || !obj.deltanetState || !obj.convState ||
+    if (((gqa_layer_buffers && (!obj.gqaKLayers || !obj.gqaVLayers)) ||
+         (!gqa_layer_buffers && (!obj.gqaK || !obj.gqaV))) ||
+        !obj.deltanetState || !obj.convState ||
         !obj.logits || !obj.x0 || !obj.x1 || !obj.scratch ||
         !obj.qkvConv || !obj.qNorm || !obj.kNorm || !obj.core || !obj.inner ||
         !obj.gqaTmpQ || !obj.gqaTmpK || !obj.gqaTokenQ || !obj.gqaTokenK ||
@@ -7840,8 +7915,27 @@ int qw3_metal_session_clear(qw3_metal_session *s) {
     qw3_metal_close_batch_encoder();
     id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
     if (!blit) return 0;
+    if (obj.gqaKLayers.count > 0 || obj.gqaVLayers.count > 0) {
+        for (id<MTLBuffer> b in obj.gqaKLayers) {
+            if (b.length > 0) {
+                [blit fillBuffer:b range:NSMakeRange(0, b.length) value:0];
+            }
+        }
+        for (id<MTLBuffer> b in obj.gqaVLayers) {
+            if (b.length > 0) {
+                [blit fillBuffer:b range:NSMakeRange(0, b.length) value:0];
+            }
+        }
+    } else {
+        if (obj.gqaK.length > 0) {
+            [blit fillBuffer:obj.gqaK range:NSMakeRange(0, obj.gqaK.length) value:0];
+        }
+        if (obj.gqaV.length > 0) {
+            [blit fillBuffer:obj.gqaV range:NSMakeRange(0, obj.gqaV.length) value:0];
+        }
+    }
     NSArray<id<MTLBuffer>> *buffers = @[
-        obj.gqaK, obj.gqaV, obj.deltanetState, obj.convState,
+        obj.deltanetState, obj.convState,
         obj.logits, obj.x0, obj.x1, obj.scratch,
         obj.qkvConv, obj.qNorm, obj.kNorm, obj.core, obj.inner,
         obj.gqaTmpQ, obj.gqaTmpK, obj.gqaTokenQ, obj.gqaTokenK,
@@ -12900,11 +12994,12 @@ int qw3_metal_session_batch_gqa_write_cache_from_scratch(
     const uint64_t cache_token_bytes =
         (uint64_t)kv_n * (obj.gqaKvF16 ? sizeof(uint16_t) : sizeof(float));
     const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_token_bytes;
-    const uint64_t cache_offset = (uint64_t)layer_slot * cache_layer_bytes;
+    id<MTLBuffer> cache_k = nil;
+    id<MTLBuffer> cache_v = nil;
+    NSUInteger cache_offset = 0;
     if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
-        !obj.gqaK || !obj.gqaV ||
-        obj.gqaK.length < cache_offset + cache_layer_bytes ||
-        obj.gqaV.length < cache_offset + cache_layer_bytes) {
+        !qw3_metal_gqa_layer_buffers(obj, layer_slot, cache_layer_bytes,
+                                     &cache_k, &cache_v, &cache_offset)) {
         return 0;
     }
 
@@ -12930,10 +13025,10 @@ int qw3_metal_session_batch_gqa_write_cache_from_scratch(
     [enc setComputePipelineState:g_gqa_prefill_write_cache_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
-    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
-    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
-    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:4];
-    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:5];
+    [enc setBuffer:cache_k offset:cache_offset atIndex:2];
+    [enc setBuffer:cache_v offset:cache_offset atIndex:3];
+    [enc setBuffer:cache_k offset:cache_offset atIndex:4];
+    [enc setBuffer:cache_v offset:cache_offset atIndex:5];
     NSUInteger threads = g_gqa_prefill_write_cache_pipeline.maxTotalThreadsPerThreadgroup;
     if (threads > 256) threads = 256;
     [enc dispatchThreads:MTLSizeMake((NSUInteger)n_tokens * kv_n, 1, 1)
@@ -12979,11 +13074,12 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
     const uint64_t cache_token_bytes =
         (uint64_t)kv_n * (obj.gqaKvF16 ? sizeof(uint16_t) : sizeof(float));
     const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_token_bytes;
-    const uint64_t cache_offset = (uint64_t)layer_slot * cache_layer_bytes;
+    id<MTLBuffer> cache_k = nil;
+    id<MTLBuffer> cache_v = nil;
+    NSUInteger cache_offset = 0;
     if (!obj.prefillScratch || obj.prefillScratch.length < scratch_bytes ||
-        !obj.gqaK || !obj.gqaV ||
-        obj.gqaK.length < cache_offset + cache_layer_bytes ||
-        obj.gqaV.length < cache_offset + cache_layer_bytes) {
+        !qw3_metal_gqa_layer_buffers(obj, layer_slot, cache_layer_bytes,
+                                     &cache_k, &cache_v, &cache_offset)) {
         return 0;
     }
     const int force_block1 = getenv("QW3_METAL_GQA_ATTEND_BLOCK1") != NULL;
@@ -13026,10 +13122,10 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
     [enc setComputePipelineState:attend_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:obj.prefillScratch offset:0 atIndex:1];
-    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
-    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
-    [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:4];
-    [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:5];
+    [enc setBuffer:cache_k offset:cache_offset atIndex:2];
+    [enc setBuffer:cache_v offset:cache_offset atIndex:3];
+    [enc setBuffer:cache_k offset:cache_offset atIndex:4];
+    [enc setBuffer:cache_v offset:cache_offset atIndex:5];
     [enc setThreadgroupMemoryLength:
         (use_block4 ? 384u : (use_block2 ? 192u : 96u)) * sizeof(float)
                             atIndex:0];
@@ -13085,16 +13181,24 @@ int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
         (obj.gqaKvF16 ? (uint64_t)kv_n * sizeof(uint16_t) : kv_bytes);
     const uint64_t scratch_needed = (uint64_t)(qg_n + 2u * kv_n) * sizeof(float);
     const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_kv_bytes;
-    const uint64_t cache_offset =
-        ((uint64_t)layer_slot * (uint64_t)obj.ctxSize + (uint64_t)pos) * cache_kv_bytes;
+    id<MTLBuffer> cache_k = nil;
+    id<MTLBuffer> cache_v = nil;
+    NSUInteger cache_layer_offset = 0;
+    if (!qw3_metal_gqa_layer_buffers(obj, layer_slot, cache_layer_bytes,
+                                     &cache_k, &cache_v, &cache_layer_offset)) {
+        return 0;
+    }
+    const uint64_t cache_offset_u64 =
+        (uint64_t)cache_layer_offset + (uint64_t)pos * cache_kv_bytes;
+    if (cache_offset_u64 > (uint64_t)NSUIntegerMax) return 0;
+    const NSUInteger cache_offset = (NSUInteger)cache_offset_u64;
     if (pos >= obj.ctxSize || obj.scratch.length < scratch_needed ||
         obj.gqaTmpQ.length < q_bytes || obj.gqaTokenQ.length < q_bytes ||
         obj.gqaTokenGate.length < q_bytes ||
         obj.gqaTmpK.length < kv_bytes || obj.gqaTokenK.length < kv_bytes ||
         obj.gqaTokenV.length < kv_bytes ||
-        obj.gqaK.length < cache_offset + cache_kv_bytes ||
-        obj.gqaV.length < cache_offset + cache_kv_bytes) {
-        (void)cache_layer_bytes;
+        cache_k.length < cache_offset_u64 + cache_kv_bytes ||
+        cache_v.length < cache_offset_u64 + cache_kv_bytes) {
         return 0;
     }
 
@@ -13188,10 +13292,10 @@ int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
                     size:(NSUInteger)kv_bytes];
     if (!obj.gqaKvQ8 && !obj.gqaKvF16) {
         [blit copyFromBuffer:obj.gqaTokenK sourceOffset:0
-                    toBuffer:obj.gqaK destinationOffset:(NSUInteger)cache_offset
+                    toBuffer:cache_k destinationOffset:cache_offset
                         size:(NSUInteger)kv_bytes];
         [blit copyFromBuffer:obj.gqaTokenV sourceOffset:0
-                    toBuffer:obj.gqaV destinationOffset:(NSUInteger)cache_offset
+                    toBuffer:cache_v destinationOffset:cache_offset
                         size:(NSUInteger)kv_bytes];
     }
 
@@ -13240,8 +13344,8 @@ int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
         [enc setBytes:&store_args length:sizeof(store_args) atIndex:0];
         [enc setBuffer:obj.gqaTokenK offset:0 atIndex:1];
         [enc setBuffer:obj.gqaTokenV offset:0 atIndex:2];
-        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:3];
-        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:4];
+        [enc setBuffer:cache_k offset:cache_offset atIndex:3];
+        [enc setBuffer:cache_v offset:cache_offset atIndex:4];
         NSUInteger threads = g_gqa_store_token_cache_f16_pipeline.maxTotalThreadsPerThreadgroup;
         if (threads > 256) threads = 256;
         [enc dispatchThreads:MTLSizeMake(kv_n, 1, 1)
@@ -13257,8 +13361,8 @@ int qw3_metal_session_gqa_project_cache(qw3_metal_session *s,
         [enc setBytes:&quant_args length:sizeof(quant_args) atIndex:0];
         [enc setBuffer:obj.gqaTokenK offset:0 atIndex:1];
         [enc setBuffer:obj.gqaTokenV offset:0 atIndex:2];
-        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:3];
-        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:4];
+        [enc setBuffer:cache_k offset:cache_offset atIndex:3];
+        [enc setBuffer:cache_v offset:cache_offset atIndex:4];
         [enc dispatchThreadgroups:MTLSizeMake(kv_n / 32u, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
@@ -13360,14 +13464,18 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
     const uint64_t cache_kv_bytes = obj.gqaKvQ8 ?
         (uint64_t)(kv_n / 32u) * 34ull :
         (obj.gqaKvF16 ? (uint64_t)kv_n * sizeof(uint16_t) : kv_bytes);
-    const uint64_t cache_offset =
-        (uint64_t)layer_slot * (uint64_t)obj.ctxSize * cache_kv_bytes;
+    const uint64_t cache_layer_bytes = (uint64_t)obj.ctxSize * cache_kv_bytes;
     const uint64_t cache_bytes = (uint64_t)n_ctx * cache_kv_bytes;
-    if (!obj.gqaTokenQ || !obj.gqaTokenGate || !obj.gqaK || !obj.gqaV ||
+    id<MTLBuffer> cache_k = nil;
+    id<MTLBuffer> cache_v = nil;
+    NSUInteger cache_offset = 0;
+    if (!obj.gqaTokenQ || !obj.gqaTokenGate ||
+        !qw3_metal_gqa_layer_buffers(obj, layer_slot, cache_layer_bytes,
+                                     &cache_k, &cache_v, &cache_offset) ||
         !obj.inner || obj.gqaTokenQ.length < inner_bytes ||
         obj.gqaTokenGate.length < inner_bytes ||
-        obj.gqaK.length < cache_offset + cache_bytes ||
-        obj.gqaV.length < cache_offset + cache_bytes ||
+        cache_k.length < (uint64_t)cache_offset + cache_bytes ||
+        cache_v.length < (uint64_t)cache_offset + cache_bytes ||
         obj.inner.length < inner_bytes) {
         return 0;
     }
@@ -13424,11 +13532,11 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
         [enc setComputePipelineState:g_gqa_attend_n_split_partial_pipeline];
         [enc setBytes:&split_args length:sizeof(split_args) atIndex:0];
         [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:1];
-        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
-        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
+        [enc setBuffer:cache_k offset:cache_offset atIndex:2];
+        [enc setBuffer:cache_v offset:cache_offset atIndex:3];
         [enc setBuffer:obj.gqaAttnPartial offset:0 atIndex:4];
-        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:5];
-        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:6];
+        [enc setBuffer:cache_k offset:cache_offset atIndex:5];
+        [enc setBuffer:cache_v offset:cache_offset atIndex:6];
         [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads * n_splits, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
@@ -13476,8 +13584,8 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
         [enc setComputePipelineState:g_gqa_attend_n_q8_split_partial_pipeline];
         [enc setBytes:&split_args length:sizeof(split_args) atIndex:0];
         [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:1];
-        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:2];
-        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:3];
+        [enc setBuffer:cache_k offset:cache_offset atIndex:2];
+        [enc setBuffer:cache_v offset:cache_offset atIndex:3];
         [enc setBuffer:obj.gqaAttnPartial offset:0 atIndex:4];
         [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads * n_splits, 1, 1)
@@ -13507,12 +13615,12 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:1];
         [enc setBuffer:obj.gqaTokenGate offset:0 atIndex:2];
-        [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:3];
-        [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:4];
+        [enc setBuffer:cache_k offset:cache_offset atIndex:3];
+        [enc setBuffer:cache_v offset:cache_offset atIndex:4];
         [enc setBuffer:obj.inner offset:0 atIndex:5];
         if (!obj.gqaKvQ8) {
-            [enc setBuffer:obj.gqaK offset:(NSUInteger)cache_offset atIndex:6];
-            [enc setBuffer:obj.gqaV offset:(NSUInteger)cache_offset atIndex:7];
+            [enc setBuffer:cache_k offset:cache_offset atIndex:6];
+            [enc setBuffer:cache_v offset:cache_offset atIndex:7];
         }
         [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads, 1, 1)
