@@ -256,6 +256,7 @@ void qw3_chat_append_assistant_prefix(qw3_engine *e, qw3_tokens *tokens,
 
 /* Token text. */
 char *qw3_token_text(qw3_engine *e, int token, size_t *len);
+int qw3_vocab_size(qw3_engine *e);
 int qw3_token_eos(qw3_engine *e);
 
 /* Session: one mutable inference timeline with KV + DeltaNet state. */

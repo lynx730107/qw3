@@ -31,9 +31,15 @@ typedef struct {
     int ctx_max;
     int ctx_alloc;
     int step_incr;
+    int n_prompt;
     int gen_tokens;
+    int depth;
+    int repetitions;
     double step_mul;
     const char *dump_frontier_logits_dir;
+    uint32_t seed;
+    bool llama_style;
+    bool no_warmup;
     bool warm_weights;
     bool quality;
 } bench_config;
@@ -60,6 +66,8 @@ static void usage(FILE *fp) {
         "      Render FILE as one no-thinking chat user message, then slice that sequence.\n"
         "  -sys, --system TEXT\n"
         "      System prompt used only with --chat-prompt-file.\n"
+        "  --llama-style\n"
+        "      Run a synthetic llama-bench-like benchmark instead of reading a prompt.\n"
         "\n"
         "Model and backend:\n"
         "  -m, --model FILE       GGUF model path. Default: qw3.gguf\n"
@@ -77,6 +85,15 @@ static void usage(FILE *fp) {
         "  --step-incr N          Linear step when --step-mul is 1. Default: 2048\n"
         "  --gen-tokens N         Greedy decode tokens per frontier. Default: 128\n"
         "\n"
+        "Llama-style synthetic mode:\n"
+        "  -p, --n-prompt N       Prompt-processing tokens. Default: 512\n"
+        "  -n, --n-gen N          Token-generation tokens. Default: 128\n"
+        "                         When both are non-zero, they are measured separately.\n"
+        "  -d, --depth N          Prefilled context before the timed run. Default: 0\n"
+        "  -r, --repetitions N    Timed repetitions. Default: 5\n"
+        "  --no-warmup            Skip untimed warmup run.\n"
+        "  --seed N               Synthetic token seed. Default: 1\n"
+        "\n"
         "Output:\n"
         "  --csv FILE             Write CSV there instead of stdout.\n"
         "  --dump-frontier-logits-dir DIR\n"
@@ -88,6 +105,16 @@ static int parse_int(const char *s, const char *opt) {
     char *end = NULL;
     long v = strtol(s, &end, 10);
     if (s[0] == '\0' || *end != '\0' || v <= 0 || v > INT_MAX) {
+        fprintf(stderr, "qw3-bench: invalid value for %s: %s\n", opt, s);
+        exit(2);
+    }
+    return (int)v;
+}
+
+static int parse_nonnegative_int(const char *s, const char *opt) {
+    char *end = NULL;
+    long v = strtol(s, &end, 10);
+    if (s[0] == '\0' || *end != '\0' || v < 0 || v > INT_MAX) {
         fprintf(stderr, "qw3-bench: invalid value for %s: %s\n", opt, s);
         exit(2);
     }
@@ -175,8 +202,11 @@ static bench_config parse_options(int argc, char **argv) {
         .ctx_start = 2048,
         .ctx_max = 32768,
         .step_incr = 2048,
+        .n_prompt = 512,
         .gen_tokens = 128,
+        .repetitions = 5,
         .step_mul = 1.0,
+        .seed = 1,
     };
 
     for (int i = 1; i < argc; i++) {
@@ -192,6 +222,8 @@ static bench_config parse_options(int argc, char **argv) {
             c.chat_prompt_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "-sys") || !strcmp(arg, "--system")) {
             c.system = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--llama-style")) {
+            c.llama_style = true;
         } else if (!strcmp(arg, "--ctx-start")) {
             c.ctx_start = parse_int(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--ctx-max")) {
@@ -202,8 +234,19 @@ static bench_config parse_options(int argc, char **argv) {
             c.step_incr = parse_int(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--step-mul")) {
             c.step_mul = parse_double_arg(need_arg(&i, argc, argv, arg), arg);
-        } else if (!strcmp(arg, "--gen-tokens") || !strcmp(arg, "--tokens") || !strcmp(arg, "-n")) {
-            c.gen_tokens = parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "-p") || !strcmp(arg, "--n-prompt")) {
+            c.n_prompt = parse_nonnegative_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--gen-tokens") || !strcmp(arg, "--tokens") ||
+                   !strcmp(arg, "-n") || !strcmp(arg, "--n-gen")) {
+            c.gen_tokens = parse_nonnegative_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "-d") || !strcmp(arg, "--depth")) {
+            c.depth = parse_nonnegative_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "-r") || !strcmp(arg, "--repetitions")) {
+            c.repetitions = parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--no-warmup")) {
+            c.no_warmup = true;
+        } else if (!strcmp(arg, "--seed")) {
+            c.seed = (uint32_t)parse_int(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--csv")) {
             c.csv_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--dump-frontier-logits-dir")) {
@@ -230,30 +273,52 @@ static bench_config parse_options(int argc, char **argv) {
         }
     }
 
-    if (!!c.prompt_path == !!c.chat_prompt_path) {
-        fprintf(stderr, "qw3-bench: specify exactly one of --prompt-file or --chat-prompt-file\n");
-        exit(2);
-    }
-    if (c.ctx_start > c.ctx_max) {
-        fprintf(stderr, "qw3-bench: --ctx-start must be <= --ctx-max\n");
-        exit(2);
-    }
-    if (c.step_mul < 1.0) {
-        fprintf(stderr, "qw3-bench: --step-mul must be >= 1\n");
-        exit(2);
-    }
-    if (c.step_mul == 1.0 && c.step_incr <= 0) {
-        fprintf(stderr, "qw3-bench: --step-incr must be positive when --step-mul is 1\n");
-        exit(2);
-    }
-    if (c.ctx_max > INT_MAX - c.gen_tokens - 1) {
-        fprintf(stderr, "qw3-bench: requested context is too large\n");
-        exit(2);
-    }
-    if (c.ctx_alloc == 0) c.ctx_alloc = c.ctx_max + c.gen_tokens + 1;
-    if (c.ctx_alloc <= c.ctx_max + c.gen_tokens) {
-        fprintf(stderr, "qw3-bench: --ctx-alloc must be greater than ctx-max + gen-tokens\n");
-        exit(2);
+    if (c.llama_style) {
+        if (c.prompt_path || c.chat_prompt_path) {
+            fprintf(stderr, "qw3-bench: --llama-style does not use --prompt-file or --chat-prompt-file\n");
+            exit(2);
+        }
+        if (c.n_prompt == 0 && c.gen_tokens == 0) {
+            fprintf(stderr, "qw3-bench: --llama-style needs non-zero --n-prompt or --n-gen\n");
+            exit(2);
+        }
+        if (c.n_prompt > INT_MAX - c.gen_tokens ||
+            c.depth > INT_MAX - c.n_prompt - c.gen_tokens - 1) {
+            fprintf(stderr, "qw3-bench: requested synthetic context is too large\n");
+            exit(2);
+        }
+        int needed = c.depth + c.n_prompt + c.gen_tokens;
+        if (c.ctx_alloc == 0) c.ctx_alloc = needed + 1;
+        if (c.ctx_alloc <= needed) {
+            fprintf(stderr, "qw3-bench: --ctx-alloc must be greater than depth + n-prompt + n-gen\n");
+            exit(2);
+        }
+    } else {
+        if (!!c.prompt_path == !!c.chat_prompt_path) {
+            fprintf(stderr, "qw3-bench: specify exactly one of --prompt-file or --chat-prompt-file\n");
+            exit(2);
+        }
+        if (c.ctx_start > c.ctx_max) {
+            fprintf(stderr, "qw3-bench: --ctx-start must be <= --ctx-max\n");
+            exit(2);
+        }
+        if (c.step_mul < 1.0) {
+            fprintf(stderr, "qw3-bench: --step-mul must be >= 1\n");
+            exit(2);
+        }
+        if (c.step_mul == 1.0 && c.step_incr <= 0) {
+            fprintf(stderr, "qw3-bench: --step-incr must be positive when --step-mul is 1\n");
+            exit(2);
+        }
+        if (c.ctx_max > INT_MAX - c.gen_tokens - 1) {
+            fprintf(stderr, "qw3-bench: requested context is too large\n");
+            exit(2);
+        }
+        if (c.ctx_alloc == 0) c.ctx_alloc = c.ctx_max + c.gen_tokens + 1;
+        if (c.ctx_alloc <= c.ctx_max + c.gen_tokens) {
+            fprintf(stderr, "qw3-bench: --ctx-alloc must be greater than ctx-max + gen-tokens\n");
+            exit(2);
+        }
     }
     return c;
 }
@@ -391,6 +456,190 @@ static int qw3_session_argmax_excluding(qw3_session *session, int exclude) {
     return token;
 }
 
+static uint32_t bench_rng_next(uint32_t *state) {
+    *state = (*state * 1664525u) + 1013904223u;
+    return *state;
+}
+
+static int bench_random_token(uint32_t *state, int n_vocab, int eos) {
+    if (n_vocab <= 1) return -1;
+    int token = (int)(bench_rng_next(state) % (uint32_t)n_vocab);
+    if (token == eos) token = (token + 1) % n_vocab;
+    return token;
+}
+
+static int fill_synthetic_tokens(qw3_tokens *tokens, int n_tokens,
+                                 int n_vocab, int eos, uint32_t seed) {
+    if (!tokens || n_tokens < 0 || n_vocab <= 1) return -1;
+    uint32_t rng = seed ? seed : 1u;
+    for (int i = 0; i < n_tokens; i++) {
+        int token = bench_random_token(&rng, n_vocab, eos);
+        if (token < 0) return -1;
+        qw3_tokens_push(tokens, token);
+    }
+    return 0;
+}
+
+static double avg_double(const double *v, int n) {
+    if (!v || n <= 0) return 0.0;
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) sum += v[i];
+    return sum / (double)n;
+}
+
+static double stdev_double(const double *v, int n) {
+    if (!v || n <= 1) return 0.0;
+    double mean = avg_double(v, n);
+    double ss = 0.0;
+    for (int i = 0; i < n; i++) {
+        double d = v[i] - mean;
+        ss += d * d;
+    }
+    return sqrt(ss / (double)(n - 1));
+}
+
+static int run_llama_style_case(qw3_engine *engine, const bench_config *cfg,
+                                int n_prompt, int n_gen, bool print_header) {
+    if (!engine || !cfg) return 1;
+    const int n_vocab = qw3_vocab_size(engine);
+    const int eos = qw3_token_eos(engine);
+    const int timed_tokens = n_prompt + n_gen;
+    const int total_tokens = cfg->depth + timed_tokens;
+    qw3_tokens synthetic = {0};
+    char err[256];
+    int rc = 0;
+
+    if (fill_synthetic_tokens(&synthetic, total_tokens, n_vocab, eos,
+                              cfg->seed) != 0) {
+        fprintf(stderr, "qw3-bench: failed to create synthetic token stream\n");
+        return 1;
+    }
+
+    qw3_session *session = NULL;
+    if (qw3_session_create(&session, engine, cfg->ctx_alloc) != 0 || !session) {
+        fprintf(stderr, "qw3-bench: failed to create llama-style session\n");
+        qw3_tokens_free(&synthetic);
+        return 1;
+    }
+
+    qw3_tokens depth_prefix = {
+        .v = synthetic.v,
+        .len = cfg->depth,
+        .cap = synthetic.cap,
+    };
+    qw3_tokens prompt_prefix = {
+        .v = synthetic.v,
+        .len = cfg->depth + n_prompt,
+        .cap = synthetic.cap,
+    };
+
+    if (!cfg->no_warmup) {
+        qw3_session_invalidate(session);
+        if (cfg->depth > 0 &&
+            qw3_session_sync(session, &depth_prefix, err, sizeof(err)) != 0) {
+            fprintf(stderr, "qw3-bench: warmup depth failed: %s\n", err);
+            rc = 1;
+        }
+        if (!rc && n_prompt > 0 &&
+            qw3_session_sync(session, &prompt_prefix, err, sizeof(err)) != 0) {
+            fprintf(stderr, "qw3-bench: warmup prompt failed: %s\n", err);
+            rc = 1;
+        }
+        if (!rc && n_gen > 0) {
+            int token = synthetic.v[cfg->depth + n_prompt];
+            if (qw3_session_eval(session, token, err, sizeof(err)) != 0) {
+                fprintf(stderr, "qw3-bench: warmup generation failed: %s\n", err);
+                rc = 1;
+            }
+        }
+    }
+
+    double *samples_sec = NULL;
+    double *samples_tps = NULL;
+    if (!rc) {
+        samples_sec = calloc((size_t)cfg->repetitions, sizeof(samples_sec[0]));
+        samples_tps = calloc((size_t)cfg->repetitions, sizeof(samples_tps[0]));
+        if (!samples_sec || !samples_tps) {
+            fprintf(stderr, "qw3-bench: out of memory for timing samples\n");
+            rc = 1;
+        }
+    }
+
+    uint64_t session_bytes = 0;
+    for (int rep = 0; !rc && rep < cfg->repetitions; rep++) {
+        qw3_session_invalidate(session);
+        if (cfg->depth > 0 &&
+            qw3_session_sync(session, &depth_prefix, err, sizeof(err)) != 0) {
+            fprintf(stderr, "qw3-bench: depth setup failed: %s\n", err);
+            rc = 1;
+            break;
+        }
+
+        const double t0 = bench_now_sec();
+        if (n_prompt > 0 &&
+            qw3_session_sync(session, &prompt_prefix, err, sizeof(err)) != 0) {
+            fprintf(stderr, "qw3-bench: prompt run failed: %s\n", err);
+            rc = 1;
+            break;
+        }
+        for (int i = 0; i < n_gen; i++) {
+            int token = synthetic.v[cfg->depth + n_prompt + i];
+            if (qw3_session_eval(session, token, err, sizeof(err)) != 0) {
+                fprintf(stderr, "qw3-bench: generation run failed: %s\n", err);
+                rc = 1;
+                break;
+            }
+        }
+        const double t1 = bench_now_sec();
+        if (rc) break;
+
+        samples_sec[rep] = t1 - t0;
+        samples_tps[rep] = samples_sec[rep] > 0.0 ?
+            (double)timed_tokens / samples_sec[rep] : 0.0;
+        session_bytes = qw3_session_payload_bytes(session);
+    }
+
+    if (!rc) {
+        const char *kind = n_prompt > 0 && n_gen > 0 ? "pp+tg" :
+            (n_prompt > 0 ? "pp" : "tg");
+        if (print_header) {
+            printf("test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes\n");
+        }
+        printf("%s,%d,%d,%d,%d,%.2f,%.2f,%.2f,%.2f,%llu\n",
+               kind,
+               n_prompt,
+               n_gen,
+               cfg->depth,
+               cfg->repetitions,
+               avg_double(samples_tps, cfg->repetitions),
+               stdev_double(samples_tps, cfg->repetitions),
+               avg_double(samples_sec, cfg->repetitions) * 1000.0,
+               stdev_double(samples_sec, cfg->repetitions) * 1000.0,
+               (unsigned long long)session_bytes);
+    }
+
+    free(samples_tps);
+    free(samples_sec);
+    qw3_session_free(session);
+    qw3_tokens_free(&synthetic);
+    return rc;
+}
+
+static int run_llama_style_bench(qw3_engine *engine, const bench_config *cfg) {
+    bool printed = false;
+    if (cfg->n_prompt > 0) {
+        int rc = run_llama_style_case(engine, cfg, cfg->n_prompt, 0, !printed);
+        printed = true;
+        if (rc != 0) return rc;
+    }
+    if (cfg->gen_tokens > 0) {
+        int rc = run_llama_style_case(engine, cfg, 0, cfg->gen_tokens, !printed);
+        printed = true;
+        if (rc != 0) return rc;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     bench_config cfg = parse_options(argc, argv);
     log_context_memory(cfg.backend, cfg.ctx_alloc);
@@ -403,6 +652,12 @@ int main(int argc, char **argv) {
     };
     qw3_engine *engine = NULL;
     if (qw3_engine_open(&engine, &opt) != 0) return 1;
+
+    if (cfg.llama_style) {
+        int rc = run_llama_style_bench(engine, &cfg);
+        qw3_engine_close(engine);
+        return rc;
+    }
 
     char *text = read_file(cfg.prompt_path ? cfg.prompt_path : cfg.chat_prompt_path);
     qw3_tokens prompt = {0};

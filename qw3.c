@@ -2984,6 +2984,10 @@ int qw3_token_eos(qw3_engine *e) {
     return e ? e->vocab.eos_id : -1;
 }
 
+int qw3_vocab_size(qw3_engine *e) {
+    return e ? (int)e->vocab.n_vocab : 0;
+}
+
 void qw3_tokenize_text(qw3_engine *e, const char *text, qw3_tokens *out) {
     if (!e || !text || !out) return;
     bpe_tokenize_text(&e->vocab, text, out);
