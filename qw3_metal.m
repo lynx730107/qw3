@@ -101,7 +101,7 @@ static id<MTLComputePipelineState> g_gqa_prefill_write_cache_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block2_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block4_pipeline;
-static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_src4_pipeline;
+static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_src8_pipeline;
 static id<MTLComputePipelineState> g_gqa_store_token_cache_f16_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
@@ -2741,7 +2741,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "        }\n"
             "    }\n"
             "}\n"
-            "kernel void qw3_gqa_prefill_cached_attend_src4(constant qw3_gqa_prefill_cached_attn_args &args,\n"
+            "kernel void qw3_gqa_prefill_cached_attend_src8(constant qw3_gqa_prefill_cached_attn_args &args,\n"
             "                                               device float *scratch,\n"
             "                                               device const float *k_cache,\n"
             "                                               device const float *v_cache,\n"
@@ -2776,11 +2776,11 @@ static NSString *qw3_metal_kernel_source(void) {
             "    device float *qrow3 = valid3 ? (scratch + uint64_t(query3) * args.stride) : qrow0;\n"
             "    float scale = rsqrt(float(args.head_dim));\n"
             "    threadgroup float *dots = sh;\n"
-            "    threadgroup float *scores = sh + 1024u;\n"
-            "    threadgroup float *tg_max = sh + 1152u;\n"
-            "    threadgroup float *tg_denom = sh + 1184u;\n"
-            "    threadgroup float *tg_prev = sh + 1216u;\n"
-            "    threadgroup float *tg_w = sh + 1248u;\n"
+            "    threadgroup float *scores = sh + 2048u;\n"
+            "    threadgroup float *tg_max = sh + 2304u;\n"
+            "    threadgroup float *tg_denom = sh + 2336u;\n"
+            "    threadgroup float *tg_prev = sh + 2368u;\n"
+            "    threadgroup float *tg_w = sh + 2400u;\n"
             "    float qv0[8]; float qv1[8]; float qv2[8]; float qv3[8];\n"
             "    float acc0[8]; float acc1[8]; float acc2[8]; float acc3[8];\n"
             "    for (uint gh = 0; gh < 8u; gh++) {\n"
@@ -2798,11 +2798,11 @@ static NSString *qw3_metal_kernel_source(void) {
             "        tg_denom[tid] = 0.0f;\n"
             "        tg_prev[tid] = 1.0f;\n"
             "    }\n"
-            "    if (tid < 128u) tg_w[tid] = 0.0f;\n"
+            "    if (tid < 256u) tg_w[tid] = 0.0f;\n"
             "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "    uint n_simd = (uint(nt) + 31u) >> 5u;\n"
-            "    for (uint src0 = 0; src0 < n_ctx; src0 += 4u) {\n"
-            "        for (uint so = 0u; so < 4u; so++) {\n"
+            "    for (uint src0 = 0; src0 < n_ctx; src0 += 8u) {\n"
+            "        for (uint so = 0u; so < 8u; so++) {\n"
             "            uint src = src0 + so;\n"
             "            bool valid_src = src < n_ctx;\n"
             "            uint64_t kv_idx = uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i;\n"
@@ -2820,22 +2820,22 @@ static NSString *qw3_metal_kernel_source(void) {
             "                part0 = simd_sum(part0); part1 = simd_sum(part1);\n"
             "                part2 = simd_sum(part2); part3 = simd_sum(part3);\n"
             "                if (lane == 0) {\n"
-            "                    uint base = ((gh * 4u + so) * 8u) + uint(simd_idx);\n"
+            "                    uint base = ((gh * 8u + so) * 8u) + uint(simd_idx);\n"
             "                    dots[base] = part0;\n"
-            "                    dots[256u + base] = part1;\n"
-            "                    dots[512u + base] = part2;\n"
-            "                    dots[768u + base] = part3;\n"
+            "                    dots[512u + base] = part1;\n"
+            "                    dots[1024u + base] = part2;\n"
+            "                    dots[1536u + base] = part3;\n"
             "                }\n"
             "            }\n"
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
             "        for (uint qblk = 0u; qblk < 4u; qblk++) {\n"
             "            for (uint gh = 0u; gh < 8u; gh++) {\n"
-            "                for (uint so = 0u; so < 4u; so++) {\n"
-            "                    uint base = qblk * 256u + (gh * 4u + so) * 8u + uint(tid);\n"
+            "                for (uint so = 0u; so < 8u; so++) {\n"
+            "                    uint base = qblk * 512u + (gh * 8u + so) * 8u + uint(tid);\n"
             "                    float dot = (gh < group_heads && uint(tid) < n_simd) ? dots[base] : 0.0f;\n"
             "                    dot = simd_sum(dot);\n"
-            "                    if (tid == 0) scores[(qblk * 8u + gh) * 4u + so] = dot;\n"
+            "                    if (tid == 0) scores[(qblk * 8u + gh) * 8u + so] = dot;\n"
             "                }\n"
             "            }\n"
             "        }\n"
@@ -2848,10 +2848,10 @@ static NSString *qw3_metal_kernel_source(void) {
             "            uint query = query0 + qblk;\n"
             "            float local_max = -FLT_MAX;\n"
             "            if (qvalid && gh < group_heads) {\n"
-            "                for (uint so = 0u; so < 4u; so++) {\n"
+            "                for (uint so = 0u; so < 8u; so++) {\n"
             "                    uint src = src0 + so;\n"
             "                    if (src < n_ctx && src <= args.pos0 + query) {\n"
-            "                        local_max = max(local_max, scores[idx * 4u + so] * scale);\n"
+            "                        local_max = max(local_max, scores[idx * 8u + so] * scale);\n"
             "                    }\n"
             "                }\n"
             "            }\n"
@@ -2859,21 +2859,21 @@ static NSString *qw3_metal_kernel_source(void) {
             "                float next_max = max(tg_max[idx], local_max);\n"
             "                float prev_scale = exp(tg_max[idx] - next_max);\n"
             "                float add = 0.0f;\n"
-            "                for (uint so = 0u; so < 4u; so++) {\n"
+            "                for (uint so = 0u; so < 8u; so++) {\n"
             "                    uint src = src0 + so;\n"
             "                    float w = 0.0f;\n"
             "                    if (src < n_ctx && src <= args.pos0 + query) {\n"
-            "                        w = exp(scores[idx * 4u + so] * scale - next_max);\n"
+            "                        w = exp(scores[idx * 8u + so] * scale - next_max);\n"
             "                        add += w;\n"
             "                    }\n"
-            "                    tg_w[idx * 4u + so] = w;\n"
+            "                    tg_w[idx * 8u + so] = w;\n"
             "                }\n"
             "                tg_denom[idx] = tg_denom[idx] * prev_scale + add;\n"
             "                tg_max[idx] = next_max;\n"
             "                tg_prev[idx] = prev_scale;\n"
             "            } else {\n"
             "                tg_prev[idx] = 1.0f;\n"
-            "                for (uint so = 0u; so < 4u; so++) tg_w[idx * 4u + so] = 0.0f;\n"
+            "                for (uint so = 0u; so < 8u; so++) tg_w[idx * 8u + so] = 0.0f;\n"
             "            }\n"
             "        }\n"
             "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
@@ -2885,17 +2885,17 @@ static NSString *qw3_metal_kernel_source(void) {
             "                acc3[gh] *= tg_prev[24u + gh];\n"
             "            }\n"
             "        }\n"
-            "        for (uint so = 0u; so < 4u; so++) {\n"
+            "        for (uint so = 0u; so < 8u; so++) {\n"
             "            uint src = src0 + so;\n"
             "            bool valid_src = src < n_ctx;\n"
             "            uint64_t kv_idx = uint64_t(src) * kv_n + uint64_t(kvh) * args.head_dim + i;\n"
             "            float vv = (valid_src && i < args.head_dim) ? qw3_gqa_cache_load(v_cache, v_cache_f16, kv_idx, args.kv_type) : 0.0f;\n"
             "            for (uint gh = 0u; gh < 8u; gh++) {\n"
             "                if (gh < group_heads) {\n"
-            "                    acc0[gh] += vv * tg_w[gh * 4u + so];\n"
-            "                    acc1[gh] += vv * tg_w[(8u + gh) * 4u + so];\n"
-            "                    acc2[gh] += vv * tg_w[(16u + gh) * 4u + so];\n"
-            "                    acc3[gh] += vv * tg_w[(24u + gh) * 4u + so];\n"
+            "                    acc0[gh] += vv * tg_w[gh * 8u + so];\n"
+            "                    acc1[gh] += vv * tg_w[(8u + gh) * 8u + so];\n"
+            "                    acc2[gh] += vv * tg_w[(16u + gh) * 8u + so];\n"
+            "                    acc3[gh] += vv * tg_w[(24u + gh) * 8u + so];\n"
             "                }\n"
             "            }\n"
             "        }\n"
@@ -6191,7 +6191,7 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_prefill_cached_attend_inner_pipeline &&
         g_gqa_prefill_cached_attend_block2_pipeline &&
         g_gqa_prefill_cached_attend_block4_pipeline &&
-        g_gqa_prefill_cached_attend_src4_pipeline &&
+        g_gqa_prefill_cached_attend_src8_pipeline &&
         g_gqa_store_token_cache_f16_pipeline &&
         g_gqa_kv_quant_q8_pipeline &&
         g_gqa_attend_n_q8_inner_pipeline &&
@@ -7106,15 +7106,15 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
-    fn = [g_library newFunctionWithName:@"qw3_gqa_prefill_cached_attend_src4"];
+    fn = [g_library newFunctionWithName:@"qw3_gqa_prefill_cached_attend_src8"];
     if (!fn) {
-        fprintf(stderr, "qw3: Metal function qw3_gqa_prefill_cached_attend_src4 not found\n");
+        fprintf(stderr, "qw3: Metal function qw3_gqa_prefill_cached_attend_src8 not found\n");
         return 0;
     }
-    g_gqa_prefill_cached_attend_src4_pipeline =
+    g_gqa_prefill_cached_attend_src8_pipeline =
         [g_device newComputePipelineStateWithFunction:fn error:&error];
-    if (!g_gqa_prefill_cached_attend_src4_pipeline) {
-        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_prefill_cached_attend_src4 failed: %s\n",
+    if (!g_gqa_prefill_cached_attend_src8_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_prefill_cached_attend_src8 failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -13273,12 +13273,12 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
     const int force_block1 = getenv("QW3_METAL_GQA_ATTEND_BLOCK1") != NULL;
     const int force_block2 = getenv("QW3_METAL_GQA_ATTEND_BLOCK2") != NULL;
     const int force_block4 = getenv("QW3_METAL_GQA_ATTEND_BLOCK4") != NULL;
-    const int use_src4 = !force_block1 && !force_block2 && !force_block4 && n_tokens >= 4u;
-    const int use_block4 = !use_src4 && !force_block1 && !force_block2 && n_tokens >= 4u;
+    const int use_src8 = !force_block1 && !force_block2 && !force_block4 && n_tokens >= 4u;
+    const int use_block4 = !use_src8 && !force_block1 && !force_block2 && n_tokens >= 4u;
     const int use_block2 =
         !force_block1 && !use_block4 && n_tokens >= 2u;
-    id<MTLComputePipelineState> attend_pipeline = use_src4 ?
-        g_gqa_prefill_cached_attend_src4_pipeline : (use_block4 ?
+    id<MTLComputePipelineState> attend_pipeline = use_src8 ?
+        g_gqa_prefill_cached_attend_src8_pipeline : (use_block4 ?
         g_gqa_prefill_cached_attend_block4_pipeline :
         (use_block2 ? g_gqa_prefill_cached_attend_block2_pipeline :
          g_gqa_prefill_cached_attend_inner_pipeline));
@@ -13318,10 +13318,10 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
     [enc setBuffer:cache_k offset:cache_offset atIndex:4];
     [enc setBuffer:cache_v offset:cache_offset atIndex:5];
     [enc setThreadgroupMemoryLength:
-        (use_src4 ? 1376u : (use_block4 ? 384u :
+        (use_src8 ? 2656u : (use_block4 ? 384u :
          (use_block2 ? 192u : 96u))) * sizeof(float)
                             atIndex:0];
-    const NSUInteger query_groups = (use_src4 || use_block4) ?
+    const NSUInteger query_groups = (use_src8 || use_block4) ?
         ((NSUInteger)n_tokens + 3u) / 4u :
         (use_block2 ? ((NSUInteger)n_tokens + 1u) / 2u :
          (NSUInteger)n_tokens);
@@ -13962,7 +13962,7 @@ void qw3_metal_cleanup(void) {
     g_gqa_prefill_cached_attend_inner_pipeline = nil;
     g_gqa_prefill_cached_attend_block2_pipeline = nil;
     g_gqa_prefill_cached_attend_block4_pipeline = nil;
-    g_gqa_prefill_cached_attend_src4_pipeline = nil;
+    g_gqa_prefill_cached_attend_src8_pipeline = nil;
     g_gqa_store_token_cache_f16_pipeline = nil;
     g_gqa_kv_quant_q8_pipeline = nil;
     g_gqa_attend_n_q8_inner_pipeline = nil;
