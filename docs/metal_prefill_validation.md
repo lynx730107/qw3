@@ -301,6 +301,39 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
   bottleneck is kernel shape/FlashAttention-style tiling rather than cache
   bandwidth alone.
 
+## 2026-06-05 Llama-Style Bench Guardrail
+
+`qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
+`llama-bench`: `-p/--n-prompt` and `-n/--n-gen` are measured as separate `pp`
+and `tg` rows when both are non-zero, and `-d/--depth` prefills a context
+outside the timed token-generation loop. This makes the QW3 numbers easier to
+compare with llama.cpp without mixing prompt processing and decode in one row.
+
+Useful commands:
+- `./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 4096 -n 128 -r 3`
+- `./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 0 -n 128 -d 4096 -r 2`
+- `env QW3_METAL_GQA_FLASH_ATTN=1 ./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 4096 -n 0 -r 3`
+
+Apple M5 notes with the Qwen3.6 35B A3B IQ4_XS model:
+- Default `pp4096`: 212.21 tok/s over 3 repetitions.
+- Default `tg128` at depth 0: 40.46 tok/s over 3 repetitions.
+- Default `tg128` at depth 4096: 26.57 tok/s over 2 repetitions.
+- `QW3_METAL_GQA_FLASH_ATTN=1` `pp4096`: 240.02 tok/s over 3 repetitions.
+
+Profiler notes from one `pp4096` no-warmup run:
+- `QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` shows full-attention `attend` at
+  about 760-820 ms per full-attention layer.
+- `QW3_METAL_PROFILE_PREFILL_LINEAR_SYNC=1` shows linear-layer DeltaNet GDN at
+  about 73-90 ms/layer and qkv/gate/alpha/beta projection at about
+  63-72 ms/layer after warmup.
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows mapped MoE gate and up around
+  31-33 ms each, IQ4_XS down MPP around 48-52 ms, and Q6_K down around
+  75 ms.
+
+Optimization priority after this profile: first reduce the full-attention
+`attend` cost with a more llama.cpp-like tiled/FlashAttention path, then revisit
+linear DeltaNet/projection batching and MoE down.
+
 ## 2026-06-02 Partial Metal Layer Offload
 
 `QW3_METAL_NGL=N`, exposed as `--ngl N` on `qw3-metal` and `qw3-agent`, keeps
