@@ -6129,6 +6129,61 @@ static NSString *qw3_metal_kernel_source(void) {
             "}\n";
 }
 
+static NSString *qw3_metal_full_kernel_source(void) {
+    NSMutableString *source =
+        [NSMutableString stringWithString:qw3_metal_kernel_source()];
+    const char *flash_env = getenv("QW3_METAL_FLASH_ATTN");
+    const char *flash_path_env = getenv("QW3_METAL_FLASH_ATTN_SOURCE");
+    if ((!flash_env || !flash_env[0]) && (!flash_path_env || !flash_path_env[0])) {
+        return source;
+    }
+
+    NSString *path = flash_path_env && flash_path_env[0] ?
+        [NSString stringWithUTF8String:flash_path_env] :
+        @"../metal/flash_attn.metal";
+    NSError *read_error = nil;
+    NSString *flash_source =
+        [NSString stringWithContentsOfFile:path
+                                  encoding:NSUTF8StringEncoding
+                                     error:&read_error];
+    if (!flash_source) {
+        fprintf(stderr, "qw3: failed to read Metal flash attention source %s: %s\n",
+                [path UTF8String],
+                read_error ? [[read_error localizedDescription] UTF8String] : "(unknown)");
+        return nil;
+    }
+
+    [source appendString:
+        @"\n// QW3 FlashAttention prelude\n"
+         "#ifndef MAX\n"
+         "#define MAX(x, y) ((x) > (y) ? (x) : (y))\n"
+         "#endif\n"
+         "#ifndef MIN\n"
+         "#define MIN(x, y) ((x) < (y) ? (x) : (y))\n"
+         "#endif\n"
+         "#ifndef N_SIMDWIDTH\n"
+         "#define N_SIMDWIDTH 32\n"
+         "#endif\n"
+         "#ifndef FOR_UNROLL\n"
+         "#define FOR_UNROLL(x) _Pragma(\"clang loop unroll(full)\") for (x)\n"
+         "#endif\n"];
+    [source appendFormat:@"\n// appended %@\n%@\n", path, flash_source];
+    [source appendString:
+        @"\n// QW3 Qwen3 full-attention prefill instantiation, head_dim = 256.\n"
+         "#define QW3_FA_NONVEC_TYPES \\\n"
+         "    half,   half4,     simdgroup_half8x8,  \\\n"
+         "    half,   half4x4,   simdgroup_half8x8,  \\\n"
+         "    half,   half4x4,   simdgroup_half8x8,  \\\n"
+         "    float,             simdgroup_float8x8, \\\n"
+         "    float,  float2,    simdgroup_float8x8, \\\n"
+         "    float,  float4,    simdgroup_float8x8\n"
+         "typedef decltype(kernel_flash_attn_ext<QW3_FA_NONVEC_TYPES, half4x4, 1, dequantize_f16, half4x4, 1, dequantize_f16, 256, 256>) qw3_flash_attn_ext_dk256_t;\n"
+         "template [[host_name(\"qw3_kernel_flash_attn_ext_f16_dk256_dv256\")]]\n"
+         "kernel qw3_flash_attn_ext_dk256_t kernel_flash_attn_ext<QW3_FA_NONVEC_TYPES, half4x4, 1, dequantize_f16, half4x4, 1, dequantize_f16, 256, 256>;\n"
+         "#undef QW3_FA_NONVEC_TYPES\n"];
+    return source;
+}
+
 static int qw3_metal_compile_kernels(void) {
     if (g_library && g_rmsnorm_plain_pipeline &&
         g_rmsnorm_weight_f32_pipeline &&
@@ -6230,7 +6285,9 @@ static int qw3_metal_compile_kernels(void) {
     if (g_metal4_tensor_api_enabled) {
         options.preprocessorMacros = @{ @"QW3_METAL_HAS_TENSOR": @"1" };
     }
-    g_library = [g_device newLibraryWithSource:qw3_metal_kernel_source()
+    NSString *kernel_source = qw3_metal_full_kernel_source();
+    if (!kernel_source) return 0;
+    g_library = [g_device newLibraryWithSource:kernel_source
                                        options:options
                                          error:&error];
     if (!g_library) {
