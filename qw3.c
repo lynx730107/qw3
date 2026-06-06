@@ -11827,9 +11827,11 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
     uint32_t *btoks = qw3_xmalloc((size_t)ntok * sizeof(uint32_t));
     for (uint32_t i = 0; i < ntok; i++) btoks[i] = (uint32_t)tokens[i];
 
+    const char *concurrent_env = getenv("QW3_METAL_PREFILL_CONCURRENT");
     const int concurrent_prefill =
-        getenv("QW3_METAL_PREFILL_CONCURRENT") != NULL &&
-        getenv("QW3_METAL_PREFILL_CONCURRENT_DISABLE") == NULL;
+        getenv("QW3_METAL_PREFILL_CONCURRENT_DISABLE") == NULL &&
+        getenv("GGML_METAL_CONCURRENCY_DISABLE") == NULL &&
+        (!concurrent_env || strcmp(concurrent_env, "0") != 0);
     int ok = (concurrent_prefill ?
               qw3_metal_begin_commands_concurrent() :
               qw3_metal_begin_commands()) &&

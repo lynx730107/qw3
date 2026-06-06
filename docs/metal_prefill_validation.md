@@ -11,10 +11,16 @@ Default safety policy:
   safe under the regression tests and useful for memory pressure, but it is not
   a default prefill speed path because it did not improve the long-prompt
   benchmark on M5.
-- `QW3_METAL_PREFILL_CONCURRENT=1` enables the llama.cpp-style concurrent
-  Metal encoder for prefill frontiers. It is opt-in until it shows a real speed
-  win on long prompts.
+- The llama.cpp-style concurrent Metal encoder is enabled by default for
+  prefill frontiers. Set `QW3_METAL_PREFILL_CONCURRENT_DISABLE=1`,
+  `QW3_METAL_PREFILL_CONCURRENT=0`, or `GGML_METAL_CONCURRENCY_DISABLE=1`
+  for the legacy serial encoder.
 - `QW3_METAL_PREFILL_BATCH` defaults to 4096, the current Metal batch cap.
+- `QW3_METAL_Q8_NAX=1` enables an experimental DS4-style Metal4 direct-RHS
+  Q8_0 prefill matmul for aligned projection batches. It remains opt-in because
+  it was correct under logits tests but did not beat the default path
+  repeatably on the validation prompt. `QW3_METAL_Q8_NAX_TILE=32|64|128`
+  can force the token tile for profiling.
 - Expert-major MoE gate/up is enabled inside batch prefill with at least 32
   tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
 - Expert-major MoE down is enabled inside IQ4_XS batch prefill with at least 32
@@ -131,6 +137,38 @@ Benchmark notes on Apple M5:
   tokens, 24125.4 ms prefill, 265.24 tok/s.
 - Linear profiler with the new kernel shows `deltanet_gdn` mostly around
   40-52 ms per linear layer, down from roughly 75-90 ms.
+
+## 2026-06-06 Concurrent Prefill And Q8 NAX Probe
+
+The prefill command encoder now defaults to the concurrent Metal dispatch mode,
+matching the graph-frontier orchestration used by llama.cpp/ds4 more closely.
+This does not change the math or buffer layout; it only allows independent
+dispatches in the same prefill frontier to be scheduled concurrently. The
+legacy serial encoder is available with the opt-outs listed above.
+
+The DS4-style Metal4 Q8_0 NAX direct-RHS matmul was also ported as an
+experimental opt-in for aligned Q8_0 projection batches. It compiles and is
+logits-safe, but remains disabled by default because the current QW3 scratch
+layout did not show a repeatable win.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits-concurrent`
+- `env QW3_METAL_Q8_NAX=1 make test-metal-logits`
+- `env QW3_METAL_PREFILL_CONCURRENT=1 ./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
+
+Benchmark notes on Apple M5:
+- Serial default before promotion: `pp4096` 347.72 tok/s in a nearby run.
+- Explicit concurrent prefill: `pp4096` 354.20 tok/s.
+- Default after promotion under later thermal conditions: `pp4096` 331.47
+  tok/s, while `QW3_METAL_PREFILL_CONCURRENT_DISABLE=1` in the same window was
+  293.74 tok/s.
+- Real `prompt_perf.txt` after promotion: 6399 prompt tokens, 19182.1 ms
+  prefill, 333.59 tok/s; generated text was coherent.
+- `QW3_METAL_Q8_NAX=1`: `pp4096` 352.54 tok/s; tile 64 and tile 32 were worse
+  at 309.43 and 291.00 tok/s.
+- `QW3_METAL_Q8_NAX=1 QW3_METAL_PREFILL_CONCURRENT=1`: `pp4096` 341.78 tok/s,
+  so NAX is not combined with the default path.
 
 ## 2026-06-01 GQA Prefill Softmax Check
 

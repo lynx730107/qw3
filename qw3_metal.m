@@ -40,6 +40,9 @@ static id<MTLComputePipelineState> g_matvec_q8_0_pipeline;
 static id<MTLComputePipelineState> g_matmul_q8_0_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_q8_0_mm_pipeline;
 static id<MTLComputePipelineState> g_matmul_q8_0_mm_bc_pipeline;
+static id<MTLComputePipelineState> g_matmul_q8_0_nax_pipeline;
+static id<MTLComputePipelineState> g_matmul_q8_0_nax_n64_pipeline;
+static id<MTLComputePipelineState> g_matmul_q8_0_nax_n128_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_q8_0_pair_silu_pipeline;
 static id<MTLComputePipelineState> g_shared_gate_up_silu_pipeline;
@@ -843,6 +846,73 @@ static NSString *qw3_metal_kernel_source(void) {
             "        }\n"
             "    }\n"
             "}\n"
+            "#ifdef QW3_METAL_HAS_TENSOR\n"
+            "template<short NR1>\n"
+            "kernel void qw3_matmul_q8_0_nax_direct_rhs(constant qw3_matmul_q8_0_mm_args &args,\n"
+            "                                           device const char *weights,\n"
+            "                                           device const char *xin,\n"
+            "                                           device char *yout,\n"
+            "                                           threadgroup char *shmem [[threadgroup(0)]],\n"
+            "                                           uint2 group [[threadgroup_position_in_grid]],\n"
+            "                                           ushort tid [[thread_index_in_threadgroup]]) {\n"
+            "    constexpr int NR0 = 64;\n"
+            "    constexpr int NK = 32;\n"
+            "    constexpr int NL = NK / 16;\n"
+            "    constexpr int NUM_THREADS = 128;\n"
+            "    const int K = int(args.n_in);\n"
+            "    const int M = int(args.n_out);\n"
+            "    const int N = int(args.n_tokens);\n"
+            "    const int r0 = int(group.y) * NR0;\n"
+            "    const int r1 = int(group.x) * NR1;\n"
+            "    threadgroup half *sa = (threadgroup half *)shmem;\n"
+            "    auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));\n"
+            "    device float *ptrB = (device float *)xin;\n"
+            "    auto tB = tensor(ptrB, dextents<int32_t, 2>(K, N),\n"
+            "                    array<int, 2>({1, int(args.in_stride)}));\n"
+            "    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,\n"
+            "        matmul2d_descriptor::mode::multiply_accumulate),\n"
+            "        execution_simdgroups<4>> mm;\n"
+            "    auto cT = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();\n"
+            "    for (uint16_t i = 0; i < cT.get_capacity(); i++) {\n"
+            "        if (cT.is_valid_element(i)) cT[i] = 0.0f;\n"
+            "    }\n"
+            "    for (int loop_k = 0; loop_k < K; loop_k += NK) {\n"
+            "        for (int work = int(tid); work < NR0 * NL; work += NUM_THREADS) {\n"
+            "            const int row = work / NL;\n"
+            "            const int k_chunk = work % NL;\n"
+            "            const int k_pos = loop_k + k_chunk * 16;\n"
+            "            const short k_base = short(k_chunk * 16);\n"
+            "            if (r0 + row < M) {\n"
+            "                const int block_idx = k_pos / 32;\n"
+            "                const short il = short((k_pos / 16) & 1);\n"
+            "                device const qw3_block_q8_0 *row_ptr =\n"
+            "                    (device const qw3_block_q8_0 *)(weights + uint64_t(r0 + row) * uint64_t(args.row_bytes));\n"
+            "                half4x4 temp_a;\n"
+            "                qw3_dequant_q8_0_16(row_ptr + block_idx, il, temp_a);\n"
+            "                for (short i = 0; i < 16; i++) {\n"
+            "                    sa[row * NK + k_base + i] = (k_pos + i < K) ? temp_a[i / 4][i % 4] : half(0.0f);\n"
+            "                }\n"
+            "            } else {\n"
+            "                for (short i = 0; i < 16; i++) sa[row * NK + k_base + i] = half(0.0f);\n"
+            "            }\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        auto mA = tA.slice(0, 0);\n"
+            "        auto mB = tB.slice(loop_k, r1);\n"
+            "        mm.run(mB, mA, cT);\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    }\n"
+            "    device float *dst = (device float *)yout;\n"
+            "    auto tD = tensor(dst, dextents<int32_t, 2>(M, N),\n"
+            "                    array<int, 2>({1, int(args.out_stride)}));\n"
+            "    auto mD = tD.slice(r0, r1);\n"
+            "    cT.store(mD);\n"
+            "}\n"
+            "typedef decltype(qw3_matmul_q8_0_nax_direct_rhs<32>) qw3_matmul_q8_0_nax_direct_rhs_t;\n"
+            "template [[host_name(\"qw3_matmul_q8_0_nax_direct_rhs\")]] kernel qw3_matmul_q8_0_nax_direct_rhs_t qw3_matmul_q8_0_nax_direct_rhs<32>;\n"
+            "template [[host_name(\"qw3_matmul_q8_0_nax_direct_rhs_n64\")]] kernel qw3_matmul_q8_0_nax_direct_rhs_t qw3_matmul_q8_0_nax_direct_rhs<64>;\n"
+            "template [[host_name(\"qw3_matmul_q8_0_nax_direct_rhs_n128\")]] kernel qw3_matmul_q8_0_nax_direct_rhs_t qw3_matmul_q8_0_nax_direct_rhs<128>;\n"
+            "#endif\n"
             "struct qw3_matvec_q8_0_pair_args { uint n_in; uint n_out; uint row_bytes; uint out_a_offset; uint out_b_offset; };\n"
             "kernel void qw3_matvec_q8_0_pair(constant qw3_matvec_q8_0_pair_args &args,\n"
             "                                device const uchar *weights_a,\n"
@@ -8865,11 +8935,111 @@ static int qw3_metal_use_q8_mm(uint32_t n_tokens, uint32_t n_in,
     return 1;
 }
 
+static id<MTLComputePipelineState> qw3_metal_q8_nax_pipeline(uint32_t tile_n) {
+    if (!g_metal4_tensor_api_enabled ||
+        getenv("QW3_METAL_Q8_NAX_DISABLE") != NULL) {
+        return nil;
+    }
+
+    __strong id<MTLComputePipelineState> *slot = NULL;
+    const char *fn_name = NULL;
+    if (tile_n == 128u) {
+        slot = &g_matmul_q8_0_nax_n128_pipeline;
+        fn_name = "qw3_matmul_q8_0_nax_direct_rhs_n128";
+    } else if (tile_n == 64u) {
+        slot = &g_matmul_q8_0_nax_n64_pipeline;
+        fn_name = "qw3_matmul_q8_0_nax_direct_rhs_n64";
+    } else {
+        slot = &g_matmul_q8_0_nax_pipeline;
+        fn_name = "qw3_matmul_q8_0_nax_direct_rhs";
+    }
+    if (*slot) return *slot;
+    if (!g_library || !fn_name) return nil;
+
+    NSError *error = nil;
+    id<MTLFunction> fn =
+        [g_library newFunctionWithName:[NSString stringWithUTF8String:fn_name]];
+    if (!fn) {
+        static int warned;
+        if (!warned && getenv("QW3_METAL_Q8_NAX") != NULL) {
+            fprintf(stderr, "qw3: Metal Q8_0 NAX function %s not found\n", fn_name);
+            warned = 1;
+        }
+        return nil;
+    }
+    *slot = [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!*slot) {
+        static int warned;
+        if (!warned && getenv("QW3_METAL_Q8_NAX") != NULL) {
+            fprintf(stderr, "qw3: Metal Q8_0 NAX pipeline %s failed: %s\n",
+                    fn_name, error ? [[error localizedDescription] UTF8String] : "(unknown)");
+            warned = 1;
+        }
+        return nil;
+    }
+    return *slot;
+}
+
 static int qw3_metal_encode_batch_matmul_q8_0(
     id<MTLBuffer> wbuf, NSUInteger woff, id<MTLBuffer> xbuf,
     NSUInteger xoff, id<MTLBuffer> outbuf, NSUInteger outoff,
     uint32_t n_tokens, uint32_t n_in, uint32_t n_out, uint32_t in_stride,
     uint32_t out_stride, uint32_t row_bytes) {
+    if (getenv("QW3_METAL_Q8_NAX") != NULL &&
+        getenv("QW3_METAL_Q8_NAX_DISABLE") == NULL &&
+        n_tokens >= 32u && (n_tokens % 32u) == 0u &&
+        (n_in % 64u) == 0u && (n_out % 64u) == 0u) {
+        uint32_t tile_n = 32u;
+        if ((n_tokens % 128u) == 0u) {
+            tile_n = 128u;
+        } else if ((n_tokens % 64u) == 0u) {
+            tile_n = 64u;
+        }
+        const char *tile_env = getenv("QW3_METAL_Q8_NAX_TILE");
+        if (tile_env && tile_env[0]) {
+            const long forced = strtol(tile_env, NULL, 10);
+            if ((forced == 32 || forced == 64 || forced == 128) &&
+                (n_tokens % (uint32_t)forced) == 0u) {
+                tile_n = (uint32_t)forced;
+            }
+        }
+        id<MTLComputePipelineState> pipeline =
+            qw3_metal_q8_nax_pipeline(tile_n);
+        if (pipeline) {
+            struct {
+                uint32_t n_in;
+                uint32_t n_out;
+                uint32_t row_bytes;
+                uint32_t n_tokens;
+                uint32_t in_stride;
+                uint32_t out_stride;
+            } args = {
+                n_in, n_out, row_bytes, n_tokens, in_stride, out_stride
+            };
+            int owned = 0;
+            id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+            id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+            [enc setComputePipelineState:pipeline];
+            [enc setBytes:&args length:sizeof(args) atIndex:0];
+            [enc setBuffer:wbuf offset:woff atIndex:1];
+            [enc setBuffer:xbuf offset:xoff atIndex:2];
+            [enc setBuffer:outbuf offset:outoff atIndex:3];
+            [enc setThreadgroupMemoryLength:64u * 32u * sizeof(uint16_t)
+                                    atIndex:0];
+            [enc dispatchThreadgroups:MTLSizeMake(n_tokens / tile_n,
+                                                  n_out / 64u, 1)
+                threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+            qw3_metal_end_compute_encoder(cb, enc);
+            if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+            if (cb.status == MTLCommandBufferStatusError) {
+                fprintf(stderr, "qw3: Metal Q8_0 NAX prefill mm command failed: %s\n",
+                        [[cb.error localizedDescription] UTF8String]);
+                return 0;
+            }
+            return 1;
+        }
+    }
+
     if (qw3_metal_use_q8_mm(n_tokens, n_in, n_out)) {
         struct {
             uint32_t n_in;
@@ -14607,6 +14777,9 @@ void qw3_metal_cleanup(void) {
     g_matmul_q8_0_batch4_pipeline = nil;
     g_matmul_q8_0_mm_pipeline = nil;
     g_matmul_q8_0_mm_bc_pipeline = nil;
+    g_matmul_q8_0_nax_pipeline = nil;
+    g_matmul_q8_0_nax_n64_pipeline = nil;
+    g_matmul_q8_0_nax_n128_pipeline = nil;
     g_matvec_q8_0_pair_pipeline = nil;
     g_matvec_q8_0_pair_silu_pipeline = nil;
     g_shared_gate_up_silu_pipeline = nil;
