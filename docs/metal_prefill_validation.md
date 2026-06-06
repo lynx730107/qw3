@@ -52,9 +52,11 @@ Default safety policy:
   default. This keeps the previous F32 precision while avoiding the larger
   token-stride scratch layout for the down projection. Set
   `QW3_METAL_MOE_MID_F32_DISABLE=1` for legacy comparisons.
-- Linear-attention batch DeltaNet uses the tiled recurrent core plus a separate
-  gated RMSNorm node by default. Set `QW3_METAL_BATCH_GDN_LEGACY=1` for the
-  old scalar fused GDN kernel.
+- Linear-attention batch DeltaNet uses the two-column tiled recurrent core plus
+  a separate gated RMSNorm node by default. Set
+  `QW3_METAL_BATCH_GDN_TILED2_DISABLE=1` for the previous one-column tiled
+  comparison path, or `QW3_METAL_BATCH_GDN_LEGACY=1` for the old scalar fused
+  GDN kernel.
 - Metal command buffers use unretained references by default, matching
   llama.cpp's graph compute path. Set `QW3_METAL_RETAINED_COMMAND_BUFFERS=1`
   for legacy comparisons.
@@ -106,6 +108,29 @@ Benchmark notes on Apple M5:
 - `pp4095`: 315.15 tok/s in a single non-aligned run.
 - Previous default `pp4096` baseline was about 212 tok/s; explicit
   FlashAttention before padded tails/block maps was about 240 tok/s.
+
+## 2026-06-06 DeltaNet Two-Column Tiled GDN
+
+The linear-attention prefill GDN recurrence now computes two DeltaNet state
+columns per simdgroup. This keeps the recurrent token loop and F32 state update
+unchanged, while reducing repeated Q/K loads and threadgroup scheduling in the
+dominant linear-attention stage.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
+- `make qw3-bench-metal`
+- `./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 4096 -n 0 -r 1`
+
+Benchmark notes on Apple M5:
+- Opt-in validation before promotion: `pp4096` 350.65 tok/s in one run.
+- `prompt_perf.txt` default TILED2: 6399 prompt tokens, 19554.3 ms prefill,
+  327.24 tok/s; generated text was coherent.
+- `QW3_METAL_BATCH_GDN_TILED2_DISABLE=1` on the same prompt: 6399 prompt
+  tokens, 24125.4 ms prefill, 265.24 tok/s.
+- Linear profiler with the new kernel shows `deltanet_gdn` mostly around
+  40-52 ms per linear layer, down from roughly 75-90 ms.
 
 ## 2026-06-01 GQA Prefill Softmax Check
 
