@@ -27,9 +27,12 @@ Default safety policy:
   `QW3_METAL_MOE_MPP_DOWN_DISABLE=1`.
 - GQA batch prefill fuses RMSNorm, Q gate copy, and RoPE by default. Set
   `QW3_METAL_GQA_NORM_ROPE_SPLIT=1` for the legacy split-kernel comparison.
-- GQA cached prefill attention uses the `block4` query-grouped kernel by
-  default. Set `QW3_METAL_GQA_ATTEND_BLOCK2=1` for the two-query comparison
-  path, or `QW3_METAL_GQA_ATTEND_BLOCK1=1` for the legacy one-query kernel.
+- GQA cached prefill attention uses the llama/ds4 FlashAttention kernel by
+  default when the shared Metal source is available. Set
+  `QW3_METAL_GQA_FLASH_ATTN=0` or `QW3_METAL_GQA_FLASH_ATTN_DISABLE=1` to use
+  the native `block4` fallback. In fallback mode, set
+  `QW3_METAL_GQA_ATTEND_BLOCK2=1` for the two-query comparison path, or
+  `QW3_METAL_GQA_ATTEND_BLOCK1=1` for the legacy one-query kernel.
 - `QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` is a diagnostic-only sync profiler
   for GQA prefill stages: attention norm, qkv projection, norm/RoPE, cache
   write, attend, output projection, residual norm.
@@ -79,6 +82,30 @@ env QW3_METAL_PREFILL_TEST_TOKENS=64 ./qw3-metal \
   -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 \
   --metal-session-prefill-q8-batch-test 66
 ```
+
+## 2026-06-06 GQA FlashAttention Prefill Default
+
+GQA full-attention prefill now uses the shared llama/ds4 FlashAttention Metal
+kernel by default. The QW3 wrapper builds the causal mask block map and pads
+non-64-aligned K/V tails into a temporary interleaved layout compatible with
+the imported kernel, so real prompts such as `prompt_perf.txt` no longer fall
+back to the older scalar/block4 attention path.
+
+Validation after the change:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
+- `make qw3-bench-metal`
+- `./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 4096 -n 0 -r 3`
+- `./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 4095 -n 0 -r 1`
+
+Benchmark notes on Apple M5:
+- `prompt_perf.txt`: 6399 prompt tokens, 21063.1 ms prefill, 303.80 tok/s;
+  generated text was coherent on the previous garbage-regression prompt.
+- `pp4096`: 315.88 tok/s average across 3 runs.
+- `pp4095`: 315.15 tok/s in a single non-aligned run.
+- Previous default `pp4096` baseline was about 212 tok/s; explicit
+  FlashAttention before padded tails/block maps was about 240 tok/s.
 
 ## 2026-06-01 GQA Prefill Softmax Check
 

@@ -103,6 +103,8 @@ static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block2_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block4_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_src8_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_gate_pipeline;
+static id<MTLComputePipelineState> g_gqa_flash_pad_pipeline;
+static id<MTLComputePipelineState> g_gqa_flash_blk_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_attn_pipeline;
 static id<MTLComputePipelineState> g_gqa_store_token_cache_f16_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
@@ -409,6 +411,7 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic, strong) id<MTLBuffer> flashAttnOut;
 @property(nonatomic, strong) id<MTLBuffer> flashAttnMask;
 @property(nonatomic, strong) id<MTLBuffer> flashAttnBlock;
+@property(nonatomic, strong) id<MTLBuffer> flashAttnPad;
 @property(nonatomic, strong) id<MTLBuffer> moeExpertCounts;
 @property(nonatomic, strong) id<MTLBuffer> moePairIds;
 @property(nonatomic, strong) id<MTLBuffer> moeBlockCount;
@@ -2411,6 +2414,49 @@ static NSString *qw3_metal_kernel_source(void) {
             "    uint head_off = h * args.head_dim + i;\n"
             "    float g = row[args.gate_offset + head_off];\n"
             "    row[args.out_offset + head_off] = flash_out[gid] / (1.0f + exp(-g));\n"
+            "}\n"
+            "struct qw3_gqa_flash_pad_args { int ne11; int ne_12_2; int ne_12_3; ulong nb11; ulong nb12; ulong nb13; ulong nb21; ulong nb22; ulong nb23; int ne31; int ne32; int ne33; ulong nb31; ulong nb32; ulong nb33; };\n"
+            "kernel void qw3_gqa_flash_pad_interleaved(constant qw3_gqa_flash_pad_args &args,\n"
+            "                                          device const char *k,\n"
+            "                                          device const char *v,\n"
+            "                                          device const char *mask,\n"
+            "                                          device char *dst,\n"
+            "                                          uint group [[threadgroup_position_in_grid]],\n"
+            "                                          ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                          ushort nt [[threads_per_threadgroup]]) {\n"
+            "    const uint C = 64u;\n"
+            "    uint n_kv_heads = uint(args.ne_12_2);\n"
+            "    uint i1 = group % C;\n"
+            "    uint kvh = group / C;\n"
+            "    uint n_keys = uint(args.ne11);\n"
+            "    uint n_tokens = uint(args.ne31);\n"
+            "    uint head_dim = uint(args.nb12 / sizeof(half));\n"
+            "    uint kv_stride = uint(args.nb11 / sizeof(half));\n"
+            "    uint icp = n_keys % C;\n"
+            "    uint ic0 = n_keys - icp;\n"
+            "    device half *k_pad = (device half *)dst;\n"
+            "    device half *v_pad = (device half *)(dst + args.nb11 * C * n_kv_heads);\n"
+            "    device half *mask_pad = (device half *)(dst + args.nb11 * C * n_kv_heads + args.nb21 * C * n_kv_heads);\n"
+            "    if (i1 < C && kvh < n_kv_heads) {\n"
+            "        device half *kd = k_pad + uint64_t(kvh) * C * kv_stride + uint64_t(i1) * kv_stride;\n"
+            "        device half *vd = v_pad + uint64_t(kvh) * C * kv_stride + uint64_t(i1) * kv_stride;\n"
+            "        bool valid = i1 < icp;\n"
+            "        device const half *ks = (device const half *)(k + uint64_t(ic0 + i1) * args.nb11 + uint64_t(kvh) * args.nb12);\n"
+            "        device const half *vs = (device const half *)(v + uint64_t(ic0 + i1) * args.nb21 + uint64_t(kvh) * args.nb22);\n"
+            "        for (uint d = uint(tid); d < head_dim; d += uint(nt)) {\n"
+            "            kd[d] = valid ? ks[d] : half(0.0f);\n"
+            "            vd[d] = valid ? vs[d] : half(0.0f);\n"
+            "        }\n"
+            "    }\n"
+            "    if (i1 < C && kvh == 0u) {\n"
+            "        for (uint q = i1; q < n_tokens; q += C) {\n"
+            "            device const half *ms = (device const half *)(mask + uint64_t(q) * args.nb31 + uint64_t(ic0) * sizeof(half));\n"
+            "            device half *md = mask_pad + uint64_t(q) * C;\n"
+            "            for (uint d = uint(tid); d < C; d += uint(nt)) {\n"
+            "                md[d] = d < icp ? ms[d] : half(-65504.0f);\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
             "}\n"
             "kernel void qw3_gqa_prefill_cached_attend_inner(constant qw3_gqa_prefill_cached_attn_args &args,\n"
             "                                               device float *scratch,\n"
@@ -6159,12 +6205,19 @@ static NSString *qw3_metal_full_kernel_source(void) {
         [NSMutableString stringWithString:qw3_metal_kernel_source()];
     const char *flash_env = getenv("QW3_METAL_FLASH_ATTN");
     const char *gqa_flash_env = getenv("QW3_METAL_GQA_FLASH_ATTN");
+    const char *gqa_flash_disable_env = getenv("QW3_METAL_GQA_FLASH_ATTN_DISABLE");
     const char *flash_path_env = getenv("QW3_METAL_FLASH_ATTN_SOURCE");
-    if ((!flash_env || !flash_env[0]) &&
-        (!gqa_flash_env || !gqa_flash_env[0]) &&
+    const int gqa_flash_disabled =
+        gqa_flash_disable_env != NULL ||
+        (gqa_flash_env && gqa_flash_env[0] && strcmp(gqa_flash_env, "0") == 0);
+    if (gqa_flash_disabled && (!flash_env || !flash_env[0]) &&
         (!flash_path_env || !flash_path_env[0])) {
         return source;
     }
+    const int explicit_flash =
+        (flash_env && flash_env[0]) ||
+        (gqa_flash_env && gqa_flash_env[0] && strcmp(gqa_flash_env, "0") != 0) ||
+        (flash_path_env && flash_path_env[0]);
 
     NSString *path = flash_path_env && flash_path_env[0] ?
         [NSString stringWithUTF8String:flash_path_env] :
@@ -6178,7 +6231,7 @@ static NSString *qw3_metal_full_kernel_source(void) {
         fprintf(stderr, "qw3: failed to read Metal flash attention source %s: %s\n",
                 [path UTF8String],
                 read_error ? [[read_error localizedDescription] UTF8String] : "(unknown)");
-        return nil;
+        return explicit_flash ? nil : source;
     }
 
     [source appendString:
@@ -7802,6 +7855,7 @@ int qw3_metal_synchronize(void) {
     }
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
     return qw3_metal_finish_command_buffer(cb, owned, "synchronize");
 }
 
@@ -7906,15 +7960,99 @@ typedef struct {
     float    logit_softcap;
 } qw3_metal_flash_attn_args;
 
-static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv_stride_elems) {
+typedef struct {
+    int32_t  ne11;
+    int32_t  ne_12_2;
+    int32_t  ne_12_3;
+    uint64_t nb11;
+    uint64_t nb12;
+    uint64_t nb13;
+    uint64_t nb21;
+    uint64_t nb22;
+    uint64_t nb23;
+    int32_t  ne31;
+    int32_t  ne32;
+    int32_t  ne33;
+    uint64_t nb31;
+    uint64_t nb32;
+    uint64_t nb33;
+} qw3_metal_flash_attn_pad_args;
+
+typedef struct {
+    int32_t  ne01;
+    int32_t  ne30;
+    int32_t  ne31;
+    int32_t  ne32;
+    int32_t  ne33;
+    uint64_t nb31;
+    uint64_t nb32;
+    uint64_t nb33;
+} qw3_metal_flash_attn_blk_args;
+
+static id<MTLComputePipelineState> qw3_metal_gqa_flash_pad_pipeline(void) {
+    static int unavailable;
+    if (g_gqa_flash_pad_pipeline) return g_gqa_flash_pad_pipeline;
+    if (unavailable || !g_library) return nil;
+
+    NSError *error = nil;
+    id<MTLFunction> fn =
+        [g_library newFunctionWithName:@"qw3_gqa_flash_pad_interleaved"];
+    if (!fn) {
+        unavailable = 1;
+        return nil;
+    }
+    g_gqa_flash_pad_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_flash_pad_pipeline) {
+        unavailable = 1;
+        return nil;
+    }
+    return g_gqa_flash_pad_pipeline;
+}
+
+static id<MTLComputePipelineState> qw3_metal_gqa_flash_blk_pipeline(void) {
+    static int unavailable;
+    if (g_gqa_flash_blk_pipeline) return g_gqa_flash_blk_pipeline;
+    if (unavailable || !g_library) return nil;
+
+    const int32_t nqptg = 8;
+    const int32_t ncpsg = 64;
+    MTLFunctionConstantValues *constants = [[MTLFunctionConstantValues alloc] init];
+    [constants setConstantValue:&nqptg type:MTLDataTypeInt atIndex:224];
+    [constants setConstantValue:&ncpsg type:MTLDataTypeInt atIndex:225];
+
+    NSError *error = nil;
+    id<MTLFunction> fn =
+        [g_library newFunctionWithName:@"kernel_flash_attn_ext_blk"
+                        constantValues:constants
+                                 error:&error];
+    if (!fn) {
+        unavailable = 1;
+        return nil;
+    }
+    g_gqa_flash_blk_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_flash_blk_pipeline) {
+        unavailable = 1;
+        return nil;
+    }
+    return g_gqa_flash_blk_pipeline;
+}
+
+static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv_stride_elems,
+                                                                      int has_kvpad,
+                                                                      int bc_mask) {
     static uint32_t cached_kv_stride_elems;
+    static int cached_has_kvpad;
+    static int cached_bc_mask;
     static int unavailable;
     if (g_gqa_flash_attn_pipeline &&
-        cached_kv_stride_elems == kv_stride_elems) {
+        cached_kv_stride_elems == kv_stride_elems &&
+        cached_has_kvpad == has_kvpad &&
+        cached_bc_mask == bc_mask) {
         return g_gqa_flash_attn_pipeline;
     }
-    if (g_gqa_flash_attn_pipeline &&
-        cached_kv_stride_elems != kv_stride_elems) {
+    if (g_gqa_flash_attn_pipeline) {
         g_gqa_flash_attn_pipeline = nil;
     }
     if (unavailable || !g_library || kv_stride_elems == 0) return nil;
@@ -7923,8 +8061,8 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv
     const bool has_sinks = false;
     const bool has_bias = false;
     const bool has_scap = false;
-    const bool has_kvpad = false;
-    const bool bc_mask = false;
+    const bool has_kvpad_bool = has_kvpad != 0;
+    const bool bc_mask_bool = bc_mask != 0;
     const int32_t ns10 = (int32_t)kv_stride_elems;
     const int32_t ns20 = (int32_t)kv_stride_elems;
     const int32_t nsg = 4;
@@ -7934,8 +8072,8 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv
     [constants setConstantValue:&has_sinks type:MTLDataTypeBool atIndex:301];
     [constants setConstantValue:&has_bias  type:MTLDataTypeBool atIndex:302];
     [constants setConstantValue:&has_scap  type:MTLDataTypeBool atIndex:303];
-    [constants setConstantValue:&has_kvpad type:MTLDataTypeBool atIndex:304];
-    [constants setConstantValue:&bc_mask   type:MTLDataTypeBool atIndex:310];
+    [constants setConstantValue:&has_kvpad_bool type:MTLDataTypeBool atIndex:304];
+    [constants setConstantValue:&bc_mask_bool   type:MTLDataTypeBool atIndex:310];
     [constants setConstantValue:&ns10 type:MTLDataTypeInt atIndex:320];
     [constants setConstantValue:&ns20 type:MTLDataTypeInt atIndex:321];
     [constants setConstantValue:&nsg  type:MTLDataTypeInt atIndex:322];
@@ -7961,6 +8099,8 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv
         return nil;
     }
     cached_kv_stride_elems = kv_stride_elems;
+    cached_has_kvpad = has_kvpad;
+    cached_bc_mask = bc_mask;
     return g_gqa_flash_attn_pipeline;
 }
 
@@ -7969,11 +8109,14 @@ static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
                                                         uint32_t n_tokens,
                                                         uint32_t n_keys,
                                                         uint32_t n_heads,
+                                                        uint32_t n_kv_heads,
                                                         uint32_t head_dim) {
     if (!obj || !g_device || n_tokens == 0 || n_keys == 0 ||
-        n_heads == 0 || head_dim == 0) {
+        n_heads == 0 || n_kv_heads == 0 || head_dim == 0) {
         return 0;
     }
+    const uint32_t ncpsg = 64u;
+    const int has_kvpad = (n_keys % ncpsg) != 0u;
     const uint64_t out_bytes =
         (uint64_t)n_tokens * n_heads * head_dim * sizeof(float);
     const uint64_t mask_bytes =
@@ -7981,9 +8124,16 @@ static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
     const uint64_t block_bytes =
         (((uint64_t)n_tokens + 7ull) / 8ull) *
         (((uint64_t)n_keys + 63ull) / 64ull);
+    const uint64_t kv_stride = (uint64_t)n_kv_heads * head_dim;
+    const uint64_t pad_bytes = has_kvpad ?
+        (uint64_t)ncpsg *
+            (2ull * (uint64_t)n_kv_heads * kv_stride * sizeof(uint16_t) +
+             (uint64_t)n_tokens * sizeof(uint16_t)) :
+        1ull;
     if (out_bytes > (uint64_t)NSUIntegerMax ||
         mask_bytes > (uint64_t)NSUIntegerMax ||
-        block_bytes > (uint64_t)NSUIntegerMax) {
+        block_bytes > (uint64_t)NSUIntegerMax ||
+        pad_bytes > (uint64_t)NSUIntegerMax) {
         return 0;
     }
 
@@ -8008,6 +8158,10 @@ static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
         if (!obj.flashAttnBlock) return 0;
         refresh = 1;
     }
+    if (!obj.flashAttnPad || obj.flashAttnPad.length < pad_bytes) {
+        obj.flashAttnPad = qw3_metal_new_private_buffer(pad_bytes);
+        if (!obj.flashAttnPad) return 0;
+    }
     if (!refresh) return 1;
 
     if (g_batch_cb && !qw3_metal_synchronize()) return 0;
@@ -8022,9 +8176,7 @@ static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
         for (uint32_t k = 0; k < allowed; k++) row[k] = 0;
         for (uint32_t k = allowed; k < n_keys; k++) row[k] = neg_inf_half;
     }
-    memset(obj.flashAttnBlock.contents, 1, (size_t)block_bytes);
     [obj.flashAttnMask didModifyRange:NSMakeRange(0, (NSUInteger)mask_bytes)];
-    [obj.flashAttnBlock didModifyRange:NSMakeRange(0, (NSUInteger)block_bytes)];
 
     obj.flashAttnMaskPos0 = pos0;
     obj.flashAttnMaskTokens = n_tokens;
@@ -13505,9 +13657,12 @@ static int qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
     const uint32_t n_keys = pos0 + n_tokens;
     const uint32_t q_n = n_heads * head_dim;
     const uint32_t kv_n = n_kv_heads * head_dim;
+    const uint32_t nqptg = 8u;
+    const uint32_t ncpsg = 64u;
+    const int has_kvpad = (n_keys % ncpsg) != 0u;
+    const int bc_mask = (n_tokens % nqptg) != 0u;
     if (!obj.gqaKvF16 || obj.gqaKvQ8 || head_dim != 256u ||
-        n_tokens < 8u || (n_tokens % 8u) != 0u ||
-        n_keys == 0 || (n_keys % 64u) != 0u ||
+        n_tokens < 8u || n_keys == 0 ||
         pos0 > obj.ctxSize || n_tokens > obj.ctxSize - pos0 ||
         q_offset > stride || gate_offset > stride || out_offset > stride ||
         q_n > stride - q_offset ||
@@ -13531,13 +13686,20 @@ static int qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
         return 0;
     }
     if (!qw3_metal_session_ensure_flash_attn_buffers(obj, pos0, n_tokens,
-                                                     n_keys, n_heads, head_dim)) {
+                                                     n_keys, n_heads,
+                                                     n_kv_heads, head_dim)) {
         return 0;
     }
 
+    id<MTLComputePipelineState> pad_pipeline =
+        has_kvpad ? qw3_metal_gqa_flash_pad_pipeline() : nil;
+    id<MTLComputePipelineState> blk_pipeline =
+        qw3_metal_gqa_flash_blk_pipeline();
     id<MTLComputePipelineState> attn_pipeline =
-        qw3_metal_gqa_flash_attn_pipeline(n_kv_heads * head_dim);
-    if (!attn_pipeline || !g_gqa_flash_gate_pipeline) return 0;
+        qw3_metal_gqa_flash_attn_pipeline(n_kv_heads * head_dim,
+                                          has_kvpad, bc_mask);
+    if ((has_kvpad && !pad_pipeline) || !blk_pipeline ||
+        !attn_pipeline || !g_gqa_flash_gate_pipeline) return -1;
 
     qw3_metal_flash_attn_args args = {
         .ne01 = (int32_t)n_tokens,
@@ -13576,7 +13738,60 @@ static int qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
 
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (has_kvpad) {
+        qw3_metal_flash_attn_pad_args pad_args = {
+            .ne11 = (int32_t)n_keys,
+            .ne_12_2 = (int32_t)n_kv_heads,
+            .ne_12_3 = 1,
+            .nb11 = (uint64_t)n_kv_heads * head_dim * sizeof(uint16_t),
+            .nb12 = (uint64_t)head_dim * sizeof(uint16_t),
+            .nb13 = (uint64_t)n_keys * n_kv_heads * head_dim * sizeof(uint16_t),
+            .nb21 = (uint64_t)n_kv_heads * head_dim * sizeof(uint16_t),
+            .nb22 = (uint64_t)head_dim * sizeof(uint16_t),
+            .nb23 = (uint64_t)n_keys * n_kv_heads * head_dim * sizeof(uint16_t),
+            .ne31 = (int32_t)n_tokens,
+            .ne32 = 1,
+            .ne33 = 1,
+            .nb31 = (uint64_t)n_keys * sizeof(uint16_t),
+            .nb32 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
+            .nb33 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
+        };
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:pad_pipeline];
+        [enc setBytes:&pad_args length:sizeof(pad_args) atIndex:0];
+        [enc setBuffer:cache_k offset:cache_offset atIndex:1];
+        [enc setBuffer:cache_v offset:cache_offset atIndex:2];
+        [enc setBuffer:obj.flashAttnMask offset:0 atIndex:3];
+        [enc setBuffer:obj.flashAttnPad offset:0 atIndex:4];
+        [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)ncpsg * n_kv_heads, 1, 1)
+             threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    }
+
+    qw3_metal_flash_attn_blk_args blk_args = {
+        .ne01 = (int32_t)n_tokens,
+        .ne30 = (int32_t)n_keys,
+        .ne31 = (int32_t)n_tokens,
+        .ne32 = 1,
+        .ne33 = 1,
+        .nb31 = (uint64_t)n_keys * sizeof(uint16_t),
+        .nb32 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
+        .nb33 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
+    };
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:blk_pipeline];
+    [enc setBytes:&blk_args length:sizeof(blk_args) atIndex:0];
+    [enc setBuffer:obj.flashAttnMask offset:0 atIndex:1];
+    [enc setBuffer:obj.flashAttnBlock offset:0 atIndex:2];
+    [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)n_keys + ncpsg - 1u) / ncpsg,
+                                          ((NSUInteger)n_tokens + nqptg - 1u) / nqptg,
+                                          1)
+         threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    enc = qw3_metal_compute_encoder(cb);
     if (!enc) return 0;
     const NSUInteger padded_v = ((NSUInteger)head_dim + 63u) & ~(NSUInteger)63u;
     const NSUInteger shared_elems = 8u *
@@ -13592,11 +13807,12 @@ static int qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
     [enc setBuffer:cache_v offset:cache_offset atIndex:3];
     [enc setBuffer:obj.flashAttnMask offset:0 atIndex:4];
     [enc setBuffer:obj.prefillScratch offset:0 atIndex:5];
-    [enc setBuffer:obj.prefillScratch offset:0 atIndex:6];
+    [enc setBuffer:obj.flashAttnPad offset:0 atIndex:6];
     [enc setBuffer:obj.flashAttnBlock offset:0 atIndex:7];
     [enc setBuffer:obj.flashAttnOut offset:0 atIndex:8];
     [enc setThreadgroupMemoryLength:shared_bytes atIndex:0];
-    [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens / 8u, n_heads, 1)
+    [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)n_tokens + nqptg - 1u) / nqptg,
+                                          n_heads, 1)
          threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
     [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
     qw3_metal_end_compute_encoder(cb, enc);
@@ -13656,8 +13872,11 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
 
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
     const char *flash_attn_env = getenv("QW3_METAL_GQA_FLASH_ATTN");
-    if (flash_attn_env && flash_attn_env[0] &&
-        strcmp(flash_attn_env, "0") != 0) {
+    const int flash_attn_disabled =
+        getenv("QW3_METAL_GQA_FLASH_ATTN_DISABLE") != NULL ||
+        (flash_attn_env && flash_attn_env[0] &&
+         strcmp(flash_attn_env, "0") == 0);
+    if (!flash_attn_disabled) {
         int flash_status =
             qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
                 s, layer_slot, pos0, n_tokens, n_heads, n_kv_heads,
@@ -14375,6 +14594,8 @@ void qw3_metal_cleanup(void) {
     g_gqa_prefill_cached_attend_block4_pipeline = nil;
     g_gqa_prefill_cached_attend_src8_pipeline = nil;
     g_gqa_flash_gate_pipeline = nil;
+    g_gqa_flash_pad_pipeline = nil;
+    g_gqa_flash_blk_pipeline = nil;
     g_gqa_flash_attn_pipeline = nil;
     g_gqa_store_token_cache_f16_pipeline = nil;
     g_gqa_kv_quant_q8_pipeline = nil;
