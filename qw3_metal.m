@@ -76,6 +76,7 @@ static id<MTLComputePipelineState> g_moe_down_iq4_xs_prefill_mapped_mid_f32_pipe
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_prefill_mapped_f16_pipeline;
 static id<MTLComputePipelineState> g_moe_down_q6_k_prefill_mapped_pipeline;
+static id<MTLComputePipelineState> g_moe_down_q6_k_prefill_mapped_mpp_pipeline;
 static id<MTLComputePipelineState> g_moe_down_prefill_reduce_slots_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pipeline;
 static id<MTLComputePipelineState> g_matvec_f32_pair_pipeline;
@@ -5924,6 +5925,94 @@ static NSString *qw3_metal_kernel_source(void) {
             "    }\n"
             "    return half(d * float(s) * float(q));\n"
             "}\n"
+            "#ifdef QW3_METAL_HAS_TENSOR\n"
+            "kernel void qw3_moe_down_q6_k_prefill_mapped_mpp(constant qw3_moe_prefill_batch_args &args,\n"
+            "                                                     device const uchar *weights,\n"
+            "                                                     device const float *scratch,\n"
+            "                                                     device float *down_slots,\n"
+            "                                                     device const uint *counts,\n"
+            "                                                     device const int *pair_ids,\n"
+            "                                                     device const float *router_weights,\n"
+            "                                                     device const uint *block_ids,\n"
+            "                                                     threadgroup char *shmem [[threadgroup(0)]],\n"
+            "                                                     uint3 group [[threadgroup_position_in_grid]],\n"
+            "                                                     ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                                     ushort sgitg [[simdgroup_index_in_threadgroup]]) {\n"
+            "    threadgroup half *sa = (threadgroup half *)shmem;\n"
+            "    threadgroup half *sb = (threadgroup half *)(shmem + 4096);\n"
+            "    threadgroup float *sc = (threadgroup float *)shmem;\n"
+            "    constexpr int NR0 = 64;\n"
+            "    constexpr int NR1 = 32;\n"
+            "    constexpr int NK = 32;\n"
+            "    constexpr int NL0 = NK / 16;\n"
+            "    constexpr int NL1 = NK / 8;\n"
+            "    uint r0u = group.y * NR0;\n"
+            "    uint expert = group.z;\n"
+            "    uint r1u = group.x * NR1;\n"
+            "    if (args.compact_blocks != 0u) {\n"
+            "        uint block = block_ids[group.x];\n"
+            "        expert = block & 255u;\n"
+            "        r1u = block >> 8u;\n"
+            "    }\n"
+            "    uint count = counts[expert];\n"
+            "    if (r0u >= args.n_embd || r1u >= count) return;\n"
+            "    int nr0 = int(min(uint(NR0), args.n_embd - r0u));\n"
+            "    int nr1 = int(min(uint(NR1), count - r1u));\n"
+            "    int lr0 = min(int(tid) / NL0, nr0 - 1);\n"
+            "    int lr1 = min(int(tid) / NL1, nr1 - 1);\n"
+            "    short il0 = short(tid % NL0);\n"
+            "    uint row = r0u + uint(lr0);\n"
+            "    uint map_base = expert * args.n_tokens + r1u;\n"
+            "    auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(sa, dextents<int32_t, 2>(NK, NR0));\n"
+            "    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(sb, dextents<int32_t, 2>(NR1, NK));\n"
+            "    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, false, matmul2d_descriptor::mode::multiply_accumulate), execution_simdgroups<4>> mm;\n"
+            "    auto cT = mm.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();\n"
+            "    for (uint loop_k = 0u; loop_k < args.n_ff; loop_k += NK) {\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        device const uchar *wrow = weights + uint64_t(expert) * uint64_t(args.down_expert_bytes) + uint64_t(row) * uint64_t(args.down_row_bytes);\n"
+            "        for (short i = 0; i < 16; i++) {\n"
+            "            uint k = loop_k + uint(16 * il0 + i);\n"
+            "            const short sx = short(2 * il0 + i / 8);\n"
+            "            const short sy = short((tid / NL0) / 8);\n"
+            "            const short lx = short(i % 8);\n"
+            "            const short ly = short((tid / NL0) % 8);\n"
+            "            *(sa + NK * (8 * sy + ly) + 8 * sx + lx) = k < args.n_ff ? qw3_q6k_dequant_k(wrow, k) : half(0.0f);\n"
+            "        }\n"
+            "        int pid = pair_ids[map_base + uint(lr1)];\n"
+            "        uint token = uint(pid) / args.n_active;\n"
+            "        uint slot = uint(pid) - token * args.n_active;\n"
+            "        device const float *hidden = scratch + uint64_t(token) * uint64_t(args.stride) + uint64_t(args.hidden_offset) + uint64_t(slot) * uint64_t(args.n_ff) + uint64_t(loop_k);\n"
+            "        for (short i = 0; i < 8; i++) {\n"
+            "            const short sx = short(tid % NL1);\n"
+            "            const short sy = short((tid / NL1) / 8);\n"
+            "            const short lx = i;\n"
+            "            const short ly = short((tid / NL1) % 8);\n"
+            "            uint kk = uint(8 * sx + i);\n"
+            "            *(sb + NK * (8 * sy + ly) + 8 * sx + lx) = (uint(lr1) < uint(nr1) && loop_k + kk < args.n_ff) ? half(hidden[kk]) : half(0.0f);\n"
+            "        }\n"
+            "        threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "        auto sA = tA.slice(0, 0);\n"
+            "        auto sB = tB.slice(0, 0);\n"
+            "        mm.run(sB, sA, cT);\n"
+            "    }\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(sc, dextents<int32_t, 2>(NR0, NR1));\n"
+            "    cT.store(tC);\n"
+            "    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+            "    for (short j = short(sgitg); j < nr1; j += 4) {\n"
+            "        int pid = pair_ids[map_base + uint(j)];\n"
+            "        device float *dst = down_slots + uint64_t(uint(pid)) * uint64_t(args.n_embd) + uint64_t(r0u);\n"
+            "        threadgroup float *src = sc + int(j) * NR0;\n"
+            "        float scale = router_weights[uint(pid)];\n"
+            "        int i = int(tid & 31u);\n"
+            "        device float4 *dst4 = (device float4 *)dst;\n"
+            "        threadgroup float4 *src4 = (threadgroup float4 *)src;\n"
+            "        for (; i < nr0 / 4; i += 32) dst4[i] = src4[i] * scale;\n"
+            "        i = 4 * (nr0 / 4) + int(tid & 31u);\n"
+            "        for (; i < nr0; i += 32) dst[i] = src[i] * scale;\n"
+            "    }\n"
+            "}\n"
+            "#endif\n"
             "kernel void qw3_moe_down_q6_k_prefill_mapped(constant qw3_moe_prefill_batch_args &args,\n"
             "                                                device const uchar *weights,\n"
             "                                                device const float *scratch,\n"
@@ -7035,6 +7124,20 @@ static int qw3_metal_compile_kernels(void) {
         fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_q6_k_prefill_mapped failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
+    }
+    g_moe_down_q6_k_prefill_mapped_mpp_pipeline = nil;
+    if (g_metal4_tensor_api_enabled) {
+        fn = [g_library newFunctionWithName:@"qw3_moe_down_q6_k_prefill_mapped_mpp"];
+        if (fn) {
+            g_moe_down_q6_k_prefill_mapped_mpp_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+            if (!g_moe_down_q6_k_prefill_mapped_mpp_pipeline) {
+                fprintf(stderr, "qw3: Metal pipeline qw3_moe_down_q6_k_prefill_mapped_mpp failed: %s\n",
+                        [[error localizedDescription] UTF8String]);
+            }
+        } else {
+            fprintf(stderr, "qw3: Metal function qw3_moe_down_q6_k_prefill_mapped_mpp not found\n");
+        }
     }
     fn = [g_library newFunctionWithName:@"qw3_moe_down_prefill_reduce_slots"];
     if (!fn) {
@@ -12430,6 +12533,11 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         use_mapped_mid_f32 && use_mapped_mpp &&
         g_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp_pipeline &&
         getenv("QW3_METAL_MOE_MPP_DOWN_DISABLE") == NULL;
+    const int use_mapped_q6_mpp =
+        down_type == 14 && use_mapped_down && use_mapped_mpp &&
+        g_moe_down_q6_k_prefill_mapped_mpp_pipeline &&
+        getenv("QW3_METAL_MOE_MPP_DOWN_DISABLE") == NULL &&
+        getenv("QW3_METAL_MOE_Q6_MPP_DISABLE") == NULL;
     const int use_mapped_moe = use_mapped_gateup || use_mapped_down;
     const int use_compact_moe_blocks =
         use_mapped_moe && getenv("QW3_METAL_MOE_BLOCKS_DISABLE") == NULL;
@@ -12696,7 +12804,9 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     if (use_mapped_down) {
         enc = qw3_metal_compute_encoder(cb);
         [enc setComputePipelineState:down_type == 14 ?
-         g_moe_down_q6_k_prefill_mapped_pipeline :
+         (use_mapped_q6_mpp ?
+          g_moe_down_q6_k_prefill_mapped_mpp_pipeline :
+          g_moe_down_q6_k_prefill_mapped_pipeline) :
          use_mapped_mid_f32_mpp ?
          g_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp_pipeline :
          use_mapped_mid_f16 ?
@@ -12728,7 +12838,8 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         qw3_metal_end_compute_encoder(cb, enc);
 
         if (!qw3_metal_batch_barrier()) return 0;
-        QW3_PROFILE_PREFILL_MOE_STAGE(use_mapped_mid_f32_mpp ? "down_mpp" : "down");
+        QW3_PROFILE_PREFILL_MOE_STAGE((use_mapped_mid_f32_mpp ||
+                                       use_mapped_q6_mpp) ? "down_mpp" : "down");
 
         struct {
             uint32_t n_tokens;
@@ -14813,6 +14924,7 @@ void qw3_metal_cleanup(void) {
     g_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp_pipeline = nil;
     g_moe_down_iq4_xs_prefill_mapped_f16_pipeline = nil;
     g_moe_down_q6_k_prefill_mapped_pipeline = nil;
+    g_moe_down_q6_k_prefill_mapped_mpp_pipeline = nil;
     g_moe_down_prefill_reduce_slots_pipeline = nil;
     g_matvec_f32_pipeline = nil;
     g_matvec_f32_pair_pipeline = nil;

@@ -31,6 +31,9 @@ Default safety policy:
   MoE prefill comparisons. Gate/up and down can also be disabled separately
   with `QW3_METAL_MOE_MPP_GATEUP_DISABLE=1` and
   `QW3_METAL_MOE_MPP_DOWN_DISABLE=1`.
+- Q6_K expert-down prefill uses a Metal4 TensorOps mapped MPP kernel when
+  available. Set `QW3_METAL_MOE_Q6_MPP_DISABLE=1` for the legacy mapped Q6_K
+  comparison path.
 - GQA batch prefill fuses RMSNorm, Q gate copy, and RoPE by default. Set
   `QW3_METAL_GQA_NORM_ROPE_SPLIT=1` for the legacy split-kernel comparison.
 - GQA cached prefill attention uses the llama/ds4 FlashAttention kernel by
@@ -169,6 +172,31 @@ Benchmark notes on Apple M5:
   at 309.43 and 291.00 tok/s.
 - `QW3_METAL_Q8_NAX=1 QW3_METAL_PREFILL_CONCURRENT=1`: `pp4096` 341.78 tok/s,
   so NAX is not combined with the default path.
+
+## 2026-06-07 Q6_K MoE Down TensorOps MPP
+
+The Q6_K routed-MoE down projection now has the same Metal4 TensorOps mapped
+MPP treatment used by the IQ4_XS down path. This keeps the existing Q6_K
+dequantization math and mapped expert/token layout, but feeds the tile through
+`matmul2d` instead of the older scalar mapped down kernel. The path is enabled
+only when the Metal4 tensor API probe succeeds.
+
+Validation after the change:
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- `make test-metal-logits-concurrent`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
+- `env QW3_METAL_MOE_Q6_MPP_DISABLE=1 ./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 4096 -n 0 -r 1`
+
+Benchmark notes on Apple M5:
+- `pp4096` default: 351.11 tok/s in one run.
+- `pp4096` with `QW3_METAL_MOE_Q6_MPP_DISABLE=1`: 346.20 tok/s in the matched
+  opt-out run.
+- MoE sync profile at `pp2048` confirms Q6_K layers 34, 38, and 39 now report
+  `stage=down_mpp`; their down stage was about 34-36 ms in the validation run,
+  versus about 42-44 ms on the previous mapped scalar path.
+- `prompt_perf.txt`: 6399 prompt tokens, 19383.1 ms prefill, 330.13 tok/s;
+  generated text was coherent on the previous garbage-regression prompt.
 
 ## 2026-06-01 GQA Prefill Softmax Check
 
