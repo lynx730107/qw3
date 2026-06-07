@@ -109,6 +109,7 @@ static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block2_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_block4_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_src8_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_gate_pipeline;
+static id<MTLComputePipelineState> g_gqa_flash_causal_mask_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_pad_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_blk_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_attn_pipeline;
@@ -2488,6 +2489,46 @@ static NSString *qw3_metal_kernel_source(void) {
             "    uint head_off = h * args.head_dim + i;\n"
             "    float g = row[args.gate_offset + head_off];\n"
             "    row[args.out_offset + head_off] = flash_out[gid] / (1.0f + exp(-g));\n"
+            "}\n"
+            "struct qw3_gqa_flash_causal_mask_args { uint n_tokens; uint n_keys; uint pos0; uint n_q_blocks; uint n_k_blocks; };\n"
+            "kernel void qw3_gqa_flash_causal_mask_block(constant qw3_gqa_flash_causal_mask_args &args,\n"
+            "                                          device half *mask,\n"
+            "                                          device char *blk,\n"
+            "                                          uint3 group [[threadgroup_position_in_grid]],\n"
+            "                                          ushort tid [[thread_index_in_threadgroup]],\n"
+            "                                          ushort3 ntg [[threads_per_threadgroup]]) {\n"
+            "    const uint Q = 8u;\n"
+            "    const uint C = 64u;\n"
+            "    uint kblk = group.x;\n"
+            "    uint qblk = group.y;\n"
+            "    if (qblk >= args.n_q_blocks || kblk >= args.n_k_blocks) return;\n"
+            "    uint q0 = qblk * Q;\n"
+            "    uint q1 = min(q0 + Q, args.n_tokens);\n"
+            "    uint k0 = kblk * C;\n"
+            "    uint k1 = min(k0 + C, args.n_keys);\n"
+            "    uint allowed_first = args.pos0 + q0 + 1u;\n"
+            "    uint allowed_last = args.pos0 + (q1 > 0u ? q1 - 1u : q0) + 1u;\n"
+            "    bool final_partial = k0 + C > args.n_keys;\n"
+            "    char b = 1;\n"
+            "    if (!final_partial && k0 >= allowed_last) {\n"
+            "        b = 0;\n"
+            "    } else if (!final_partial && (k1 - 1u) < allowed_first) {\n"
+            "        b = 2;\n"
+            "    }\n"
+            "    if (tid == 0) blk[qblk * args.n_k_blocks + kblk] = b;\n"
+            "    if (b != 1) return;\n"
+            "    const half zero = half(0.0f);\n"
+            "    const half neg = half(-65504.0f);\n"
+            "    for (uint idx = uint(tid); idx < Q * C; idx += uint(ntg.x)) {\n"
+            "        uint q = idx / C;\n"
+            "        uint k = idx - q * C;\n"
+            "        uint qt = q0 + q;\n"
+            "        uint kk = k0 + k;\n"
+            "        if (qt < args.n_tokens && kk < args.n_keys) {\n"
+            "            uint allowed = args.pos0 + qt + 1u;\n"
+            "            mask[uint64_t(qt) * uint64_t(args.n_keys) + uint64_t(kk)] = kk < allowed ? zero : neg;\n"
+            "        }\n"
+            "    }\n"
             "}\n"
             "struct qw3_gqa_flash_pad_args { int ne11; int ne_12_2; int ne_12_3; ulong nb11; ulong nb12; ulong nb13; ulong nb21; ulong nb22; ulong nb23; int ne31; int ne32; int ne33; ulong nb31; ulong nb32; ulong nb33; };\n"
             "kernel void qw3_gqa_flash_pad_interleaved(constant qw3_gqa_flash_pad_args &args,\n"
@@ -6814,6 +6855,7 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_prefill_cached_attend_block4_pipeline &&
         g_gqa_prefill_cached_attend_src8_pipeline &&
         g_gqa_flash_gate_pipeline &&
+        g_gqa_flash_causal_mask_pipeline &&
         g_gqa_store_token_cache_f16_pipeline &&
         g_gqa_kv_quant_q8_pipeline &&
         g_gqa_attend_n_q8_inner_pipeline &&
@@ -7797,6 +7839,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_flash_causal_mask_block"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_flash_causal_mask_block not found\n");
+        return 0;
+    }
+    g_gqa_flash_causal_mask_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_flash_causal_mask_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_flash_causal_mask_block failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_gqa_kv_quant_q8"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_gqa_kv_quant_q8 not found\n");
@@ -8703,6 +8757,16 @@ static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
         if (!obj.flashAttnPad) return 0;
     }
     if (!refresh) return 1;
+
+    const char *gpu_mask_env = getenv("QW3_METAL_GQA_FLASH_GPU_MASK");
+    const int gpu_mask =
+        !gpu_mask_env || !gpu_mask_env[0] || strcmp(gpu_mask_env, "0") != 0;
+    if (gpu_mask) {
+        obj.flashAttnMaskPos0 = pos0;
+        obj.flashAttnMaskTokens = n_tokens;
+        obj.flashAttnMaskKeys = n_keys;
+        return 2;
+    }
 
     if (g_batch_cb && !qw3_metal_synchronize()) return 0;
 
@@ -14375,11 +14439,14 @@ static int qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
         cache_v.length < (uint64_t)cache_offset + (uint64_t)n_keys * cache_token_bytes) {
         return 0;
     }
-    if (!qw3_metal_session_ensure_flash_attn_buffers(obj, pos0, n_tokens,
-                                                     n_keys, n_heads,
-                                                     n_kv_heads, head_dim)) {
+    const int flash_mask_status =
+        qw3_metal_session_ensure_flash_attn_buffers(obj, pos0, n_tokens,
+                                                    n_keys, n_heads,
+                                                    n_kv_heads, head_dim);
+    if (!flash_mask_status) {
         return 0;
     }
+    const int gpu_causal_mask = flash_mask_status == 2;
 
     id<MTLComputePipelineState> pad_pipeline =
         has_kvpad ? qw3_metal_gqa_flash_pad_pipeline() : nil;
@@ -14428,6 +14495,30 @@ static int qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
 
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (gpu_causal_mask) {
+        struct {
+            uint32_t n_tokens;
+            uint32_t n_keys;
+            uint32_t pos0;
+            uint32_t n_q_blocks;
+            uint32_t n_k_blocks;
+        } mask_args = {
+            n_tokens, n_keys, pos0,
+            (n_tokens + nqptg - 1u) / nqptg,
+            (n_keys + ncpsg - 1u) / ncpsg
+        };
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:g_gqa_flash_causal_mask_pipeline];
+        [enc setBytes:&mask_args length:sizeof(mask_args) atIndex:0];
+        [enc setBuffer:obj.flashAttnMask offset:0 atIndex:1];
+        [enc setBuffer:obj.flashAttnBlock offset:0 atIndex:2];
+        [enc dispatchThreadgroups:MTLSizeMake(mask_args.n_k_blocks,
+                                              mask_args.n_q_blocks,
+                                              1)
+             threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    }
     if (has_kvpad) {
         qw3_metal_flash_attn_pad_args pad_args = {
             .ne11 = (int32_t)n_keys,
@@ -14459,29 +14550,31 @@ static int qw3_metal_session_try_batch_gqa_flash_attn_from_scratch(
         qw3_metal_end_compute_encoder(cb, enc);
     }
 
-    qw3_metal_flash_attn_blk_args blk_args = {
-        .ne01 = (int32_t)n_tokens,
-        .ne30 = (int32_t)n_keys,
-        .ne31 = (int32_t)n_tokens,
-        .ne32 = 1,
-        .ne33 = 1,
-        .nb31 = (uint64_t)n_keys * sizeof(uint16_t),
-        .nb32 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
-        .nb33 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
-    };
-    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-    if (!enc) return 0;
-    [enc setComputePipelineState:blk_pipeline];
-    [enc setBytes:&blk_args length:sizeof(blk_args) atIndex:0];
-    [enc setBuffer:obj.flashAttnMask offset:0 atIndex:1];
-    [enc setBuffer:obj.flashAttnBlock offset:0 atIndex:2];
-    [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)n_keys + ncpsg - 1u) / ncpsg,
-                                          ((NSUInteger)n_tokens + nqptg - 1u) / nqptg,
-                                          1)
-         threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
-    qw3_metal_end_compute_encoder(cb, enc);
+    if (!gpu_causal_mask) {
+        qw3_metal_flash_attn_blk_args blk_args = {
+            .ne01 = (int32_t)n_tokens,
+            .ne30 = (int32_t)n_keys,
+            .ne31 = (int32_t)n_tokens,
+            .ne32 = 1,
+            .ne33 = 1,
+            .nb31 = (uint64_t)n_keys * sizeof(uint16_t),
+            .nb32 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
+            .nb33 = (uint64_t)n_tokens * n_keys * sizeof(uint16_t),
+        };
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:blk_pipeline];
+        [enc setBytes:&blk_args length:sizeof(blk_args) atIndex:0];
+        [enc setBuffer:obj.flashAttnMask offset:0 atIndex:1];
+        [enc setBuffer:obj.flashAttnBlock offset:0 atIndex:2];
+        [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)n_keys + ncpsg - 1u) / ncpsg,
+                                              ((NSUInteger)n_tokens + nqptg - 1u) / nqptg,
+                                              1)
+             threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    }
 
-    enc = qw3_metal_compute_encoder(cb);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
     if (!enc) return 0;
     const NSUInteger padded_v = ((NSUInteger)head_dim + 63u) & ~(NSUInteger)63u;
     const NSUInteger shared_elems = 8u *
@@ -15290,6 +15383,7 @@ void qw3_metal_cleanup(void) {
     g_gqa_prefill_cached_attend_block4_pipeline = nil;
     g_gqa_prefill_cached_attend_src8_pipeline = nil;
     g_gqa_flash_gate_pipeline = nil;
+    g_gqa_flash_causal_mask_pipeline = nil;
     g_gqa_flash_pad_pipeline = nil;
     g_gqa_flash_blk_pipeline = nil;
     g_gqa_flash_attn_pipeline = nil;
