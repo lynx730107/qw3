@@ -42,6 +42,10 @@
 #define QWEN_XML_TOOL_RESPONSE_BEGIN "<tool_response>"
 #define QWEN_XML_TOOL_RESPONSE_END "</tool_response>"
 
+#define AGENT_COLOR_DIM "\033[2;90m"
+#define AGENT_COLOR_RESET "\033[0m"
+#define AGENT_COLOR_CODE "\033[33m"
+
 #define QW3_AGENT_N_LAYER 40
 #define QW3_AGENT_READ_DEFAULT_LINES 160
 #define QW3_AGENT_READ_MAX_LINES 1000
@@ -313,6 +317,31 @@ static void agent_statusf(agent_state *a, const char *fmt, ...) {
     va_end(ap2);
     agent_status_write(a, buf, (size_t)n);
     free(buf);
+}
+
+static bool agent_tool_color_enabled(agent_state *a) {
+    const char *tool_color = getenv("QW3_AGENT_TOOL_COLOR");
+    if (tool_color && tool_color[0]) {
+        return strcmp(tool_color, "0") != 0 &&
+               strcmp(tool_color, "false") != 0 &&
+               strcmp(tool_color, "off") != 0 &&
+               strcmp(tool_color, "no") != 0;
+    }
+    const char *no_color = getenv("NO_COLOR");
+    if (no_color && no_color[0]) return false;
+    return a && a->output_color;
+}
+
+static void agent_tool_status_begin(agent_state *a) {
+    if (agent_tool_color_enabled(a)) {
+        agent_status_write(a, AGENT_COLOR_DIM, strlen(AGENT_COLOR_DIM));
+    }
+}
+
+static void agent_tool_status_end(agent_state *a) {
+    if (agent_tool_color_enabled(a)) {
+        agent_status_write(a, AGENT_COLOR_RESET, strlen(AGENT_COLOR_RESET));
+    }
 }
 
 static bool agent_should_interrupt(agent_state *a) {
@@ -2318,11 +2347,13 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls) {
     sb_init(&result);
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
+        agent_tool_status_begin(a);
         agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
         sb_printf(&result, "<tool_result name=\"%s\">\n%s\n</tool_result>\n",
                   call->name, out ? out : "");
         agent_statusf(a, "%s\n", out ? out : "");
+        agent_tool_status_end(a);
         free(out);
     }
     return result.p ? result.p : agent_strdup("");
@@ -2332,9 +2363,11 @@ static void execute_native_tools_append(agent_state *a,
                                         const tool_call_list *calls) {
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
+        agent_tool_status_begin(a);
         agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
         agent_statusf(a, "%s\n", out ? out : "");
+        agent_tool_status_end(a);
         char *response = native_tool_response_text(call->name, out ? out : "");
         qw3_chat_append_message(a->engine, &a->transcript, "user", response);
         free(response);
@@ -2374,9 +2407,11 @@ static int run_tool_native(agent_state *a, const char *text) {
     sb_init(&result);
     for (int i = 0; i < calls.n_calls; i++) {
         const tool_call *call = &calls.calls[i];
-        fprintf(stderr, "\n[tool] %s\n", call->name);
+        agent_tool_status_begin(a);
+        agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
-        fprintf(stderr, "%s\n", out ? out : "");
+        agent_statusf(a, "%s\n", out ? out : "");
+        agent_tool_status_end(a);
         char *response = native_tool_response_text(call->name, out ? out : "");
         sb_append(&result, response ? response : "");
         if (i + 1 < calls.n_calls) sb_append(&result, "\n");
@@ -2407,11 +2442,11 @@ static void agent_renderer_raw(agent_renderer *r, const char *s, size_t n) {
 static void agent_renderer_apply(agent_renderer *r) {
     if (!r || !r->color) return;
     if (r->in_think) {
-        agent_renderer_raw(r, "\033[2;90m", 7);
+        agent_renderer_raw(r, AGENT_COLOR_DIM, strlen(AGENT_COLOR_DIM));
     } else if (r->in_code) {
-        agent_renderer_raw(r, "\033[33m", 5);
+        agent_renderer_raw(r, AGENT_COLOR_CODE, strlen(AGENT_COLOR_CODE));
     } else {
-        agent_renderer_raw(r, "\033[0m", 4);
+        agent_renderer_raw(r, AGENT_COLOR_RESET, strlen(AGENT_COLOR_RESET));
     }
 }
 
@@ -3889,6 +3924,7 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
+    a.output_color = isatty(STDOUT_FILENO) || isatty(STDERR_FILENO);
     if (a.cfg.chdir_path && chdir(a.cfg.chdir_path) != 0) {
         fprintf(stderr, "agent: cannot chdir to %s: %s\n",
                 a.cfg.chdir_path, strerror(errno));
