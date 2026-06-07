@@ -45,6 +45,7 @@
 #define QW3_AGENT_N_LAYER 40
 #define QW3_AGENT_READ_DEFAULT_LINES 160
 #define QW3_AGENT_READ_MAX_LINES 1000
+#define QW3_AGENT_MAX_TOOL_ROUNDS 24
 #define QW3_AGENT_CODENAV_MAX_BYTES 30000
 #define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
 #define QW3_AGENT_CODENAV_TIMEOUT_SEC 30.0
@@ -2572,7 +2573,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         free(tool_result);
         free(assistant);
     }
-    agent_statusf(a, "agent: max tool rounds reached\n");
+    agent_statusf(a, "agent: max tool rounds reached (%d)\n",
+                  a->cfg.max_tool_rounds);
     return 0;
 }
 
@@ -2665,6 +2667,7 @@ static void print_help(void) {
         "  --store-dir PATH     Conversation store directory\n"
         "  --conversation NAME  Load/save a named conversation\n"
         "  --chdir PATH         Change working directory before loading/running\n"
+        "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
         "  --tool-dsml-file PATH\n"
@@ -2684,7 +2687,7 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     cfg->model_path = "./qw3.gguf";
     cfg->n_predict = 768;
     cfg->ctx_size = 32768;
-    cfg->max_tool_rounds = 8;
+    cfg->max_tool_rounds = QW3_AGENT_MAX_TOOL_ROUNDS;
     cfg->tools_enabled = true;
     cfg->think_mode = QW3_THINK_ON;
     cfg->sample.temperature = 0.6f;
@@ -2784,6 +2787,10 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->conversation = agent_strdup(argv[++i]);
         } else if (!strcmp(argv[i], "--chdir") && i + 1 < argc) {
             cfg->chdir_path = agent_strdup(argv[++i]);
+        } else if (!strcmp(argv[i], "--max-tool-rounds") && i + 1 < argc) {
+            cfg->max_tool_rounds = atoi(argv[++i]);
+            if (cfg->max_tool_rounds < 1) cfg->max_tool_rounds = 1;
+            if (cfg->max_tool_rounds > 128) cfg->max_tool_rounds = 128;
         } else if (!strcmp(argv[i], "--no-tools")) {
             cfg->tools_enabled = false;
         } else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc) {
