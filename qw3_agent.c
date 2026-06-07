@@ -2451,11 +2451,13 @@ static void agent_renderer_apply(agent_renderer *r) {
 }
 
 static void agent_renderer_init(agent_renderer *r, agent_output_fn write,
-                                void *ud, bool color) {
+                                void *ud, bool color, bool initial_think) {
     memset(r, 0, sizeof(*r));
     r->write = write ? write : agent_direct_write;
     r->ud = write ? ud : stdout;
     r->color = color;
+    r->in_think = initial_think;
+    if (initial_think) agent_renderer_apply(r);
 }
 
 static void agent_renderer_emit_byte(agent_renderer *r, char c) {
@@ -2674,7 +2676,8 @@ static int generate_once(agent_state *a, char **assistant_text) {
     agent_renderer_init(&emit.renderer,
                         a->output_write ? a->output_write : agent_direct_write,
                         a->output_write ? a->output_ud : stdout,
-                        a->output_color && isatty(STDOUT_FILENO));
+                        a->output_color && isatty(STDOUT_FILENO),
+                        qw3_think_mode_enabled(a->cfg.think_mode));
 
     int rc = -1;
     char err[256] = {0};
