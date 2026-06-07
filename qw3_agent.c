@@ -45,6 +45,8 @@
 #define QW3_AGENT_N_LAYER 40
 #define QW3_AGENT_READ_DEFAULT_LINES 160
 #define QW3_AGENT_READ_MAX_LINES 1000
+#define QW3_AGENT_SOURCE_READ_MAX_LINES 80
+#define QW3_AGENT_SOURCE_READ_LARGE_BYTES 32768
 #define QW3_AGENT_MAX_TOOL_ROUNDS 24
 #define QW3_AGENT_CODENAV_MAX_BYTES 30000
 #define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
@@ -376,10 +378,10 @@ static char *native_tool_declarations(void) {
     sb_append(&sb, "{\"type\":\"function\",\"function\":{\"name\":\"" NAME "\",\"description\":\"" DESC "\",\"parameters\":{\"type\":\"object\",\"properties\":{" PARAMS "}}}}\n")
 #define TOOL_PARAM(NAME, DESC) \
     "\"" NAME "\":{\"type\":\"string\",\"description\":\"" DESC "\"}"
-    TOOL_DECL("read", "Read numbered lines from a text file.",
+    TOOL_DECL("read", "Read a precise numbered line range from a text file. Broad reads of source files are blocked; use get_skeleton, semantic_search, or get_function first.",
               TOOL_PARAM("path", "Path to read") ","
-              TOOL_PARAM("start", "First 1-based line") ","
-              TOOL_PARAM("lines", "Maximum lines to return; default 160"));
+              TOOL_PARAM("start", "Required first 1-based line for source files") ","
+              TOOL_PARAM("lines", "Maximum lines to return; source files are capped by context guard"));
     TOOL_DECL("more", "Continue the previous read.",
               TOOL_PARAM("path", "Optional path") ","
               TOOL_PARAM("lines", "Maximum lines to return; default 160"));
@@ -387,9 +389,9 @@ static char *native_tool_declarations(void) {
               TOOL_PARAM("path", "Directory path") ","
               TOOL_PARAM("depth", "Maximum recursion depth") ","
               TOOL_PARAM("max", "Maximum entries"));
-    TOOL_DECL("get_skeleton", "Return a compact codenav semantic outline of a source file. Use this before read on large files.",
+    TOOL_DECL("get_skeleton", "Return a compact codenav semantic outline of a source file. Use this before any line reads on source files.",
               TOOL_PARAM("path", "Source file path"));
-    TOOL_DECL("get_function", "Return the exact source for one function or method using codenav. Use after get_skeleton when possible.",
+    TOOL_DECL("get_function", "Return the exact source for one function or method using codenav. Prefer this over read after get_skeleton or semantic_search.",
               TOOL_PARAM("function_name", "Exact function/method name") ","
               TOOL_PARAM("path", "Optional source file path"));
     TOOL_DECL("semantic_search", "Search code by meaning with colgrep. Use this before broad read/search when you do not know exact names.",
@@ -1548,6 +1550,47 @@ static bool bool_param(const tool_call *call, const char *name, bool def) {
     return def;
 }
 
+static bool agent_has_param_value(const tool_call *call, const char *name) {
+    const char *v = tool_param_value(call, name);
+    return v && v[0];
+}
+
+static bool agent_path_is_source(const char *path) {
+    if (!path) return false;
+    const char *ext = strrchr(path, '.');
+    if (!ext) return false;
+    return !strcmp(ext, ".c") || !strcmp(ext, ".h") ||
+           !strcmp(ext, ".m") || !strcmp(ext, ".mm") ||
+           !strcmp(ext, ".cc") || !strcmp(ext, ".cpp") ||
+           !strcmp(ext, ".cxx") || !strcmp(ext, ".hh") ||
+           !strcmp(ext, ".hpp") || !strcmp(ext, ".metal") ||
+           !strcmp(ext, ".swift") || !strcmp(ext, ".py") ||
+           !strcmp(ext, ".js") || !strcmp(ext, ".jsx") ||
+           !strcmp(ext, ".ts") || !strcmp(ext, ".tsx") ||
+           !strcmp(ext, ".java") || !strcmp(ext, ".rs") ||
+           !strcmp(ext, ".go") || !strcmp(ext, ".rb") ||
+           !strcmp(ext, ".sh");
+}
+
+static char *agent_source_read_guard_message(const char *path,
+                                             long long bytes,
+                                             int max_lines) {
+    strbuf out;
+    sb_init(&out);
+    sb_printf(&out,
+              "context_guard: broad source read blocked for %s (%lld bytes).\n",
+              path, bytes);
+    sb_append(&out,
+              "Use get_skeleton(path) for structure, semantic_search(query,path) "
+              "to find relevant symbols, then get_function(function_name,path) "
+              "for the exact body.\n");
+    sb_printf(&out,
+              "Use read only with explicit start and lines<=%d for a precise "
+              "line range.\n",
+              max_lines);
+    return out.p;
+}
+
 static char *run_argv_capture(char *const argv[], double timeout_sec,
                               size_t max_bytes) {
     if (!argv || !argv[0]) return agent_strdup("error: empty command");
@@ -1689,6 +1732,26 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     if (lines <= 0) lines = default_lines;
     if (lines > max_lines) lines = max_lines;
 
+    const bool is_source = agent_path_is_source(path);
+    const bool explicit_start = agent_has_param_value(call, "start");
+    const bool explicit_lines = agent_has_param_value(call, "lines");
+    const int source_max_lines = agent_env_int(
+        "QW3_AGENT_SOURCE_READ_MAX_LINES",
+        QW3_AGENT_SOURCE_READ_MAX_LINES, 20, max_lines);
+    struct stat st;
+    const bool have_stat = stat(path, &st) == 0;
+    if (is_source && have_stat &&
+        st.st_size >= QW3_AGENT_SOURCE_READ_LARGE_BYTES &&
+        (!explicit_start || !explicit_lines)) {
+        return agent_source_read_guard_message(path, (long long)st.st_size,
+                                               source_max_lines);
+    }
+    bool source_clamped = false;
+    if (is_source && lines > source_max_lines) {
+        lines = source_max_lines;
+        source_clamped = true;
+    }
+
     FILE *fp = fopen(path, "rb");
     if (!fp) {
         strbuf err;
@@ -1699,6 +1762,13 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "read path=%s start=%d lines=%d\n", path, start, lines);
+    if (source_clamped) {
+        sb_printf(&out,
+                  "context_guard: source read capped at %d lines; prefer "
+                  "get_skeleton, semantic_search, or get_function for code "
+                  "navigation.\n",
+                  source_max_lines);
+    }
     char *line = NULL;
     size_t cap = 0;
     int lno = 1;
@@ -2618,11 +2688,15 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "about function calls\n"
             "</IMPORTANT>\n\n"
             "Context discipline:\n"
-            "- Prefer get_skeleton before read when inspecting source files.\n"
+            "- Do not use read(path) to inspect source files broadly; broad "
+            "source reads are rejected by the context guard.\n"
+            "- Use get_skeleton before any source line reads when inspecting "
+            "file structure.\n"
             "- Prefer get_function when you need one function or method body.\n"
             "- Prefer semantic_search when you know the intent but not the "
             "exact symbol name.\n"
-            "- Use read only for small files or precise line ranges.\n\n");
+            "- Use read only for small non-source files or precise source line "
+            "ranges with explicit start and lines.\n\n");
     }
     sb_append(&sb,
         "You are qw3-agent, a local coding assistant. Work in the current "
