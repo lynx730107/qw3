@@ -11841,8 +11841,11 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
     const int profile = getenv("QW3_METAL_PREFILL_PROFILE") != NULL;
     const int profile_gqa =
         getenv("QW3_METAL_PROFILE_PREFILL_GQA_SYNC") != NULL;
+    const int profile_linear_proj =
+        getenv("QW3_METAL_PROFILE_PREFILL_LINEAR_PROJ_SYNC") != NULL;
     const int profile_linear =
-        getenv("QW3_METAL_PROFILE_PREFILL_LINEAR_SYNC") != NULL;
+        getenv("QW3_METAL_PROFILE_PREFILL_LINEAR_SYNC") != NULL ||
+        profile_linear_proj;
     double profile_t0 = profile ? qw3_now_sec() : 0.0;
     double profile_gqa_t0 = 0.0;
     double profile_linear_t0 = 0.0;
@@ -11980,20 +11983,44 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
             full_slot++;
         } else if (ok) {
             QW3_PREFILL_PROFILE_LINEAR_STAGE("attn_norm", il);
-            ok =
-                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+            if (profile_linear_proj) {
+                ok = qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
                     s->metal, lw->linear_qkv_proj->offset, ntok,
-                    QW3_N_EMBD, n_qkv, 0, stage_stride) &&
-                qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
-                    s->metal, lw->linear_gate_proj->offset, ntok,
-                    QW3_N_EMBD, n_z, lin_gate_offset, stage_stride) &&
-                qw3_metal_session_batch_matmul_f32_pair_x1_to_scratch(
-                    s->metal, lw->linear_ssm_alpha->offset,
-                    lw->linear_ssm_beta->offset, ntok, QW3_N_EMBD,
-                    QW3_N_LINEAR_V_HEADS, lin_alpha_offset,
-                    lin_beta_offset, stage_stride);
-            QW3_PREFILL_BARRIER();
-            QW3_PREFILL_PROFILE_LINEAR_STAGE("qkv_gate_alpha_beta_proj", il);
+                    QW3_N_EMBD, n_qkv, 0, stage_stride);
+                QW3_PREFILL_BARRIER();
+                QW3_PREFILL_PROFILE_LINEAR_STAGE("qkv_proj", il);
+                if (ok) {
+                    ok = qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                        s->metal, lw->linear_gate_proj->offset, ntok,
+                        QW3_N_EMBD, n_z, lin_gate_offset, stage_stride);
+                }
+                QW3_PREFILL_BARRIER();
+                QW3_PREFILL_PROFILE_LINEAR_STAGE("gate_proj", il);
+                if (ok) {
+                    ok = qw3_metal_session_batch_matmul_f32_pair_x1_to_scratch(
+                        s->metal, lw->linear_ssm_alpha->offset,
+                        lw->linear_ssm_beta->offset, ntok, QW3_N_EMBD,
+                        QW3_N_LINEAR_V_HEADS, lin_alpha_offset,
+                        lin_beta_offset, stage_stride);
+                }
+                QW3_PREFILL_BARRIER();
+                QW3_PREFILL_PROFILE_LINEAR_STAGE("alpha_beta_proj", il);
+            } else {
+                ok =
+                    qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                        s->metal, lw->linear_qkv_proj->offset, ntok,
+                        QW3_N_EMBD, n_qkv, 0, stage_stride) &&
+                    qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
+                        s->metal, lw->linear_gate_proj->offset, ntok,
+                        QW3_N_EMBD, n_z, lin_gate_offset, stage_stride) &&
+                    qw3_metal_session_batch_matmul_f32_pair_x1_to_scratch(
+                        s->metal, lw->linear_ssm_alpha->offset,
+                        lw->linear_ssm_beta->offset, ntok, QW3_N_EMBD,
+                        QW3_N_LINEAR_V_HEADS, lin_alpha_offset,
+                        lin_beta_offset, stage_stride);
+                QW3_PREFILL_BARRIER();
+                QW3_PREFILL_PROFILE_LINEAR_STAGE("qkv_gate_alpha_beta_proj", il);
+            }
             if (ok) {
                 ok = qw3_metal_session_batch_conv1d_step_from_scratch(
                     s->metal, lw->linear_conv_weight->offset,

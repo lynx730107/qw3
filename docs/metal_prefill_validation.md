@@ -16,11 +16,10 @@ Default safety policy:
   `QW3_METAL_PREFILL_CONCURRENT=0`, or `GGML_METAL_CONCURRENCY_DISABLE=1`
   for the legacy serial encoder.
 - `QW3_METAL_PREFILL_BATCH` defaults to 4096, the current Metal batch cap.
-- `QW3_METAL_Q8_NAX=1` enables an experimental DS4-style Metal4 direct-RHS
-  Q8_0 prefill matmul for aligned projection batches. It remains opt-in because
-  it was correct under logits tests but did not beat the default path
-  repeatably on the validation prompt. `QW3_METAL_Q8_NAX_TILE=32|64|128`
-  can force the token tile for profiling.
+- DS4-style Metal4 direct-RHS Q8_0 prefill matmul is enabled by default for
+  aligned projection batches when the Metal4 tensor API probe succeeds. Set
+  `QW3_METAL_Q8_NAX_DISABLE=1` for the legacy Q8 MM path.
+  `QW3_METAL_Q8_NAX_TILE=32|64|128` can force the token tile for profiling.
 - Expert-major MoE gate/up is enabled inside batch prefill with at least 32
   tokens; set `QW3_METAL_MOE_MAP_GATEUP_DISABLE=1` for legacy comparisons.
 - Expert-major MoE down is enabled inside IQ4_XS batch prefill with at least 32
@@ -49,6 +48,10 @@ Default safety policy:
   for linear-attention prefill stages: attention norm, qkv/gate/alpha/beta
   projection, conv1d, q/k l2norm, DeltaNet GDN, output projection, residual
   norm.
+- `QW3_METAL_PROFILE_PREFILL_LINEAR_PROJ_SYNC=1` is a more intrusive
+  diagnostic split for the linear-attention projection group. It serializes and
+  measures qkv, gate, and alpha/beta projections separately, so use it only to
+  choose the next optimization target.
 - `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` is a diagnostic-only sync profiler
   for the batched routed MoE stages: map, gate, up, activation, down, reduce.
 - `QW3_METAL_MOE_MAP_GATEUP_PAIR=1` enables the experimental fused mapped
@@ -150,9 +153,10 @@ dispatches in the same prefill frontier to be scheduled concurrently. The
 legacy serial encoder is available with the opt-outs listed above.
 
 The DS4-style Metal4 Q8_0 NAX direct-RHS matmul was also ported as an
-experimental opt-in for aligned Q8_0 projection batches. It compiles and is
-logits-safe, but remains disabled by default because the current QW3 scratch
-layout did not show a repeatable win.
+experimental opt-in for aligned Q8_0 projection batches. It compiled and was
+logits-safe, but initially stayed disabled because the current QW3 scratch
+layout did not show a repeatable win. It was revalidated and promoted on
+2026-06-07 after the projection profiler showed a repeatable win on M5.
 
 Validation after the change:
 - `make qw3-metal`
@@ -170,8 +174,35 @@ Benchmark notes on Apple M5:
   prefill, 333.59 tok/s; generated text was coherent.
 - `QW3_METAL_Q8_NAX=1`: `pp4096` 352.54 tok/s; tile 64 and tile 32 were worse
   at 309.43 and 291.00 tok/s.
-- `QW3_METAL_Q8_NAX=1 QW3_METAL_PREFILL_CONCURRENT=1`: `pp4096` 341.78 tok/s,
-  so NAX is not combined with the default path.
+- Historical opt-in probe before the 2026-06-07 promotion:
+  `QW3_METAL_Q8_NAX=1 QW3_METAL_PREFILL_CONCURRENT=1` measured `pp4096`
+  341.78 tok/s in that older thermal/code window. The later revalidation below
+  supersedes this result.
+
+## 2026-06-07 Q8 NAX Default For Prefill Projections
+
+The Q8_0 NAX direct-RHS matmul is now the default aligned Q8 projection path on
+Metal4-capable devices. The linear projection profiler showed QKV projection
+around 7.5 ms/layer and gate projection around 3.9 ms/layer with NAX, compared
+with about 20 ms and 10 ms on the legacy Q8 MM path at `pp2048`. The path still
+falls back automatically when the tensor API is unavailable or the shape is not
+aligned.
+
+Validation after the change:
+- `make qw3-metal`
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- `make test-metal-logits-concurrent`
+- `./qw3-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
+
+Benchmark notes on Apple M5:
+- `pp2048` with detailed projection profiling and NAX: 434.82 tok/s.
+- `pp4096` default after NAX promotion: 431.19 tok/s; nearby default before
+  NAX promotion was 351.11 tok/s.
+- `prompt_perf.txt` default after NAX promotion: 6399 prompt tokens,
+  17043.3 ms prefill, 375.46 tok/s; generated text was coherent on the previous
+  garbage-regression prompt.
+- `QW3_METAL_Q8_NAX_DISABLE=1` restores the legacy Q8 MM path for comparisons.
 
 ## 2026-06-07 Q6_K MoE Down TensorOps MPP
 

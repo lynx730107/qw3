@@ -9088,8 +9088,7 @@ static int qw3_metal_encode_batch_matmul_q8_0(
     NSUInteger xoff, id<MTLBuffer> outbuf, NSUInteger outoff,
     uint32_t n_tokens, uint32_t n_in, uint32_t n_out, uint32_t in_stride,
     uint32_t out_stride, uint32_t row_bytes) {
-    if (getenv("QW3_METAL_Q8_NAX") != NULL &&
-        getenv("QW3_METAL_Q8_NAX_DISABLE") == NULL &&
+    if (getenv("QW3_METAL_Q8_NAX_DISABLE") == NULL &&
         n_tokens >= 32u && (n_tokens % 32u) == 0u &&
         (n_in % 64u) == 0u && (n_out % 64u) == 0u) {
         uint32_t tile_n = 32u;
