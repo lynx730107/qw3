@@ -9048,29 +9048,34 @@ void qw3_metal_session_free(qw3_metal_session *s) {
 int qw3_metal_session_clear(qw3_metal_session *s) {
     if (!s || !s->obj || !g_queue) return 0;
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const char *force_kv_clear_env = getenv("QW3_METAL_FORCE_KV_CLEAR");
+    const int clear_kv =
+        force_kv_clear_env && strcmp(force_kv_clear_env, "0") != 0;
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
     qw3_metal_close_batch_encoder();
     id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
     if (!blit) return 0;
-    if (obj.gqaKLayers.count > 0 || obj.gqaVLayers.count > 0) {
-        for (id<MTLBuffer> b in obj.gqaKLayers) {
-            if (b.length > 0) {
-                [blit fillBuffer:b range:NSMakeRange(0, b.length) value:0];
+    if (clear_kv) {
+        if (obj.gqaKLayers.count > 0 || obj.gqaVLayers.count > 0) {
+            for (id<MTLBuffer> b in obj.gqaKLayers) {
+                if (b.length > 0) {
+                    [blit fillBuffer:b range:NSMakeRange(0, b.length) value:0];
+                }
             }
-        }
-        for (id<MTLBuffer> b in obj.gqaVLayers) {
-            if (b.length > 0) {
-                [blit fillBuffer:b range:NSMakeRange(0, b.length) value:0];
+            for (id<MTLBuffer> b in obj.gqaVLayers) {
+                if (b.length > 0) {
+                    [blit fillBuffer:b range:NSMakeRange(0, b.length) value:0];
+                }
             }
-        }
-    } else {
-        if (obj.gqaK.length > 0) {
-            [blit fillBuffer:obj.gqaK range:NSMakeRange(0, obj.gqaK.length) value:0];
-        }
-        if (obj.gqaV.length > 0) {
-            [blit fillBuffer:obj.gqaV range:NSMakeRange(0, obj.gqaV.length) value:0];
+        } else {
+            if (obj.gqaK.length > 0) {
+                [blit fillBuffer:obj.gqaK range:NSMakeRange(0, obj.gqaK.length) value:0];
+            }
+            if (obj.gqaV.length > 0) {
+                [blit fillBuffer:obj.gqaV range:NSMakeRange(0, obj.gqaV.length) value:0];
+            }
         }
     }
     NSArray<id<MTLBuffer>> *buffers = @[

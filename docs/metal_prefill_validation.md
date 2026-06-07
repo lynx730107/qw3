@@ -41,6 +41,10 @@ Default safety policy:
   the native `block4` fallback. In fallback mode, set
   `QW3_METAL_GQA_ATTEND_BLOCK2=1` for the two-query comparison path, or
   `QW3_METAL_GQA_ATTEND_BLOCK1=1` for the legacy one-query kernel.
+- Metal session reset does not zero the GQA KV buffers by default. The valid
+  KV range is controlled by the session position and every prefill/decode step
+  writes the entries it can later read. Set `QW3_METAL_FORCE_KV_CLEAR=1` only
+  when bisecting memory bugs against the legacy full-clear behavior.
 - `QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` is a diagnostic-only sync profiler
   for GQA prefill stages: attention norm, qkv projection, norm/RoPE, cache
   write, attend, output projection, residual norm.
@@ -482,6 +486,30 @@ Profiling notes:
 - A f16 RHS MPP down path for IQ4_XS was added and passes logits under
   `QW3_METAL_MOE_MID_F16=1`, but it was not promoted because `pp4096` did not
   improve over the f32 compact path in the no-profile runs.
+
+## 2026-06-07 Lazy KV Clear
+
+Metal session reset now skips full GQA KV zero-fill by default. The cached
+attention kernels only read positions below the current logical context, and
+prefill/decode writes those positions before they are visible to attention.
+Avoiding the eager clear prevents the large f16 KV allocation from polluting
+GPU memory residency immediately before a long prompt run, especially with
+`--ctx 32000` and larger.
+
+Debug fallback:
+- `QW3_METAL_FORCE_KV_CLEAR=1` restores the old full K/V blit clear.
+
+Validation on Apple M5, Qwen3.6 35B A3B IQ4_XS:
+- `make qw3-metal`
+- `make test-metal-logits`
+- `make test-metal-logits-concurrent`
+- `./qw3-bench-metal --llama-style ... --ctx-alloc 16000 -p 4096 -n 0 -r 1`:
+  `415.92 tok/s`
+- `./qw3-bench-metal --llama-style ... --ctx-alloc 32000 -p 4096 -n 0 -r 1`:
+  `380.41 tok/s`
+- `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
+  produced coherent Italian output with `prefill=6399` at `306.46 tok/s` and
+  generation at `23.98 tok/s`.
 
 ## 2026-06-05 Llama-Style Bench Guardrail
 
