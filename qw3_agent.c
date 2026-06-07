@@ -43,8 +43,12 @@
 #define QWEN_XML_TOOL_RESPONSE_END "</tool_response>"
 
 #define QW3_AGENT_N_LAYER 40
-#define QW3_AGENT_READ_DEFAULT_LINES 512
-#define QW3_AGENT_READ_MAX_LINES 2000
+#define QW3_AGENT_READ_DEFAULT_LINES 160
+#define QW3_AGENT_READ_MAX_LINES 1000
+#define QW3_AGENT_CODENAV_MAX_BYTES 30000
+#define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
+#define QW3_AGENT_CODENAV_TIMEOUT_SEC 30.0
+#define QW3_AGENT_SEMANTIC_TIMEOUT_SEC 120.0
 
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
@@ -332,6 +336,7 @@ static void sb_append_xml_escaped(strbuf *sb, const char *s) {
 static char *agent_strdup(const char *s);
 static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len);
 static void agent_init_transcript(agent_state *a);
+static int agent_set_nonblock(int fd);
 
 static char *native_tool_call_text(const tool_call_list *calls)
     __attribute__((unused));
@@ -373,14 +378,28 @@ static char *native_tool_declarations(void) {
     TOOL_DECL("read", "Read numbered lines from a text file.",
               TOOL_PARAM("path", "Path to read") ","
               TOOL_PARAM("start", "First 1-based line") ","
-              TOOL_PARAM("lines", "Maximum lines to return; default 512"));
+              TOOL_PARAM("lines", "Maximum lines to return; default 160"));
     TOOL_DECL("more", "Continue the previous read.",
               TOOL_PARAM("path", "Optional path") ","
-              TOOL_PARAM("lines", "Maximum lines to return; default 512"));
+              TOOL_PARAM("lines", "Maximum lines to return; default 160"));
     TOOL_DECL("list", "List files below a path.",
               TOOL_PARAM("path", "Directory path") ","
               TOOL_PARAM("depth", "Maximum recursion depth") ","
               TOOL_PARAM("max", "Maximum entries"));
+    TOOL_DECL("get_skeleton", "Return a compact codenav semantic outline of a source file. Use this before read on large files.",
+              TOOL_PARAM("path", "Source file path"));
+    TOOL_DECL("get_function", "Return the exact source for one function or method using codenav. Use after get_skeleton when possible.",
+              TOOL_PARAM("function_name", "Exact function/method name") ","
+              TOOL_PARAM("path", "Optional source file path"));
+    TOOL_DECL("semantic_search", "Search code by meaning with colgrep. Use this before broad read/search when you do not know exact names.",
+              TOOL_PARAM("query", "Natural-language code search query") ","
+              TOOL_PARAM("path", "Optional file or directory path; default current directory") ","
+              TOOL_PARAM("results", "Maximum results, 1-50; default 10") ","
+              TOOL_PARAM("include", "Optional include glob, for example *.c") ","
+              TOOL_PARAM("exclude", "Optional exclude glob") ","
+              TOOL_PARAM("code_only", "true/false; default true") ","
+              TOOL_PARAM("semantic_only", "true/false; default false") ","
+              TOOL_PARAM("content", "true/false; default false"));
     TOOL_DECL("search", "Search text files for a literal pattern.",
               TOOL_PARAM("pattern", "Literal pattern") ","
               TOOL_PARAM("path", "Root path") ","
@@ -1349,7 +1368,12 @@ static void infer_tool_name_from_params(tool_call *call) {
     if (call->name[0]) return;
     if (tool_param_value(call, "cmd") || tool_param_value(call, "command")) {
         snprintf(call->name, sizeof(call->name), "bash");
-    } else if (tool_param_value(call, "pattern") || tool_param_value(call, "query")) {
+    } else if (tool_param_value(call, "function_name") ||
+               tool_param_value(call, "symbol")) {
+        snprintf(call->name, sizeof(call->name), "get_function");
+    } else if (tool_param_value(call, "query")) {
+        snprintf(call->name, sizeof(call->name), "semantic_search");
+    } else if (tool_param_value(call, "pattern")) {
         snprintf(call->name, sizeof(call->name), "search");
     } else if (tool_param_value(call, "old") && tool_param_value(call, "new")) {
         snprintf(call->name, sizeof(call->name), "edit");
@@ -1512,6 +1536,142 @@ static int agent_env_int(const char *name, int def, int min, int max) {
     return (int)n;
 }
 
+static bool bool_param(const tool_call *call, const char *name, bool def) {
+    const char *v = tool_param_value(call, name);
+    if (!v || !v[0]) return def;
+    if (str_bool(v)) return true;
+    if (!strcmp(v, "0") || !strcmp(v, "false") || !strcmp(v, "off") ||
+        !strcmp(v, "no")) {
+        return false;
+    }
+    return def;
+}
+
+static char *run_argv_capture(char *const argv[], double timeout_sec,
+                              size_t max_bytes) {
+    if (!argv || !argv[0]) return agent_strdup("error: empty command");
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        strbuf err;
+        sb_init(&err);
+        sb_printf(&err, "error: pipe failed: %s", strerror(errno));
+        return err.p;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        strbuf err;
+        sb_init(&err);
+        sb_printf(&err, "error: fork failed: %s", strerror(errno));
+        return err.p;
+    }
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+        execvp(argv[0], argv);
+        dprintf(STDERR_FILENO, "error: exec %s failed: %s\n",
+                argv[0], strerror(errno));
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    (void)agent_set_nonblock(pipefd[0]);
+
+    strbuf out;
+    sb_init(&out);
+    int status = 0;
+    bool exited = false;
+    bool pipe_open = true;
+    bool truncated = false;
+    bool timed_out = false;
+    bool sent_term = false;
+    const double t0 = agent_now_sec();
+
+    while (pipe_open || !exited) {
+        if (!exited) {
+            pid_t wr = waitpid(pid, &status, WNOHANG);
+            if (wr == pid) {
+                exited = true;
+            } else if (wr < 0 && errno != EINTR) {
+                exited = true;
+            }
+        }
+
+        double elapsed = agent_now_sec() - t0;
+        if (!exited && timeout_sec > 0.0 && elapsed > timeout_sec) {
+            if (!sent_term) {
+                kill(pid, SIGTERM);
+                sent_term = true;
+                timed_out = true;
+            } else if (elapsed > timeout_sec + 1.0) {
+                kill(pid, SIGKILL);
+            }
+        }
+
+        if (pipe_open) {
+            struct pollfd pfd;
+            pfd.fd = pipefd[0];
+            pfd.events = POLLIN | POLLHUP;
+            pfd.revents = 0;
+            int pr = poll(&pfd, 1, 100);
+            if (pr > 0 && (pfd.revents & (POLLIN | POLLHUP))) {
+                for (;;) {
+                    char buf[4096];
+                    ssize_t n = read(pipefd[0], buf, sizeof(buf));
+                    if (n > 0) {
+                        if (out.len < max_bytes) {
+                            size_t room = max_bytes - out.len;
+                            size_t take = (size_t)n < room ? (size_t)n : room;
+                            sb_append_n(&out, buf, take);
+                            if (take < (size_t)n) truncated = true;
+                        } else {
+                            truncated = true;
+                        }
+                    } else if (n == 0) {
+                        pipe_open = false;
+                        break;
+                    } else {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK &&
+                            errno != EINTR) {
+                            pipe_open = false;
+                        }
+                        break;
+                    }
+                }
+            } else if (pr < 0 && errno != EINTR) {
+                pipe_open = false;
+            }
+        } else if (!exited) {
+            struct timespec ts = {0, 100000000};
+            nanosleep(&ts, NULL);
+        }
+    }
+    close(pipefd[0]);
+    if (!exited) (void)waitpid(pid, &status, 0);
+
+    if (timed_out) {
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        sb_printf(&out, "error: command timed out after %.0fs\n", timeout_sec);
+    }
+    if (truncated) {
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        sb_printf(&out, "... truncated by qw3-agent (%zu byte cap)\n",
+                  max_bytes);
+    }
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        sb_printf(&out, "exit=%d\n", WEXITSTATUS(status));
+    } else if (WIFSIGNALED(status)) {
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        sb_printf(&out, "signal=%d\n", WTERMSIG(status));
+    }
+    return out.p ? out.p : agent_strdup("");
+}
+
 static char *tool_read(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     if (!path || !path[0]) path = tool_param_value(call, "file");
@@ -1623,6 +1783,128 @@ static char *tool_list(const tool_call *call) {
     int count = 0;
     list_dir_rec(&out, path, 0, depth, &count, max);
     if (count >= max) sb_append(&out, "... truncated\n");
+    return out.p;
+}
+
+static char *tool_get_skeleton(const tool_call *call) {
+    const char *path = tool_param_value(call, "path");
+    if (!path || !path[0]) path = tool_param_value(call, "file");
+    if (!path || !path[0]) {
+        return agent_strdup("error: get_skeleton requires path");
+    }
+    int max_bytes = agent_env_int("QW3_AGENT_CODENAV_MAX_BYTES",
+                                  QW3_AGENT_CODENAV_MAX_BYTES,
+                                  4096, 200000);
+    char *argv[] = {
+        "codenav",
+        "get_skeleton",
+        (char *)path,
+        NULL
+    };
+    strbuf out;
+    sb_init(&out);
+    sb_printf(&out, "get_skeleton path=%s\n", path);
+    char *captured = run_argv_capture(argv, QW3_AGENT_CODENAV_TIMEOUT_SEC,
+                                      (size_t)max_bytes);
+    sb_append(&out, captured ? captured : "");
+    free(captured);
+    return out.p;
+}
+
+static char *tool_get_function(const tool_call *call) {
+    const char *name = tool_param_value(call, "function_name");
+    if (!name || !name[0]) name = tool_param_value(call, "name");
+    if (!name || !name[0]) name = tool_param_value(call, "symbol");
+    if (!name || !name[0]) {
+        return agent_strdup("error: get_function requires function_name");
+    }
+    const char *path = tool_param_value(call, "path");
+    if (!path || !path[0]) path = tool_param_value(call, "file");
+    int max_bytes = agent_env_int("QW3_AGENT_CODENAV_MAX_BYTES",
+                                  QW3_AGENT_CODENAV_MAX_BYTES,
+                                  4096, 200000);
+    char *argv_with_path[] = {
+        "codenav",
+        "get_function",
+        (char *)name,
+        (char *)path,
+        NULL
+    };
+    char *argv_no_path[] = {
+        "codenav",
+        "get_function",
+        (char *)name,
+        NULL
+    };
+    strbuf out;
+    sb_init(&out);
+    if (path && path[0]) {
+        sb_printf(&out, "get_function function_name=%s path=%s\n", name, path);
+    } else {
+        sb_printf(&out, "get_function function_name=%s\n", name);
+    }
+    char *captured = run_argv_capture(path && path[0] ? argv_with_path
+                                                      : argv_no_path,
+                                      QW3_AGENT_CODENAV_TIMEOUT_SEC,
+                                      (size_t)max_bytes);
+    sb_append(&out, captured ? captured : "");
+    free(captured);
+    return out.p;
+}
+
+static char *tool_semantic_search(const tool_call *call) {
+    const char *query = tool_param_value(call, "query");
+    if (!query || !query[0]) query = tool_param_value(call, "q");
+    if (!query || !query[0]) {
+        return agent_strdup("error: semantic_search requires query");
+    }
+    const char *path = tool_param_value(call, "path");
+    if (!path || !path[0]) path = tool_param_value(call, "paths");
+    if (!path || !path[0]) path = ".";
+    const char *include = tool_param_value(call, "include");
+    const char *exclude = tool_param_value(call, "exclude");
+    bool code_only = bool_param(call, "code_only", true);
+    bool semantic_only = bool_param(call, "semantic_only", false);
+    bool content = bool_param(call, "content", false);
+    int results = int_param(call, "results", 10);
+    if (results < 1) results = 1;
+    if (results > 50) results = 50;
+    int max_bytes = agent_env_int("QW3_AGENT_SEMANTIC_MAX_BYTES",
+                                  QW3_AGENT_SEMANTIC_MAX_BYTES,
+                                  4096, 200000);
+
+    char results_buf[32];
+    snprintf(results_buf, sizeof(results_buf), "%d", results);
+    char include_arg[512];
+    char exclude_arg[512];
+    int argc = 0;
+    char *argv[20];
+    argv[argc++] = "colgrep";
+    argv[argc++] = "--results";
+    argv[argc++] = results_buf;
+    if (code_only) argv[argc++] = "--code-only";
+    if (semantic_only) argv[argc++] = "--semantic-only";
+    if (content) argv[argc++] = "--content";
+    if (include && include[0]) {
+        snprintf(include_arg, sizeof(include_arg), "--include=%s", include);
+        argv[argc++] = include_arg;
+    }
+    if (exclude && exclude[0]) {
+        snprintf(exclude_arg, sizeof(exclude_arg), "--exclude=%s", exclude);
+        argv[argc++] = exclude_arg;
+    }
+    argv[argc++] = (char *)query;
+    argv[argc++] = (char *)path;
+    argv[argc] = NULL;
+
+    strbuf out;
+    sb_init(&out);
+    sb_printf(&out, "semantic_search query=%s path=%s results=%d\n",
+              query, path, results);
+    char *captured = run_argv_capture(argv, QW3_AGENT_SEMANTIC_TIMEOUT_SEC,
+                                      (size_t)max_bytes);
+    sb_append(&out, captured ? captured : "");
+    free(captured);
     return out.p;
 }
 
@@ -1810,6 +2092,10 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
     if (!strcmp(call->name, "read")) return tool_read(a, call);
     if (!strcmp(call->name, "more")) return tool_more(a, call);
     if (!strcmp(call->name, "list")) return tool_list(call);
+    if (!strcmp(call->name, "get_skeleton")) return tool_get_skeleton(call);
+    if (!strcmp(call->name, "get_function") ||
+        !strcmp(call->name, "get_fucttion")) return tool_get_function(call);
+    if (!strcmp(call->name, "semantic_search")) return tool_semantic_search(call);
     if (!strcmp(call->name, "write")) return tool_write(call);
     if (!strcmp(call->name, "edit")) return tool_edit(call);
     if (!strcmp(call->name, "search")) return tool_search(call);
@@ -2328,7 +2614,13 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "- If there is no function call available, answer the question "
             "like normal with your current knowledge and do not tell the user "
             "about function calls\n"
-            "</IMPORTANT>\n\n");
+            "</IMPORTANT>\n\n"
+            "Context discipline:\n"
+            "- Prefer get_skeleton before read when inspecting source files.\n"
+            "- Prefer get_function when you need one function or method body.\n"
+            "- Prefer semantic_search when you know the intent but not the "
+            "exact symbol name.\n"
+            "- Use read only for small files or precise line ranges.\n\n");
     }
     sb_append(&sb,
         "You are qw3-agent, a local coding assistant. Work in the current "
