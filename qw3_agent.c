@@ -99,6 +99,7 @@ typedef struct {
     int ctx_size;
     int max_tool_rounds;
     bool tools_enabled;
+    bool dump_prompt;
     qw3_backend backend;
     qw3_think_mode think_mode;
     sample_opts sample;
@@ -2292,12 +2293,9 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
 static char *build_system_prompt(const char *user_system, bool tools_enabled) {
     strbuf sb;
     sb_init(&sb);
-    sb_append(&sb,
-        "You are qw3-agent, a local coding assistant. Work in the current "
-        "project, be concise, and be careful with file changes.\n");
     if (tools_enabled) {
         sb_append(&sb,
-            "\n# Tools\n\n"
+            "# Tools\n\n"
             "You have access to the following functions:\n\n"
             "<tools>\n");
         char *tools = native_tool_declarations();
@@ -2314,15 +2312,29 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "</parameter>\n"
             "<parameter=example_parameter_2>\n"
             "This is the value for the second parameter\n"
-            "that can span multiple lines\n"
+            "that can span\n"
+            "multiple lines\n"
             "</parameter>\n"
             "</function>\n"
             "</tool_call>\n\n"
-            "Required parameters MUST be specified. Never write text after a "
-            "tool call. If no tool is needed, answer normally.\n");
+            "<IMPORTANT>\n"
+            "Reminder:\n"
+            "- Function calls MUST follow the specified format: an inner "
+            "<function=...></function> block must be nested within "
+            "<tool_call></tool_call> XML tags\n"
+            "- Required parameters MUST be specified\n"
+            "- You may provide optional reasoning for your function call in "
+            "natural language BEFORE the function call, but NOT after\n"
+            "- If there is no function call available, answer the question "
+            "like normal with your current knowledge and do not tell the user "
+            "about function calls\n"
+            "</IMPORTANT>\n\n");
     }
+    sb_append(&sb,
+        "You are qw3-agent, a local coding assistant. Work in the current "
+        "project, be concise, and be careful with file changes.\n");
     if (user_system && user_system[0]) {
-        sb_append(&sb, "\nUser system instructions:\n");
+        sb_append(&sb, "\n");
         sb_append(&sb, user_system);
         sb_append(&sb, "\n");
     }
@@ -2347,13 +2359,14 @@ static void print_help(void) {
         "  --kv-f16             Use f16 Metal GQA KV cache (recommended for large ctx)\n"
         "  --kv-f32             Use f32 Metal GQA KV cache\n"
         "  --kv-q8              Use q8_0 Metal GQA KV cache (experimental)\n"
-        "  --temp N             Temperature (default: 0)\n"
-        "  --sample-top-k N     Sampling top-k (default: 40)\n"
+        "  --temp N             Temperature (default: 0.6)\n"
+        "  --sample-top-k N     Sampling top-k (default: 20)\n"
         "  --top-p N            Sampling top-p (default: 0.95)\n"
         "  --min-p N            Sampling min-p (default: 0)\n"
-        "  --repeat-penalty N   Repetition penalty (default: 1.08, 1 disables)\n"
+        "  --repeat-penalty N   Repetition penalty (default: 1 disables)\n"
         "  --repeat-last-n N    Generated tokens to penalize (default: 256)\n"
         "  --seed N             Sampling seed\n"
+        "  --dump-prompt        Print the rendered prompt and exit\n"
         "  --cpu                Use CPU backend\n"
         "  --metal              Use Metal backend\n"
         "  --nothink            Disable thinking mode\n"
@@ -2382,11 +2395,11 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     cfg->max_tool_rounds = 8;
     cfg->tools_enabled = true;
     cfg->think_mode = QW3_THINK_ON;
-    cfg->sample.temperature = 0.0f;
-    cfg->sample.sample_top_k = 40;
+    cfg->sample.temperature = 0.6f;
+    cfg->sample.sample_top_k = 20;
     cfg->sample.top_p = 0.95f;
     cfg->sample.min_p = 0.0f;
-    cfg->sample.repeat_penalty = 1.08f;
+    cfg->sample.repeat_penalty = 1.0f;
     cfg->sample.repeat_last_n = 256;
     cfg->sample.rng = 0x123456789abcdef0ull;
 #ifdef QW3_NO_METAL
@@ -2465,6 +2478,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->sample.repeat_last_n = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--seed") && i + 1 < argc) {
             cfg->sample.rng = strtoull(argv[++i], NULL, 10);
+        } else if (!strcmp(argv[i], "--dump-prompt")) {
+            cfg->dump_prompt = true;
         } else if (!strcmp(argv[i], "--cpu")) {
             cfg->backend = QW3_BACKEND_CPU;
         } else if (!strcmp(argv[i], "--metal")) {
@@ -2583,6 +2598,27 @@ static void agent_init_transcript(agent_state *a) {
     qw3_chat_append_message(a->engine, &a->transcript,
                             "system", a->cfg.system_prompt);
     if (a->session) qw3_session_invalidate(a->session);
+}
+
+static int agent_dump_rendered_prompt(agent_state *a, const char *user_prompt) {
+    if (!a) return 1;
+    qw3_tokens tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    qw3_tokens_copy(&tmp, &a->transcript);
+    if (user_prompt && user_prompt[0]) {
+        qw3_chat_append_message(a->engine, &tmp, "user", user_prompt);
+        qw3_chat_append_assistant_prefix(a->engine, &tmp, a->cfg.think_mode);
+    }
+    char *text = transcript_rendered_text(a, &tmp);
+    if (!text) {
+        qw3_tokens_free(&tmp);
+        return 1;
+    }
+    fwrite(text, 1, strlen(text), stdout);
+    if (text[0] && text[strlen(text) - 1] != '\n') fputc('\n', stdout);
+    free(text);
+    qw3_tokens_free(&tmp);
+    return ferror(stdout) ? 1 : 0;
 }
 
 static void interactive_help(void) {
@@ -3394,6 +3430,16 @@ int main(int argc, char **argv) {
     agent_init_transcript(&a);
     if (a.cfg.conversation) {
         (void)store_load(&a, a.cfg.conversation);
+    }
+    if (a.cfg.dump_prompt) {
+        int dump_rc = agent_dump_rendered_prompt(&a, a.cfg.prompt);
+        free(a.last_read_path);
+        agent_clear_session_meta(&a);
+        qw3_tokens_free(&a.transcript);
+        qw3_session_free(a.session);
+        qw3_engine_close(a.engine);
+        free_config(&a.cfg);
+        return dump_rc;
     }
 
     int rc = 0;
