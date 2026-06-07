@@ -450,6 +450,39 @@ Benchmark notes on Apple M5 with `/private/tmp/qw3_prefill_3k.md`:
   bottleneck is kernel shape/FlashAttention-style tiling rather than cache
   bandwidth alone.
 
+## 2026-06-07 Routed MoE Pair TensorOps Prefill
+
+The routed MoE prefill path now defaults to a Metal 4 TensorOps gate/up pair
+kernel when available. The paired kernel writes the SwiGLU intermediate in the
+compact `pid * n_ff` layout, so the existing IQ4_XS `mid_f32_mpp` down path can
+remain active. If the paired TensorOps kernel is unavailable or disabled, the
+host falls back to the previous separated gate/up MPP path; the old legacy pair
+path remains reachable only when explicitly requested and TensorOps pair is
+disabled.
+
+Validation on Apple M5 with `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`:
+- `make qw3-metal`
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- `make test-metal-logits-concurrent`
+- `./qw3-bench-metal --llama-style ... --ctx-alloc 16000 -p 4096 -n 0 -r 1`
+  now reports `pp4096 = 451.49 tok/s` without environment overrides. The
+  same shape was about `430 tok/s` before this pair-MPP promotion.
+- `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
+  generated coherent Italian text and reported `6399` prompt tokens at
+  `394.01 tok/s`, with generation at `32.85 tok/s`.
+
+Profiling notes:
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` shows the default IQ4_XS layers using
+  `stage=gate_up_pair_mpp` followed by `stage=down_mpp` with `mid=f32c_mpp`.
+- The Q6_K MPP down tile now dequantizes each 16-value chunk with shared block,
+  scale, and segment metadata instead of recomputing them per scalar. This
+  reduced Q6 down MPP stage time in profile, but Q6 layers are few enough that
+  the end-to-end `pp4096` effect is small.
+- A f16 RHS MPP down path for IQ4_XS was added and passes logits under
+  `QW3_METAL_MOE_MID_F16=1`, but it was not promoted because `pp4096` did not
+  improve over the f32 compact path in the no-profile runs.
+
 ## 2026-06-05 Llama-Style Bench Guardrail
 
 `qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
