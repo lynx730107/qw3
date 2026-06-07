@@ -8760,7 +8760,7 @@ static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
 
     const char *gpu_mask_env = getenv("QW3_METAL_GQA_FLASH_GPU_MASK");
     const int gpu_mask =
-        !gpu_mask_env || !gpu_mask_env[0] || strcmp(gpu_mask_env, "0") != 0;
+        gpu_mask_env && gpu_mask_env[0] && strcmp(gpu_mask_env, "0") != 0;
     if (gpu_mask) {
         obj.flashAttnMaskPos0 = pos0;
         obj.flashAttnMaskTokens = n_tokens;

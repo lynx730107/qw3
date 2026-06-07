@@ -41,9 +41,9 @@ Default safety policy:
   the native `block4` fallback. In fallback mode, set
   `QW3_METAL_GQA_ATTEND_BLOCK2=1` for the two-query comparison path, or
   `QW3_METAL_GQA_ATTEND_BLOCK1=1` for the legacy one-query kernel.
-- FlashAttention prefill uses a GPU-generated causal block map and only writes
-  boundary mask blocks by default. Set `QW3_METAL_GQA_FLASH_GPU_MASK=0` to
-  restore the older CPU dense-mask fill plus block-scan path.
+- FlashAttention prefill uses the CPU dense-mask fill plus block-scan path by
+  default. Set `QW3_METAL_GQA_FLASH_GPU_MASK=1` to test the experimental
+  GPU-generated causal block map that only writes boundary mask blocks.
 - Metal session reset does not zero the GQA KV buffers by default. The valid
   KV range is controlled by the session position and every prefill/decode step
   writes the entries it can later read. Set `QW3_METAL_FORCE_KV_CLEAR=1` only
@@ -520,15 +520,15 @@ Validation on Apple M5, Qwen3.6 35B A3B IQ4_XS:
   produced coherent Italian output with `prefill=6399` at `335.11 tok/s` and
   generation at `26.49 tok/s`.
 
-## 2026-06-07 GPU Causal Flash Mask
+## 2026-06-07 Experimental GPU Causal Flash Mask
 
 The QW3 FlashAttention prefill path now builds its causal block map on the GPU
-by default. The previous path filled a dense `n_tokens * n_keys` half mask on
-the CPU, synchronized the Metal batch, then scanned the dense mask with
-`kernel_flash_attn_ext_blk`. The new `qw3_gqa_flash_causal_mask_block` kernel
-computes the same block states directly and only writes element masks for
-boundary blocks. Fully unmasked and fully masked causal blocks no longer need a
-dense mask write.
+when `QW3_METAL_GQA_FLASH_GPU_MASK=1` is set. The default path fills a dense
+`n_tokens * n_keys` half mask on the CPU, synchronizes the Metal batch, then
+scans the dense mask with `kernel_flash_attn_ext_blk`. The experimental
+`qw3_gqa_flash_causal_mask_block` kernel computes the same block states
+directly and only writes element masks for boundary blocks. Fully unmasked and
+fully masked causal blocks no longer need a dense mask write.
 
 This mostly helps long prompt chunks where `pos0` is already large:
 - `./qw3-bench-metal --llama-style ... --ctx-alloc 16000 -d 4096 -p 2303 -n 0 -r 1`
@@ -539,9 +539,10 @@ This mostly helps long prompt chunks where `pos0` is already large:
   produced coherent Italian output with `prefill=6399` at `372.36 tok/s` and
   generation at `31.38 tok/s`.
 
-Fallback:
-- `QW3_METAL_GQA_FLASH_GPU_MASK=0` restores the previous CPU dense-mask fill
-  and block-scan path.
+Guardrail:
+- The GPU mask path remains opt-in because it changed real agent/tool behavior
+  in one-shot tests. Keep default runs on the CPU dense-mask path until logits
+  parity is proven for long prompts and agent system prompts.
 
 ## 2026-06-05 Llama-Style Bench Guardrail
 
