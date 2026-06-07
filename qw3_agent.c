@@ -47,6 +47,9 @@
 #define QW3_AGENT_READ_MAX_LINES 1000
 #define QW3_AGENT_SOURCE_READ_MAX_LINES 80
 #define QW3_AGENT_SOURCE_READ_LARGE_BYTES 32768
+#define QW3_AGENT_SOURCE_READ_TURN_MAX_LINES 80
+#define QW3_AGENT_SOURCE_READ_TURN_MAX_CHUNKS 4
+#define QW3_AGENT_SOURCE_READ_TRACKED 8
 #define QW3_AGENT_MAX_TOOL_ROUNDS 24
 #define QW3_AGENT_CODENAV_MAX_BYTES 30000
 #define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
@@ -128,12 +131,19 @@ typedef struct {
 } agent_renderer;
 
 typedef struct {
+    char *path;
+    int chunks;
+    int lines;
+} agent_source_read_budget;
+
+typedef struct {
     qw3_engine *engine;
     qw3_session *session;
     qw3_tokens transcript;
     agent_config cfg;
     char *last_read_path;
     int last_read_next;
+    agent_source_read_budget source_reads[QW3_AGENT_SOURCE_READ_TRACKED];
     char *session_id;
     char *session_title;
     time_t session_created;
@@ -378,7 +388,7 @@ static char *native_tool_declarations(void) {
     sb_append(&sb, "{\"type\":\"function\",\"function\":{\"name\":\"" NAME "\",\"description\":\"" DESC "\",\"parameters\":{\"type\":\"object\",\"properties\":{" PARAMS "}}}}\n")
 #define TOOL_PARAM(NAME, DESC) \
     "\"" NAME "\":{\"type\":\"string\",\"description\":\"" DESC "\"}"
-    TOOL_DECL("read", "Read a precise numbered line range from a text file. Broad reads of source files are blocked; use get_skeleton, semantic_search, or get_function first.",
+    TOOL_DECL("read", "Read a precise numbered line range from a text file. Broad or sequential source-file reads are blocked; use get_skeleton, semantic_search, or get_function first.",
               TOOL_PARAM("path", "Path to read") ","
               TOOL_PARAM("start", "Required first 1-based line for source files") ","
               TOOL_PARAM("lines", "Maximum lines to return; source files are capped by context guard"));
@@ -1591,6 +1601,101 @@ static char *agent_source_read_guard_message(const char *path,
     return out.p;
 }
 
+static void agent_reset_source_read_budget(agent_state *a) {
+    if (!a) return;
+    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++) {
+        free(a->source_reads[i].path);
+        a->source_reads[i].path = NULL;
+        a->source_reads[i].chunks = 0;
+        a->source_reads[i].lines = 0;
+    }
+}
+
+static void agent_reset_source_read_budget_for_path(agent_state *a,
+                                                    const char *path) {
+    if (!a || !path || !path[0]) return;
+    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++) {
+        if (a->source_reads[i].path &&
+            !strcmp(a->source_reads[i].path, path)) {
+            free(a->source_reads[i].path);
+            a->source_reads[i].path = NULL;
+            a->source_reads[i].chunks = 0;
+            a->source_reads[i].lines = 0;
+            return;
+        }
+    }
+}
+
+static int agent_source_read_slot(agent_state *a, const char *path,
+                                  bool create) {
+    if (!a || !path || !path[0]) return -1;
+    int empty = -1;
+    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++) {
+        if (a->source_reads[i].path &&
+            !strcmp(a->source_reads[i].path, path)) {
+            return i;
+        }
+        if (!a->source_reads[i].path && empty < 0) empty = i;
+    }
+    if (!create || empty < 0) return -1;
+    a->source_reads[empty].path = agent_strdup(path);
+    if (!a->source_reads[empty].path) return -1;
+    a->source_reads[empty].chunks = 0;
+    a->source_reads[empty].lines = 0;
+    return empty;
+}
+
+static char *agent_source_read_budget_message(const char *path,
+                                              int used_chunks,
+                                              int used_lines,
+                                              int max_chunks,
+                                              int max_lines) {
+    strbuf out;
+    sb_init(&out);
+    sb_printf(&out,
+              "context_guard: source read budget exhausted for %s "
+              "(chunks=%d/%d, lines=%d/%d this turn).\n",
+              path, used_chunks, max_chunks, used_lines, max_lines);
+    sb_append(&out,
+              "Stop walking the file in read chunks. Use get_skeleton for the "
+              "outline, semantic_search for relevant areas, and get_function "
+              "for exact function or method bodies.\n");
+    return out.p;
+}
+
+static char *agent_apply_source_read_budget(agent_state *a, const char *path,
+                                            int *lines, int max_chunks,
+                                            int max_lines,
+                                            bool *budget_clamped) {
+    if (budget_clamped) *budget_clamped = false;
+    if (!a || !path || !lines || *lines <= 0) return NULL;
+    int idx = agent_source_read_slot(a, path, true);
+    if (idx < 0) {
+        return agent_strdup("context_guard: too many source files read in this turn; use semantic_search or get_function");
+    }
+    agent_source_read_budget *b = &a->source_reads[idx];
+    int remaining_chunks = max_chunks - b->chunks;
+    int remaining_lines = max_lines - b->lines;
+    if (remaining_chunks <= 0 || remaining_lines <= 0) {
+        return agent_source_read_budget_message(path, b->chunks, b->lines,
+                                                max_chunks, max_lines);
+    }
+    if (*lines > remaining_lines) {
+        *lines = remaining_lines;
+        if (budget_clamped) *budget_clamped = true;
+    }
+    return NULL;
+}
+
+static void agent_record_source_read(agent_state *a, const char *path,
+                                     int emitted) {
+    if (!a || !path || emitted <= 0) return;
+    int idx = agent_source_read_slot(a, path, true);
+    if (idx < 0) return;
+    a->source_reads[idx].chunks++;
+    a->source_reads[idx].lines += emitted;
+}
+
 static char *run_argv_capture(char *const argv[], double timeout_sec,
                               size_t max_bytes) {
     if (!argv || !argv[0]) return agent_strdup("error: empty command");
@@ -1751,6 +1856,20 @@ static char *tool_read(agent_state *a, const tool_call *call) {
         lines = source_max_lines;
         source_clamped = true;
     }
+    const int source_turn_max_lines = agent_env_int(
+        "QW3_AGENT_SOURCE_READ_TURN_MAX_LINES",
+        QW3_AGENT_SOURCE_READ_TURN_MAX_LINES, source_max_lines,
+        max_lines * QW3_AGENT_SOURCE_READ_TRACKED);
+    const int source_turn_max_chunks = agent_env_int(
+        "QW3_AGENT_SOURCE_READ_TURN_MAX_CHUNKS",
+        QW3_AGENT_SOURCE_READ_TURN_MAX_CHUNKS, 1, 32);
+    bool budget_clamped = false;
+    if (is_source) {
+        char *budget_err = agent_apply_source_read_budget(
+            a, path, &lines, source_turn_max_chunks, source_turn_max_lines,
+            &budget_clamped);
+        if (budget_err) return budget_err;
+    }
 
     FILE *fp = fopen(path, "rb");
     if (!fp) {
@@ -1769,6 +1888,13 @@ static char *tool_read(agent_state *a, const tool_call *call) {
                   "navigation.\n",
                   source_max_lines);
     }
+    if (budget_clamped) {
+        sb_printf(&out,
+                  "context_guard: source read clipped to remaining per-turn "
+                  "budget (%d total lines for this source). Use get_function "
+                  "or semantic_search instead of continuing sequential reads.\n",
+                  source_turn_max_lines);
+    }
     char *line = NULL;
     size_t cap = 0;
     int lno = 1;
@@ -1783,6 +1909,7 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     }
     free(line);
     fclose(fp);
+    if (is_source) agent_record_source_read(a, path, emitted);
     char *saved_path = agent_strdup(path);
     free(a->last_read_path);
     a->last_read_path = saved_path;
@@ -1979,7 +2106,7 @@ static char *tool_semantic_search(const tool_call *call) {
     return out.p;
 }
 
-static char *tool_write(const tool_call *call) {
+static char *tool_write(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     const char *content = tool_param_value(call, "content");
     if (!path || !path[0]) return agent_strdup("error: write requires path");
@@ -1990,13 +2117,18 @@ static char *tool_write(const tool_call *call) {
         sb_printf(&err, "error: cannot write %s: %s", path, strerror(errno));
         return err.p;
     }
+    agent_reset_source_read_budget_for_path(a, path);
     strbuf out;
     sb_init(&out);
-    sb_printf(&out, "ok: wrote %s (%zu bytes)", path, strlen(content));
+    sb_printf(&out,
+              "ok: wrote %s (%zu bytes)\n"
+              "verification_hint: read a small explicit line range around the "
+              "change if you need to verify formatting; do not walk the file.",
+              path, strlen(content));
     return out.p;
 }
 
-static char *tool_edit(const tool_call *call) {
+static char *tool_edit(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     const char *old = tool_param_value(call, "old");
     const char *new_text = tool_param_value(call, "new");
@@ -2032,7 +2164,11 @@ static char *tool_edit(const tool_call *call) {
         sb_printf(&err, "error: cannot write %s: %s", path, strerror(errno));
         return err.p;
     }
-    return agent_strdup("ok: edited first occurrence");
+    agent_reset_source_read_budget_for_path(a, path);
+    return agent_strdup(
+        "ok: edited first occurrence\n"
+        "verification_hint: read a small explicit line range around the "
+        "change if you need to verify formatting; do not walk the file.");
 }
 
 static bool looks_text_file(const char *path) {
@@ -2167,8 +2303,8 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
     if (!strcmp(call->name, "get_function") ||
         !strcmp(call->name, "get_fucttion")) return tool_get_function(call);
     if (!strcmp(call->name, "semantic_search")) return tool_semantic_search(call);
-    if (!strcmp(call->name, "write")) return tool_write(call);
-    if (!strcmp(call->name, "edit")) return tool_edit(call);
+    if (!strcmp(call->name, "write")) return tool_write(a, call);
+    if (!strcmp(call->name, "edit")) return tool_edit(a, call);
     if (!strcmp(call->name, "search")) return tool_search(call);
     if (!strcmp(call->name, "bash")) return tool_bash(call);
     strbuf out;
@@ -2599,6 +2735,7 @@ static int generate_once(agent_state *a, char **assistant_text) {
 }
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
+    agent_reset_source_read_budget(a);
     agent_note_user_message(a, user_message);
     qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
     if (a->transcript.len >= a->cfg.ctx_size) {
@@ -2690,6 +2827,8 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "Context discipline:\n"
             "- Do not use read(path) to inspect source files broadly; broad "
             "source reads are rejected by the context guard.\n"
+            "- Do not walk source files with repeated read chunks; each turn "
+            "has a small per-source read budget.\n"
             "- Use get_skeleton before any source line reads when inspecting "
             "file structure.\n"
             "- Prefer get_function when you need one function or method body.\n"
@@ -3759,12 +3898,14 @@ int main(int argc, char **argv) {
 
     if (a.cfg.tool_dsml) {
         int rc = run_tool_dsml(&a, a.cfg.tool_dsml);
+        agent_reset_source_read_budget(&a);
         free(a.last_read_path);
         free_config(&a.cfg);
         return rc;
     }
     if (a.cfg.tool_native) {
         int rc = run_tool_native(&a, a.cfg.tool_native);
+        agent_reset_source_read_budget(&a);
         free(a.last_read_path);
         free_config(&a.cfg);
         return rc;
@@ -3806,6 +3947,7 @@ int main(int argc, char **argv) {
     }
     if (a.cfg.dump_prompt) {
         int dump_rc = agent_dump_rendered_prompt(&a, a.cfg.prompt);
+        agent_reset_source_read_budget(&a);
         free(a.last_read_path);
         agent_clear_session_meta(&a);
         qw3_tokens_free(&a.transcript);
@@ -3832,6 +3974,7 @@ int main(int argc, char **argv) {
         rc = interactive_loop(&a);
     }
 
+    agent_reset_source_read_budget(&a);
     free(a.last_read_path);
     agent_clear_session_meta(&a);
     qw3_tokens_free(&a.transcript);
