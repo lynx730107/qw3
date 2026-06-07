@@ -45,6 +45,10 @@ Default safety policy:
   KV range is controlled by the session position and every prefill/decode step
   writes the entries it can later read. Set `QW3_METAL_FORCE_KV_CLEAR=1` only
   when bisecting memory bugs against the legacy full-clear behavior.
+- Metal session reset also skips prefill work-buffer clears by default. The
+  batched prefill pipeline overwrites `prefillX0`, `prefillX1`, and scratch
+  ranges before reading them. Set `QW3_METAL_FORCE_PREFILL_CLEAR=1` to restore
+  the legacy eager clear while debugging scratch lifetime issues.
 - `QW3_METAL_PROFILE_PREFILL_GQA_SYNC=1` is a diagnostic-only sync profiler
   for GQA prefill stages: attention norm, qkv projection, norm/RoPE, cache
   write, attend, output projection, residual norm.
@@ -487,29 +491,31 @@ Profiling notes:
   `QW3_METAL_MOE_MID_F16=1`, but it was not promoted because `pp4096` did not
   improve over the f32 compact path in the no-profile runs.
 
-## 2026-06-07 Lazy KV Clear
+## 2026-06-07 Lazy Session Clears
 
-Metal session reset now skips full GQA KV zero-fill by default. The cached
-attention kernels only read positions below the current logical context, and
-prefill/decode writes those positions before they are visible to attention.
-Avoiding the eager clear prevents the large f16 KV allocation from polluting
-GPU memory residency immediately before a long prompt run, especially with
-`--ctx 32000` and larger.
+Metal session reset now skips full GQA KV zero-fill and prefill work-buffer
+zero-fill by default. The cached attention kernels only read positions below
+the current logical context, and prefill/decode writes those positions before
+they are visible to attention. The batched prefill pipeline likewise overwrites
+its token rows before reading them. Avoiding the eager clear prevents large
+private Metal buffers from polluting GPU memory residency immediately before a
+long prompt run, especially with `--ctx 32000` and larger.
 
 Debug fallback:
 - `QW3_METAL_FORCE_KV_CLEAR=1` restores the old full K/V blit clear.
+- `QW3_METAL_FORCE_PREFILL_CLEAR=1` restores the old prefill X/scratch clear.
 
 Validation on Apple M5, Qwen3.6 35B A3B IQ4_XS:
 - `make qw3-metal`
 - `make test-metal-logits`
 - `make test-metal-logits-concurrent`
 - `./qw3-bench-metal --llama-style ... --ctx-alloc 16000 -p 4096 -n 0 -r 1`:
-  `415.92 tok/s`
+  `434.61 tok/s`
 - `./qw3-bench-metal --llama-style ... --ctx-alloc 32000 -p 4096 -n 0 -r 1`:
-  `380.41 tok/s`
-- `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128`
-  produced coherent Italian output with `prefill=6399` at `306.46 tok/s` and
-  generation at `23.98 tok/s`.
+  `423.73 tok/s`
+- `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 64`
+  produced coherent Italian output with `prefill=6399` at `335.11 tok/s` and
+  generation at `26.49 tok/s`.
 
 ## 2026-06-05 Llama-Style Bench Guardrail
 

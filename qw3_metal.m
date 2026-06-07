@@ -9051,6 +9051,9 @@ int qw3_metal_session_clear(qw3_metal_session *s) {
     const char *force_kv_clear_env = getenv("QW3_METAL_FORCE_KV_CLEAR");
     const int clear_kv =
         force_kv_clear_env && strcmp(force_kv_clear_env, "0") != 0;
+    const char *force_prefill_clear_env = getenv("QW3_METAL_FORCE_PREFILL_CLEAR");
+    const int clear_prefill =
+        force_prefill_clear_env && strcmp(force_prefill_clear_env, "0") != 0;
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
@@ -9094,17 +9097,19 @@ int qw3_metal_session_clear(qw3_metal_session *s) {
         [blit fillBuffer:obj.gqaAttnPartial
                    range:NSMakeRange(0, obj.gqaAttnPartial.length) value:0];
     }
-    if (obj.prefillX0.length > 0) {
-        [blit fillBuffer:obj.prefillX0
-                   range:NSMakeRange(0, obj.prefillX0.length) value:0];
-    }
-    if (obj.prefillX1.length > 0) {
-        [blit fillBuffer:obj.prefillX1
-                   range:NSMakeRange(0, obj.prefillX1.length) value:0];
-    }
-    if (obj.prefillScratch.length > 0) {
-        [blit fillBuffer:obj.prefillScratch
-                   range:NSMakeRange(0, obj.prefillScratch.length) value:0];
+    if (clear_prefill) {
+        if (obj.prefillX0.length > 0) {
+            [blit fillBuffer:obj.prefillX0
+                       range:NSMakeRange(0, obj.prefillX0.length) value:0];
+        }
+        if (obj.prefillX1.length > 0) {
+            [blit fillBuffer:obj.prefillX1
+                       range:NSMakeRange(0, obj.prefillX1.length) value:0];
+        }
+        if (obj.prefillScratch.length > 0) {
+            [blit fillBuffer:obj.prefillScratch
+                       range:NSMakeRange(0, obj.prefillScratch.length) value:0];
+        }
     }
     [blit endEncoding];
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
