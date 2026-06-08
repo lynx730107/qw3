@@ -129,6 +129,7 @@ static id<MTLComputePipelineState> g_deltanet_fused_gdn_scratch_pipeline;
 static id<MTLComputePipelineState> g_deltanet_batch_fused_gdn_pipeline;
 static id<MTLComputePipelineState> g_deltanet_batch_recur_tiled_pipeline;
 static id<MTLComputePipelineState> g_deltanet_batch_recur_tiled2_pipeline;
+static id<MTLComputePipelineState> g_deltanet_batch_recur_tiled4_pipeline;
 static id<MTLComputePipelineState> g_deltanet_batch_gated_rmsnorm_pipeline;
 static id<MTLComputePipelineState> g_deltanet_gated_rmsnorm_pipeline;
 static id<MTLComputePipelineState> g_residual_rmsnorm_weight_f32_pipeline;
@@ -3664,6 +3665,83 @@ static NSString *qw3_metal_kernel_source(void) {
             "        }\n"
             "    }\n"
             "}\n"
+            "kernel void qw3_deltanet_batch_recur_tiled4(constant qw3_batch_gdn_args &args,\n"
+            "                                            device float *state,\n"
+            "                                            device float *scratch,\n"
+            "                                            device const float *dt_bias,\n"
+            "                                            device const float *a,\n"
+            "                                            uint2 group [[threadgroup_position_in_grid]],\n"
+            "                                            ushort simd_idx [[simdgroup_index_in_threadgroup]],\n"
+            "                                            ushort lane [[thread_index_in_simdgroup]]) {\n"
+            "    uint hv = group.y;\n"
+            "    uint j0 = group.x * 16u + uint(simd_idx) * 4u;\n"
+            "    uint j1 = j0 + 1u;\n"
+            "    uint j2 = j0 + 2u;\n"
+            "    uint j3 = j0 + 3u;\n"
+            "    if (hv >= args.v_heads || j0 >= args.head_dim) return;\n"
+            "    uint hk = hv % args.q_heads;\n"
+            "    uint qk_n = args.q_heads * args.head_dim;\n"
+            "    uint state_n = args.head_dim * args.head_dim;\n"
+            "    device float *st = state + uint64_t(hv) * state_n;\n"
+            "    uint i0 = uint(lane) * 4u;\n"
+            "    for (uint t = 0; t < args.n_tokens; t++) {\n"
+            "        uint64_t base = uint64_t(t) * args.stride;\n"
+            "        device const float *qh = scratch + base + args.conv_offset + uint64_t(hk) * args.head_dim;\n"
+            "        device const float *kh = scratch + base + args.conv_offset + qk_n + uint64_t(hk) * args.head_dim;\n"
+            "        device const float *vh = scratch + base + args.conv_offset + 2u * qk_n + uint64_t(hv) * args.head_dim;\n"
+            "        float b = 0.0f;\n"
+            "        float g = 0.0f;\n"
+            "        if (lane == 0) {\n"
+            "            float beta_raw = scratch[base + args.beta_offset + hv];\n"
+            "            b = 1.0f / (1.0f + exp(-beta_raw));\n"
+            "            float alpha_raw = scratch[base + args.alpha_offset + hv] + dt_bias[hv];\n"
+            "            float sp = alpha_raw > 20.0f ? alpha_raw : (alpha_raw < -20.0f ? exp(alpha_raw) : log(1.0f + exp(alpha_raw)));\n"
+            "            g = exp(sp * a[hv]);\n"
+            "        }\n"
+            "        b = simd_broadcast(b, 0);\n"
+            "        g = simd_broadcast(g, 0);\n"
+            "        float4 kv = *((device const float4 *)(kh + i0));\n"
+            "        float4 qv = *((device const float4 *)(qh + i0));\n"
+            "        uint state_col0 = j0 * args.head_dim + i0;\n"
+            "        float4 sv0 = *((device const float4 *)(st + state_col0));\n"
+            "        float sk0 = simd_sum(dot(sv0, kv));\n"
+            "        float d0 = b * (vh[j0] - sk0 * g);\n"
+            "        sv0 = sv0 * g + kv * d0;\n"
+            "        *((device float4 *)(st + state_col0)) = sv0;\n"
+            "        float out0 = simd_sum(dot(sv0, qv));\n"
+            "        if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j0] = out0 * rsqrt(float(args.head_dim));\n"
+            "        if (j1 < args.head_dim) {\n"
+            "            uint state_col1 = j1 * args.head_dim + i0;\n"
+            "            float4 sv1 = *((device const float4 *)(st + state_col1));\n"
+            "            float sk1 = simd_sum(dot(sv1, kv));\n"
+            "            float d1 = b * (vh[j1] - sk1 * g);\n"
+            "            sv1 = sv1 * g + kv * d1;\n"
+            "            *((device float4 *)(st + state_col1)) = sv1;\n"
+            "            float out1 = simd_sum(dot(sv1, qv));\n"
+            "            if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j1] = out1 * rsqrt(float(args.head_dim));\n"
+            "        }\n"
+            "        if (j2 < args.head_dim) {\n"
+            "            uint state_col2 = j2 * args.head_dim + i0;\n"
+            "            float4 sv2 = *((device const float4 *)(st + state_col2));\n"
+            "            float sk2 = simd_sum(dot(sv2, kv));\n"
+            "            float d2 = b * (vh[j2] - sk2 * g);\n"
+            "            sv2 = sv2 * g + kv * d2;\n"
+            "            *((device float4 *)(st + state_col2)) = sv2;\n"
+            "            float out2 = simd_sum(dot(sv2, qv));\n"
+            "            if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j2] = out2 * rsqrt(float(args.head_dim));\n"
+            "        }\n"
+            "        if (j3 < args.head_dim) {\n"
+            "            uint state_col3 = j3 * args.head_dim + i0;\n"
+            "            float4 sv3 = *((device const float4 *)(st + state_col3));\n"
+            "            float sk3 = simd_sum(dot(sv3, kv));\n"
+            "            float d3 = b * (vh[j3] - sk3 * g);\n"
+            "            sv3 = sv3 * g + kv * d3;\n"
+            "            *((device float4 *)(st + state_col3)) = sv3;\n"
+            "            float out3 = simd_sum(dot(sv3, qv));\n"
+            "            if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j3] = out3 * rsqrt(float(args.head_dim));\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
             "kernel void qw3_deltanet_batch_gated_rmsnorm(constant qw3_batch_gdn_args &args,\n"
             "                                             device float *scratch,\n"
             "                                             device const float *w,\n"
@@ -6871,6 +6949,7 @@ static int qw3_metal_compile_kernels(void) {
         g_deltanet_batch_fused_gdn_pipeline &&
         g_deltanet_batch_recur_tiled_pipeline &&
         g_deltanet_batch_recur_tiled2_pipeline &&
+        g_deltanet_batch_recur_tiled4_pipeline &&
         g_deltanet_batch_gated_rmsnorm_pipeline &&
         g_deltanet_gated_rmsnorm_pipeline &&
         g_residual_rmsnorm_weight_f32_pipeline &&
@@ -8040,6 +8119,18 @@ static int qw3_metal_compile_kernels(void) {
         [g_device newComputePipelineStateWithFunction:fn error:&error];
     if (!g_deltanet_batch_recur_tiled2_pipeline) {
         fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_batch_recur_tiled2 failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_deltanet_batch_recur_tiled4"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_deltanet_batch_recur_tiled4 not found\n");
+        return 0;
+    }
+    g_deltanet_batch_recur_tiled4_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_deltanet_batch_recur_tiled4_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_batch_recur_tiled4 failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
@@ -10147,14 +10238,19 @@ int qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
     const int use_tiled =
         getenv("QW3_METAL_BATCH_GDN_LEGACY") == NULL &&
         (head_dim % 4u) == 0u;
+    const int use_tiled4 =
+        use_tiled && g_deltanet_batch_recur_tiled4_pipeline &&
+        getenv("QW3_METAL_BATCH_GDN_TILED4") != NULL;
     const int use_tiled2 =
-        use_tiled && g_deltanet_batch_recur_tiled2_pipeline &&
+        use_tiled && !use_tiled4 && g_deltanet_batch_recur_tiled2_pipeline &&
         getenv("QW3_METAL_BATCH_GDN_TILED2_DISABLE") == NULL;
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
     if (use_tiled) {
-        [enc setComputePipelineState:use_tiled2 ?
+        [enc setComputePipelineState:use_tiled4 ?
+         g_deltanet_batch_recur_tiled4_pipeline :
+         use_tiled2 ?
          g_deltanet_batch_recur_tiled2_pipeline :
          g_deltanet_batch_recur_tiled_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
@@ -10162,7 +10258,9 @@ int qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
         [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
         [enc setBuffer:dtb offset:(NSUInteger)dt_inner atIndex:3];
         [enc setBuffer:ab offset:(NSUInteger)a_inner atIndex:4];
-        [enc dispatchThreadgroups:MTLSizeMake(use_tiled2 ?
+        [enc dispatchThreadgroups:MTLSizeMake(use_tiled4 ?
+                                              (NSUInteger)(head_dim + 15u) / 16u :
+                                              use_tiled2 ?
                                               (NSUInteger)(head_dim + 7u) / 8u :
                                               (NSUInteger)(head_dim + 3u) / 4u,
                                               v_heads, 1)
@@ -15403,6 +15501,7 @@ void qw3_metal_cleanup(void) {
     g_deltanet_batch_fused_gdn_pipeline = nil;
     g_deltanet_batch_recur_tiled_pipeline = nil;
     g_deltanet_batch_recur_tiled2_pipeline = nil;
+    g_deltanet_batch_recur_tiled4_pipeline = nil;
     g_deltanet_batch_gated_rmsnorm_pipeline = nil;
     g_deltanet_gated_rmsnorm_pipeline = nil;
     g_residual_rmsnorm_weight_f32_pipeline = nil;

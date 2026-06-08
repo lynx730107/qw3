@@ -16,6 +16,9 @@ Default safety policy:
   `QW3_METAL_PREFILL_CONCURRENT=0`, or `GGML_METAL_CONCURRENCY_DISABLE=1`
   for the legacy serial encoder.
 - `QW3_METAL_PREFILL_BATCH` defaults to 4096, the current Metal batch cap.
+- DeltaNet batch GDN uses the two-column tiled recurrent core by default.
+  `QW3_METAL_BATCH_GDN_TILED4=1` enables the experimental four-column core for
+  profiling; keep it opt-in until repeated end-to-end benches show a stable win.
 - DS4-style Metal4 direct-RHS Q8_0 prefill matmul is enabled by default for
   aligned projection batches when the Metal4 tensor API probe succeeds. Set
   `QW3_METAL_Q8_NAX_DISABLE=1` for the legacy Q8 MM path.
@@ -543,6 +546,31 @@ Guardrail:
 - The GPU mask path remains opt-in because it changed real agent/tool behavior
   in one-shot tests. Keep default runs on the CPU dense-mask path until logits
   parity is proven for long prompts and agent system prompts.
+
+## 2026-06-08 DeltaNet Four-Column Tiled GDN Probe
+
+Added opt-in `QW3_METAL_BATCH_GDN_TILED4=1`, a four-column DeltaNet recurrent
+core that keeps the F32 state recurrence unchanged while reusing each loaded
+Q/K vector across four state columns per simdgroup. The default remains the
+two-column tiled core.
+
+Validation on Apple M5:
+- `make qw3-bench-metal`
+- `env QW3_METAL_BATCH_GDN_TILED4=1 make test-metal-logits`
+- `env QW3_METAL_BATCH_GDN_TILED4=1 ./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --llama-style -p 4096 -n 0 -r 3 --ctx-alloc 16000 --no-warmup`
+
+Observed results:
+- Linear profiler with `QW3_METAL_BATCH_GDN_TILED4=1` shows `deltanet_gdn`
+  mostly around 30-32 ms per linear layer, down from the default tiled2
+  40-50 ms band.
+- `pp4096` with tiled4: 435.70 tok/s over 3 repetitions, stdev 22.93.
+- Default `pp4096` in the same session: 431.50 tok/s over 3 repetitions,
+  stdev 2.49.
+
+Conclusion: tiled4 is logits-safe and improves the isolated GDN stage, but the
+end-to-end pp4096 gain is still too small/noisy to promote. Keep it as an
+opt-in probe while larger prefill wins are pursued in MoE and projection/GDN
+orchestration.
 
 ## 2026-06-05 Llama-Style Bench Guardrail
 
