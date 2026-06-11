@@ -59,6 +59,12 @@
 #define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
 #define QW3_AGENT_CODENAV_TIMEOUT_SEC 30.0
 #define QW3_AGENT_SEMANTIC_TIMEOUT_SEC 120.0
+#define QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS 512
+#define QW3_AGENT_COMPACT_SOFT_PERCENT 85
+#define QW3_AGENT_COMPACT_MIN_FREE_TOKENS 2048
+#define QW3_AGENT_COMPACT_TAIL_DIVISOR 4
+#define QW3_AGENT_COMPACT_TAIL_CAP_TOKENS 4096
+#define QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS 768
 
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
@@ -379,6 +385,12 @@ static char *agent_strdup(const char *s);
 static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len);
 static void agent_init_transcript(agent_state *a);
 static int agent_set_nonblock(int fd);
+static bool agent_compact_context(agent_state *a, const char *reason,
+                                  char *err, size_t err_len);
+static bool agent_ensure_message_room(agent_state *a, const char *role,
+                                      const char *text, int reserve,
+                                      const char *reason,
+                                      char *err, size_t err_len);
 
 static char *native_tool_call_text(const tool_call_list *calls)
     __attribute__((unused));
@@ -2359,7 +2371,7 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls) {
     return result.p ? result.p : agent_strdup("");
 }
 
-static void execute_native_tools_append(agent_state *a,
+static bool execute_native_tools_append(agent_state *a,
                                         const tool_call_list *calls) {
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
@@ -2369,10 +2381,22 @@ static void execute_native_tools_append(agent_state *a,
         agent_statusf(a, "%s\n", out ? out : "");
         agent_tool_status_end(a);
         char *response = native_tool_response_text(call->name, out ? out : "");
+        char compact_err[160] = {0};
+        if (!agent_ensure_message_room(a, "user", response,
+                                       QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS,
+                                       "tool result would exceed context",
+                                       compact_err, sizeof(compact_err))) {
+            agent_statusf(a, "agent: %s\n",
+                          compact_err[0] ? compact_err : "context full");
+            free(response);
+            free(out);
+            return false;
+        }
         qw3_chat_append_message(a->engine, &a->transcript, "user", response);
         free(response);
         free(out);
     }
+    return true;
 }
 
 static int run_tool_dsml(agent_state *a, const char *dsml) {
@@ -2665,8 +2689,271 @@ static void agent_prefill_progress(void *ud, const char *event,
     }
 }
 
+static bool agent_should_compact_context(agent_state *a) {
+    if (!a || a->cfg.ctx_size <= 0 || a->transcript.len <= 0) return false;
+    int used = a->transcript.len;
+    int ctx = a->cfg.ctx_size;
+    if (used >= (ctx * QW3_AGENT_COMPACT_SOFT_PERCENT) / 100) return true;
+    int free_threshold = QW3_AGENT_COMPACT_MIN_FREE_TOKENS;
+    int proportional = ctx / 8;
+    if (free_threshold > proportional) free_threshold = proportional;
+    return ctx - used <= free_threshold;
+}
+
+static void agent_tokens_append_range(qw3_tokens *dst, const qw3_tokens *src,
+                                      int start, int end) {
+    if (!dst || !src) return;
+    if (start < 0) start = 0;
+    if (end > src->len) end = src->len;
+    for (int i = start; i < end; i++) qw3_tokens_push(dst, src->v[i]);
+}
+
+static int agent_single_rendered_token_id(qw3_engine *engine,
+                                          const char *text) {
+    qw3_tokens t = {0};
+    qw3_tokenize_rendered_chat(engine, text ? text : "", &t);
+    int id = t.len == 1 ? t.v[0] : -1;
+    qw3_tokens_free(&t);
+    return id;
+}
+
+static int agent_compact_tail_start(agent_state *a, int bottom, int sys_len) {
+    int tail_budget = a->cfg.ctx_size / QW3_AGENT_COMPACT_TAIL_DIVISOR;
+    if (tail_budget > QW3_AGENT_COMPACT_TAIL_CAP_TOKENS) {
+        tail_budget = QW3_AGENT_COMPACT_TAIL_CAP_TOKENS;
+    }
+    if (tail_budget < 1) tail_budget = 1;
+    int target = bottom - tail_budget;
+    return target < sys_len ? sys_len : target;
+}
+
+static char *agent_compact_make_prompt(const char *reason) {
+    strbuf sb;
+    sb_init(&sb);
+    sb_append(&sb,
+        "Internal qw3-agent context compaction request. This is not a user request.\n"
+        "Write a durable task-state summary of the conversation so far. Preserve only facts needed to continue the work:\n"
+        "- user goals, constraints, and preferences\n"
+        "- files inspected or edited\n"
+        "- commands run and important results\n"
+        "- decisions, rejected approaches, known bugs, and pending next steps\n"
+        "- reloadable bulky data with exact paths/ranges/commands when available\n\n"
+        "Do not invent facts. Do not include generic narration. Do not include raw file contents unless essential.\n"
+        "Do not continue the user task. Do not call tools. Do not output thinking tags, XML tool calls, or DSML markup.\n"
+        "Output only the compact summary.\n");
+    if (reason && reason[0]) {
+        sb_append(&sb, "\nCompaction reason: ");
+        sb_append(&sb, reason);
+        sb_append(&sb, "\n");
+    }
+    return sb.p ? sb.p : agent_strdup("");
+}
+
+static bool agent_message_fits_context(agent_state *a, const char *role,
+                                       const char *text, int reserve,
+                                       int *projected_out) {
+    if (!a) return false;
+    if (reserve > 0 && a->cfg.ctx_size > 0) {
+        int proportional = a->cfg.ctx_size / 8;
+        if (proportional < 16) proportional = 16;
+        if (reserve > proportional) reserve = proportional;
+    }
+    qw3_tokens tmp = {0};
+    qw3_tokens_copy(&tmp, &a->transcript);
+    qw3_chat_append_message(a->engine, &tmp, role, text);
+    int projected = tmp.len + (reserve > 0 ? reserve : 0);
+    if (projected_out) *projected_out = projected;
+    bool ok = projected < a->cfg.ctx_size;
+    qw3_tokens_free(&tmp);
+    return ok;
+}
+
+static bool agent_compact_context(agent_state *a, const char *reason,
+                                  char *err, size_t err_len) {
+    if (!a || !a->engine || !a->session) return true;
+    const int bottom = a->transcript.len;
+    if (bottom <= 0) return true;
+
+    qw3_tokens sys = {0};
+    qw3_chat_append_message(a->engine, &sys, "system", a->cfg.system_prompt);
+    if (bottom <= sys.len) {
+        qw3_tokens_free(&sys);
+        return true;
+    }
+    int non_system_tokens = bottom - sys.len;
+    int min_compactable = a->cfg.ctx_size / 16;
+    if (min_compactable < 128) min_compactable = 128;
+    if (non_system_tokens < min_compactable) {
+        agent_statusf(a,
+                      "agent: context compaction skipped, only %d non-system tokens\n",
+                      non_system_tokens);
+        qw3_tokens_free(&sys);
+        return true;
+    }
+
+    agent_statusf(a, "agent: compacting context (%s), old=%d ctx=%d\n",
+                  reason && reason[0] ? reason : "soft limit",
+                  bottom, a->cfg.ctx_size);
+
+    char *prompt_text = agent_compact_make_prompt(reason);
+    qw3_tokens prompt = {0};
+    qw3_tokens_copy(&prompt, &a->transcript);
+    qw3_chat_append_message(a->engine, &prompt, "user", prompt_text);
+    free(prompt_text);
+    qw3_chat_append_assistant_prefix(a->engine, &prompt, QW3_THINK_NONE);
+
+    int summary_room = a->cfg.ctx_size - prompt.len - 1;
+    int min_summary_room = a->cfg.ctx_size < 2048 ? 96 : 256;
+    if (summary_room < min_summary_room) {
+        snprintf(err, err_len,
+                 "not enough room to compact context (prompt=%d ctx=%d)",
+                 prompt.len, a->cfg.ctx_size);
+        qw3_tokens_free(&prompt);
+        qw3_tokens_free(&sys);
+        return false;
+    }
+    int summary_max = summary_room < QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS ?
+                      summary_room : QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS;
+
+    char sync_err[256] = {0};
+    a->progress_start_sec = agent_now_sec();
+    qw3_session_set_progress(a->session, agent_prefill_progress, a);
+    if (qw3_session_sync(a->session, &prompt, sync_err, sizeof(sync_err)) != 0) {
+        qw3_session_set_progress(a->session, NULL, NULL);
+        qw3_session_invalidate(a->session);
+        snprintf(err, err_len, "%s", sync_err);
+        qw3_tokens_free(&prompt);
+        qw3_tokens_free(&sys);
+        return false;
+    }
+    qw3_session_set_progress(a->session, NULL, NULL);
+
+    strbuf summary;
+    sb_init(&summary);
+    int eos = qw3_token_eos(a->engine);
+    int think_end_id = agent_single_rendered_token_id(a->engine, "</think>");
+    char eval_err[160] = {0};
+    for (int i = 0; i < summary_max; i++) {
+        if (agent_should_interrupt(a)) {
+            snprintf(err, err_len, "compaction interrupted");
+            qw3_session_invalidate(a->session);
+            qw3_tokens_free(&prompt);
+            qw3_tokens_free(&sys);
+            sb_free(&summary);
+            return false;
+        }
+        int token = qw3_session_argmax(a->session);
+        if (token < 0 || token == eos || token == think_end_id) break;
+
+        size_t text_len = 0;
+        char *text = token_decoded_text(a->engine, token, &text_len);
+        if (text && (strstr(text, "<tool_call>") || strstr(text, "DSML"))) {
+            free(text);
+            break;
+        }
+        if (qw3_session_eval(a->session, token, eval_err, sizeof(eval_err)) != 0) {
+            snprintf(err, err_len, "%s", eval_err);
+            qw3_session_invalidate(a->session);
+            qw3_tokens_free(&prompt);
+            qw3_tokens_free(&sys);
+            free(text);
+            sb_free(&summary);
+            return false;
+        }
+        if (text && text_len) sb_append_n(&summary, text, text_len);
+        free(text);
+    }
+    qw3_tokens_free(&prompt);
+
+    if (!summary.p || !summary.p[0]) {
+        snprintf(err, err_len, "compaction summary was empty");
+        qw3_session_invalidate(a->session);
+        qw3_tokens_free(&sys);
+        sb_free(&summary);
+        return false;
+    }
+
+    qw3_tokens compacted = {0};
+    qw3_tokens_copy(&compacted, &sys);
+    strbuf summary_msg;
+    sb_init(&summary_msg);
+    sb_append(&summary_msg,
+              "\n\n[qw3-agent compacted earlier conversation. Durable task-state summary follows.]\n");
+    sb_append(&summary_msg, summary.p);
+    if (summary_msg.len && summary_msg.p[summary_msg.len - 1] != '\n') {
+        sb_append(&summary_msg, "\n");
+    }
+    sb_append(&summary_msg,
+              "[End compacted summary. Recent conversation continues verbatim below.]\n\n");
+    qw3_chat_append_message(a->engine, &compacted, "system", summary_msg.p);
+    sb_free(&summary_msg);
+    sb_free(&summary);
+
+    int tail_start = agent_compact_tail_start(a, bottom, sys.len);
+    int tail_room = a->cfg.ctx_size - compacted.len - 128;
+    if (tail_room < 0) {
+        snprintf(err, err_len,
+                 "compaction summary too large (base=%d ctx=%d)",
+                 compacted.len, a->cfg.ctx_size);
+        qw3_session_invalidate(a->session);
+        qw3_tokens_free(&compacted);
+        qw3_tokens_free(&sys);
+        return false;
+    }
+    int min_tail_start = bottom - tail_room;
+    if (tail_start < min_tail_start) tail_start = min_tail_start;
+    if (tail_start < sys.len) tail_start = sys.len;
+    agent_tokens_append_range(&compacted, &a->transcript, tail_start, bottom);
+
+    qw3_tokens old = {0};
+    qw3_tokens_copy(&old, &a->transcript);
+    qw3_tokens_free(&a->transcript);
+    a->transcript = compacted;
+    a->session_stripped = false;
+    qw3_session_invalidate(a->session);
+    if (qw3_session_sync(a->session, &a->transcript, sync_err,
+                         sizeof(sync_err)) != 0) {
+        qw3_session_invalidate(a->session);
+        qw3_tokens_free(&a->transcript);
+        a->transcript = old;
+        snprintf(err, err_len, "%s", sync_err);
+        qw3_tokens_free(&sys);
+        return false;
+    }
+    qw3_tokens_free(&old);
+    qw3_tokens_free(&sys);
+    agent_statusf(a, "agent: compacted context old=%d new=%d tail=%d\n",
+                  bottom, a->transcript.len, bottom - tail_start);
+    return true;
+}
+
+static bool agent_compact_if_needed(agent_state *a, const char *reason,
+                                    char *err, size_t err_len) {
+    if (!agent_should_compact_context(a)) return true;
+    return agent_compact_context(a, reason, err, err_len);
+}
+
+static bool agent_ensure_message_room(agent_state *a, const char *role,
+                                      const char *text, int reserve,
+                                      const char *reason,
+                                      char *err, size_t err_len) {
+    int projected = 0;
+    if (agent_message_fits_context(a, role, text, reserve, &projected)) {
+        return true;
+    }
+    if (!agent_compact_context(a, reason, err, err_len)) return false;
+    if (agent_message_fits_context(a, role, text, reserve, &projected)) {
+        return true;
+    }
+    snprintf(err, err_len,
+             "context full after compaction (projected=%d ctx=%d reserve=%d)",
+             projected, a ? a->cfg.ctx_size : 0, reserve);
+    return false;
+}
+
 static int generate_once(agent_state *a, char **assistant_text) {
     *assistant_text = NULL;
+    int prefix_start = a->transcript.len;
     qw3_chat_append_assistant_prefix(a->engine, &a->transcript,
                                      a->cfg.think_mode);
 
@@ -2694,6 +2981,8 @@ static int generate_once(agent_state *a, char **assistant_text) {
             a->progress_update(a->progress_ud, "prefill_done", 0, 0, 0.0);
         }
         agent_statusf(a, "agent: prefill failed: %s\n", err);
+        a->transcript.len = prefix_start;
+        qw3_session_invalidate(a->session);
         rc = -1;
     } else {
         qw3_session_set_progress(a->session, NULL, NULL);
@@ -2711,7 +3000,22 @@ static int generate_once(agent_state *a, char **assistant_text) {
         const int eos = qw3_token_eos(a->engine);
         int n_generated = 0;
         const double t_gen0 = agent_now_sec();
-        for (int i = 0; i < a->cfg.n_predict; i++) {
+        int max_tokens = a->cfg.n_predict;
+        int room = qw3_session_ctx(a->session) - qw3_session_pos(a->session);
+        if (room <= 1) {
+            max_tokens = 0;
+        } else if (max_tokens > room - 1) {
+            max_tokens = room - 1;
+        }
+        if (max_tokens <= 0) {
+            agent_statusf(a, "agent: context full before generation (%d/%d)\n",
+                          qw3_session_pos(a->session),
+                          qw3_session_ctx(a->session));
+            a->transcript.len = prefix_start;
+            qw3_session_invalidate(a->session);
+            rc = -1;
+        }
+        for (int i = 0; rc == 0 && i < max_tokens; i++) {
             if (agent_should_interrupt(a)) break;
             const int repeat_last_n = a->cfg.sample.repeat_last_n;
             const int generated_len = emit.generated.len;
@@ -2766,6 +3070,9 @@ static int generate_once(agent_state *a, char **assistant_text) {
         append_generated_assistant(a, &emit.generated);
         *assistant_text = emit.text.p ? emit.text.p : agent_strdup("");
         emit.text.p = NULL;
+    } else {
+        a->transcript.len = prefix_start;
+        qw3_session_invalidate(a->session);
     }
     qw3_tokens_free(&emit.generated);
     sb_free(&emit.text);
@@ -2774,15 +3081,31 @@ static int generate_once(agent_state *a, char **assistant_text) {
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
     agent_reset_source_read_budget(a);
-    agent_note_user_message(a, user_message);
-    qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
-    if (a->transcript.len >= a->cfg.ctx_size) {
-        agent_statusf(a, "agent: context full (%d/%d tokens)\n",
-                      a->transcript.len, a->cfg.ctx_size);
+    char compact_err[160] = {0};
+    if (!agent_compact_if_needed(a, "soft limit before user turn",
+                                 compact_err, sizeof(compact_err))) {
+        agent_statusf(a, "agent: %s\n",
+                      compact_err[0] ? compact_err : "context compaction failed");
         return -1;
     }
+    if (!agent_ensure_message_room(a, "user", user_message, 64,
+                                   "user turn would exceed context",
+                                   compact_err, sizeof(compact_err))) {
+        agent_statusf(a, "agent: %s\n",
+                      compact_err[0] ? compact_err : "context full");
+        return -1;
+    }
+    agent_note_user_message(a, user_message);
+    qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
 
     for (int round = 0; round < a->cfg.max_tool_rounds; round++) {
+        if (round > 0 &&
+            !agent_compact_if_needed(a, "soft limit before tool continuation",
+                                     compact_err, sizeof(compact_err))) {
+            agent_statusf(a, "agent: %s\n",
+                          compact_err[0] ? compact_err : "context compaction failed");
+            return -1;
+        }
         char *assistant = NULL;
         if (generate_once(a, &assistant) != 0) {
             free(assistant);
@@ -2796,9 +3119,10 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int n_native = parse_native_tool_calls(assistant ? assistant : "",
                                                &native_calls);
         if (n_native > 0) {
-            execute_native_tools_append(a, &native_calls);
+            bool ok = execute_native_tools_append(a, &native_calls);
             free_tool_calls(&native_calls);
             free(assistant);
+            if (!ok) return -1;
             continue;
         }
         free_tool_calls(&native_calls);
@@ -2813,6 +3137,30 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         char *tool_result = execute_tools(a, &dsml_calls);
         free_tool_calls(&dsml_calls);
         char *response = native_tool_response_text("dsml", tool_result);
+        if (!agent_ensure_message_room(a, "user", response,
+                                       QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS,
+                                       "tool result would exceed context",
+                                       compact_err, sizeof(compact_err))) {
+            free(response);
+            strbuf small;
+            sb_init(&small);
+            sb_printf(&small,
+                      "Tool error: result does not fit in context after compaction "
+                      "(%s). Retry with a smaller read/search/bash output.",
+                      compact_err[0] ? compact_err : "context full");
+            response = native_tool_response_text("dsml", small.p ? small.p : "");
+            sb_free(&small);
+            if (!agent_ensure_message_room(a, "user", response, 16,
+                                           "small tool error would exceed context",
+                                           compact_err, sizeof(compact_err))) {
+                agent_statusf(a, "agent: %s\n",
+                              compact_err[0] ? compact_err : "context full");
+                free(response);
+                free(tool_result);
+                free(assistant);
+                return -1;
+            }
+        }
         qw3_chat_append_message(a->engine, &a->transcript, "user", response);
         free(response);
         free(tool_result);
@@ -2928,7 +3276,7 @@ static void print_help(void) {
         "                       Execute Qwen tool_call text read from a file and exit\n"
         "  --help               Show help\n\n"
         "Interactive commands:\n"
-        "  /help, /quit, /new, /ctx, /save [name], /list, /switch id\n"
+        "  /help, /quit, /new, /ctx, /compact, /save [name], /list, /switch id\n"
         "  /del id, /strip [id], /load name, /sessions\n"
         "  /read PATH, /think, /nothink, /tools on|off\n");
 }
@@ -3178,6 +3526,7 @@ static void interactive_help(void) {
         "  /quit              Exit\n"
         "  /new               Start a new conversation\n"
         "  /ctx               Print token count and context size\n"
+        "  /compact           Compact the current context now\n"
         "  /save [name]       Save conversation\n"
         "  /list              List saved conversations\n"
         "  /switch id         Switch to a saved conversation\n"
@@ -3227,6 +3576,12 @@ static int handle_command(agent_state *a, char *line, char **message_out) {
                       a->transcript.len, a->cfg.ctx_size,
                       a->cfg.tools_enabled ? "on" : "off",
                       qw3_think_mode_name(a->cfg.think_mode));
+    } else if (!strcmp(line, "/compact")) {
+        char err[160] = {0};
+        if (!agent_compact_context(a, "manual /compact", err, sizeof(err))) {
+            agent_statusf(a, "agent: %s\n",
+                          err[0] ? err : "context compaction failed");
+        }
     } else if (!strncmp(line, "/save", 5)) {
         const char *name = line[5] == ' ' ? line + 6 : a->cfg.conversation;
         if (name && !name[0]) name = NULL;
