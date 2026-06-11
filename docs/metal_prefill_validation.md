@@ -5,6 +5,40 @@ Performance-only checks are not enough: every prefill optimization must preserve
 CPU/Metal final logits and greedy top-1 choices before it can be enabled by
 default.
 
+## 2026-06-11 MoE Fast-Layout Probe Notes
+
+Two DS4/llama.cpp-inspired MoE prefill probes were evaluated and not retained:
+
+- Pair-token side map: `qw3_moe_topk_expert_map` was temporarily extended to
+  write a `pair -> token` buffer, and `gate_up_pair_mpp` used it instead of
+  recomputing `pid / n_active` in the hot loop. It was logits-safe, but
+  `pp4096` dropped to 437.81 tok/s over 3 reps and the MoE profile still showed
+  `gate_up_pair_mpp` around 60-62 ms/layer. This confirms the bottleneck is not
+  the integer division/modulo bookkeeping.
+- Naive `NR0=128` gate/up pair tile: rejected before compile. The existing
+  128-thread tile loader only covers 64 A rows, and the B loader layout would
+  write past the current `NR1 x NK` RHS tile if thread count were simply raised.
+  A real 128-row tile needs a redesigned A/B cooperative load, not a constant
+  change.
+- Opt-in RHS packed prototype: a DS4-style compact RHS f16 buffer was tested
+  behind `QW3_METAL_MOE_PACK_RHS=1`. The first version exposed why agent tool
+  smoke tests are mandatory: the pack capacity missed per-expert block padding
+  and the pack kernel only wrote 256 of 2048 tile elements. After fixing both,
+  `make test-metal-logits` and an agent `write` tool smoke passed, but
+  corrected `pp4096` was 432.72 tok/s over 3 reps. The apparent earlier 550
+  tok/s was from the incomplete/invalid pack. Do not keep or promote this
+  version.
+
+Validation gates used after rollback:
+- `make test-metal-logits`: passed; Metal logits, greedy, and prefill batch
+  regression all OK.
+- Agent tool smoke: `qw3-agent --ctx 1600 --nothink -p ...` successfully called
+  the native `write` tool and created a temporary file with exact content.
+
+Next serious direction remains a real DS4-style fast-layout RHS path, but it
+must avoid repacking the whole 32x64 RHS tile for every layer in the naive way.
+Smaller bookkeeping changes are below the noise floor.
+
 Default safety policy:
 - `QW3_METAL_KV_Q8_0` is not part of the default validation path.
 - `QW3_METAL_KV_F16=1` enables an experimental f16 GQA KV cache. It is logits
