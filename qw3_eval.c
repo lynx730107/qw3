@@ -1611,14 +1611,14 @@ static eval_config parse_options(int argc, char **argv) {
     eval_config c = {
         .model_path = "ds4flash.gguf",
         .backend = default_backend(),
-        .max_tokens = 16000,
+        .max_tokens = 8000,
         .top_p = QW3_DEFAULT_TOP_P,
         .min_p = QW3_DEFAULT_MIN_P,
         .pause_ms = 350,
         .soft_limit_reply_budget = 1024,
         .hard_limit_reply_budget = 512,
         .soft_limit_think_close_rank = 3,
-        .think_mode = QW3_THINK_HIGH,
+        .think_mode = QW3_THINK_NONE,
     };
 
     for (int i = 1; i < argc; i++) {

@@ -1,0 +1,10 @@
+mela
+banana
+arancia
+uva
+fragola
+ciliegia
+mandarino
+limone
+pesca
+albicocca

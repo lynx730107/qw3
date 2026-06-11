@@ -14,8 +14,6 @@ Reference paths from this directory:
 - `..`: `ds4-main`, primary project reference for architecture, vertical coding
   style, runtime/session integration, CLI/server patterns, and Metal bring-up
   conventions.
-- `huggingface/`: local Hugging Face Qwen3.5-MoE implementation reference for
-  architecture details, tensor semantics, DeltaNet/GQA behavior, and differences
-  between HF grouped layout and GGUF/llama.cpp converted layout.
+-  
 
 Build with `make` from this directory, or `make qw3` from the parent directory.
