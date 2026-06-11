@@ -4852,7 +4852,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "    device float4 *x04 = (device float4 *)x0;\n"
             "    x04[gid] += sum;\n"
             "}\n"
-            "struct qw3_moe_prefill_batch_args { uint n_in; uint n_ff; uint n_embd; uint n_tokens; uint n_active; uint iq3_row_bytes; uint iq3_expert_bytes; uint down_row_bytes; uint down_expert_bytes; uint stride; uint hidden_offset; uint compact_blocks; };\n"
+            "struct qw3_moe_prefill_batch_args { uint n_in; uint n_ff; uint n_embd; uint n_tokens; uint n_active; uint iq3_row_bytes; uint iq3_expert_bytes; uint down_row_bytes; uint down_expert_bytes; uint stride; uint hidden_offset; uint compact_blocks; uint mid_preweighted; };\n"
             "kernel void qw3_moe_iq3_s_swiglu_prefill_batch_fast(constant qw3_moe_prefill_batch_args &args,\n"
             "                                                   device const uchar *gate_weights,\n"
             "                                                   device const uchar *up_weights,\n"
@@ -5547,6 +5547,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "                                                           device const uint *counts,\n"
             "                                                           device const int *pair_ids,\n"
             "                                                           device const uint *block_ids,\n"
+            "                                                           device const float *router_weights,\n"
             "                                                           threadgroup char *shmem [[threadgroup(0)]],\n"
             "                                                           uint3 group [[threadgroup_position_in_grid]],\n"
             "                                                           ushort tid [[thread_index_in_threadgroup]],\n"
@@ -5656,18 +5657,19 @@ static NSString *qw3_metal_kernel_source(void) {
             "        device float *dst = scratch + uint64_t(uint(pid)) * uint64_t(args.n_ff) + uint64_t(r0u);\n"
             "        threadgroup float *src_gate = sc + int(j) * NR0;\n"
             "        threadgroup float *src_up = sc + NR0 * NR1 + int(j) * NR0;\n"
+            "        float scale = args.mid_preweighted != 0u ? router_weights[uint(pid)] : 1.0f;\n"
             "        int i = int(tid & 31u);\n"
             "        device float4 *dst4 = (device float4 *)dst;\n"
             "        threadgroup float4 *gate4 = (threadgroup float4 *)src_gate;\n"
             "        threadgroup float4 *up4 = (threadgroup float4 *)src_up;\n"
             "        for (; i < nr0 / 4; i += 32) {\n"
             "            float4 g = gate4[i];\n"
-            "            dst4[i] = (g / (float4(1.0f) + exp(-g))) * up4[i];\n"
+            "            dst4[i] = ((g / (float4(1.0f) + exp(-g))) * up4[i]) * scale;\n"
             "        }\n"
             "        i = 4 * (nr0 / 4) + int(tid & 31u);\n"
             "        for (; i < nr0; i += 32) {\n"
             "            float g = src_gate[i];\n"
-            "            dst[i] = (g / (1.0f + exp(-g))) * src_up[i];\n"
+            "            dst[i] = ((g / (1.0f + exp(-g))) * src_up[i]) * scale;\n"
             "        }\n"
             "    }\n"
             "}\n"
@@ -5828,7 +5830,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "        int pid = pair_ids[map_base + uint(j)];\n"
             "        device float *dst = down_slots + uint64_t(uint(pid)) * uint64_t(args.n_embd) + uint64_t(r0u);\n"
             "        threadgroup float *src = ((threadgroup float *)shmem) + int(j) * NR0;\n"
-            "        float scale = router_weights[uint(pid)];\n"
+            "        float scale = args.mid_preweighted != 0u ? 1.0f : router_weights[uint(pid)];\n"
             "        int i = int(tid & 31u);\n"
             "        device float4 *dst4 = (device float4 *)dst;\n"
             "        threadgroup float4 *src4 = (threadgroup float4 *)src;\n"
@@ -6033,7 +6035,7 @@ static NSString *qw3_metal_kernel_source(void) {
             "        int pid = pair_ids[map_base + uint(j)];\n"
             "        device float *dst = down_slots + uint64_t(uint(pid)) * uint64_t(args.n_embd) + uint64_t(r0u);\n"
             "        threadgroup float *src = sc + int(j) * NR0;\n"
-            "        float scale = router_weights[uint(pid)];\n"
+            "        float scale = args.mid_preweighted != 0u ? 1.0f : router_weights[uint(pid)];\n"
             "        int i = int(tid & 31u);\n"
             "        device float4 *dst4 = (device float4 *)dst;\n"
             "        threadgroup float4 *src4 = (threadgroup float4 *)src;\n"
@@ -13027,6 +13029,8 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     const int use_mapped_moe = use_mapped_gateup || use_mapped_down;
     const int use_compact_moe_blocks =
         use_mapped_moe && getenv("QW3_METAL_MOE_BLOCKS_DISABLE") == NULL;
+    const int use_mapped_mid_preweighted =
+        use_mapped_gateup_pair_mpp && use_mapped_mid_f32_mpp;
     if (!obj.prefillX0 || !obj.prefillX1 || !obj.prefillScratch ||
         obj.prefillX0.length < x_bytes || obj.prefillX1.length < x_bytes ||
         obj.prefillScratch.length < scratch_bytes ||
@@ -13089,11 +13093,13 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         uint32_t stride;
         uint32_t hidden_offset;
         uint32_t compact_blocks;
+        uint32_t mid_preweighted;
     } args = {
         n_embd, n_ff, n_embd, n_tokens, n_active,
         (uint32_t)iq3_row_bytes, (uint32_t)iq3_expert_bytes,
         (uint32_t)down_row_bytes, (uint32_t)down_expert_bytes,
-        stride, hidden_offset, (uint32_t)use_compact_moe_blocks
+        stride, hidden_offset, (uint32_t)use_compact_moe_blocks,
+        (uint32_t)use_mapped_mid_preweighted
     };
 
     int owned = 0;
@@ -13116,7 +13122,8 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
             const double profile_prefill_moe_t1 = [NSDate timeIntervalSinceReferenceDate]; \
             fprintf(stderr,                                                         \
                     "qw3 metal prefill moe stage tokens=%u active=%u down_type=%u " \
-                    "mapped=%u/%u pair=%u gate_mpp=%u mid=%s compact=%u stage=%s ms=%.3f\n", \
+                    "mapped=%u/%u pair=%u gate_mpp=%u mid=%s compact=%u "          \
+                    "prew=%u stage=%s ms=%.3f\n",                                 \
                     n_tokens, n_active, down_type,                                  \
                     (uint32_t)use_mapped_gateup, (uint32_t)use_mapped_down,         \
                     (uint32_t)use_mapped_gateup_pair,                               \
@@ -13125,7 +13132,9 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                     use_mapped_mid_f16_mpp ? "f16_mpp" :                            \
                     use_mapped_mid_f16 ? "f16" :                                    \
                     (use_mapped_mid_f32 ? "f32c" : "f32"),                         \
-                    (uint32_t)use_compact_moe_blocks, (stage_name),                 \
+                    (uint32_t)use_compact_moe_blocks,                               \
+                    (uint32_t)use_mapped_mid_preweighted,                           \
+                    (stage_name),                                                   \
                     (profile_prefill_moe_t1 - profile_prefill_moe_t0) * 1000.0);    \
             if (profile_prefill_moe_batched &&                                      \
                 !(profile_prefill_moe_concurrent ?                                  \
@@ -13181,6 +13190,9 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         [enc setBuffer:obj.moeExpertCounts offset:0 atIndex:6];
         [enc setBuffer:obj.moePairIds offset:0 atIndex:7];
         [enc setBuffer:obj.moeBlockIds offset:0 atIndex:8];
+        if (use_mapped_gateup_pair_mpp) {
+            [enc setBuffer:obj.routerWeights offset:0 atIndex:9];
+        }
         [enc setThreadgroupMemoryLength:16384u atIndex:0];
         if (use_compact_moe_blocks) {
             [enc dispatchThreadgroupsWithIndirectBuffer:obj.moeBlockDispatchFF

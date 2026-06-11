@@ -36,6 +36,10 @@ Default safety policy:
 - Q6_K expert-down prefill uses a Metal4 TensorOps mapped MPP kernel when
   available. Set `QW3_METAL_MOE_Q6_MPP_DISABLE=1` for the legacy mapped Q6_K
   comparison path.
+- IQ4_XS MoE pair-MPP preweights the activated mid buffer with router weights
+  before expert-down when the mapped f32 down MPP path is active. This keeps
+  the algebra equivalent while moving the scale out of the larger `n_embd`
+  down-output store.
 - GQA batch prefill fuses RMSNorm, Q gate copy, and RoPE by default. Set
   `QW3_METAL_GQA_NORM_ROPE_SPLIT=1` for the legacy split-kernel comparison.
 - GQA cached prefill attention uses the llama/ds4 FlashAttention kernel by
@@ -110,6 +114,27 @@ env QW3_METAL_PREFILL_TEST_TOKENS=64 ./qw3-metal \
   -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 1024 \
   --metal-session-prefill-q8-batch-test 66
 ```
+
+## 2026-06-11 MoE Mid Preweight
+
+The IQ4_XS MoE pair-MPP path now applies `router_weights[pair]` while writing
+the activated f32 mid buffer, and the mapped f32 down MPP path skips the same
+scale on its `down_slots` output. This is equivalent because the expert-down
+projection is linear, but it moves the multiply from `n_embd` outputs per
+token/expert pair to `n_ff` mid values.
+
+Validation:
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- `./qw3-bench-metal -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx-alloc 16000 --llama-style -p 4096 -n 0 -r 3 --no-warmup`
+
+Observed result on Apple M5:
+- `pp4096`: 441.89 tok/s over 3 repetitions, stdev 5.85.
+
+Rejected probe:
+- Direct atomic accumulation from down MPP into `x0` passed logits, but removed
+  the reduce kernel without a stable end-to-end win (`pp4096` stayed around
+  444-446 tok/s). Do not pursue that atomic path as the next optimization.
 
 ## 2026-06-06 GQA FlashAttention Prefill Default
 
