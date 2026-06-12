@@ -1440,6 +1440,97 @@ static void infer_tool_name_from_params(tool_call *call) {
     }
 }
 
+static const char *native_shorthand_tools[] = {
+    "read", "more", "list", "get_skeleton", "get_function", "get_fucttion",
+    "semantic_search", "search", "write", "edit", "bash",
+};
+
+static bool native_tool_name_is_known(const char *name, size_t len) {
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+        if (strlen(native_shorthand_tools[i]) == len &&
+            !strncmp(native_shorthand_tools[i], name, len)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void clear_tool_call(tool_call *call) {
+    if (!call) return;
+    for (int i = 0; i < call->n_params; i++) free(call->params[i].value);
+    memset(call, 0, sizeof(*call));
+}
+
+static void parse_native_xml_params(const char *q, const char *end,
+                                    tool_call *call) {
+    while (q < end && call->n_params < 16) {
+        const char *pa = strstr(q, QWEN_XML_PARAMETER_BEGIN);
+        if (!pa || pa >= end) break;
+        const char *pa_name = pa + strlen(QWEN_XML_PARAMETER_BEGIN);
+        const char *pa_gt = strchr(pa_name, '>');
+        if (!pa_gt || pa_gt >= end) break;
+        const char *pa_end = strstr(pa_gt + 1, QWEN_XML_PARAMETER_END);
+        if (!pa_end || pa_end > end) break;
+        tool_param *tp = &call->params[call->n_params++];
+        snprintf(tp->name, sizeof(tp->name), "%.*s",
+                 (int)(pa_gt - pa_name), pa_name);
+        const char *val = pa_gt + 1;
+        while (val < pa_end && (*val == '\n' || *val == '\r')) val++;
+        const char *val_end = pa_end;
+        while (val_end > val && (val_end[-1] == '\n' || val_end[-1] == '\r')) {
+            val_end--;
+        }
+        tp->value = xml_unescape(val, (size_t)(val_end - val));
+        q = pa_end + strlen(QWEN_XML_PARAMETER_END);
+    }
+}
+
+static int parse_native_shorthand_tool_calls(const char *text,
+                                             tool_call_list *out) {
+    const char *p = text ? text : "";
+    while (out->n_calls < 8) {
+        const char *best = NULL;
+        const char *best_name = NULL;
+        size_t best_name_len = 0;
+        for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+            char marker[64];
+            snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
+            const char *hit = strstr(p, marker);
+            if (hit && (!best || hit < best)) {
+                best = hit;
+                best_name = native_shorthand_tools[i];
+                best_name_len = strlen(native_shorthand_tools[i]);
+            }
+        }
+        if (!best) break;
+
+        const char *body = strchr(best, '>');
+        if (!body) break;
+        body++;
+
+        char close_tag[80];
+        snprintf(close_tag, sizeof(close_tag), "</%.*s>",
+                 (int)best_name_len, best_name);
+        const char *body_end = strstr(body, QWEN_XML_TOOL_CALL_END);
+        const char *tag_end = strstr(body, close_tag);
+        if (tag_end && (!body_end || tag_end < body_end)) body_end = tag_end;
+        if (!body_end) break;
+
+        tool_call *call = &out->calls[out->n_calls];
+        snprintf(call->name, sizeof(call->name), "%.*s",
+                 (int)best_name_len, best_name);
+        parse_native_xml_params(body, body_end, call);
+        infer_tool_name_from_params(call);
+        if (call->name[0] && call->n_params > 0) {
+            out->n_calls++;
+        } else {
+            clear_tool_call(call);
+        }
+        p = body_end + 1;
+    }
+    return out->n_calls;
+}
+
 static void parse_jsonish_params_object(const char *start, const char *end,
                                         tool_call *call) {
     const char *p = start;
@@ -1525,48 +1616,46 @@ static int parse_native_tool_calls(const char *text, tool_call_list *out) {
         const char *body = start + start_len;
         const char *body_end = close;
         body = skip_space(body, body_end);
-        if ((size_t)(body_end - body) < strlen(QWEN_XML_FUNCTION_BEGIN) ||
-            strncmp(body, QWEN_XML_FUNCTION_BEGIN,
-                    strlen(QWEN_XML_FUNCTION_BEGIN)) != 0) {
-            p = close + end_len;
-            continue;
-        }
-        body += strlen(QWEN_XML_FUNCTION_BEGIN);
-        const char *name_start = body;
-        const char *name_end = strchr(body, '>');
-        if (!name_end || name_end >= body_end) {
-            p = close + end_len;
-            continue;
-        }
-        const char *fn_end = strstr(name_end + 1, QWEN_XML_FUNCTION_END);
-        if (!fn_end || fn_end > body_end) fn_end = body_end;
         tool_call *call = &out->calls[out->n_calls];
-        snprintf(call->name, sizeof(call->name), "%.*s",
-                 (int)(name_end - name_start), name_start);
-
-        const char *q = name_end + 1;
-        while (q < fn_end && call->n_params < 16) {
-            const char *pa = strstr(q, QWEN_XML_PARAMETER_BEGIN);
-            if (!pa || pa >= fn_end) break;
-            const char *pa_name = pa + strlen(QWEN_XML_PARAMETER_BEGIN);
-            const char *pa_gt = strchr(pa_name, '>');
-            if (!pa_gt || pa_gt >= fn_end) break;
-            const char *pa_end = strstr(pa_gt + 1, QWEN_XML_PARAMETER_END);
-            if (!pa_end || pa_end > fn_end) break;
-            tool_param *tp = &call->params[call->n_params++];
-            snprintf(tp->name, sizeof(tp->name), "%.*s",
-                     (int)(pa_gt - pa_name), pa_name);
-            const char *val = pa_gt + 1;
-            while (val < pa_end && (*val == '\n' || *val == '\r')) val++;
-            const char *val_end = pa_end;
-            while (val_end > val && (val_end[-1] == '\n' || val_end[-1] == '\r')) {
-                val_end--;
+        const char *q = body;
+        const char *fn_end = body_end;
+        if ((size_t)(body_end - body) >= strlen(QWEN_XML_FUNCTION_BEGIN) &&
+            strncmp(body, QWEN_XML_FUNCTION_BEGIN,
+                    strlen(QWEN_XML_FUNCTION_BEGIN)) == 0) {
+            body += strlen(QWEN_XML_FUNCTION_BEGIN);
+            const char *name_start = body;
+            const char *name_end = strchr(body, '>');
+            if (!name_end || name_end >= body_end) {
+                p = close + end_len;
+                continue;
             }
-            tp->value = xml_unescape(val, (size_t)(val_end - val));
-            q = pa_end + strlen(QWEN_XML_PARAMETER_END);
+            snprintf(call->name, sizeof(call->name), "%.*s",
+                     (int)(name_end - name_start), name_start);
+            fn_end = strstr(name_end + 1, QWEN_XML_FUNCTION_END);
+            if (!fn_end || fn_end > body_end) fn_end = body_end;
+            q = name_end + 1;
+        } else if (body < body_end && *body == '<' && body + 1 < body_end &&
+                   body[1] != '/' &&
+                   strncmp(body + 1, "parameter=", strlen("parameter=")) != 0) {
+            const char *tag_end = strchr(body + 1, '>');
+            if (tag_end && tag_end < body_end &&
+                native_tool_name_is_known(body + 1, (size_t)(tag_end - body - 1))) {
+                snprintf(call->name, sizeof(call->name), "%.*s",
+                         (int)(tag_end - body - 1), body + 1);
+                q = tag_end + 1;
+            }
         }
-        out->n_calls++;
+        parse_native_xml_params(q, fn_end, call);
+        infer_tool_name_from_params(call);
+        if (call->name[0] && call->n_params > 0) {
+            out->n_calls++;
+        } else {
+            clear_tool_call(call);
+        }
         p = close + end_len;
+    }
+    if (out->n_calls == 0) {
+        (void)parse_native_shorthand_tool_calls(text, out);
     }
     if (out->n_calls == 0) {
         (void)parse_jsonish_tool_call(text, out);
@@ -2562,6 +2651,18 @@ static bool text_has_jsonish_tool_call(const char *text) {
     return n > 0;
 }
 
+static const char *native_shorthand_tool_marker(const char *text) {
+    const char *best = NULL;
+    if (!text) return NULL;
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+        char marker[64];
+        snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
+        const char *hit = strstr(text, marker);
+        if (hit && (!best || hit < best)) best = hit;
+    }
+    return best;
+}
+
 static bool partial_marker_after_space(const char *text, size_t len,
                                        const char *marker) {
     size_t off = 0;
@@ -2579,6 +2680,11 @@ static bool should_hold_tool_candidate(const char *text, size_t len,
     if (partial_marker_after_space(text, len, DSML_BEGIN) ||
         partial_marker_after_space(text, len, QWEN_XML_TOOL_CALL_BEGIN)) {
         return true;
+    }
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+        char marker[64];
+        snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
+        if (partial_marker_after_space(text, len, marker)) return true;
     }
 
     const char *end = text + len;
@@ -2599,8 +2705,10 @@ static bool should_suppress_jsonish_tool_call(const char *text, size_t len) {
 
 static bool generated_has_complete_tool_call(const char *text) {
     if (!text) return false;
+    const char *native_short = native_shorthand_tool_marker(text);
     return strstr(text, DSML_END) ||
            strstr(text, QWEN_XML_TOOL_CALL_END) ||
+           (native_short && strstr(native_short, QWEN_XML_PARAMETER_END)) ||
            text_has_jsonish_tool_call(text);
 }
 
@@ -2618,15 +2726,24 @@ static size_t marker_suffix_hold_len(const char *text, size_t len,
 static size_t tool_marker_suffix_hold_len(const char *text, size_t len) {
     size_t a = marker_suffix_hold_len(text, len, DSML_BEGIN);
     size_t b = marker_suffix_hold_len(text, len, QWEN_XML_TOOL_CALL_BEGIN);
-    return a > b ? a : b;
+    size_t best = a > b ? a : b;
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+        char marker[64];
+        snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
+        size_t n = marker_suffix_hold_len(text, len, marker);
+        if (n > best) best = n;
+    }
+    return best;
 }
 
 static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
     const char *dsml = ctx->text.p ? strstr(ctx->text.p, DSML_BEGIN) : NULL;
     const char *native = ctx->text.p ? strstr(ctx->text.p, QWEN_XML_TOOL_CALL_BEGIN) : NULL;
+    const char *native_short = native_shorthand_tool_marker(ctx->text.p);
     const char *hidden = NULL;
     if (dsml && native) hidden = dsml < native ? dsml : native;
     else hidden = dsml ? dsml : native;
+    if (native_short && (!hidden || native_short < hidden)) hidden = native_short;
     size_t limit = 0;
     if (hidden) {
         size_t hidden_off = (size_t)(hidden - ctx->text.p);
