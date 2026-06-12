@@ -659,6 +659,33 @@ Observed results:
 Conclusion: keep this patch. The next MoE target is the down projection, then
 larger llama.cpp-style orchestration around `MUL_MAT_ID`-like blocks.
 
+## 2026-06-12 IQ4_XS 4x4 Dequant For MoE Down MPP
+
+The default IQ4_XS down-projection MPP path now dequantizes each selected
+half-block as a 4x4 group before loading it into the tensor matmul tile. This
+matches the successful gate/up cleanup shape and keeps the existing compact
+expert/token map and f32 mid buffer.
+
+Validation:
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- No-garbage prompt: `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 96`
+  generated coherent English diff analysis.
+- Agent tool smoke: `./qw3-agent ... --ctx 1600 --nothink -p 'Crea il file /tmp/qw3_agent_tool_smoke.txt ...'`
+  called `[tool] write` and wrote `tool-ok`.
+
+Observed results:
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` at `pp512`: `down_mpp`
+  improved to 391.633 ms total over 40 layers, 9.791 ms/layer. The previous
+  post-IQ3-gate/up value was about 10.575 ms/layer.
+- `gate_up_pair_mpp` stayed stable at 6.314 ms/layer.
+- `pp4096`, `ctx=16000`, 3 repetitions, no warmup: 515.13 tok/s, stdev
+  8.62, 7952.93 ms average.
+- `prompt_perf.txt` prefill: 6399 tokens in 14660.1 ms, 436.49 tok/s.
+
+Conclusion: keep this patch. It is a smaller win than the IQ3_S gate/up 4x4
+dequant, but it moves the current MoE bottleneck in the right direction.
+
 ## 2026-06-05 Llama-Style Bench Guardrail
 
 `qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
