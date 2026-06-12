@@ -20,6 +20,8 @@
 #endif
 
 #define QW3_CLI_N_LAYER 40
+#define QW3_CLI_REPEAT_PENALTY_DEFAULT 1.06f
+#define QW3_CLI_REPEAT_LAST_N_DEFAULT 1024
 
 typedef struct
 {
@@ -33,8 +35,15 @@ typedef struct
     int sample_top_k;
     float top_p;
     float min_p;
+    float repeat_penalty;
+    int repeat_last_n;
     uint64_t rng;
 } sample_opts;
+
+static int sample_with_repetition(qw3_session *session, sample_opts *sample,
+                                  const qw3_tokens *context,
+                                  const qw3_tokens *generated,
+                                  int *repeat_buf);
 
 static int utf8_read_cp(const char *s, size_t len, size_t *pos, uint32_t *cp)
 {
@@ -347,6 +356,8 @@ static int dump_logprobs(qw3_engine *engine, const qw3_tokens *prompt,
     fprintf(fp, "  \"sample_top_k\":%d,\n", sample->sample_top_k);
     fprintf(fp, "  \"top_p\":%.8g,\n", sample->top_p);
     fprintf(fp, "  \"min_p\":%.8g,\n", sample->min_p);
+    fprintf(fp, "  \"repeat_penalty\":%.8g,\n", sample->repeat_penalty);
+    fprintf(fp, "  \"repeat_last_n\":%d,\n", sample->repeat_last_n);
     fprintf(fp, "  \"prompt_tokens\":[");
     for (int i = 0; i < prompt->len; i++)
     {
@@ -357,6 +368,18 @@ static int dump_logprobs(qw3_engine *engine, const qw3_tokens *prompt,
     fprintf(fp, "],\n  \"steps\":[\n");
 
     const int eos = qw3_token_eos(engine);
+    qw3_tokens generated = {0};
+    int *repeat_buf = NULL;
+    if (sample->repeat_last_n > 0 && sample->repeat_penalty > 1.0f)
+    {
+        repeat_buf = malloc((size_t)sample->repeat_last_n * sizeof(*repeat_buf));
+        if (!repeat_buf)
+        {
+            fclose(fp);
+            qw3_session_free(session);
+            return -1;
+        }
+    }
     for (int step = 0; step < n_predict; step++)
     {
         qw3_token_score *scores = calloc((size_t)top_k, sizeof(*scores));
@@ -367,14 +390,14 @@ static int dump_logprobs(qw3_engine *engine, const qw3_tokens *prompt,
             return -1;
         }
         int n = qw3_session_top_logprobs(session, scores, top_k);
-        int selected = qw3_session_sample(session, sample->temperature,
-                                          sample->sample_top_k,
-                                          sample->top_p, sample->min_p,
-                                          &sample->rng);
+        int selected = sample_with_repetition(session, sample, prompt,
+                                              &generated, repeat_buf);
         if (selected < 0)
         {
             fprintf(stderr, "qw3: dump-logprobs sampling failed\n");
             free(scores);
+            free(repeat_buf);
+            qw3_tokens_free(&generated);
             fclose(fp);
             qw3_session_free(session);
             return -1;
@@ -396,14 +419,19 @@ static int dump_logprobs(qw3_engine *engine, const qw3_tokens *prompt,
         free(scores);
         if (selected == eos)
             break;
+        qw3_tokens_push(&generated, selected);
         if (qw3_session_eval(session, selected, err, sizeof(err)) != 0)
         {
             fprintf(stderr, "qw3: dump-logprobs eval failed: %s\n", err);
+            free(repeat_buf);
+            qw3_tokens_free(&generated);
             fclose(fp);
             qw3_session_free(session);
             return -1;
         }
     }
+    free(repeat_buf);
+    qw3_tokens_free(&generated);
     fprintf(fp, "\n  ]\n}\n");
     fclose(fp);
     qw3_session_free(session);
@@ -411,27 +439,46 @@ static int dump_logprobs(qw3_engine *engine, const qw3_tokens *prompt,
 }
 
 static int generate_from_session(qw3_engine *engine, qw3_session *session,
+                                 const qw3_tokens *repeat_context,
                                  int n_predict, emit_ctx *emit,
                                  sample_opts *sample)
 {
     char err[256] = {0};
     const int eos = qw3_token_eos(engine);
+    qw3_tokens local_generated = {0};
+    qw3_tokens *generated = (emit && emit->capture) ? emit->capture : &local_generated;
+    int *repeat_buf = NULL;
+    if (sample && sample->repeat_last_n > 0 && sample->repeat_penalty > 1.0f)
+    {
+        repeat_buf = malloc((size_t)sample->repeat_last_n * sizeof(*repeat_buf));
+        if (!repeat_buf)
+            return -1;
+    }
     for (int i = 0; i < n_predict; i++)
     {
-        int token = qw3_session_sample(session, sample->temperature,
-                                       sample->sample_top_k, sample->top_p,
-                                       sample->min_p, &sample->rng);
+        int token = sample_with_repetition(session, sample, repeat_context,
+                                           generated, repeat_buf);
         if (token < 0)
+        {
+            free(repeat_buf);
+            qw3_tokens_free(&local_generated);
             return -1;
+        }
         if (token == eos)
             break;
         emit_token(emit, token);
+        if (!emit || !emit->capture)
+            qw3_tokens_push(&local_generated, token);
         if (qw3_session_eval(session, token, err, sizeof(err)) != 0)
         {
             fprintf(stderr, "qw3: generation step failed: %s\n", err);
+            free(repeat_buf);
+            qw3_tokens_free(&local_generated);
             return -1;
         }
     }
+    free(repeat_buf);
+    qw3_tokens_free(&local_generated);
     emit_done(emit);
     return 0;
 }
@@ -450,6 +497,8 @@ static int cli_public_option_takes_value(const char *arg)
            !strcmp(arg, "--sample-top-k") ||
            !strcmp(arg, "--top-p") ||
            !strcmp(arg, "--min-p") ||
+           !strcmp(arg, "--repeat-penalty") ||
+           !strcmp(arg, "--repeat-last-n") ||
            !strcmp(arg, "--seed") ||
            !strcmp(arg, "--ctx") ||
            !strcmp(arg, "--ngl") ||
@@ -517,6 +566,46 @@ static void append_generated_assistant(qw3_engine *engine, qw3_tokens *transcrip
     }
 }
 
+static int sample_with_repetition(qw3_session *session, sample_opts *sample,
+                                  const qw3_tokens *context,
+                                  const qw3_tokens *generated,
+                                  int *repeat_buf)
+{
+    const int repeat_last_n = sample ? sample->repeat_last_n : 0;
+    if (!sample || repeat_last_n <= 0 || sample->repeat_penalty <= 1.0f ||
+        !repeat_buf)
+    {
+        return qw3_session_sample(session, sample ? sample->temperature : 0.0f,
+                                  sample ? sample->sample_top_k : 0,
+                                  sample ? sample->top_p : 1.0f,
+                                  sample ? sample->min_p : 0.0f,
+                                  sample ? &sample->rng : NULL);
+    }
+
+    int gen_len = generated ? generated->len : 0;
+    int gen_take = gen_len;
+    if (gen_take > repeat_last_n)
+        gen_take = repeat_last_n;
+    int ctx_take = repeat_last_n - gen_take;
+    int ctx_len = context ? context->len : 0;
+    if (ctx_take > ctx_len)
+        ctx_take = ctx_len;
+    if (ctx_take > 0)
+    {
+        memcpy(repeat_buf, context->v + (ctx_len - ctx_take),
+               (size_t)ctx_take * sizeof(*repeat_buf));
+    }
+    if (gen_take > 0)
+    {
+        memcpy(repeat_buf + ctx_take, generated->v + (gen_len - gen_take),
+               (size_t)gen_take * sizeof(*repeat_buf));
+    }
+    return qw3_session_sample_repetition(
+        session, sample->temperature, sample->sample_top_k, sample->top_p,
+        sample->min_p, &sample->rng, repeat_buf, ctx_take + gen_take,
+        sample->repeat_penalty);
+}
+
 static int generate_chat_turn(qw3_engine *engine, qw3_backend backend,
                               qw3_session *session, qw3_tokens *transcript,
                               int ctx_size, int n_predict,
@@ -532,7 +621,10 @@ static int generate_chat_turn(qw3_engine *engine, qw3_backend backend,
     qw3_chat_append_assistant_prefix(engine, transcript, think_mode);
 
     int rc = -1;
-    if (backend == QW3_BACKEND_METAL)
+    bool use_session_sampling = sample->temperature > 0.0f &&
+                                sample->repeat_last_n > 0 &&
+                                sample->repeat_penalty > 1.0f;
+    if (backend == QW3_BACKEND_METAL && !use_session_sampling)
     {
         if (sample->temperature > 0.0f)
         {
@@ -551,7 +643,8 @@ static int generate_chat_turn(qw3_engine *engine, qw3_backend backend,
     }
     else if (qw3_session_sync(session, transcript, err, sizeof(err)) == 0)
     {
-        rc = generate_from_session(engine, session, n_predict, &emit, sample);
+        rc = generate_from_session(engine, session, transcript, n_predict,
+                                   &emit, sample);
     }
     else
     {
@@ -585,10 +678,9 @@ static int interactive_chat(qw3_engine *engine, qw3_backend backend,
                             sample_opts *sample)
 {
     qw3_session *session = NULL;
-    if (backend != QW3_BACKEND_METAL &&
-        qw3_session_create(&session, engine, ctx_size) != 0)
+    if (qw3_session_create(&session, engine, ctx_size) != 0)
     {
-        fprintf(stderr, "qw3: cannot create CPU chat session\n");
+        fprintf(stderr, "qw3: cannot create chat session\n");
         return 1;
     }
 
@@ -725,6 +817,10 @@ static void usage(void)
             "              Sampling top-k (default: 40, 0 = full vocab)\n"
             "  --top-p N    Sampling nucleus top-p (default: 0.95)\n"
             "  --min-p N    Sampling min-p relative floor (default: 0)\n"
+            "  --repeat-penalty N\n"
+            "              Sampling repetition penalty (default: 1.06, 1 disables)\n"
+            "  --repeat-last-n N\n"
+            "              Recent prompt/generated tokens to penalize (default: 1024)\n"
             "  --seed N     Sampling seed (default: fixed)\n"
             "  --ctx N      Context size (default: 32768)\n"
             "  --ngl N      Metal layers to keep on GPU, 0..40 (default: 40)\n"
@@ -929,6 +1025,8 @@ int main(int argc, char **argv)
         .sample_top_k = 40,
         .top_p = 0.95f,
         .min_p = 0.0f,
+        .repeat_penalty = QW3_CLI_REPEAT_PENALTY_DEFAULT,
+        .repeat_last_n = QW3_CLI_REPEAT_LAST_N_DEFAULT,
         .rng = 0x123456789abcdef0ull,
     };
 #ifdef QW3_NO_METAL
@@ -1104,6 +1202,14 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--min-p") == 0 && i + 1 < argc)
         {
             sample.min_p = strtof(argv[++i], NULL);
+        }
+        else if (strcmp(argv[i], "--repeat-penalty") == 0 && i + 1 < argc)
+        {
+            sample.repeat_penalty = strtof(argv[++i], NULL);
+        }
+        else if (strcmp(argv[i], "--repeat-last-n") == 0 && i + 1 < argc)
+        {
+            sample.repeat_last_n = atoi(argv[++i]);
         }
         else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc)
         {
@@ -1863,7 +1969,8 @@ int main(int argc, char **argv)
                 load_session_path, (unsigned long long)bytes,
                 qw3_session_pos(session));
         emit_ctx emit = {.engine = engine};
-        int gen_rc = generate_from_session(engine, session, n_predict, &emit, &sample);
+        int gen_rc = generate_from_session(engine, session, NULL, n_predict,
+                                           &emit, &sample);
         qw3_session_free(session);
         if (gen_rc != 0)
         {
@@ -2710,7 +2817,10 @@ int main(int argc, char **argv)
 
         qw3_encode_chat_prompt(engine, system_prompt, prompt, think_mode, &tokens);
         int gen_rc = -1;
-        if (backend == QW3_BACKEND_METAL)
+        bool use_session_sampling = sample.temperature > 0.0f &&
+                                    sample.repeat_last_n > 0 &&
+                                    sample.repeat_penalty > 1.0f;
+        if (backend == QW3_BACKEND_METAL && !use_session_sampling)
         {
             if (sample.temperature > 0.0f)
             {
@@ -2730,7 +2840,8 @@ int main(int argc, char **argv)
         else if (qw3_session_create(&session, engine, ctx_size) == 0 &&
                  qw3_session_sync(session, &tokens, err, sizeof(err)) == 0)
         {
-            gen_rc = generate_from_session(engine, session, n_predict, &emit, &sample);
+            gen_rc = generate_from_session(engine, session, &tokens, n_predict,
+                                           &emit, &sample);
         }
         else
         {

@@ -43,6 +43,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#define QW3_EVAL_REPEAT_PENALTY_DEFAULT 1.06f
+#define QW3_EVAL_REPEAT_LAST_N_DEFAULT 1024
+
 #define ANSI_RESET "\x1b[0m"
 #define ANSI_DIM "\x1b[90m"
 #define ANSI_RED "\x1b[31m"
@@ -1201,6 +1204,8 @@ typedef struct {
     float temperature;
     float top_p;
     float min_p;
+    float repeat_penalty;
+    int repeat_last_n;
     uint64_t seed;
     int pause_ms;
     int soft_limit_reply_budget;
@@ -1586,6 +1591,8 @@ static void usage(FILE *fp) {
         "  --temp F               Sampling temperature. Default: 0\n"
         "  --top-p F              Nucleus sampling probability. Default: 1\n"
         "  --min-p F              Keep tokens scoring at least F times the top token. Default: 0.05\n"
+        "  --repeat-penalty F     Repetition penalty. Default: 1.06, use 1 to disable\n"
+        "  --repeat-last-n N      Recent prompt/generated tokens to penalize. Default: 1024\n"
         "  --seed N               Sampling seed. Default: time-based\n"
         "  --trace FILE           Write questions, outputs, and grading decisions.\n"
         "  --regrade-trace FILE   Regrade a prior --trace file without loading the model.\n"
@@ -1614,6 +1621,8 @@ static eval_config parse_options(int argc, char **argv) {
         .max_tokens = 8000,
         .top_p = QW3_DEFAULT_TOP_P,
         .min_p = QW3_DEFAULT_MIN_P,
+        .repeat_penalty = QW3_EVAL_REPEAT_PENALTY_DEFAULT,
+        .repeat_last_n = QW3_EVAL_REPEAT_LAST_N_DEFAULT,
         .pause_ms = 350,
         .soft_limit_reply_budget = 1024,
         .hard_limit_reply_budget = 512,
@@ -1640,6 +1649,10 @@ static eval_config parse_options(int argc, char **argv) {
             c.top_p = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
         } else if (!strcmp(arg, "--min-p")) {
             c.min_p = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
+        } else if (!strcmp(arg, "--repeat-penalty")) {
+            c.repeat_penalty = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 1.0f, 100.0f);
+        } else if (!strcmp(arg, "--repeat-last-n")) {
+            c.repeat_last_n = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--seed")) {
             c.seed = parse_u64_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--trace")) {
@@ -2530,6 +2543,8 @@ static void trace_write_header(FILE *trace, const eval_config *cfg, int ncases, 
             "temperature: %.6g\n"
             "top_p: %.6g\n"
             "min_p: %.6g\n"
+            "repeat_penalty: %.6g\n"
+            "repeat_last_n: %d\n"
             "seed: %llu\n"
             "think_mode_requested: %s\n"
             "soft_limit_reply_budget: %d\n"
@@ -2546,6 +2561,8 @@ static void trace_write_header(FILE *trace, const eval_config *cfg, int ncases, 
             cfg->temperature,
             cfg->top_p,
             cfg->min_p,
+            cfg->repeat_penalty,
+            cfg->repeat_last_n,
             (unsigned long long)cfg->seed,
             qw3_think_mode_name(cfg->think_mode),
             cfg->soft_limit_reply_budget,
@@ -2588,6 +2605,8 @@ static void trace_write_case(FILE *trace,
             "temperature: %.6g\n"
             "top_p: %.6g\n"
             "min_p: %.6g\n"
+            "repeat_penalty: %.6g\n"
+            "repeat_last_n: %d\n"
             "think_mode_effective: %s\n",
             idx + 1, ncases, tc->source, tc->id,
             (long long)time(NULL),
@@ -2604,6 +2623,8 @@ static void trace_write_case(FILE *trace,
             cfg->temperature,
             cfg->top_p,
             cfg->min_p,
+            cfg->repeat_penalty,
+            cfg->repeat_last_n,
             qw3_think_mode_name(effective_think_mode));
     if (think_close && think_close->kind != EVAL_THINK_CLOSE_NONE) {
         fprintf(trace,
@@ -3460,6 +3481,8 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
     qw3_session_set_progress(session, NULL, NULL);
     int prompt_tokens = prompt.len;
     ui->prompt_tokens[idx] = prompt_tokens;
+    qw3_tokens repeat_context = {0};
+    qw3_tokens_copy(&repeat_context, &prompt);
     qw3_tokens_free(&prompt);
 
     tui_consume_input(ui);
@@ -3472,6 +3495,7 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
         trace_write_case(trace, cfg, tc, idx, ui->ncases, "STOPPED", NULL,
                          system, question, "", think_mode, prompt_tokens, 0, 0.0, "?", NULL);
         free(question);
+        qw3_tokens_free(&repeat_context);
         return EVAL_RUN_QUIT;
     }
     if (tui_has_switch_request(ui, idx)) {
@@ -3481,6 +3505,7 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
         trace_write_case(trace, cfg, tc, idx, ui->ncases, "SWITCHED", NULL,
                          system, question, "", think_mode, prompt_tokens, 0, 0.0, "?", NULL);
         free(question);
+        qw3_tokens_free(&repeat_context);
         return EVAL_RUN_SWITCH;
     }
 
@@ -3489,6 +3514,18 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
     ui->phase_start_sec = now_sec();
     ui->speed_tps = 0.0;
     byte_buf raw = {0};
+    qw3_tokens generated_tokens = {0};
+    int *repeat_buf = NULL;
+    if (cfg->repeat_last_n > 0 && cfg->repeat_penalty > 1.0f) {
+        repeat_buf = malloc((size_t)cfg->repeat_last_n * sizeof(*repeat_buf));
+        if (!repeat_buf) {
+            free(question);
+            qw3_tokens_free(&repeat_context);
+            qw3_tokens_free(&generated_tokens);
+            buf_free(&raw);
+            return EVAL_RUN_ERROR;
+        }
+    }
     bool plain_in_think = qw3_think_mode_enabled(think_mode);
     bool generation_in_think = qw3_think_mode_enabled(think_mode);
     eval_think_close_info think_close = {0};
@@ -3514,6 +3551,9 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                                  &think_close);
                 free(question);
                 qw3_tokens_free(&think_close_tokens);
+                qw3_tokens_free(&repeat_context);
+                qw3_tokens_free(&generated_tokens);
+                free(repeat_buf);
                 buf_free(&raw);
                 return EVAL_RUN_QUIT;
             }
@@ -3528,6 +3568,9 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                                  &think_close);
                 free(question);
                 qw3_tokens_free(&think_close_tokens);
+                qw3_tokens_free(&repeat_context);
+                qw3_tokens_free(&generated_tokens);
+                free(repeat_buf);
                 buf_free(&raw);
                 return EVAL_RUN_SWITCH;
             }
@@ -3547,6 +3590,9 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                                  &think_close);
                 free(question);
                 qw3_tokens_free(&think_close_tokens);
+                qw3_tokens_free(&repeat_context);
+                qw3_tokens_free(&generated_tokens);
+                free(repeat_buf);
                 buf_free(&raw);
                 return EVAL_RUN_QUIT;
             }
@@ -3561,6 +3607,9 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                                  &think_close);
                 free(question);
                 qw3_tokens_free(&think_close_tokens);
+                qw3_tokens_free(&repeat_context);
+                qw3_tokens_free(&generated_tokens);
+                free(repeat_buf);
                 buf_free(&raw);
                 return EVAL_RUN_SWITCH;
             }
@@ -3596,9 +3645,32 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                 }
             }
         }
-        if (token < 0)
-            token = qw3_session_sample(session, cfg->temperature, 0,
-                                       cfg->top_p, cfg->min_p, rng);
+        if (token < 0) {
+            int repeat_len = 0;
+            const int *repeat_tokens = NULL;
+            if (repeat_buf && cfg->repeat_last_n > 0 &&
+                cfg->repeat_penalty > 1.0f) {
+                int gen_take = generated_tokens.len;
+                if (gen_take > cfg->repeat_last_n) gen_take = cfg->repeat_last_n;
+                int ctx_take = cfg->repeat_last_n - gen_take;
+                if (ctx_take > repeat_context.len) ctx_take = repeat_context.len;
+                if (ctx_take > 0) {
+                    memcpy(repeat_buf,
+                           repeat_context.v + (repeat_context.len - ctx_take),
+                           (size_t)ctx_take * sizeof(*repeat_buf));
+                }
+                if (gen_take > 0) {
+                    memcpy(repeat_buf + ctx_take,
+                           generated_tokens.v + (generated_tokens.len - gen_take),
+                           (size_t)gen_take * sizeof(*repeat_buf));
+                }
+                repeat_len = ctx_take + gen_take;
+                repeat_tokens = repeat_buf;
+            }
+            token = qw3_session_sample_repetition(
+                session, cfg->temperature, 0, cfg->top_p, cfg->min_p, rng,
+                repeat_tokens, repeat_len, cfg->repeat_penalty);
+        }
         if (token == eos) break;
         if (close_kind != EVAL_THINK_CLOSE_NONE &&
             think_close.kind == EVAL_THINK_CLOSE_NONE) {
@@ -3618,6 +3690,9 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                              &think_close);
             free(question);
             qw3_tokens_free(&think_close_tokens);
+            qw3_tokens_free(&repeat_context);
+            qw3_tokens_free(&generated_tokens);
+            free(repeat_buf);
             buf_free(&raw);
             return EVAL_RUN_ERROR;
         }
@@ -3635,9 +3710,13 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                              &think_close);
             free(question);
             qw3_tokens_free(&think_close_tokens);
+            qw3_tokens_free(&repeat_context);
+            qw3_tokens_free(&generated_tokens);
+            free(repeat_buf);
             buf_free(&raw);
             return EVAL_RUN_ERROR;
         }
+        qw3_tokens_push(&generated_tokens, token);
         buf_append(&raw, text, len);
         ui->generated++;
         ui->generated_tokens[idx] = ui->generated;
@@ -3699,6 +3778,9 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
     if (tty && cfg->pause_ms > 0) usleep((useconds_t)cfg->pause_ms * 1000);
     free(question);
     qw3_tokens_free(&think_close_tokens);
+    qw3_tokens_free(&repeat_context);
+    qw3_tokens_free(&generated_tokens);
+    free(repeat_buf);
     buf_free(&raw);
     return EVAL_RUN_OK;
 }
