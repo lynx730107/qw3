@@ -631,6 +631,34 @@ end-to-end pp4096 gain is still too small/noisy to promote. Keep it as an
 opt-in probe while larger prefill wins are pursued in MoE and projection/GDN
 orchestration.
 
+## 2026-06-12 IQ3_S 4x4 Dequant For MoE Gate/Up MPP
+
+The default Metal MoE gate/up MPP path now dequantizes each IQ3_S half-block
+as a 4x4 group, mirroring the shape used by llama.cpp `MUL_MAT_ID`, instead
+of rebuilding every scalar element independently. The dispatch topology stays
+the same: expert/token mapping, compact MoE blocks, router preweighting, and
+the downstream IQ4_XS/Q6_K paths are unchanged.
+
+Validation:
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- No-garbage prompt: `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 96`
+  generated coherent English diff analysis; no repeated garbage pattern.
+- Agent tool smoke: `./qw3-agent ... --ctx 1600 --nothink -p 'Crea il file /tmp/qw3_agent_tool_smoke.txt ...'`
+  called `[tool] write` and wrote `tool-ok`.
+
+Observed results:
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` at `pp512`: `gate_up_pair_mpp`
+  dropped to 255.022 ms total over 40 layers, 6.376 ms/layer. The previous
+  same-path measurement was about 12.8 ms/layer.
+- `down_mpp` stayed essentially unchanged at 10.575 ms/layer, as expected.
+- `pp4096`, `ctx=16000`, 3 repetitions, no warmup: 483.20 tok/s, stdev
+  18.94, 8485.73 ms average.
+- `prompt_perf.txt` prefill: 6399 tokens in 15261.1 ms, 419.30 tok/s.
+
+Conclusion: keep this patch. The next MoE target is the down projection, then
+larger llama.cpp-style orchestration around `MUL_MAT_ID`-like blocks.
+
 ## 2026-06-05 Llama-Style Bench Guardrail
 
 `qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
