@@ -715,6 +715,34 @@ Conclusion: keep this patch. It directly confirms a block-level llama.cpp
 advantage in IQ4_XS down projection: constant table lookup beats QW3's old
 switch-based scalar value decode by a wide margin.
 
+## 2026-06-12 Unrolled IQ3_S 4x4 Dequant Assignments
+
+The IQ3_S 4x4 helper used by MoE gate/up now writes the 16 decoded values with
+explicit assignments instead of a small dynamic loop. This follows the same
+general shape as llama.cpp's quantized matmul helpers: fixed-lane constants
+are exposed directly to the Metal compiler.
+
+Validation:
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- No-garbage prompt: `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 96`
+  generated coherent English diff analysis.
+- Agent tool smoke: `./qw3-agent ... --ctx 1600 --nothink -p 'Crea il file /tmp/qw3_agent_tool_smoke.txt ...'`
+  called `[tool] write` and wrote `tool-ok`.
+
+Observed results:
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` at `pp512`: `gate_up_pair_mpp`
+  stayed slightly improved/stable at 252.453 ms total over 40 layers,
+  6.311 ms/layer.
+- `down_mpp` stayed stable at 156.278 ms total, 3.907 ms/layer.
+- `pp4096`, `ctx=16000`, 3 repetitions, no warmup: 584.33 tok/s, stdev
+  21.41, 7016.17 ms average.
+- `prompt_perf.txt` prefill remained coherent at 500.29 tok/s.
+
+Conclusion: keep this patch as a small compiler-friendly cleanup. The next
+larger target is no longer scalar IQ4/IQ3 decode, but broader MoE/projection
+orchestration and the remaining linear-layer GDN/projection cost.
+
 ## 2026-06-05 Llama-Style Bench Guardrail
 
 `qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
