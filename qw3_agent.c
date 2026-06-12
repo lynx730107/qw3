@@ -65,6 +65,8 @@
 #define QW3_AGENT_COMPACT_TAIL_DIVISOR 4
 #define QW3_AGENT_COMPACT_TAIL_CAP_TOKENS 4096
 #define QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS 768
+#define QW3_AGENT_REPEAT_PENALTY_DEFAULT 1.06f
+#define QW3_AGENT_REPEAT_LAST_N_DEFAULT 1024
 
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
@@ -3132,18 +3134,39 @@ static int generate_once(agent_state *a, char **assistant_text) {
             qw3_session_invalidate(a->session);
             rc = -1;
         }
+        int *repeat_buf = NULL;
+        const int repeat_last_n_cfg = a->cfg.sample.repeat_last_n;
+        if (rc == 0 && repeat_last_n_cfg > 0 &&
+            a->cfg.sample.repeat_penalty > 1.0f) {
+            repeat_buf = malloc((size_t)repeat_last_n_cfg * sizeof(*repeat_buf));
+            if (!repeat_buf) rc = -1;
+        }
         for (int i = 0; rc == 0 && i < max_tokens; i++) {
             if (agent_should_interrupt(a)) break;
             const int repeat_last_n = a->cfg.sample.repeat_last_n;
             const int generated_len = emit.generated.len;
-            int repeat_len = generated_len;
-            const int *repeat_tokens = emit.generated.v;
+            int repeat_len = 0;
+            const int *repeat_tokens = NULL;
             if (repeat_last_n <= 0 || a->cfg.sample.repeat_penalty <= 1.0f) {
                 repeat_len = 0;
                 repeat_tokens = NULL;
-            } else if (repeat_len > repeat_last_n) {
-                repeat_tokens = emit.generated.v + (repeat_len - repeat_last_n);
-                repeat_len = repeat_last_n;
+            } else if (repeat_buf) {
+                int gen_take = generated_len;
+                if (gen_take > repeat_last_n) gen_take = repeat_last_n;
+                int ctx_take = repeat_last_n - gen_take;
+                if (ctx_take > a->transcript.len) ctx_take = a->transcript.len;
+                if (ctx_take > 0) {
+                    memcpy(repeat_buf,
+                           a->transcript.v + (a->transcript.len - ctx_take),
+                           (size_t)ctx_take * sizeof(*repeat_buf));
+                }
+                if (gen_take > 0) {
+                    memcpy(repeat_buf + ctx_take,
+                           emit.generated.v + (generated_len - gen_take),
+                           (size_t)gen_take * sizeof(*repeat_buf));
+                }
+                repeat_len = ctx_take + gen_take;
+                repeat_tokens = repeat_buf;
             }
             int token = qw3_session_sample_repetition(
                 a->session, a->cfg.sample.temperature,
@@ -3166,6 +3189,7 @@ static int generate_once(agent_state *a, char **assistant_text) {
                 break;
             }
         }
+        free(repeat_buf);
         const double t_gen1 = agent_now_sec();
         agent_emit_done(&emit);
 
@@ -3373,8 +3397,8 @@ static void print_help(void) {
         "  --sample-top-k N     Sampling top-k (default: 20)\n"
         "  --top-p N            Sampling top-p (default: 0.95)\n"
         "  --min-p N            Sampling min-p (default: 0)\n"
-        "  --repeat-penalty N   Repetition penalty (default: 1 disables)\n"
-        "  --repeat-last-n N    Generated tokens to penalize (default: 256)\n"
+        "  --repeat-penalty N   Repetition penalty (default: %.2f, 1 disables)\n"
+        "  --repeat-last-n N    Recent prompt/generated tokens to penalize (default: %d)\n"
         "  --seed N             Sampling seed\n"
         "  --dump-prompt        Print the rendered prompt and exit\n"
         "  --cpu                Use CPU backend\n"
@@ -3395,7 +3419,9 @@ static void print_help(void) {
         "Interactive commands:\n"
         "  /help, /quit, /new, /ctx, /compact, /save [name], /list, /switch id\n"
         "  /del id, /strip [id], /load name, /sessions\n"
-        "  /read PATH, /think, /nothink, /tools on|off\n");
+        "  /read PATH, /think, /nothink, /tools on|off\n",
+        (double)QW3_AGENT_REPEAT_PENALTY_DEFAULT,
+        QW3_AGENT_REPEAT_LAST_N_DEFAULT);
 }
 
 static int parse_args(agent_config *cfg, int argc, char **argv) {
@@ -3410,8 +3436,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     cfg->sample.sample_top_k = 20;
     cfg->sample.top_p = 0.95f;
     cfg->sample.min_p = 0.0f;
-    cfg->sample.repeat_penalty = 1.0f;
-    cfg->sample.repeat_last_n = 256;
+    cfg->sample.repeat_penalty = QW3_AGENT_REPEAT_PENALTY_DEFAULT;
+    cfg->sample.repeat_last_n = QW3_AGENT_REPEAT_LAST_N_DEFAULT;
     cfg->sample.rng = 0x123456789abcdef0ull;
 #ifdef QW3_NO_METAL
     cfg->backend = QW3_BACKEND_CPU;
