@@ -686,6 +686,35 @@ Observed results:
 Conclusion: keep this patch. It is a smaller win than the IQ3_S gate/up 4x4
 dequant, but it moves the current MoE bottleneck in the right direction.
 
+## 2026-06-12 Constant IQ4_NL Lookup Table
+
+QW3 previously implemented IQ4_NL value decoding as a `switch` in
+`qw3_iq4nl_val()`. llama.cpp keeps the same 16 values in a constant lookup
+table (`kvalues_iq4nl_f`). Moving QW3 to the same table-shaped lookup removes
+heavy branchy scalar decoding from IQ4_XS down projection and all other IQ4_NL
+call sites.
+
+Validation:
+- `make qw3-bench-metal`
+- `make test-metal-logits`
+- No-garbage prompt: `./qw3-metal ... --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 96`
+  generated coherent English diff analysis.
+- Agent tool smoke: `./qw3-agent ... --ctx 1600 --nothink -p 'Crea il file /tmp/qw3_agent_tool_smoke.txt ...'`
+  called `[tool] write` and wrote `tool-ok`.
+
+Observed results:
+- `QW3_METAL_PROFILE_PREFILL_MOE_SYNC=1` at `pp512`: `down_mpp`
+  improved to 155.567 ms total over 40 layers, 3.889 ms/layer.
+- `gate_up_pair_mpp` stayed stable at 6.357 ms/layer.
+- `pp512` profile run rose to 414.70 tok/s despite stage synchronization.
+- `pp4096`, `ctx=16000`, 3 repetitions, no warmup: 574.49 tok/s, stdev
+  18.43, 7134.73 ms average.
+- `prompt_perf.txt` prefill: 6399 tokens in 12715.9 ms, 503.23 tok/s.
+
+Conclusion: keep this patch. It directly confirms a block-level llama.cpp
+advantage in IQ4_XS down projection: constant table lookup beats QW3's old
+switch-based scalar value decode by a wide margin.
+
 ## 2026-06-05 Llama-Style Bench Guardrail
 
 `qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
