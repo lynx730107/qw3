@@ -131,6 +131,12 @@ typedef void (*agent_output_fn)(void *ud, const char *s, size_t n);
 typedef bool (*agent_interrupt_fn)(void *ud);
 typedef void (*agent_progress_fn)(void *ud, const char *phase,
                                   int current, int total, double tps);
+typedef void (*agent_timing_fn)(void *ud, const char *backend,
+                                int cached, int prompt,
+                                int prefill_tokens, double prefill_ms,
+                                double prefill_tps,
+                                int gen_tokens, double gen_ms,
+                                double gen_tps);
 
 typedef struct {
     agent_output_fn write;
@@ -170,6 +176,8 @@ typedef struct {
     void *interrupt_ud;
     agent_progress_fn progress_update;
     void *progress_ud;
+    agent_timing_fn timing_update;
+    void *timing_ud;
     double progress_start_sec;
 } agent_state;
 
@@ -3196,15 +3204,14 @@ static int generate_once(agent_state *a, char **assistant_text) {
         const int prefill_tokens = a->transcript.len - cached;
         const double prefill_s = t_prefill1 - t_prefill0;
         const double gen_s = t_gen1 - t_gen0;
-        agent_statusf(a,
-                      "qw3-agent: %s session timing: cached=%d prompt=%d "
-                      "prefill=%d tokens %.1f ms (%.2f tok/s) | "
-                      "generation=%d tokens %.1f ms (%.2f tok/s)\n",
-                      qw3_backend_name(a->cfg.backend), cached,
-                      a->transcript.len, prefill_tokens, prefill_s * 1000.0,
-                      prefill_s > 0.0 ? (double)prefill_tokens / prefill_s : 0.0,
-                      n_generated, gen_s * 1000.0,
-                      gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
+        if (a->timing_update) {
+            a->timing_update(a->timing_ud, qw3_backend_name(a->cfg.backend),
+                             cached, a->transcript.len,
+                             prefill_tokens, prefill_s * 1000.0,
+                             prefill_s > 0.0 ? (double)prefill_tokens / prefill_s : 0.0,
+                             n_generated, gen_s * 1000.0,
+                             gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
+        }
     }
 
     if (rc == 0) {
@@ -3799,6 +3806,16 @@ typedef struct {
     int progress_current;
     int progress_total;
     double progress_tps;
+    bool has_timing;
+    char timing_backend[24];
+    int timing_cached;
+    int timing_prompt;
+    int timing_prefill_tokens;
+    double timing_prefill_ms;
+    double timing_prefill_tps;
+    int timing_gen_tokens;
+    double timing_gen_ms;
+    double timing_gen_tps;
 } agent_worker;
 
 static volatile sig_atomic_t g_agent_sigint = 0;
@@ -3864,6 +3881,31 @@ static void agent_worker_progress_snapshot(agent_worker *w, bool *busy,
     pthread_mutex_unlock(&w->mu);
 }
 
+static void agent_worker_timing_snapshot(agent_worker *w, bool *has,
+                                         char *backend, size_t backend_len,
+                                         int *cached, int *prompt,
+                                         int *prefill_tokens,
+                                         double *prefill_ms,
+                                         double *prefill_tps,
+                                         int *gen_tokens,
+                                         double *gen_ms,
+                                         double *gen_tps) {
+    pthread_mutex_lock(&w->mu);
+    if (has) *has = w->has_timing;
+    if (backend && backend_len > 0) {
+        snprintf(backend, backend_len, "%s", w->timing_backend);
+    }
+    if (cached) *cached = w->timing_cached;
+    if (prompt) *prompt = w->timing_prompt;
+    if (prefill_tokens) *prefill_tokens = w->timing_prefill_tokens;
+    if (prefill_ms) *prefill_ms = w->timing_prefill_ms;
+    if (prefill_tps) *prefill_tps = w->timing_prefill_tps;
+    if (gen_tokens) *gen_tokens = w->timing_gen_tokens;
+    if (gen_ms) *gen_ms = w->timing_gen_ms;
+    if (gen_tps) *gen_tps = w->timing_gen_tps;
+    pthread_mutex_unlock(&w->mu);
+}
+
 static void agent_worker_progress_update(void *ud, const char *phase,
                                          int current, int total, double tps) {
     agent_worker *w = (agent_worker *)ud;
@@ -3880,6 +3922,30 @@ static void agent_worker_progress_update(void *ud, const char *phase,
         w->progress_total = total;
         w->progress_tps = tps;
     }
+    pthread_mutex_unlock(&w->mu);
+    agent_worker_wake(w);
+}
+
+static void agent_worker_timing_update(void *ud, const char *backend,
+                                       int cached, int prompt,
+                                       int prefill_tokens, double prefill_ms,
+                                       double prefill_tps,
+                                       int gen_tokens, double gen_ms,
+                                       double gen_tps) {
+    agent_worker *w = (agent_worker *)ud;
+    if (!w) return;
+    pthread_mutex_lock(&w->mu);
+    w->has_timing = true;
+    snprintf(w->timing_backend, sizeof(w->timing_backend), "%s",
+             backend ? backend : "");
+    w->timing_cached = cached;
+    w->timing_prompt = prompt;
+    w->timing_prefill_tokens = prefill_tokens;
+    w->timing_prefill_ms = prefill_ms;
+    w->timing_prefill_tps = prefill_tps;
+    w->timing_gen_tokens = gen_tokens;
+    w->timing_gen_ms = gen_ms;
+    w->timing_gen_tps = gen_tps;
     pthread_mutex_unlock(&w->mu);
     agent_worker_wake(w);
 }
@@ -3994,6 +4060,8 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     a->interrupt_ud = w;
     a->progress_update = agent_worker_progress_update;
     a->progress_ud = w;
+    a->timing_update = agent_worker_timing_update;
+    a->timing_ud = w;
     if (pthread_create(&w->thread, NULL, agent_worker_main, w) != 0) {
         close(w->wake_rd);
         close(w->wake_wr);
@@ -4061,7 +4129,23 @@ static void agent_update_editor_status(struct linenoiseState *edit,
     agent_worker_progress_snapshot(w, &busy, &progress_active,
                                    &progress_current, &progress_total,
                                    &progress_tps);
-    char status[160];
+    bool has_timing = false;
+    int timing_prefill_tokens = 0;
+    double timing_prefill_tps = 0.0;
+    int timing_gen_tokens = 0;
+    double timing_gen_tps = 0.0;
+    agent_worker_timing_snapshot(w, &has_timing, NULL, 0, NULL, NULL,
+                                 &timing_prefill_tokens, NULL,
+                                 &timing_prefill_tps,
+                                 &timing_gen_tokens, NULL,
+                                 &timing_gen_tps);
+    char timing[96] = "";
+    if (has_timing) {
+        snprintf(timing, sizeof(timing), " | pp %d@%.0f/s tg %d@%.0f/s",
+                 timing_prefill_tokens, timing_prefill_tps,
+                 timing_gen_tokens, timing_gen_tps);
+    }
+    char status[240];
     if (busy && progress_active && progress_total > 0) {
         int pct = (int)((100.0 * (double)progress_current /
                          (double)progress_total) + 0.5);
@@ -4075,22 +4159,24 @@ static void agent_update_editor_status(struct linenoiseState *edit,
         for (int i = 0; i < 18; i++) bar[i] = i < fill ? '=' : '.';
         bar[18] = '\0';
         snprintf(status, sizeof(status),
-                 "prefill [%s] %d/%d %d%% %.1f tok/s  queued=%d",
+                 "prefill [%s] %d/%d %d%% %.0f/s  q=%d%s",
                  bar, progress_current, progress_total, pct, progress_tps,
-                 q ? q->len : 0);
+                 q ? q->len : 0, timing);
     } else if (busy) {
         snprintf(status, sizeof(status),
-                 "state=running  queued=%d  ctx=busy  tools=%s  think=%s",
+                 "run q=%d ctx=busy tools=%s think=%s%s",
                  q ? q->len : 0,
                  w->agent->cfg.tools_enabled ? "on" : "off",
-                 qw3_think_mode_name(w->agent->cfg.think_mode));
+                 qw3_think_mode_name(w->agent->cfg.think_mode),
+                 timing);
     } else {
         snprintf(status, sizeof(status),
-                 "state=ready  queued=%d  ctx=%d/%d  tools=%s  think=%s",
+                 "ready q=%d ctx=%d/%d tools=%s think=%s%s",
                  q ? q->len : 0, w->agent->transcript.len,
                  w->agent->cfg.ctx_size,
                  w->agent->cfg.tools_enabled ? "on" : "off",
-                 qw3_think_mode_name(w->agent->cfg.think_mode));
+                 qw3_think_mode_name(w->agent->cfg.think_mode),
+                 timing);
     }
     linenoiseEditSetStatus(edit, status, "\033[7m", "\033[0m");
 }
@@ -4342,6 +4428,8 @@ static int interactive_loop_worker(agent_state *a) {
     a->interrupt_ud = NULL;
     a->progress_update = NULL;
     a->progress_ud = NULL;
+    a->timing_update = NULL;
+    a->timing_ud = NULL;
     return rc;
 }
 
