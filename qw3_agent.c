@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <math.h>
 #include <poll.h>
 #include <pthread.h>
@@ -62,6 +63,10 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
 #define QW3_AGENT_CODENAV_TIMEOUT_SEC 30.0
 #define QW3_AGENT_SEMANTIC_TIMEOUT_SEC 120.0
+#define QW3_AGENT_WEB_MAX_BYTES 200000
+#define QW3_AGENT_WEB_HEAD_BYTES 8192
+#define QW3_AGENT_WEB_HEAD_LINES 100
+#define QW3_AGENT_WEB_TIMEOUT_SEC 30.0
 #define QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS 512
 #define QW3_AGENT_COMPACT_SOFT_PERCENT 85
 #define QW3_AGENT_COMPACT_MIN_FREE_TOKENS 2048
@@ -514,6 +519,10 @@ static char *native_tool_declarations(void) {
               TOOL_PARAM("code_only", "true/false; default true") ","
               TOOL_PARAM("semantic_only", "true/false; default false") ","
               TOOL_PARAM("content", "true/false; default false"));
+    TOOL_DECL("google_search", "Search the web and return compact Markdown links. Use this when current information or URLs are needed.",
+              TOOL_PARAM("query", "Web search query"));
+    TOOL_DECL("visit_page", "Fetch a known URL and return compact readable text plus a temp output_path for the full page text.",
+              TOOL_PARAM("url", "HTTP or HTTPS URL"));
     TOOL_DECL("search", "Search text files for a literal pattern.",
               TOOL_PARAM("pattern", "Literal pattern") ","
               TOOL_PARAM("path", "Root path") ","
@@ -1482,6 +1491,8 @@ static void infer_tool_name_from_params(tool_call *call) {
     if (call->name[0]) return;
     if (tool_param_value(call, "cmd") || tool_param_value(call, "command")) {
         snprintf(call->name, sizeof(call->name), "bash");
+    } else if (tool_param_value(call, "url")) {
+        snprintf(call->name, sizeof(call->name), "visit_page");
     } else if (tool_param_value(call, "function_name") ||
                tool_param_value(call, "symbol")) {
         snprintf(call->name, sizeof(call->name), "get_function");
@@ -1502,7 +1513,8 @@ static void infer_tool_name_from_params(tool_call *call) {
 
 static const char *native_shorthand_tools[] = {
     "read", "more", "list", "get_skeleton", "get_function", "get_fucttion",
-    "semantic_search", "search", "write", "edit", "bash",
+    "semantic_search", "google_search", "visit_page", "search", "write",
+    "edit", "bash",
 };
 
 static bool native_tool_name_is_known(const char *name, size_t len) {
@@ -2296,6 +2308,191 @@ static char *tool_semantic_search(const tool_call *call) {
     return out.p;
 }
 
+static int agent_count_lines(const char *s) {
+    if (!s || !s[0]) return 0;
+    int lines = 0;
+    for (const char *p = s; *p; p++) {
+        if (*p == '\n') lines++;
+    }
+    if (s && s[0] && s[strlen(s) - 1] != '\n') lines++;
+    return lines;
+}
+
+static char *agent_string_head(const char *s, int max_lines, size_t max_bytes,
+                               int *lines_read, bool *byte_limited) {
+    if (lines_read) *lines_read = 0;
+    if (byte_limited) *byte_limited = false;
+    if (!s) return agent_strdup("");
+    size_t used = 0;
+    int lines = 0;
+    while (s[used] && used < max_bytes && lines < max_lines) {
+        if (s[used++] == '\n') lines++;
+    }
+    if (s[used] && used >= max_bytes && byte_limited) *byte_limited = true;
+    if (used && s[used - 1] != '\n' && lines < max_lines) lines++;
+    if (lines_read) *lines_read = lines;
+    char *out = malloc(used + 1);
+    if (!out) return agent_strdup("");
+    memcpy(out, s, used);
+    out[used] = '\0';
+    return out;
+}
+
+static bool agent_write_temp_text(const char *prefix, const char *text,
+                                  char *path, size_t path_len,
+                                  char *err, size_t err_len) {
+    char tmpl[PATH_MAX];
+    snprintf(tmpl, sizeof(tmpl), "/tmp/%s_XXXXXX", prefix);
+    int fd = mkstemp(tmpl);
+    if (fd < 0) {
+        snprintf(err, err_len, "failed to create temporary file: %s",
+                 strerror(errno));
+        return false;
+    }
+    const char *p = text ? text : "";
+    size_t left = strlen(p);
+    while (left > 0) {
+        ssize_t n = write(fd, p, left);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) {
+            snprintf(err, err_len, "failed to write temporary file: %s",
+                     strerror(errno));
+            close(fd);
+            unlink(tmpl);
+            return false;
+        }
+        p += n;
+        left -= (size_t)n;
+    }
+    if (close(fd) != 0) {
+        snprintf(err, err_len, "failed to close temporary file: %s",
+                 strerror(errno));
+        unlink(tmpl);
+        return false;
+    }
+    snprintf(path, path_len, "%s", tmpl);
+    return true;
+}
+
+static char *tool_google_search(const tool_call *call) {
+    const char *query = tool_param_value(call, "query");
+    if (!query || !query[0]) query = tool_param_value(call, "q");
+    if (!query || !query[0]) {
+        return agent_strdup("error: google_search requires query");
+    }
+    int max_bytes = agent_env_int("QW3_AGENT_WEB_MAX_BYTES",
+                                  QW3_AGENT_WEB_MAX_BYTES,
+                                  4096, 1000000);
+    static const char script[] =
+        "import html, sys, urllib.parse, urllib.request\n"
+        "from html.parser import HTMLParser\n"
+        "q=sys.argv[1]\n"
+        "url='https://lite.duckduckgo.com/lite/?q='+urllib.parse.quote(q)\n"
+        "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 qw3-agent'})\n"
+        "data=urllib.request.urlopen(req,timeout=25).read().decode('utf-8','replace')\n"
+        "class P(HTMLParser):\n"
+        "    def __init__(self): super().__init__(); self.items=[]; self.cur=None\n"
+        "    def handle_starttag(self,tag,attrs):\n"
+        "        if tag!='a' or len(self.items)>=8: return\n"
+        "        d=dict(attrs); cls=d.get('class','')\n"
+        "        if 'result-link' in cls or 'result__a' in cls: self.cur=[d.get('href',''),'']\n"
+        "    def handle_data(self,data):\n"
+        "        if self.cur is not None: self.cur[1]+=data\n"
+        "    def handle_endtag(self,tag):\n"
+        "        if tag=='a' and self.cur is not None:\n"
+        "            href=html.unescape(self.cur[0]); title=' '.join(html.unescape(self.cur[1]).split())\n"
+        "            if href.startswith('//duckduckgo.com/l/?'):\n"
+        "                qs=urllib.parse.parse_qs(urllib.parse.urlparse('https:'+href).query)\n"
+        "                href=qs.get('uddg',[href])[0]\n"
+        "            if title and href: self.items.append((title,href))\n"
+        "            self.cur=None\n"
+        "p=P(); p.feed(data); items=p.items\n"
+        "print('google_search query='+q)\n"
+        "if not items: print('(no results parsed)')\n"
+        "for i,(title,href) in enumerate(items,1): print(f'{i}. [{title}]({href})')\n";
+    char *argv[] = {"python3", "-c", (char *)script, (char *)query, NULL};
+    return run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
+                            (size_t)max_bytes);
+}
+
+static char *tool_visit_page(const tool_call *call) {
+    const char *url = tool_param_value(call, "url");
+    if (!url || !url[0]) return agent_strdup("error: visit_page requires url");
+    if (strncmp(url, "http://", 7) && strncmp(url, "https://", 8)) {
+        return agent_strdup("error: visit_page only supports http:// or https:// URLs");
+    }
+    int max_bytes = agent_env_int("QW3_AGENT_WEB_MAX_BYTES",
+                                  QW3_AGENT_WEB_MAX_BYTES,
+                                  4096, 1000000);
+    static const char script[] =
+        "import html, re, sys, urllib.request\n"
+        "url=sys.argv[1]\n"
+        "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 qw3-agent'})\n"
+        "raw=urllib.request.urlopen(req,timeout=25).read()\n"
+        "enc='utf-8'\n"
+        "text=raw.decode(enc,'replace')\n"
+        "text=re.sub(r'(?is)<(script|style|noscript|svg).*?</\\1>',' ',text)\n"
+        "title=''\n"
+        "m=re.search(r'(?is)<title[^>]*>(.*?)</title>',text)\n"
+        "if m: title=html.unescape(re.sub(r'\\s+',' ',m.group(1))).strip()\n"
+        "text=re.sub(r'(?i)<\\s*br\\s*/?>','\\n',text)\n"
+        "text=re.sub(r'(?i)</\\s*(p|div|section|article|header|footer|li|h[1-6]|tr)\\s*>','\\n',text)\n"
+        "text=re.sub(r'<[^>]+>',' ',text)\n"
+        "text=html.unescape(text)\n"
+        "lines=[]\n"
+        "for line in text.splitlines():\n"
+        "    line=re.sub(r'\\s+',' ',line).strip()\n"
+        "    if line: lines.append(line)\n"
+        "print('visit_page url='+url)\n"
+        "if title: print('title: '+title)\n"
+        "print('')\n"
+        "print('\\n'.join(lines))\n";
+    char *argv[] = {"python3", "-c", (char *)script, (char *)url, NULL};
+    char *md = run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
+                                (size_t)max_bytes);
+    if (!md) return agent_strdup("error: visit_page failed");
+
+    char path[PATH_MAX];
+    char err[256] = {0};
+    if (!agent_write_temp_text("qw3_agent_web", md, path, sizeof(path),
+                               err, sizeof(err))) {
+        strbuf out;
+        sb_init(&out);
+        sb_printf(&out, "error: visit_page failed: %s\n", err);
+        free(md);
+        return out.p;
+    }
+
+    int total_lines = agent_count_lines(md);
+    int shown_lines = 0;
+    bool byte_limited = false;
+    char *head = agent_string_head(md, QW3_AGENT_WEB_HEAD_LINES,
+                                   QW3_AGENT_WEB_HEAD_BYTES,
+                                   &shown_lines, &byte_limited);
+    bool truncated = byte_limited || shown_lines < total_lines;
+    strbuf out;
+    sb_init(&out);
+    sb_printf(&out, "visit_page url=%s\noutput_path=%s (%zu bytes, %d lines)\n",
+              url, path, strlen(md), total_lines);
+    if (truncated) {
+        sb_printf(&out, "<head -%d %s>\n", QW3_AGENT_WEB_HEAD_LINES, path);
+        sb_append(&out, head ? head : "");
+        if (head && head[0] && head[strlen(head) - 1] != '\n') sb_append(&out, "\n");
+        sb_append(&out, "</head>\n");
+        sb_append(&out,
+                  "Use read path=<output_path> start=<line> lines=<count> "
+                  "to inspect more fetched text.\n");
+    } else {
+        sb_append(&out, "<text>\n");
+        sb_append(&out, head ? head : "");
+        if (head && head[0] && head[strlen(head) - 1] != '\n') sb_append(&out, "\n");
+        sb_append(&out, "</text>\n");
+    }
+    free(head);
+    free(md);
+    return out.p;
+}
+
 static char *tool_write(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     const char *content = tool_param_value(call, "content");
@@ -2493,6 +2690,8 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
     if (!strcmp(call->name, "get_function") ||
         !strcmp(call->name, "get_fucttion")) return tool_get_function(call);
     if (!strcmp(call->name, "semantic_search")) return tool_semantic_search(call);
+    if (!strcmp(call->name, "google_search")) return tool_google_search(call);
+    if (!strcmp(call->name, "visit_page")) return tool_visit_page(call);
     if (!strcmp(call->name, "write")) return tool_write(a, call);
     if (!strcmp(call->name, "edit")) return tool_edit(a, call);
     if (!strcmp(call->name, "search")) return tool_search(call);
@@ -3418,6 +3617,9 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "- Prefer get_function when you need one function or method body.\n"
             "- Prefer semantic_search when you know the intent but not the "
             "exact symbol name.\n"
+            "- Use google_search to find web pages and visit_page to fetch a "
+            "known URL. If web tools fail, say so; do not invent current web "
+            "content.\n"
             "- Use read only for small non-source files or precise source line "
             "ranges with explicit start and lines.\n\n");
     }

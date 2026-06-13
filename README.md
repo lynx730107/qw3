@@ -108,6 +108,8 @@ tools are:
 - `get_skeleton`: file outline through `codenav`.
 - `get_function`: function or method body through `codenav`.
 - `semantic_search`: semantic code search through `colgrep`.
+- `google_search`: web search with compact Markdown links.
+- `visit_page`: fetch a URL and return readable text with a temp full-output path.
 
 To avoid filling the context by reading large source files, the agent is
 instructed to prefer `get_skeleton`, `get_function`, and `semantic_search`
