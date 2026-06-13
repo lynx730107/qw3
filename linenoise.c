@@ -1313,6 +1313,8 @@ static void refreshSingleLine(struct linenoiseState *l, int flags) {
     char seq[64];
     size_t pwidth = utf8StrWidth(l->prompt, l->plen); /* Prompt display width */
     int fd = l->ofd;
+    int old_status_rows = l->oldstatusrows;
+    int status_rows = linenoiseStatusRows(l);
     char *render = NULL;
     char *buf;
     size_t len;             /* Byte length of buffer to display */
@@ -1352,9 +1354,15 @@ static void refreshSingleLine(struct linenoiseState *l, int flags) {
     }
 
     abInit(&ab);
-    /* Cursor to left edge */
-    snprintf(seq,sizeof(seq),"\r");
-    abAppend(&ab,seq,strlen(seq));
+    if ((flags & REFRESH_CLEAN) && old_status_rows > 0) {
+        snprintf(seq,sizeof(seq),"\x1b[%dB", old_status_rows);
+        abAppend(&ab,seq,strlen(seq));
+        for (int j = 0; j < old_status_rows; j++) {
+            abAppend(&ab,"\r\x1b[0K\x1b[1A",9);
+        }
+    }
+
+    abAppend(&ab,"\r",1);
 
     if (flags & REFRESH_WRITE) {
         /* Write the prompt and the current buffer content */
@@ -1381,6 +1389,22 @@ static void refreshSingleLine(struct linenoiseState *l, int flags) {
         /* Move cursor to original position (using display column, not byte). */
         snprintf(seq,sizeof(seq),"\r\x1b[%dC", (int)(poscol+pwidth));
         abAppend(&ab,seq,strlen(seq));
+        if (status_rows > 0) {
+            refreshStatusLine(&ab, l);
+            snprintf(seq,sizeof(seq),"\x1b[%dA\r\x1b[%dC",
+                     status_rows, (int)(poscol+pwidth));
+            abAppend(&ab,seq,strlen(seq));
+        }
+    }
+
+    if (flags & REFRESH_WRITE) {
+        l->oldrows = 1;
+        l->oldstatusrows = (size_t)status_rows;
+        l->oldrpos = 1;
+    } else if (flags & REFRESH_CLEAN) {
+        l->oldrows = 0;
+        l->oldstatusrows = 0;
+        l->oldrpos = 1;
     }
 
     if (write(fd,ab.b,ab.len) == -1) {} /* Can't recover from write error. */
@@ -1563,7 +1587,7 @@ static void refreshMultiLine(struct linenoiseState *l, int flags) {
 /* Calls the two low level functions refreshSingleLine() or
  * refreshMultiLine() according to the selected mode. */
 static void refreshLineWithFlags(struct linenoiseState *l, int flags) {
-    if (mlmode || linenoiseStatusActive(l) || l->oldstatusrows)
+    if (mlmode)
         refreshMultiLine(l,flags);
     else
         refreshSingleLine(l,flags);

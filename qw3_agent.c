@@ -23,7 +23,7 @@
 #include <unistd.h>
 
 #include "qw3.h"
-#include "../linenoise.h"
+#include "linenoise.h"
 
 #define DSML_BAR "\xef\xbd\x9c"
 #define DSML_BEGIN "<" DSML_BAR "DSML" DSML_BAR "tool_calls>"
@@ -4095,6 +4095,15 @@ static void agent_update_editor_status(struct linenoiseState *edit,
     linenoiseEditSetStatus(edit, status, "\033[7m", "\033[0m");
 }
 
+static void agent_redraw_editor(struct linenoiseState *edit,
+                                agent_worker *w,
+                                const agent_input_queue *q) {
+    if (!edit) return;
+    agent_update_editor_status(edit, w, q);
+    linenoiseHide(edit);
+    linenoiseShow(edit);
+}
+
 static int agent_submit_or_queue(agent_worker *w, agent_input_queue *q,
                                  const char *message) {
     if (!agent_worker_is_busy(w) && q->len == 0) {
@@ -4140,8 +4149,7 @@ static void agent_display_worker_output(agent_worker *w,
     if (done && streaming_output) *streaming_output = false;
     if (edit) {
         if (!streaming_output || !*streaming_output) {
-            agent_update_editor_status(edit, w, q);
-            linenoiseShow(edit);
+            agent_redraw_editor(edit, w, q);
         }
     }
     if (done) {
@@ -4221,8 +4229,7 @@ static int interactive_loop_worker(agent_state *a) {
         done = true;
     } else {
         edit_active = true;
-        agent_update_editor_status(&edit, &worker, &queue);
-        linenoiseShow(&edit);
+        agent_redraw_editor(&edit, &worker, &queue);
     }
 
     while (!done) {
@@ -4261,8 +4268,7 @@ static int interactive_loop_worker(agent_state *a) {
             if (turn_rc != 0) rc = 1;
             if (agent_submit_next_if_idle(&worker, &queue) != 0) rc = 1;
             if (edit_active) {
-                agent_update_editor_status(&edit, &worker, &queue);
-                linenoiseShow(&edit);
+                agent_redraw_editor(&edit, &worker, &queue);
             }
         }
 
@@ -4313,8 +4319,7 @@ static int interactive_loop_worker(agent_state *a) {
                 } else {
                     edit_active = true;
                     if (!streaming_output) {
-                        agent_update_editor_status(&edit, &worker, &queue);
-                        linenoiseShow(&edit);
+                        agent_redraw_editor(&edit, &worker, &queue);
                     }
                 }
             }

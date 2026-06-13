@@ -27,7 +27,7 @@ qw3_cpu_cli.o: qw3_cli.c qw3.h
 qw3_cpu_cli_test.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_cpu_agent.o: qw3_agent.c qw3.h ../linenoise.h
+qw3_cpu_agent.o: qw3_agent.c qw3.h linenoise.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
 
 qw3_eval_cpu.o: qw3_eval.c qw3.h
@@ -36,8 +36,8 @@ qw3_eval_cpu.o: qw3_eval.c qw3.h
 qw3_bench.o: qw3_bench.c qw3.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_bench.c
 
-linenoise_qw3.o: ../linenoise.c ../linenoise.h
-	$(CC) $(CFLAGS) -c -o $@ ../linenoise.c
+linenoise_qw3.o: linenoise.c linenoise.h
+	$(CC) $(CFLAGS) -c -o $@ linenoise.c
 
 qw3-cpu: qw3_cpu_cli.o qw3_cpu_core.o
 	$(CC) $(CFLAGS) -o $@ qw3_cpu_cli.o qw3_cpu_core.o $(LDLIBS)
@@ -66,7 +66,7 @@ qw3_metal_cli.o: qw3_cli.c qw3.h
 qw3_metal_cli_test.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_metal_agent.o: qw3_agent.c qw3.h ../linenoise.h
+qw3_metal_agent.o: qw3_agent.c qw3.h linenoise.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_agent.c
 
 qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h
