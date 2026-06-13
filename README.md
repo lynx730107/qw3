@@ -1,105 +1,111 @@
 # qw3
 
-`qw3` e' un piccolo runtime sperimentale in C/Objective-C per Qwen3.6
-35B-A3B in formato GGUF, con backend Apple Metal, benchmark, valutazione e un
-agente locale integrato.
+`qw3` is a small experimental C/Objective-C runtime for Qwen3.6 35B-A3B GGUF
+models, with an Apple Metal backend, benchmark tools, evaluation code, and an
+integrated local agent.
 
-Il progetto e' nato come esperimento per replicare in piccolo alcune idee del
-progetto DwarfStar/ds4 di Salvatore Sanfilippo: runtime minimale, integrazione
-verticale con il modello, sessioni locali, tool nativi e latenza bassa senza
-passare da un server HTTP. Non e' una sostituzione di llama.cpp e non pretende
-di avere la stessa generalita': e' un laboratorio focalizzato su questo modello
-e su Apple Silicon.
+The project started as an attempt to reproduce, on a smaller and narrower
+scale, some of the ideas behind Salvatore Sanfilippo's DwarfStar/ds4 project:
+a minimal runtime, tight model-specific integration, local sessions, native
+tools, and low latency without an HTTP server boundary. It is not a replacement
+for llama.cpp and does not aim for the same generality. It is a focused
+laboratory for this model family and Apple Silicon.
 
-## Stato
+## Status
 
-- Backend principale: Metal su macOS/Apple Silicon.
-- Target modello: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`.
-- Generazione Metal: stabile.
-- Prefill Metal: in ottimizzazione; il benchmark locale `pp4096` e' intorno a
-  600 tok/s su Apple M5 nelle condizioni documentate in
+- Main backend: Metal on macOS/Apple Silicon.
+- Target model: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`.
+- Metal generation: stable.
+- Metal prefill: still being optimized; the local `pp4096` benchmark is around
+  600 tok/s on the tested Apple M5 setup under the conditions documented in
   `docs/metal_prefill_validation.md`.
-- Agente: utilizzabile, con tool locali, compattazione del contesto e tool di
-  navigazione codice.
+- Agent: usable, with local tools, context compaction, and code-navigation
+  helpers.
 
-I pesi del modello non sono inclusi nel repository.
+All tests and performance measurements so far were run only on a MacBook Air
+M5 with 24 GB of unified memory. Because of that hardware limit, the largest
+context tested in practice is 32,000 tokens. Larger contexts, different Apple
+Silicon machines, and other memory sizes should be considered unvalidated until
+tested.
+
+Model weights are not included in this repository.
 
 ## Build
 
-Su macOS con Xcode Command Line Tools:
+On macOS with Xcode Command Line Tools:
 
 ```sh
 make
 ```
 
-Il build predefinito su Darwin produce binari Metal senza suffisso:
+The default Darwin build produces Metal binaries without a `metal` suffix:
 
 ```text
-qw3        CLI di generazione
-qw3-agent  agente locale
-qw3-bench  benchmark
-qw3-eval   valutazioni
+qw3        generation CLI
+qw3-agent  local coding agent
+qw3-bench  benchmark tool
+qw3-eval   evaluation tool
 ```
 
-I target CPU restano disponibili esplicitamente:
+CPU-only targets are still available explicitly:
 
 ```sh
 make cpu
 ```
 
-Per pulire:
+Clean generated files:
 
 ```sh
 make clean
 ```
 
-## Uso Rapido
+## Quick Start
 
-Generazione:
+Generation:
 
 ```sh
 ./qw3 -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
-  --ctx 16000 --nothink -p "ciao"
+  --ctx 16000 --nothink -p "hello"
 ```
 
-Agente interattivo:
+Interactive agent:
 
 ```sh
 ./qw3-agent -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 16000 --nothink
 ```
 
-Benchmark stile llama-bench:
+llama-bench-style benchmark:
 
 ```sh
 ./qw3-bench -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --llama-style -p 4096 -n 0 -r 3 --no-warmup
 ```
 
-Regressione logits Metal:
+Metal logits regression:
 
 ```sh
 make test-metal-logits
 ```
 
-## Agente
+## Agent
 
-`qw3-agent` usa il formato nativo Qwen per i tool call e mantiene la sessione
-localmente. I tool principali sono:
+`qw3-agent` uses Qwen-native tool calling and keeps the session local. The main
+tools are:
 
-- `read`, `more`, `list`: lettura e navigazione file.
-- `write`, `edit`: scrittura e modifica file.
-- `search`: ricerca testuale.
-- `bash`: comandi locali.
-- `get_skeleton`: struttura di un file tramite `codenav`.
-- `get_function`: corpo di una funzione/metodo tramite `codenav`.
-- `semantic_search`: ricerca semantica tramite `colgrep`.
+- `read`, `more`, `list`: file reading and navigation.
+- `write`, `edit`: file creation and modification.
+- `search`: text search.
+- `bash`: local shell commands.
+- `get_skeleton`: file outline through `codenav`.
+- `get_function`: function or method body through `codenav`.
+- `semantic_search`: semantic code search through `colgrep`.
 
-Per evitare di riempire il contesto leggendo file grandi, l'agente e' istruito
-a preferire `get_skeleton`, `get_function` e `semantic_search` prima dei read a
-blocchi.
+To avoid filling the context by reading large source files, the agent is
+instructed to prefer `get_skeleton`, `get_function`, and `semantic_search`
+before sequential file reads.
 
-Comandi utili nell'agente:
+Useful interactive commands:
 
 ```text
 /help
@@ -112,10 +118,11 @@ Comandi utili nell'agente:
 /quit
 ```
 
-## Tool Esterni Dell'Agente
+## External Agent Tools
 
-I sorgenti di `codenav` sono inclusi nel repository. Il target scarica, se
-servono, i parser tree-sitter in `codenavsrc/third_party` e compila il binario:
+The `codenav` sources are included in the repository. The target downloads the
+required tree-sitter parsers into `codenavsrc/third_party` when needed and then
+builds the binary:
 
 ```sh
 make tools
@@ -123,33 +130,34 @@ export PATH="$PWD/codenavsrc:$PATH"
 codenav get_skeleton qw3_agent.c
 ```
 
-`colgrep` non e' vendorizzato. Installalo dal suo canale upstream e verifica
-che sia nel `PATH`:
+`colgrep` is not vendored. Install it from its upstream channel and make sure
+it is available in `PATH`:
 
 ```sh
 colgrep --help
 colgrep init .
 ```
 
-Senza `codenav` o `colgrep`, l'agente continua a funzionare, ma i tool
-`get_skeleton`, `get_function` e `semantic_search` restituiranno errore.
+Without `codenav` or `colgrep`, the agent still runs, but `get_skeleton`,
+`get_function`, and `semantic_search` will return tool errors.
 
-## Note Metal
+## Metal Notes
 
-Opzioni utili:
+Useful options:
 
-- `--ctx N`: dimensione del contesto.
-- `--kv-f16`: KV cache f16.
-- `--ngl N`: numero di layer eseguiti su Metal; i restanti vanno sul path CPU.
-- `--nothink`: disabilita il thinking mode nel prompt.
+- `--ctx N`: context size.
+- `--kv-f16`: f16 KV cache.
+- `--ngl N`: number of layers executed on Metal; the remaining layers use the
+  CPU path.
+- `--nothink`: disable thinking mode in the prompt.
 
-La KV cache q8 e altri flag sperimentali sono ancora da considerare instabili:
-prima di promuovere un'ottimizzazione vanno sempre eseguiti i test logits e una
-prova no-garbage su prompt reale.
+The q8 KV cache and several experimental environment flags should still be
+considered unstable. Before promoting any Metal optimization, run logits
+regressions and a no-garbage test on a real prompt.
 
-## Validazione
+## Validation
 
-Comandi minimi prima di fidarsi di una modifica Metal:
+Minimum checks before trusting a Metal change:
 
 ```sh
 make
@@ -158,7 +166,7 @@ make test-metal-logits
   --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128
 ```
 
-Le note di sviluppo e i risultati dei benchmark sono in:
+Development notes and benchmark history are kept in:
 
 ```text
 docs/metal_prefill_validation.md
