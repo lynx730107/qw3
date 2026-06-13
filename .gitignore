@@ -1,5 +1,6 @@
 .DS_Store
 *.o
+modelcard.md
 
 qw3
 qw3-cpu

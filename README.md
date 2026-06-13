@@ -179,3 +179,10 @@ Development notes and benchmark history are kept in:
 ```text
 docs/metal_prefill_validation.md
 ```
+
+## License
+
+`qw3` is released under the MIT License. See `LICENSE` and
+`THIRD_PARTY_NOTICES.md` for attribution notes covering ds4, llama.cpp/ggml,
+linenoise, optional tree-sitter parsers, colgrep, and external Qwen model
+artifacts.
