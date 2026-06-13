@@ -11,6 +11,11 @@ tools, and low latency without an HTTP server boundary. It is not a replacement
 for llama.cpp and does not aim for the same generality. It is a focused
 laboratory for this model family and Apple Silicon.
 
+This experiment would not have been possible without GPT-5.5-assisted
+development and llama.cpp as the practical reference implementation for GGUF
+loading, Qwen behavior, Metal performance expectations, and validation
+discipline.
+
 ## Status
 
 - Main backend: Metal on macOS/Apple Silicon.
