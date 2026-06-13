@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -24,6 +25,8 @@
 
 #include "qw3.h"
 #include "linenoise.h"
+
+int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 
 #define DSML_BAR "\xef\xbd\x9c"
 #define DSML_BEGIN "<" DSML_BAR "DSML" DSML_BAR "tool_calls>"
@@ -67,6 +70,11 @@
 #define QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS 768
 #define QW3_AGENT_REPEAT_PENALTY_DEFAULT 1.06f
 #define QW3_AGENT_REPEAT_LAST_N_DEFAULT 1024
+#define QW3_AGENT_INPUT_INITIAL_BUFLEN 4096
+#define QW3_AGENT_INPUT_MAX_BUFLEN (1024 * 1024)
+#define QW3_AGENT_STATUS_REDRAW_INTERVAL_SEC 0.200
+#define QW3_AGENT_STATUS_STYLE_START "\033[7m"
+#define QW3_AGENT_STATUS_STYLE_END "\033[0m"
 
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
@@ -279,6 +287,48 @@ static void agent_write_with_crlf(FILE *fp, const char *s, size_t n) {
             p = q;
         }
     }
+}
+
+static void agent_write_all(int fd, const char *p, size_t n) {
+    while (n > 0) {
+        ssize_t w = write(fd, p, n);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            return;
+        }
+        if (w == 0) return;
+        p += w;
+        n -= (size_t)w;
+    }
+}
+
+static void agent_write_fd_crlf(int fd, const char *s, size_t n) {
+    if (!s || n == 0) return;
+    if (!isatty(fd)) {
+        agent_write_all(fd, s, n);
+        return;
+    }
+    size_t start = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] != '\n') continue;
+        if (i > start) agent_write_all(fd, s + start, i - start);
+        agent_write_all(fd, "\r\n", 2);
+        start = i + 1;
+    }
+    if (start < n) agent_write_all(fd, s + start, n - start);
+}
+
+static bool agent_stdout_is_tty(void) {
+    return isatty(STDOUT_FILENO) || getenv("LINENOISE_ASSUME_TTY");
+}
+
+static int agent_set_nonblock_mode(int fd, bool on, int *old_flags) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return -1;
+    if (old_flags) *old_flags = flags;
+    int new_flags = on ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+    if (new_flags == flags) return 0;
+    return fcntl(fd, F_SETFL, new_flags);
 }
 
 static void agent_direct_write(void *ud, const char *s, size_t n) {
@@ -4118,9 +4168,507 @@ static void agent_queue_free(agent_input_queue *q) {
     memset(q, 0, sizeof(*q));
 }
 
-static void agent_update_editor_status(struct linenoiseState *edit,
-                                       agent_worker *w,
-                                       const agent_input_queue *q) {
+typedef struct {
+    struct linenoiseState edit;
+    char prompt[80];
+    char status[240];
+    char *input;
+    int old_stdin_flags;
+    bool active;
+    bool hidden;
+    bool scroll_region;
+    int term_rows;
+    int term_cols;
+    int output_bottom;
+    int prompt_row;
+    int reserved_rows;
+    bool output_cursor_saved;
+    bool output_line_open;
+    bool prompt_below_output;
+    int output_col;
+    double last_prompt_redraw_time;
+} agent_editor;
+
+static void agent_editor_write_terminal_text(const char *text, size_t len) {
+    agent_write_fd_crlf(STDOUT_FILENO, text, len);
+}
+
+static bool agent_editor_get_terminal_size(int *rows, int *cols) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0) return false;
+    if (ws.ws_row < 1 || ws.ws_col < 1) return false;
+    *rows = ws.ws_row;
+    *cols = ws.ws_col;
+    return true;
+}
+
+static void agent_editor_csi_cursor(int row, int col) {
+    char seq[64];
+    int n = snprintf(seq, sizeof(seq), "\x1b[%d;%dH", row, col);
+    if (n > 0) agent_write_all(STDOUT_FILENO, seq, (size_t)n);
+}
+
+static void agent_editor_save_output_cursor(agent_editor *ed) {
+    if (!ed->scroll_region) return;
+    agent_write_all(STDOUT_FILENO, "\0337", 2);
+    ed->output_cursor_saved = true;
+}
+
+static void agent_editor_restore_output_cursor(agent_editor *ed) {
+    if (!ed->scroll_region) return;
+    if (ed->output_cursor_saved) {
+        agent_write_all(STDOUT_FILENO, "\0338", 2);
+    } else {
+        agent_editor_csi_cursor(ed->output_bottom, 1);
+    }
+}
+
+static void agent_editor_move_to_prompt_row(agent_editor *ed) {
+    if (ed->scroll_region) agent_editor_csi_cursor(ed->prompt_row, 1);
+}
+
+static void agent_editor_move_to_prompt_cursor(agent_editor *ed) {
+    if (!ed->scroll_region) return;
+    if (ed->edit.screen_cursor_row > 0 && ed->edit.screen_cursor_col > 0) {
+        agent_editor_csi_cursor(ed->edit.screen_cursor_row,
+                                ed->edit.screen_cursor_col);
+    } else {
+        agent_editor_move_to_prompt_row(ed);
+    }
+}
+
+static void agent_editor_clear_row(int row) {
+    agent_editor_csi_cursor(row, 1);
+    agent_write_all(STDOUT_FILENO, "\r\x1b[0K", 5);
+}
+
+static void agent_editor_clear_prompt_region(agent_editor *ed) {
+    if (!ed->scroll_region) return;
+    for (int row = ed->prompt_row; row <= ed->term_rows; row++) {
+        agent_editor_clear_row(row);
+    }
+    ed->edit.oldrows = 0;
+    ed->edit.oldstatusrows = 0;
+    ed->edit.oldrpos = 1;
+    ed->edit.oldpos = ed->edit.pos;
+}
+
+static void agent_editor_set_scroll_margin(int bottom) {
+    char seq[96];
+    int n = snprintf(seq, sizeof(seq), "\x1b[1;%dr", bottom);
+    if (n > 0) agent_write_all(STDOUT_FILENO, seq, (size_t)n);
+}
+
+static void agent_editor_scroll_output_up(int bottom, int lines) {
+    if (lines <= 0) return;
+    agent_editor_set_scroll_margin(bottom);
+    agent_editor_csi_cursor(bottom, 1);
+    for (int i = 0; i < lines; i++) agent_write_all(STDOUT_FILENO, "\n", 1);
+}
+
+static bool agent_editor_set_scroll_layout(agent_editor *ed, int reserved_rows,
+                                           bool allow_shrink,
+                                           bool scroll_on_grow) {
+    if (!ed->scroll_region) return false;
+    int rows = 0;
+    int cols = 0;
+    if (!agent_editor_get_terminal_size(&rows, &cols)) return false;
+    if (rows < 8 || cols < 20) return false;
+    if (reserved_rows < 2) reserved_rows = 2;
+    if (reserved_rows > rows - 2) reserved_rows = rows - 2;
+    if (!allow_shrink && ed->reserved_rows > 0 &&
+        ed->term_rows == rows && ed->term_cols == cols &&
+        reserved_rows < ed->reserved_rows) {
+        reserved_rows = ed->reserved_rows;
+    }
+
+    int output_bottom = rows - reserved_rows;
+    int prompt_row = output_bottom + 1;
+    bool changed = ed->term_rows != rows ||
+                   ed->term_cols != cols ||
+                   ed->output_bottom != output_bottom ||
+                   ed->prompt_row != prompt_row ||
+                   ed->reserved_rows != reserved_rows;
+    if (!changed) return true;
+
+    bool scrolled_output = false;
+    if (scroll_on_grow &&
+        ed->term_rows == rows && ed->term_cols == cols &&
+        ed->output_bottom > 0 && output_bottom < ed->output_bottom) {
+        agent_editor_scroll_output_up(ed->output_bottom,
+                                      ed->output_bottom - output_bottom);
+        scrolled_output = true;
+    }
+
+    agent_editor_set_scroll_margin(output_bottom);
+    ed->term_rows = rows;
+    ed->term_cols = cols;
+    ed->output_bottom = output_bottom;
+    ed->prompt_row = prompt_row;
+    ed->reserved_rows = reserved_rows;
+    ed->output_cursor_saved = false;
+
+    for (int row = prompt_row; row <= rows; row++) agent_editor_clear_row(row);
+
+    int output_col = ed->output_line_open ? ed->output_col + 1 : 1;
+    if (output_col < 1) output_col = 1;
+    if (output_col > cols) output_col = cols;
+    agent_editor_csi_cursor(output_bottom, output_col);
+    agent_editor_save_output_cursor(ed);
+    agent_editor_move_to_prompt_row(ed);
+    (void)scrolled_output;
+    return true;
+}
+
+static int agent_editor_linenoise_layout_changed(struct linenoiseState *l,
+                                                 size_t prompt_rows,
+                                                 size_t status_rows,
+                                                 void *privdata) {
+    (void)l;
+    agent_editor *ed = (agent_editor *)privdata;
+    if (!ed || !ed->scroll_region) return 0;
+    if (prompt_rows < 1) prompt_rows = 1;
+    int reserved = (int)(prompt_rows + status_rows);
+    if (!agent_editor_set_scroll_layout(ed, reserved, true, true)) return 0;
+    return ed->prompt_row;
+}
+
+static bool agent_editor_configure_scroll_region(agent_editor *ed) {
+    if (ed->scroll_region) return true;
+    if (!agent_stdout_is_tty() || !isatty(STDIN_FILENO)) return false;
+    int rows = 0;
+    int cols = 0;
+    if (!agent_editor_get_terminal_size(&rows, &cols)) return false;
+    if (rows < 8 || cols < 20) return false;
+    ed->scroll_region = true;
+    ed->term_rows = 0;
+    ed->term_cols = 0;
+    ed->output_bottom = 0;
+    ed->prompt_row = 0;
+    ed->reserved_rows = 0;
+    ed->output_cursor_saved = false;
+    if (!agent_editor_set_scroll_layout(ed, 2, true, false)) {
+        ed->scroll_region = false;
+        return false;
+    }
+    agent_editor_scroll_output_up(ed->output_bottom, 1);
+    ed->output_cursor_saved = false;
+    agent_editor_csi_cursor(ed->output_bottom, 1);
+    agent_editor_save_output_cursor(ed);
+    agent_editor_move_to_prompt_row(ed);
+    return true;
+}
+
+static void agent_editor_restore_terminal_layout(agent_editor *ed) {
+    if (!ed->scroll_region) return;
+    agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
+    agent_write_all(STDOUT_FILENO, "\x1b[r", 3);
+    agent_editor_csi_cursor(ed->term_rows, 1);
+    agent_write_all(STDOUT_FILENO, "\r\x1b[0K\r\n", 7);
+    ed->scroll_region = false;
+    ed->output_cursor_saved = false;
+    ed->term_rows = ed->term_cols = 0;
+    ed->output_bottom = ed->prompt_row = 0;
+    ed->reserved_rows = 0;
+}
+
+static int agent_editor_start(agent_editor *ed, const char *prompt,
+                              const char *status, const char *initial) {
+    memset(&ed->edit, 0, sizeof(ed->edit));
+    ed->input = malloc(QW3_AGENT_INPUT_INITIAL_BUFLEN);
+    if (!ed->input) return -1;
+    snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
+    snprintf(ed->status, sizeof(ed->status), "%s", status ? status : "");
+    bool had_scroll_region = ed->scroll_region;
+    bool use_scroll_region = agent_editor_configure_scroll_region(ed);
+    if (use_scroll_region) {
+        if (had_scroll_region)
+            agent_editor_set_scroll_layout(ed, 2, true, false);
+        agent_editor_move_to_prompt_row(ed);
+    }
+    if (linenoiseEditStart(&ed->edit, STDIN_FILENO, STDOUT_FILENO,
+                           ed->input, QW3_AGENT_INPUT_INITIAL_BUFLEN,
+                           ed->prompt) != 0) {
+        free(ed->input);
+        ed->input = NULL;
+        agent_editor_restore_terminal_layout(ed);
+        return -1;
+    }
+    linenoiseEditSetStatus(&ed->edit, ed->status,
+                           agent_stdout_is_tty() ? QW3_AGENT_STATUS_STYLE_START : "",
+                           agent_stdout_is_tty() && ed->status[0] ?
+                               QW3_AGENT_STATUS_STYLE_END : "");
+    linenoiseEditSetLayoutCallback(&ed->edit,
+                                   agent_editor_linenoise_layout_changed, ed);
+    ed->edit.buflen_max = QW3_AGENT_INPUT_MAX_BUFLEN;
+    ed->active = true;
+    ed->hidden = false;
+    if (agent_set_nonblock_mode(STDIN_FILENO, true,
+                                &ed->old_stdin_flags) != 0) {
+        ed->old_stdin_flags = -1;
+    }
+    if (agent_stdout_is_tty()) {
+        linenoiseHide(&ed->edit);
+        linenoiseShow(&ed->edit);
+    }
+    if (initial && initial[0]) {
+        linenoiseEditInsert(&ed->edit, initial, strlen(initial));
+    }
+    ed->output_line_open = false;
+    ed->prompt_below_output = false;
+    ed->output_col = 0;
+    ed->last_prompt_redraw_time = agent_now_sec();
+    return 0;
+}
+
+static void agent_editor_move_to_output_cursor(agent_editor *ed) {
+    char seq[64];
+    agent_write_all(STDOUT_FILENO, "\x1b[1A", 4);
+    int n = snprintf(seq, sizeof(seq), "\x1b[%dG", ed->output_col + 1);
+    if (n > 0) agent_write_all(STDOUT_FILENO, seq, (size_t)n);
+}
+
+static void agent_editor_note_output(agent_editor *ed,
+                                     const char *text, size_t len) {
+    int cols = ed->edit.cols > 0 ? (int)ed->edit.cols : 80;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)text[i];
+        if (c == 0x1b && i + 1 < len && text[i + 1] == '[') {
+            i += 2;
+            while (i < len) {
+                unsigned char e = (unsigned char)text[i];
+                if (e >= 0x40 && e <= 0x7e) break;
+                i++;
+            }
+            continue;
+        }
+        if (c == '\n') {
+            ed->output_col = 0;
+            ed->output_line_open = false;
+            continue;
+        }
+        if (c == '\r') {
+            ed->output_col = 0;
+            continue;
+        }
+        if (c == '\b') {
+            if (ed->output_col > 0) ed->output_col--;
+            continue;
+        }
+        int width = c == '\t' ? 8 - (ed->output_col & 7) :
+                    (c < 0x20 || c == 0x7f) ? 0 : 1;
+        if (c >= 0xc0) {
+            while (i + 1 < len &&
+                   (((unsigned char)text[i + 1]) & 0xc0) == 0x80) {
+                i++;
+            }
+        } else if ((c & 0xc0) == 0x80) {
+            width = 0;
+        }
+        if (width > 0) {
+            ed->output_col = (ed->output_col + width) % cols;
+            ed->output_line_open = true;
+        }
+    }
+}
+
+static void agent_editor_hide(agent_editor *ed) {
+    if (!ed->active || ed->hidden) return;
+    if (ed->scroll_region) {
+        agent_editor_clear_prompt_region(ed);
+        agent_editor_restore_output_cursor(ed);
+        ed->hidden = true;
+        return;
+    }
+    linenoiseHide(&ed->edit);
+    if (ed->prompt_below_output) {
+        agent_editor_move_to_output_cursor(ed);
+        ed->prompt_below_output = false;
+    }
+    ed->hidden = true;
+}
+
+static void agent_editor_show(agent_editor *ed) {
+    if (!ed->active || !ed->hidden) return;
+    if (ed->scroll_region) {
+        agent_editor_save_output_cursor(ed);
+        agent_editor_move_to_prompt_row(ed);
+        agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
+        linenoiseShow(&ed->edit);
+        ed->hidden = false;
+        ed->last_prompt_redraw_time = agent_now_sec();
+        return;
+    }
+    if (ed->output_line_open) {
+        agent_write_all(STDOUT_FILENO, "\r\n", 2);
+        ed->prompt_below_output = true;
+    } else {
+        ed->prompt_below_output = false;
+    }
+    agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
+    linenoiseShow(&ed->edit);
+    ed->hidden = false;
+    ed->last_prompt_redraw_time = agent_now_sec();
+}
+
+static void agent_editor_stop(agent_editor *ed) {
+    if (!ed->active) return;
+    if (!ed->hidden && agent_stdout_is_tty()) agent_editor_hide(ed);
+    linenoiseEditStop(&ed->edit);
+    if (ed->old_stdin_flags >= 0) {
+        fcntl(STDIN_FILENO, F_SETFL, ed->old_stdin_flags);
+    }
+    free(ed->input);
+    ed->input = NULL;
+    ed->active = false;
+    ed->hidden = false;
+    ed->output_line_open = false;
+    ed->prompt_below_output = false;
+    ed->output_col = 0;
+}
+
+static void agent_editor_update_status(agent_editor *ed, const char *status) {
+    snprintf(ed->status, sizeof(ed->status), "%s", status ? status : "");
+    linenoiseEditSetStatus(&ed->edit, ed->status,
+                           agent_stdout_is_tty() ? QW3_AGENT_STATUS_STYLE_START : "",
+                           agent_stdout_is_tty() && ed->status[0] ?
+                               QW3_AGENT_STATUS_STYLE_END : "");
+}
+
+static void agent_editor_set_prompt_status(agent_editor *ed,
+                                           const char *prompt,
+                                           const char *status) {
+    bool prompt_changed = strcmp(ed->prompt, prompt ? prompt : "") != 0;
+    bool status_changed = strcmp(ed->status, status ? status : "") != 0;
+    if (!ed->active || (!prompt_changed && !status_changed)) return;
+    if (ed->hidden) {
+        if (prompt_changed) {
+            snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
+            ed->edit.prompt = ed->prompt;
+            ed->edit.plen = strlen(ed->prompt);
+        }
+        if (status_changed) agent_editor_update_status(ed, status);
+        return;
+    }
+    agent_editor_hide(ed);
+    if (prompt_changed) {
+        snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
+        ed->edit.prompt = ed->prompt;
+        ed->edit.plen = strlen(ed->prompt);
+    }
+    if (status_changed) agent_editor_update_status(ed, status);
+    agent_editor_show(ed);
+}
+
+static bool agent_editor_prompt_redraw_due(agent_editor *ed) {
+    double now = agent_now_sec();
+    return ed->last_prompt_redraw_time <= 0.0 ||
+           now - ed->last_prompt_redraw_time >=
+               QW3_AGENT_STATUS_REDRAW_INTERVAL_SEC;
+}
+
+static void agent_editor_redraw_visible_prompt(agent_editor *ed) {
+    if (!ed->active || !ed->scroll_region) return;
+    agent_editor_clear_prompt_region(ed);
+    agent_editor_move_to_prompt_row(ed);
+    agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
+    linenoiseShow(&ed->edit);
+    ed->last_prompt_redraw_time = agent_now_sec();
+}
+
+static void agent_editor_write_scroll_output(agent_editor *ed,
+                                             const char *text, size_t len) {
+    static const char sync_start[] = "\x1b[?2026h";
+    static const char sync_end[] = "\x1b[?2026l";
+    if (!len) return;
+    agent_write_all(STDOUT_FILENO, sync_start, sizeof(sync_start) - 1);
+    agent_editor_restore_output_cursor(ed);
+    agent_editor_write_terminal_text(text, len);
+    agent_editor_note_output(ed, text, len);
+    agent_editor_save_output_cursor(ed);
+    agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
+    agent_editor_move_to_prompt_cursor(ed);
+    agent_write_all(STDOUT_FILENO, sync_end, sizeof(sync_end) - 1);
+}
+
+static void agent_editor_write_async(agent_editor *ed, const char *text,
+                                     size_t len, const char *prompt,
+                                     const char *status, bool force_show) {
+    if (!ed || !ed->active) {
+        agent_write_fd_crlf(STDOUT_FILENO, text, len);
+        return;
+    }
+    if (ed->scroll_region && !ed->hidden && len) {
+        bool prompt_changed = strcmp(ed->prompt, prompt ? prompt : "") != 0;
+        bool status_changed = strcmp(ed->status, status ? status : "") != 0;
+        agent_editor_write_scroll_output(ed, text, len);
+        if (prompt_changed) {
+            snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
+            ed->edit.prompt = ed->prompt;
+            ed->edit.plen = strlen(ed->prompt);
+        }
+        if (status_changed) agent_editor_update_status(ed, status);
+        if ((force_show || agent_editor_prompt_redraw_due(ed)) &&
+            (prompt_changed || status_changed)) {
+            agent_editor_redraw_visible_prompt(ed);
+        }
+        return;
+    }
+    agent_editor_hide(ed);
+    if (len) {
+        agent_editor_write_terminal_text(text, len);
+        agent_editor_note_output(ed, text, len);
+    }
+    if (ed->active) {
+        agent_editor_set_prompt_status(ed, prompt, status);
+        if (force_show || len) agent_editor_show(ed);
+    }
+}
+
+static void agent_editor_read_stdin(agent_editor *ed) {
+    char buf[512];
+    for (;;) {
+        ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
+        if (n > 0) {
+            linenoiseEditQueueInput(&ed->edit, buf, (size_t)n);
+            continue;
+        }
+        if (n < 0 && errno == EINTR) continue;
+        break;
+    }
+}
+
+static bool agent_editor_take_queued_byte(agent_editor *ed,
+                                          unsigned char byte) {
+    struct linenoiseState *l = &ed->edit;
+    for (size_t i = l->queued_input_pos; i < l->queued_input_len; i++) {
+        if ((unsigned char)l->queued_input[i] != byte) continue;
+        memmove(l->queued_input + i, l->queued_input + i + 1,
+                l->queued_input_len - i - 1);
+        l->queued_input_len--;
+        if (l->queued_input_pos > l->queued_input_len) {
+            l->queued_input_pos = l->queued_input_len;
+        }
+        return true;
+    }
+    return false;
+}
+
+static void agent_editor_cancel_input(agent_editor *ed,
+                                      const char *prompt,
+                                      const char *status) {
+    if (!ed->active) return;
+    if (ed->hidden) agent_editor_show(ed);
+    linenoiseEditClear(&ed->edit);
+    const char *msg = agent_stdout_is_tty() ?
+        "\033[1;33mpress Ctrl+D to exit\033[0m\n" :
+        "press Ctrl+D to exit\n";
+    agent_editor_write_async(ed, msg, strlen(msg), prompt, status, true);
+}
+
+static void agent_build_editor_status(agent_worker *w,
+                                      const agent_input_queue *q,
+                                      char *status, size_t status_len) {
     bool busy = false;
     bool progress_active = false;
     int progress_current = 0;
@@ -4145,7 +4693,6 @@ static void agent_update_editor_status(struct linenoiseState *edit,
                  timing_prefill_tokens, timing_prefill_tps,
                  timing_gen_tokens, timing_gen_tps);
     }
-    char status[240];
     if (busy && progress_active && progress_total > 0) {
         int pct = (int)((100.0 * (double)progress_current /
                          (double)progress_total) + 0.5);
@@ -4158,19 +4705,19 @@ static void agent_update_editor_status(struct linenoiseState *edit,
         if (fill > 18) fill = 18;
         for (int i = 0; i < 18; i++) bar[i] = i < fill ? '=' : '.';
         bar[18] = '\0';
-        snprintf(status, sizeof(status),
+        snprintf(status, status_len,
                  "prefill [%s] %d/%d %d%% %.0f/s  q=%d%s",
                  bar, progress_current, progress_total, pct, progress_tps,
                  q ? q->len : 0, timing);
     } else if (busy) {
-        snprintf(status, sizeof(status),
+        snprintf(status, status_len,
                  "run q=%d ctx=busy tools=%s think=%s%s",
                  q ? q->len : 0,
                  w->agent->cfg.tools_enabled ? "on" : "off",
                  qw3_think_mode_name(w->agent->cfg.think_mode),
                  timing);
     } else {
-        snprintf(status, sizeof(status),
+        snprintf(status, status_len,
                  "ready q=%d ctx=%d/%d tools=%s think=%s%s",
                  q ? q->len : 0, w->agent->transcript.len,
                  w->agent->cfg.ctx_size,
@@ -4178,16 +4725,15 @@ static void agent_update_editor_status(struct linenoiseState *edit,
                  qw3_think_mode_name(w->agent->cfg.think_mode),
                  timing);
     }
-    linenoiseEditSetStatus(edit, status, "\033[7m", "\033[0m");
 }
 
-static void agent_redraw_editor(struct linenoiseState *edit,
+static void agent_redraw_editor(agent_editor *edit,
                                 agent_worker *w,
                                 const agent_input_queue *q) {
     if (!edit) return;
-    agent_update_editor_status(edit, w, q);
-    linenoiseHide(edit);
-    linenoiseShow(edit);
+    char status[240];
+    agent_build_editor_status(w, q, status, sizeof(status));
+    agent_editor_set_prompt_status(edit, "qw3-agent> ", status);
 }
 
 static int agent_submit_or_queue(agent_worker *w, agent_input_queue *q,
@@ -4210,7 +4756,7 @@ static int agent_submit_next_if_idle(agent_worker *w, agent_input_queue *q) {
 }
 
 static void agent_display_worker_output(agent_worker *w,
-                                        struct linenoiseState *edit,
+                                        agent_editor *edit,
                                         const agent_input_queue *q,
                                         bool *streaming_output,
                                         bool *turn_done, int *turn_rc) {
@@ -4220,21 +4766,25 @@ static void agent_display_worker_output(agent_worker *w,
     int rc = 0;
     agent_worker_collect(w, &out, &out_len, &done, &rc);
     bool busy_now = agent_worker_is_busy(w);
+    char status[240];
+    agent_build_editor_status(w, q, status, sizeof(status));
+    bool had_out = out != NULL;
     if (out) {
-        if (edit && streaming_output && !*streaming_output) {
-            linenoiseHide(edit);
-        } else if (edit && !streaming_output) {
-            linenoiseHide(edit);
+        if (edit) {
+            bool force_show = !busy_now || done;
+            agent_editor_write_async(edit, out, out_len, "qw3-agent> ",
+                                     status, force_show);
+        } else {
+            agent_write_fd_crlf(STDOUT_FILENO, out, out_len);
+            fflush(stdout);
         }
-        agent_write_with_crlf(stdout, out, out_len);
-        fflush(stdout);
         if (streaming_output && busy_now) *streaming_output = true;
         free(out);
     }
     if (!busy_now && streaming_output) *streaming_output = false;
     if (done && streaming_output) *streaming_output = false;
     if (edit) {
-        if (!streaming_output || !*streaming_output) {
+        if (!had_out || !streaming_output || !*streaming_output) {
             agent_redraw_editor(edit, w, q);
         }
     }
@@ -4305,17 +4855,17 @@ static int interactive_loop_worker(agent_state *a) {
     int rc = 0;
     bool done = false;
     agent_input_queue queue = {0};
-    struct linenoiseState edit;
-    char editbuf[16384];
+    agent_editor edit = {0};
     bool edit_active = false;
     bool streaming_output = false;
-    if (linenoiseEditStart(&edit, STDIN_FILENO, STDOUT_FILENO, editbuf,
-                           sizeof(editbuf), "qw3-agent> ") != 0) {
+    linenoiseSetMultiLine(1);
+    char status[240];
+    agent_build_editor_status(&worker, &queue, status, sizeof(status));
+    if (agent_editor_start(&edit, "qw3-agent> ", status, NULL) != 0) {
         rc = 1;
         done = true;
     } else {
         edit_active = true;
-        agent_redraw_editor(&edit, &worker, &queue);
     }
 
     while (!done) {
@@ -4326,20 +4876,34 @@ static int interactive_loop_worker(agent_state *a) {
         fds[1].fd = worker.wake_rd;
         fds[1].events = POLLIN;
         fds[1].revents = 0;
-        int pr = poll(fds, 2, -1);
+        int timeout = edit_active &&
+                      linenoiseEditQueuedInput(&edit.edit) > 0 ? 0 : 100;
+        int pr = poll(fds, 2, timeout);
         if (g_agent_sigint) {
             g_agent_sigint = 0;
             if (agent_worker_is_busy(&worker)) {
                 agent_worker_interrupt(&worker);
                 agent_statusf(a, "\nagent: interrupt requested\n");
             } else {
-                linenoiseEditClear(&edit);
+                agent_build_editor_status(&worker, &queue, status, sizeof(status));
+                agent_editor_cancel_input(&edit, "qw3-agent> ", status);
             }
         }
         if (pr < 0) {
             if (errno == EINTR) continue;
             rc = 1;
             break;
+        }
+        if (pr > 0 && (fds[0].revents & POLLIN) && edit_active) {
+            agent_editor_read_stdin(&edit);
+        }
+        if (edit_active && agent_editor_take_queued_byte(&edit, 3)) {
+            if (agent_worker_is_busy(&worker)) {
+                agent_worker_interrupt(&worker);
+            } else {
+                agent_build_editor_status(&worker, &queue, status, sizeof(status));
+                agent_editor_cancel_input(&edit, "qw3-agent> ", status);
+            }
         }
         if (fds[1].revents & POLLIN) {
             agent_worker_drain_wake(&worker);
@@ -4358,9 +4922,15 @@ static int interactive_loop_worker(agent_state *a) {
             }
         }
 
-        if (fds[0].revents & (POLLIN | POLLHUP)) {
+        if (edit_active && !edit.hidden) {
+            agent_build_editor_status(&worker, &queue, status, sizeof(status));
+            agent_editor_set_prompt_status(&edit, "qw3-agent> ", status);
+        }
+
+        if (edit_active && linenoiseEditQueuedInput(&edit.edit) > 0) {
+            if (edit.hidden) agent_editor_show(&edit);
             errno = 0;
-            char *line = linenoiseEditFeed(&edit);
+            char *line = linenoiseEditFeed(&edit.edit);
             if (line == linenoiseEditMore) {
                 continue;
             }
@@ -4370,14 +4940,14 @@ static int interactive_loop_worker(agent_state *a) {
                         agent_worker_interrupt(&worker);
                         agent_statusf(a, "\nagent: interrupt requested\n");
                     }
-                    linenoiseEditClear(&edit);
+                    linenoiseEditClear(&edit.edit);
                     continue;
                 }
                 done = true;
                 break;
             }
 
-            linenoiseEditStop(&edit);
+            agent_editor_stop(&edit);
             edit_active = false;
             int action = agent_process_interactive_line(a, &worker, &queue, line);
             linenoiseFree(line);
@@ -4397,9 +4967,8 @@ static int interactive_loop_worker(agent_state *a) {
             }
 
             if (!done) {
-                if (linenoiseEditStart(&edit, STDIN_FILENO, STDOUT_FILENO,
-                                       editbuf, sizeof(editbuf),
-                                       "qw3-agent> ") != 0) {
+                agent_build_editor_status(&worker, &queue, status, sizeof(status));
+                if (agent_editor_start(&edit, "qw3-agent> ", status, NULL) != 0) {
                     rc = 1;
                     done = true;
                 } else {
@@ -4412,7 +4981,8 @@ static int interactive_loop_worker(agent_state *a) {
         }
     }
 
-    if (edit_active) linenoiseEditStop(&edit);
+    if (edit_active) agent_editor_stop(&edit);
+    agent_editor_restore_terminal_layout(&edit);
     agent_queue_free(&queue);
     sigaction(SIGINT, &old_int, NULL);
     if (hist) {
