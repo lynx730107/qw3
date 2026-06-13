@@ -2,7 +2,7 @@
 set -eu
 
 MODEL="${QW3_MODEL:-../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf}"
-BIN="${QW3_METAL_BIN:-./qw3}"
+BIN="${QW3_METAL_BIN:-./qw3-test}"
 CTX="${QW3_CTX:-1024}"
 
 fail() {

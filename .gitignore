@@ -3,6 +3,8 @@
 
 qw3
 qw3-cpu
+qw3-test
+qw3-cpu-test
 qw3-agent
 qw3-agent-cpu
 qw3-bench

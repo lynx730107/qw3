@@ -16,7 +16,7 @@
 #include "qw3.h"
 
 #ifndef QW3_CLI_ENABLE_INTERNAL_TESTS
-#define QW3_CLI_ENABLE_INTERNAL_TESTS 1
+#define QW3_CLI_ENABLE_INTERNAL_TESTS 0
 #endif
 
 #define QW3_CLI_N_LAYER 40
@@ -218,6 +218,7 @@ static char *read_file_text(const char *path, size_t *out_len)
     return buf;
 }
 
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
 static void print_token_piece(qw3_engine *engine, int token)
 {
     size_t len = 0;
@@ -437,6 +438,7 @@ static int dump_logprobs(qw3_engine *engine, const qw3_tokens *prompt,
     qw3_session_free(session);
     return 0;
 }
+#endif
 
 static int generate_from_session(qw3_engine *engine, qw3_session *session,
                                  const qw3_tokens *repeat_context,
@@ -1035,6 +1037,7 @@ int main(int argc, char **argv)
     qw3_backend backend = QW3_BACKEND_METAL;
 #endif
     qw3_think_mode think_mode = QW3_THINK_ON;
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
     int inspect = 0;
     int layer_types = -1;
     int tokenize = 0;
@@ -1122,6 +1125,7 @@ int main(int argc, char **argv)
     int metal_gqa_real_layer_test = -1;
     const char *save_session_path = NULL;
     const char *load_session_path = NULL;
+#endif
 
 #if !QW3_CLI_ENABLE_INTERNAL_TESTS
     if (reject_internal_cli_options(argc, argv) != 0)
@@ -1266,6 +1270,7 @@ int main(int argc, char **argv)
         {
             think_mode = QW3_THINK_NONE;
         }
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
         else if (strcmp(argv[i], "--inspect") == 0)
         {
             inspect = 1;
@@ -1684,6 +1689,7 @@ int main(int argc, char **argv)
             metal_gqa_real_layer_test = atoi(argv[++i]);
             backend = QW3_BACKEND_METAL;
         }
+#endif
         else
         {
             fprintf(stderr, "qw3: unknown option '%s'\n", argv[i]);
@@ -1763,6 +1769,7 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
     if (backend == QW3_BACKEND_METAL &&
         (save_session_path || load_session_path || session_roundtrip))
     {
@@ -1770,6 +1777,7 @@ int main(int argc, char **argv)
                 "qw3: session save/load/roundtrip currently use CPU session state; pass --cpu for these commands\n");
         return 1;
     }
+#endif
 
     /* Print model shape summary. */
     qw3_log(stderr, QW3_LOG_OK,
@@ -1804,6 +1812,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
     if (inspect)
     {
         qw3_engine_inspect(engine, stdout);
@@ -2732,7 +2741,10 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    if (prompt && top_k_logits <= 0 && !session_roundtrip && !trace_layers &&
+#endif
+    if (prompt
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
+        && top_k_logits <= 0 && !session_roundtrip && !trace_layers &&
         !dump_trace_path &&
         !metal_rmsnorm_test &&
         metal_rmsnorm_weight_test < 0 &&
@@ -2808,7 +2820,9 @@ int main(int argc, char **argv)
         !dump_logprobs_path &&
         !save_session_path && !load_session_path &&
         !tokenize && !chat_tokenize && probe_token < 0 &&
-        layer_types < 0 && !inspect)
+        layer_types < 0 && !inspect
+#endif
+    )
     {
         qw3_tokens tokens = {0};
         qw3_session *session = NULL;
