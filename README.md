@@ -15,6 +15,8 @@ laboratory for this model family and Apple Silicon.
 
 - Main backend: Metal on macOS/Apple Silicon.
 - Target model: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`.
+- The only supported GGUF quantization is currently Unsloth's `IQ4_XS`
+  release from Hugging Face.
 - Metal generation: stable.
 - Metal prefill: still being optimized; the local `pp4096` benchmark is around
   600 tok/s on the tested Apple M5 setup under the conditions documented in
@@ -28,7 +30,8 @@ context tested in practice is 32,000 tokens. Larger contexts, different Apple
 Silicon machines, and other memory sizes should be considered unvalidated until
 tested.
 
-Model weights are not included in this repository.
+Model weights are not included in this repository. At the moment, other GGUF
+quantizations should be considered unsupported unless explicitly validated.
 
 ## Build
 
