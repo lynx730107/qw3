@@ -49,6 +49,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define AGENT_COLOR_DIM "\033[2;90m"
 #define AGENT_COLOR_RESET "\033[0m"
 #define AGENT_COLOR_CODE "\033[33m"
+#define AGENT_COLOR_TOOL "\033[36m"
 
 #define QW3_AGENT_N_LAYER 40
 #define QW3_AGENT_READ_DEFAULT_LINES 512
@@ -408,7 +409,7 @@ static bool agent_tool_color_enabled(agent_state *a) {
 
 static void agent_tool_status_begin(agent_state *a) {
     if (agent_tool_color_enabled(a)) {
-        agent_status_write(a, AGENT_COLOR_DIM, strlen(AGENT_COLOR_DIM));
+        agent_status_write(a, AGENT_COLOR_TOOL, strlen(AGENT_COLOR_TOOL));
     }
 }
 
@@ -416,6 +417,14 @@ static void agent_tool_status_end(agent_state *a) {
     if (agent_tool_color_enabled(a)) {
         agent_status_write(a, AGENT_COLOR_RESET, strlen(AGENT_COLOR_RESET));
     }
+}
+
+static void agent_tool_status_block(agent_state *a, const char *name,
+                                    const char *out) {
+    agent_tool_status_begin(a);
+    agent_statusf(a, "\n[tool] %s\n", name && name[0] ? name : "?");
+    agent_statusf(a, "%s\n", out ? out : "");
+    agent_tool_status_end(a);
 }
 
 static bool agent_should_interrupt(agent_state *a) {
@@ -2740,13 +2749,10 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls) {
     sb_init(&result);
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
-        agent_tool_status_begin(a);
-        agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
         sb_printf(&result, "<tool_result name=\"%s\">\n%s\n</tool_result>\n",
                   call->name, out ? out : "");
-        agent_statusf(a, "%s\n", out ? out : "");
-        agent_tool_status_end(a);
+        agent_tool_status_block(a, call->name, out ? out : "");
         free(out);
     }
     return result.p ? result.p : agent_strdup("");
@@ -2756,11 +2762,8 @@ static bool execute_native_tools_append(agent_state *a,
                                         const tool_call_list *calls) {
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
-        agent_tool_status_begin(a);
-        agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
-        agent_statusf(a, "%s\n", out ? out : "");
-        agent_tool_status_end(a);
+        agent_tool_status_block(a, call->name, out ? out : "");
         char *response = native_tool_response_text(call->name, out ? out : "");
         char compact_err[160] = {0};
         if (!agent_ensure_message_room(a, "user", response,
@@ -2812,11 +2815,8 @@ static int run_tool_native(agent_state *a, const char *text) {
     sb_init(&result);
     for (int i = 0; i < calls.n_calls; i++) {
         const tool_call *call = &calls.calls[i];
-        agent_tool_status_begin(a);
-        agent_statusf(a, "\n[tool] %s\n", call->name);
         char *out = execute_one_tool(a, call);
-        agent_statusf(a, "%s\n", out ? out : "");
-        agent_tool_status_end(a);
+        agent_tool_status_block(a, call->name, out ? out : "");
         char *response = native_tool_response_text(call->name, out ? out : "");
         sb_append(&result, response ? response : "");
         if (i + 1 < calls.n_calls) sb_append(&result, "\n");
