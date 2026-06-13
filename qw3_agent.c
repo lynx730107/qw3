@@ -3703,17 +3703,18 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "- Use read only for small non-source files or precise source line "
             "ranges with explicit start and lines.\n\n");
     }
-    char now_text[64] = {0};
+    char now_text[96] = {0};
     time_t now = time(NULL);
     struct tm local_now;
     if (now != (time_t)-1 && localtime_r(&now, &local_now) &&
-        strftime(now_text, sizeof(now_text), "%Y-%m-%d %H:%M:%S %Z",
+        strftime(now_text, sizeof(now_text), "%A %Y-%m-%d %H:%M:%S %Z",
                  &local_now) > 0) {
         sb_append(&sb, "Current local date/time: ");
         sb_append(&sb, now_text);
         sb_append(&sb,
-                  ". Use this for date questions, or the bash/date tool when "
-                  "exact seconds are needed.\n");
+                  ". For date questions, use the weekday and date from this "
+                  "line exactly; do not recompute the weekday from memory. Use "
+                  "the bash/date tool when exact seconds are needed.\n");
     }
     sb_append(&sb,
         "You are qw3-agent, a local coding assistant. Work in the current "
