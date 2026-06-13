@@ -159,6 +159,9 @@ typedef struct {
     bool in_code;
     char pending[32];
     size_t pending_len;
+    char utf8_pending[4];
+    size_t utf8_pending_len;
+    size_t utf8_pending_need;
 } agent_renderer;
 
 typedef struct {
@@ -2841,6 +2844,14 @@ static void agent_renderer_raw(agent_renderer *r, const char *s, size_t n) {
     if (r->write) r->write(r->ud, s, n);
 }
 
+static size_t agent_utf8_expected_len(unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xe0) == 0xc0) return 2;
+    if ((c & 0xf0) == 0xe0) return 3;
+    if ((c & 0xf8) == 0xf0) return 4;
+    return 1;
+}
+
 static void agent_renderer_apply(agent_renderer *r) {
     if (!r || !r->color) return;
     if (r->in_think) {
@@ -2871,10 +2882,38 @@ static void agent_renderer_emit_byte(agent_renderer *r, char c) {
     agent_renderer_raw(r, &c, 1);
 }
 
+static void agent_renderer_emit_utf8_byte(agent_renderer *r, char c) {
+    unsigned char uc = (unsigned char)c;
+    if (r->utf8_pending_len > 0) {
+        if ((uc & 0xc0) == 0x80 &&
+            r->utf8_pending_len < sizeof(r->utf8_pending)) {
+            r->utf8_pending[r->utf8_pending_len++] = c;
+            if (r->utf8_pending_len == r->utf8_pending_need) {
+                agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
+                r->utf8_pending_len = 0;
+                r->utf8_pending_need = 0;
+            }
+            return;
+        }
+        agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
+        r->utf8_pending_len = 0;
+        r->utf8_pending_need = 0;
+    }
+
+    size_t need = agent_utf8_expected_len(uc);
+    if (need > 1) {
+        r->utf8_pending[0] = c;
+        r->utf8_pending_len = 1;
+        r->utf8_pending_need = need;
+        return;
+    }
+    agent_renderer_emit_byte(r, c);
+}
+
 static void agent_renderer_flush_pending(agent_renderer *r) {
     if (!r || r->pending_len == 0) return;
     for (size_t i = 0; i < r->pending_len; i++) {
-        agent_renderer_emit_byte(r, r->pending[i]);
+        agent_renderer_emit_utf8_byte(r, r->pending[i]);
     }
     r->pending_len = 0;
 }
@@ -2891,7 +2930,7 @@ static void agent_renderer_feed(agent_renderer *r, const char *s, size_t n) {
                 r->pending[r->pending_len] = '\0';
             } else {
                 agent_renderer_flush_pending(r);
-                agent_renderer_emit_byte(r, c);
+                agent_renderer_emit_utf8_byte(r, c);
                 continue;
             }
 
@@ -2910,7 +2949,7 @@ static void agent_renderer_feed(agent_renderer *r, const char *s, size_t n) {
                 agent_renderer_flush_pending(r);
             }
         } else {
-            agent_renderer_emit_byte(r, c);
+            agent_renderer_emit_utf8_byte(r, c);
         }
     }
 }
@@ -2918,6 +2957,11 @@ static void agent_renderer_feed(agent_renderer *r, const char *s, size_t n) {
 static void agent_renderer_finish(agent_renderer *r) {
     if (!r) return;
     agent_renderer_flush_pending(r);
+    if (r->utf8_pending_len > 0) {
+        agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
+        r->utf8_pending_len = 0;
+        r->utf8_pending_need = 0;
+    }
     if (r->color && (r->in_think || r->in_code)) {
         r->in_think = false;
         r->in_code = false;
@@ -3658,6 +3702,18 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "content.\n"
             "- Use read only for small non-source files or precise source line "
             "ranges with explicit start and lines.\n\n");
+    }
+    char now_text[64] = {0};
+    time_t now = time(NULL);
+    struct tm local_now;
+    if (now != (time_t)-1 && localtime_r(&now, &local_now) &&
+        strftime(now_text, sizeof(now_text), "%Y-%m-%d %H:%M:%S %Z",
+                 &local_now) > 0) {
+        sb_append(&sb, "Current local date/time: ");
+        sb_append(&sb, now_text);
+        sb_append(&sb,
+                  ". Use this for date questions, or the bash/date tool when "
+                  "exact seconds are needed.\n");
     }
     sb_append(&sb,
         "You are qw3-agent, a local coding assistant. Work in the current "
@@ -4912,6 +4968,7 @@ static char *agent_format_user_prompt_echo(const char *text) {
     strbuf out;
     sb_init(&out);
     const bool color = agent_stdout_is_tty();
+    sb_append(&out, "\n");
     if (color) sb_append(&out, "\033[2;97myou>\033[0m ");
     else sb_append(&out, "you> ");
     const char *p = text ? text : "";
