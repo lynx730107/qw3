@@ -4906,6 +4906,45 @@ static void agent_editor_cancel_input(agent_editor *ed,
 
 static void agent_build_editor_status(agent_worker *w,
                                       const agent_input_queue *q,
+                                      char *status, size_t status_len);
+
+static char *agent_format_user_prompt_echo(const char *text) {
+    strbuf out;
+    sb_init(&out);
+    const bool color = agent_stdout_is_tty();
+    if (color) sb_append(&out, "\033[2;97myou>\033[0m ");
+    else sb_append(&out, "you> ");
+    const char *p = text ? text : "";
+    while (*p) {
+        const char *nl = strchr(p, '\n');
+        if (!nl) {
+            sb_append(&out, p);
+            break;
+        }
+        sb_append_n(&out, p, (size_t)(nl - p));
+        sb_append(&out, "\n     ");
+        p = nl + 1;
+    }
+    sb_append(&out, "\n\n");
+    return out.p ? out.p : agent_strdup("");
+}
+
+static void agent_editor_echo_user_prompt(agent_editor *ed,
+                                          agent_worker *w,
+                                          const agent_input_queue *q,
+                                          const char *line) {
+    if (!line || !line[0]) return;
+    char *echo = agent_format_user_prompt_echo(line);
+    if (!echo) return;
+    char status[240];
+    agent_build_editor_status(w, q, status, sizeof(status));
+    agent_editor_write_async(ed, echo, strlen(echo), "qw3-agent> ",
+                             status, true);
+    free(echo);
+}
+
+static void agent_build_editor_status(agent_worker *w,
+                                      const agent_input_queue *q,
                                       char *status, size_t status_len) {
     bool busy = false;
     bool progress_active = false;
@@ -5187,6 +5226,7 @@ static int interactive_loop_worker(agent_state *a) {
 
             agent_editor_stop(&edit);
             edit_active = false;
+            agent_editor_echo_user_prompt(&edit, &worker, &queue, line);
             int action = agent_process_interactive_line(a, &worker, &queue, line);
             linenoiseFree(line);
             if (action < 0) {
