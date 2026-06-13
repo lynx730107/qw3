@@ -1675,6 +1675,33 @@ static int parse_jsonish_tool_call(const char *text, tool_call_list *out) {
     return 1;
 }
 
+static int parse_native_function_blocks(const char *text, tool_call_list *out) {
+    const char *p = text ? text : "";
+    const size_t begin_len = strlen(QWEN_XML_FUNCTION_BEGIN);
+    const size_t end_len = strlen(QWEN_XML_FUNCTION_END);
+    while (out->n_calls < 8) {
+        const char *fn = strstr(p, QWEN_XML_FUNCTION_BEGIN);
+        if (!fn) break;
+        const char *name_start = fn + begin_len;
+        const char *name_end = strchr(name_start, '>');
+        if (!name_end) break;
+        const char *fn_end = strstr(name_end + 1, QWEN_XML_FUNCTION_END);
+        if (!fn_end) break;
+        tool_call *call = &out->calls[out->n_calls];
+        snprintf(call->name, sizeof(call->name), "%.*s",
+                 (int)(name_end - name_start), name_start);
+        parse_native_xml_params(name_end + 1, fn_end, call);
+        infer_tool_name_from_params(call);
+        if (call->name[0] && call->n_params > 0) {
+            out->n_calls++;
+        } else {
+            clear_tool_call(call);
+        }
+        p = fn_end + end_len;
+    }
+    return out->n_calls;
+}
+
 static int parse_native_tool_calls(const char *text, tool_call_list *out) {
     memset(out, 0, sizeof(*out));
     const char *p = text ? text : "";
@@ -1725,6 +1752,9 @@ static int parse_native_tool_calls(const char *text, tool_call_list *out) {
             clear_tool_call(call);
         }
         p = close + end_len;
+    }
+    if (out->n_calls == 0) {
+        (void)parse_native_function_blocks(text, out);
     }
     if (out->n_calls == 0) {
         (void)parse_native_shorthand_tool_calls(text, out);
@@ -2967,6 +2997,7 @@ static bool generated_has_complete_tool_call(const char *text) {
     const char *native_short = native_shorthand_tool_marker(text);
     return strstr(text, DSML_END) ||
            strstr(text, QWEN_XML_TOOL_CALL_END) ||
+           strstr(text, QWEN_XML_FUNCTION_END) ||
            (native_short && strstr(native_short, QWEN_XML_PARAMETER_END)) ||
            text_has_jsonish_tool_call(text);
 }
@@ -3507,6 +3538,11 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         if (generate_once(a, &assistant) != 0) {
             free(assistant);
             return -1;
+        }
+        const char *debug_tools = getenv("QW3_AGENT_DEBUG_TOOLS");
+        if (debug_tools && debug_tools[0] && strcmp(debug_tools, "0")) {
+            agent_statusf(a, "\n[debug assistant raw]\n%s\n[/debug]\n",
+                          assistant ? assistant : "");
         }
         if (agent_should_interrupt(a)) {
             free(assistant);
