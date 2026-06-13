@@ -772,6 +772,23 @@ Rejected in the same session:
   reverted and should not be retried unless a deeper NAX rewrite changes the
   surrounding kernel shape.
 
+## 2026-06-13 MoE Down MPP Branch Cleanup
+
+The IQ4_XS and Q6_K mapped TensorOps expert-down kernels now drop redundant
+hot-path tail guards when loading their `A`/`B` tiles. This is valid for the
+active QW3 prefill path because the host already requires `n_ff % 256 == 0`
+and each compact block has `r1u < count` with `lr1` clamped inside the block.
+
+Validation:
+- `make qw3-metal && make test-metal-logits`: passed.
+- MoE profile at `pp4096`: Q6_K `down_mpp` improved from about
+  `51.7 ms/layer` to about `37.4 ms/layer` on the three Q6_K layers.
+- `pp4096`, 3 repetitions, no warmup: `608.92 tok/s`, stdev `3.27`,
+  average `6726.81 ms`.
+- `prompt_perf.txt`, `ctx=16000`, `n=128`: coherent output,
+  `prefill=6399` at `539.75 tok/s`, generation at `32.04 tok/s`.
+- Agent interactive tool smoke still called `[tool] bash` successfully.
+
 ## 2026-06-05 Llama-Style Bench Guardrail
 
 `qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
