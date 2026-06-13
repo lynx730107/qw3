@@ -743,6 +743,35 @@ Conclusion: keep this patch as a small compiler-friendly cleanup. The next
 larger target is no longer scalar IQ4/IQ3 decode, but broader MoE/projection
 orchestration and the remaining linear-layer GDN/projection cost.
 
+## 2026-06-13 GDN Tiled2 Cleanup And Rejected NAX Branch Removal
+
+The default DeltaNet GDN tiled2 kernel was tightened without changing the
+algorithm:
+- Hoist per-head constants `a[hv]`, `dt_bias[hv]`, and
+  `rsqrt(head_dim)` out of the token loop.
+- Remove the `j1 < head_dim` tail branch from tiled2 only when the host
+  selects tiled2 with `head_dim % 8 == 0`; otherwise the generic tiled path
+  remains available.
+- Keep the earlier pair-MPP MoE tile-load cleanup that removes redundant
+  hot-path guards for the QW3 fixed dimensions.
+
+Validation:
+- `make qw3-metal && make qw3-agent && make test-metal-logits`: passed.
+- `pp4096`, `ctx=4097`, 3 repetitions, no warmup:
+  `603.61 tok/s`, stdev `7.67`, average `6786.56 ms`.
+- `prompt_perf.txt`, `ctx=16000`, `n=128`: coherent output,
+  `prefill=6399` at `530.15 tok/s`, generation at `31.93 tok/s`.
+- Agent interactive tool smoke:
+  `bash date` was called through `[tool] bash` and returned the correct
+  2026-06-13 CEST timestamp.
+
+Rejected in the same session:
+- Removing the tail guards from `qw3_matmul_q8_0_nax_direct_rhs` looked
+  safe for the active QW3 dimensions, but the matched `pp4096` result was
+  `599.45 tok/s`, below the nearby `602-604 tok/s` runs. The experiment was
+  reverted and should not be retried unless a deeper NAX rewrite changes the
+  surrounding kernel shape.
+
 ## 2026-06-05 Llama-Style Bench Guardrail
 
 `qw3-bench` now has `--llama-style`, a synthetic benchmark mode shaped like
