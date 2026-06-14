@@ -19,6 +19,17 @@ int qw3_metal_commit_commands(void);
 int qw3_metal_end_commands(void);
 int qw3_metal_synchronize(void);
 
+/* SSD streaming */
+void qw3_metal_set_ssd_streaming(int enabled);
+void qw3_metal_set_streaming_expert_cache_budget(uint32_t experts);
+int qw3_metal_stream_expert_cache_reset_route_hotness(void);
+int qw3_metal_stream_expert_ensure_loaded(
+    uint64_t gate_offset, uint64_t up_offset, uint64_t down_offset,
+    uint32_t gate_type, uint32_t up_type, uint32_t down_type,
+    uint32_t expert, uint32_t n_in, uint32_t n_ff,
+    uint32_t layer, uint32_t priority);
+uint64_t qw3_gpu_recommended_working_set_size(void);
+
 typedef struct qw3_metal_session qw3_metal_session;
 
 typedef struct {

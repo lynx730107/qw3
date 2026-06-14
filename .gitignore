@@ -1,7 +1,8 @@
 .DS_Store
 *.o
 modelcard.md
-
+implementation_plan_ssd.md
+note_agente.md
 qw3
 qw3-cpu
 qw3-test

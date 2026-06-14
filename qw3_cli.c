@@ -834,6 +834,16 @@ static void usage(void)
             "  --cpu        Use CPU backend\n"
             "  --metal      Use Metal backend when compiled in\n"
             "  --nothink    Disable thinking mode\n"
+            "  --ssd-streaming\n"
+            "              Enable SSD expert streaming (Metal only)\n"
+            "  --ssd-streaming-cold\n"
+            "              Disable hotlist pre-caching during streaming startup\n"
+            "  --streaming-cache N | NNgb\n"
+            "              Size of GPU cache for streaming experts (count or budget in GiB)\n"
+            "  --streaming-preload N\n"
+            "              Number of experts to pre-load from hotlist (default: auto)\n"
+            "  --simulate-used-memory NNgb\n"
+            "              Simulate NN GiB of system memory being locked before loading\n"
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
             "  --inspect    Print GGUF metadata summary after loading\n"
             "  --layer-types N\n"
@@ -1037,6 +1047,12 @@ int main(int argc, char **argv)
     qw3_backend backend = QW3_BACKEND_METAL;
 #endif
     qw3_think_mode think_mode = QW3_THINK_ON;
+    bool ssd_streaming = false;
+    bool ssd_streaming_cold = false;
+    uint32_t ssd_streaming_cache_experts = 0;
+    uint64_t ssd_streaming_cache_bytes = 0;
+    uint32_t ssd_streaming_preload_experts = 0;
+    uint64_t simulate_used_memory_bytes = 0;
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
     int inspect = 0;
     int layer_types = -1;
@@ -1190,6 +1206,34 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc)
         {
             n_predict = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--ssd-streaming") == 0)
+        {
+            ssd_streaming = true;
+        }
+        else if (strcmp(argv[i], "--ssd-streaming-cold") == 0)
+        {
+            ssd_streaming_cold = true;
+        }
+        else if (strcmp(argv[i], "--streaming-cache") == 0 && i + 1 < argc)
+        {
+            const char *arg = argv[++i];
+            if (!qw3_parse_streaming_cache_experts_arg(arg, &ssd_streaming_cache_experts, &ssd_streaming_cache_bytes)) {
+                fprintf(stderr, "qw3: invalid --streaming-cache '%s'\n", arg);
+                return 1;
+            }
+        }
+        else if (strcmp(argv[i], "--streaming-preload") == 0 && i + 1 < argc)
+        {
+            ssd_streaming_preload_experts = (uint32_t)atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--simulate-used-memory") == 0 && i + 1 < argc)
+        {
+            const char *arg = argv[++i];
+            if (!qw3_parse_gib_arg(arg, &simulate_used_memory_bytes)) {
+                fprintf(stderr, "qw3: invalid --simulate-used-memory '%s'\n", arg);
+                return 1;
+            }
         }
         else if (strcmp(argv[i], "--temp") == 0 && i + 1 < argc)
         {
@@ -1802,6 +1846,12 @@ int main(int argc, char **argv)
         .backend = backend,
         .n_threads = 0,
         .warm_weights = false,
+        .ssd_streaming_cache_experts = ssd_streaming_cache_experts,
+        .ssd_streaming_cache_bytes = ssd_streaming_cache_bytes,
+        .ssd_streaming_preload_experts = ssd_streaming_preload_experts,
+        .simulate_used_memory_bytes = simulate_used_memory_bytes,
+        .ssd_streaming = ssd_streaming,
+        .ssd_streaming_cold = ssd_streaming_cold,
     };
 
     qw3_engine *engine = NULL;

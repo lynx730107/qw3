@@ -68,11 +68,20 @@ typedef struct qw3_session qw3_session;
 typedef void (*qw3_session_progress_fn)(void *ud, const char *event,
                                         int current, int total);
 
+#include "qw3_ssd.h"
+
 typedef struct {
     const char *model_path;
     qw3_backend backend;
     int n_threads;
     bool warm_weights;
+    /* SSD streaming */
+    uint32_t ssd_streaming_cache_experts;
+    uint64_t ssd_streaming_cache_bytes;
+    uint32_t ssd_streaming_preload_experts;
+    uint64_t simulate_used_memory_bytes;
+    bool ssd_streaming;
+    bool ssd_streaming_cold;
 } qw3_engine_options;
 
 typedef void (*qw3_token_emit_fn)(void *ud, int token);

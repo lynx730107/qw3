@@ -139,6 +139,12 @@ typedef struct {
     qw3_backend backend;
     qw3_think_mode think_mode;
     sample_opts sample;
+    bool ssd_streaming;
+    bool ssd_streaming_cold;
+    uint32_t ssd_streaming_cache_experts;
+    uint64_t ssd_streaming_cache_bytes;
+    uint32_t ssd_streaming_preload_experts;
+    uint64_t simulate_used_memory_bytes;
 } agent_config;
 
 typedef void (*agent_output_fn)(void *ud, const char *s, size_t n);
@@ -3756,6 +3762,13 @@ static void print_help(void) {
         "  --cpu                Use CPU backend\n"
         "  --metal              Use Metal backend\n"
         "  --nothink            Disable thinking mode\n"
+        "  --ssd-streaming      Enable SSD expert streaming (Metal only)\n"
+        "  --ssd-streaming-cold Disable hotlist pre-caching during streaming startup\n"
+        "  --streaming-cache N | NNgb\n"
+        "                       Size of GPU cache for streaming experts (count or budget in GiB)\n"
+        "  --streaming-preload N Number of experts to pre-load from hotlist (default: auto)\n"
+        "  --simulate-used-memory NNgb\n"
+        "                       Simulate NN GiB of system memory being locked before loading\n"
         "  --store-dir PATH     Conversation store directory\n"
         "  --conversation NAME  Load/save a named conversation\n"
         "  --chdir PATH         Change working directory before loading/running\n"
@@ -3875,6 +3888,24 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->backend = QW3_BACKEND_METAL;
         } else if (!strcmp(argv[i], "--nothink")) {
             cfg->think_mode = QW3_THINK_NONE;
+        } else if (!strcmp(argv[i], "--ssd-streaming")) {
+            cfg->ssd_streaming = true;
+        } else if (!strcmp(argv[i], "--ssd-streaming-cold")) {
+            cfg->ssd_streaming_cold = true;
+        } else if (!strcmp(argv[i], "--streaming-cache") && i + 1 < argc) {
+            const char *arg = argv[++i];
+            if (!qw3_parse_streaming_cache_experts_arg(arg, &cfg->ssd_streaming_cache_experts, &cfg->ssd_streaming_cache_bytes)) {
+                fprintf(stderr, "agent: invalid --streaming-cache '%s'\n", arg);
+                return -1;
+            }
+        } else if (!strcmp(argv[i], "--streaming-preload") && i + 1 < argc) {
+            cfg->ssd_streaming_preload_experts = (uint32_t)atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--simulate-used-memory") && i + 1 < argc) {
+            const char *arg = argv[++i];
+            if (!qw3_parse_gib_arg(arg, &cfg->simulate_used_memory_bytes)) {
+                fprintf(stderr, "agent: invalid --simulate-used-memory '%s'\n", arg);
+                return -1;
+            }
         } else if (!strcmp(argv[i], "--store-dir") && i + 1 < argc) {
             cfg->store_dir = agent_strdup(argv[++i]);
         } else if (!strcmp(argv[i], "--conversation") && i + 1 < argc) {
@@ -5463,6 +5494,12 @@ int main(int argc, char **argv) {
         .backend = a.cfg.backend,
         .n_threads = 0,
         .warm_weights = false,
+        .ssd_streaming_cache_experts = a.cfg.ssd_streaming_cache_experts,
+        .ssd_streaming_cache_bytes = a.cfg.ssd_streaming_cache_bytes,
+        .ssd_streaming_preload_experts = a.cfg.ssd_streaming_preload_experts,
+        .simulate_used_memory_bytes = a.cfg.simulate_used_memory_bytes,
+        .ssd_streaming = a.cfg.ssd_streaming,
+        .ssd_streaming_cold = a.cfg.ssd_streaming_cold,
     };
     if (qw3_engine_open(&a.engine, &opt) != 0) {
         fprintf(stderr, "agent: engine open failed\n");

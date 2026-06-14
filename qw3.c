@@ -728,6 +728,15 @@ struct qw3_engine {
     qw3_weights weights;
     qw3_backend backend;
     bool metal_ready;
+
+    /* SSD streaming */
+    bool ssd_streaming;
+    bool ssd_streaming_cold;
+    uint32_t ssd_streaming_cache_experts;
+    uint64_t ssd_streaming_cache_bytes;
+    uint32_t ssd_streaming_preload_experts;
+    qw3_ssd_memory_lock simulated_memory;
+    uint64_t per_expert_bytes;
 };
 
 /* =========================================================================
@@ -3148,12 +3157,78 @@ static void emit_trimmed_text(const qw3_vocab *vocab, const char *text,
  * =========================================================================
  */
 
+static uint64_t qw3_tensor_expert_row_bytes(const qw3_tensor *t) {
+    if (!t) return 0;
+    uint64_t block_size = 0;
+    if (t->type == QW3_TENSOR_IQ3_S) {
+        block_size = sizeof(uint16_t) + 64 + 8 + 32 + 4;
+    } else if (t->type == QW3_TENSOR_Q6_K) {
+        block_size = QW3_QK_K / 2 + QW3_QK_K / 4 + QW3_QK_K / 16 + sizeof(uint16_t);
+    } else if (t->type == QW3_TENSOR_IQ4_XS) {
+        block_size = sizeof(uint16_t) + sizeof(uint16_t) + QW3_QK_K / 64 + QW3_QK_K / 2;
+    } else if (t->type == QW3_TENSOR_F16) {
+        block_size = sizeof(uint16_t);
+    } else if (t->type == QW3_TENSOR_F32) {
+        block_size = sizeof(float);
+    } else {
+        qw3_die("unsupported expert tensor type in streaming");
+    }
+    const uint64_t blocks_per_row = t->dim[0] / QW3_QK_K;
+    return (t->dim[0] % QW3_QK_K == 0) ? (blocks_per_row * block_size) : (t->dim[0] * block_size / QW3_QK_K);
+}
+
+static bool qw3_streaming_routed_expert_bytes(
+        const qw3_weights *weights,
+        uint64_t          *per_expert_bytes_out) {
+    if (per_expert_bytes_out) *per_expert_bytes_out = 0;
+    if (!weights || !per_expert_bytes_out) return false;
+
+    const qw3_layer_weights *layer = &weights->layer[0];
+    if (!layer->ffn_gate_exps ||
+        !layer->ffn_up_exps ||
+        !layer->ffn_down_exps) {
+        return false;
+    }
+
+    const uint64_t gate_row_bytes = qw3_tensor_expert_row_bytes(layer->ffn_gate_exps);
+    const uint64_t up_row_bytes = qw3_tensor_expert_row_bytes(layer->ffn_up_exps);
+    const uint64_t down_row_bytes = qw3_tensor_expert_row_bytes(layer->ffn_down_exps);
+
+    const uint64_t gate_expert_bytes = layer->ffn_gate_exps->dim[1] * gate_row_bytes;
+    const uint64_t up_expert_bytes = layer->ffn_up_exps->dim[1] * up_row_bytes;
+    const uint64_t down_expert_bytes = layer->ffn_down_exps->dim[1] * down_row_bytes;
+
+    *per_expert_bytes_out = gate_expert_bytes + up_expert_bytes + down_expert_bytes;
+    return *per_expert_bytes_out != 0;
+}
+
 int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
     if (!out || !opt || !qw3_backend_supported(opt->backend)) {
         return -1;
     }
     qw3_engine *e = qw3_xcalloc(1, sizeof(*e));
     e->backend = opt->backend;
+    e->ssd_streaming = opt->ssd_streaming;
+    e->ssd_streaming_cold = opt->ssd_streaming_cold;
+    e->ssd_streaming_cache_experts = opt->ssd_streaming_cache_experts;
+    e->ssd_streaming_cache_bytes = opt->ssd_streaming_cache_bytes;
+    e->ssd_streaming_preload_experts = opt->ssd_streaming_preload_experts;
+
+    if (opt->simulate_used_memory_bytes != 0 &&
+        !qw3_ssd_memory_lock_acquire(&e->simulated_memory,
+                                     opt->simulate_used_memory_bytes)) {
+        qw3_engine_close(e);
+        *out = NULL;
+        return -1;
+    }
+
+    if (e->ssd_streaming && e->backend != QW3_BACKEND_METAL) {
+        fprintf(stderr, "qw3: --ssd-streaming is currently supported only with --metal\n");
+        qw3_engine_close(e);
+        *out = NULL;
+        return -1;
+    }
+
     double t0 = qw3_now_sec();
 
     /* Re-use model_open and structure from ds4 to avoid repeating boiler. */
@@ -3166,6 +3241,52 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
 
     weights_bind(e);
     vocab_bind(e);
+
+    if (e->ssd_streaming) {
+        uint64_t per_expert_bytes = 0;
+        if (!qw3_streaming_routed_expert_bytes(&e->weights, &per_expert_bytes)) {
+            fprintf(stderr, "qw3: failed to compute routed expert bytes\n");
+            qw3_engine_close(e);
+            *out = NULL;
+            return -1;
+        }
+        e->per_expert_bytes = per_expert_bytes;
+
+        if (e->ssd_streaming_cache_experts == 0 && e->ssd_streaming_cache_bytes == 0) {
+            uint64_t recommended = 0;
+#ifndef QW3_NO_METAL
+            if (e->backend == QW3_BACKEND_METAL) {
+                recommended = qw3_gpu_recommended_working_set_size();
+            }
+#endif
+            if (recommended == 0) {
+                recommended = 32ull * 1024ull * 1024ull * 1024ull;
+            }
+
+            uint64_t total_expert_bytes = 40ull * 256ull * per_expert_bytes;
+            uint64_t non_routed_bytes = (e->model.map_size > total_expert_bytes) ? (e->model.map_size - total_expert_bytes) : 0;
+
+            qw3_ssd_cache_plan plan;
+            if (qw3_ssd_auto_cache_plan(recommended, non_routed_bytes, per_expert_bytes, 40ull * 256ull, &plan)) {
+                e->ssd_streaming_cache_experts = plan.cache_experts;
+                e->ssd_streaming_cache_bytes = plan.effective_cache_bytes;
+            } else {
+                e->ssd_streaming_cache_experts = 1024;
+                e->ssd_streaming_cache_bytes = 1024ull * per_expert_bytes;
+            }
+        } else if (e->ssd_streaming_cache_bytes != 0) {
+            e->ssd_streaming_cache_experts = qw3_ssd_cache_experts_for_byte_budget(e->ssd_streaming_cache_bytes, per_expert_bytes);
+        } else if (e->ssd_streaming_cache_experts != 0) {
+            e->ssd_streaming_cache_bytes = (uint64_t)e->ssd_streaming_cache_experts * per_expert_bytes;
+        }
+
+        qw3_log(stderr, QW3_LOG_OK,
+                "qw3: SSD streaming cache budget %.2f GiB / %.2f MiB per expert = %u experts (%.1f%% of total)\n",
+                (double)e->ssd_streaming_cache_bytes / (1024.0*1024.0*1024.0),
+                (double)per_expert_bytes / (1024.0*1024.0),
+                e->ssd_streaming_cache_experts,
+                (double)e->ssd_streaming_cache_experts / 10240.0 * 100.0);
+    }
 
 #ifndef QW3_NO_METAL
     if (e->backend == QW3_BACKEND_METAL) {
@@ -3181,6 +3302,8 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
             return -1;
         }
         e->metal_ready = true;
+        qw3_metal_set_ssd_streaming(e->ssd_streaming);
+        qw3_metal_set_streaming_expert_cache_budget(e->ssd_streaming_cache_experts);
         qw3_log(stderr, QW3_LOG_OK,
                 "qw3: Metal backend initialized for graph bring-up (%s)\n",
                 qw3_metal_device_name());
@@ -3193,6 +3316,7 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
 
 void qw3_engine_close(qw3_engine *e) {
     if (!e) return;
+    qw3_ssd_memory_lock_release(&e->simulated_memory);
 #ifndef QW3_NO_METAL
     if (e->metal_ready) {
         qw3_metal_cleanup();

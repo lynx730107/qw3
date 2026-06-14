@@ -42,6 +42,12 @@ typedef struct {
     bool no_warmup;
     bool warm_weights;
     bool quality;
+    bool ssd_streaming;
+    bool ssd_streaming_cold;
+    uint32_t ssd_streaming_cache_experts;
+    uint64_t ssd_streaming_cache_bytes;
+    uint32_t ssd_streaming_preload_experts;
+    uint64_t simulate_used_memory_bytes;
 } bench_config;
 
 static double bench_now_sec(void) {
@@ -76,6 +82,13 @@ static void usage(FILE *fp) {
         "  -t, --threads N        CPU helper threads.\n"
         "  --quality              Ignored by qw3-bench.\n"
         "  --warm-weights         Touch mapped tensor pages before benchmarking.\n"
+        "  --ssd-streaming        Enable SSD expert streaming (Metal only)\n"
+        "  --ssd-streaming-cold   Disable hotlist pre-caching during streaming startup\n"
+        "  --streaming-cache N | NNgb\n"
+        "                         Size of GPU cache for streaming experts (count or budget in GiB)\n"
+        "  --streaming-preload N  Number of experts to pre-load from hotlist (default: auto)\n"
+        "  --simulate-used-memory NNgb\n"
+        "                         Simulate NN GiB of system memory being locked before loading\n"
         "\n"
         "Sweep:\n"
         "  --ctx-start N          First measured frontier. Default: 2048\n"
@@ -266,6 +279,24 @@ static bench_config parse_options(int argc, char **argv) {
             c.quality = true;
         } else if (!strcmp(arg, "--warm-weights")) {
             c.warm_weights = true;
+        } else if (!strcmp(arg, "--ssd-streaming")) {
+            c.ssd_streaming = true;
+        } else if (!strcmp(arg, "--ssd-streaming-cold")) {
+            c.ssd_streaming_cold = true;
+        } else if (!strcmp(arg, "--streaming-cache")) {
+            const char *val = need_arg(&i, argc, argv, arg);
+            if (!qw3_parse_streaming_cache_experts_arg(val, &c.ssd_streaming_cache_experts, &c.ssd_streaming_cache_bytes)) {
+                fprintf(stderr, "qw3-bench: invalid --streaming-cache '%s'\n", val);
+                exit(2);
+            }
+        } else if (!strcmp(arg, "--streaming-preload")) {
+            c.ssd_streaming_preload_experts = (uint32_t)parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--simulate-used-memory")) {
+            const char *val = need_arg(&i, argc, argv, arg);
+            if (!qw3_parse_gib_arg(val, &c.simulate_used_memory_bytes)) {
+                fprintf(stderr, "qw3-bench: invalid --simulate-used-memory '%s'\n", val);
+                exit(2);
+            }
         } else {
             fprintf(stderr, "qw3-bench: unknown option: %s\n", arg);
             usage(stderr);
@@ -649,6 +680,12 @@ int main(int argc, char **argv) {
         .backend = cfg.backend,
         .n_threads = cfg.threads,
         .warm_weights = cfg.warm_weights,
+        .ssd_streaming_cache_experts = cfg.ssd_streaming_cache_experts,
+        .ssd_streaming_cache_bytes = cfg.ssd_streaming_cache_bytes,
+        .ssd_streaming_preload_experts = cfg.ssd_streaming_preload_experts,
+        .simulate_used_memory_bytes = cfg.simulate_used_memory_bytes,
+        .ssd_streaming = cfg.ssd_streaming,
+        .ssd_streaming_cold = cfg.ssd_streaming_cold,
     };
     qw3_engine *engine = NULL;
     if (qw3_engine_open(&engine, &opt) != 0) return 1;
