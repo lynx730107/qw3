@@ -113,6 +113,7 @@ static id<MTLComputePipelineState> g_gqa_flash_causal_mask_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_pad_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_blk_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_attn_pipeline;
+static int g_gqa_flash_attn_external_enabled;
 static id<MTLComputePipelineState> g_gqa_store_token_cache_f16_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_q8_inner_pipeline;
@@ -6865,6 +6866,7 @@ static NSString *qw3_metal_kernel_source(void) {
 static NSString *qw3_metal_full_kernel_source(void) {
     NSMutableString *source =
         [NSMutableString stringWithString:qw3_metal_kernel_source()];
+    g_gqa_flash_attn_external_enabled = 0;
     const char *flash_env = getenv("QW3_METAL_FLASH_ATTN");
     const char *gqa_flash_env = getenv("QW3_METAL_GQA_FLASH_ATTN");
     const char *gqa_flash_disable_env = getenv("QW3_METAL_GQA_FLASH_ATTN_DISABLE");
@@ -6890,11 +6892,14 @@ static NSString *qw3_metal_full_kernel_source(void) {
                                   encoding:NSUTF8StringEncoding
                                      error:&read_error];
     if (!flash_source) {
-        fprintf(stderr, "qw3: failed to read Metal flash attention source %s: %s\n",
-                [path UTF8String],
-                read_error ? [[read_error localizedDescription] UTF8String] : "(unknown)");
+        if (explicit_flash) {
+            fprintf(stderr, "qw3: failed to read Metal flash attention source %s: %s\n",
+                    [path UTF8String],
+                    read_error ? [[read_error localizedDescription] UTF8String] : "(unknown)");
+        }
         return explicit_flash ? nil : source;
     }
+    g_gqa_flash_attn_external_enabled = 1;
 
     [source appendString:
         @"\n// QW3 FlashAttention prelude\n"
@@ -14830,6 +14835,7 @@ int qw3_metal_session_batch_gqa_cached_attn_from_scratch(
     const char *flash_attn_env = getenv("QW3_METAL_GQA_FLASH_ATTN");
     const int flash_attn_disabled =
         getenv("QW3_METAL_GQA_FLASH_ATTN_DISABLE") != NULL ||
+        !g_gqa_flash_attn_external_enabled ||
         (flash_attn_env && flash_attn_env[0] &&
          strcmp(flash_attn_env, "0") == 0);
     if (!flash_attn_disabled) {
