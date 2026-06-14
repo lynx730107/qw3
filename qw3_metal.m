@@ -6883,14 +6883,34 @@ static NSString *qw3_metal_full_kernel_source(void) {
         (gqa_flash_env && gqa_flash_env[0] && strcmp(gqa_flash_env, "0") != 0) ||
         (flash_path_env && flash_path_env[0]);
 
-    NSString *path = flash_path_env && flash_path_env[0] ?
-        [NSString stringWithUTF8String:flash_path_env] :
-        @"../metal/flash_attn.metal";
     NSError *read_error = nil;
-    NSString *flash_source =
-        [NSString stringWithContentsOfFile:path
-                                  encoding:NSUTF8StringEncoding
-                                     error:&read_error];
+    NSString *path = nil;
+    NSString *flash_source = nil;
+    if (flash_path_env && flash_path_env[0]) {
+        path = [NSString stringWithUTF8String:flash_path_env];
+        flash_source = [NSString stringWithContentsOfFile:path
+                                                 encoding:NSUTF8StringEncoding
+                                                    error:&read_error];
+    } else {
+        NSArray<NSString *> *candidates = @[
+            @"metal/flash_attn.metal",
+            @"../ds4/metal/flash_attn.metal",
+            @"../metal/flash_attn.metal",
+        ];
+        for (NSString *candidate in candidates) {
+            read_error = nil;
+            NSString *candidate_source =
+                [NSString stringWithContentsOfFile:candidate
+                                          encoding:NSUTF8StringEncoding
+                                             error:&read_error];
+            if (candidate_source) {
+                path = candidate;
+                flash_source = candidate_source;
+                break;
+            }
+        }
+        if (!path) path = [candidates lastObject];
+    }
     if (!flash_source) {
         if (explicit_flash) {
             fprintf(stderr, "qw3: failed to read Metal flash attention source %s: %s\n",
