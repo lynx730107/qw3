@@ -2436,8 +2436,11 @@ static bool qw3_cpu_eval_layer_range(qw3_session *s, int first_layer,
     float *x1 = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
     memcpy(x0, input, (size_t)QW3_N_EMBD * sizeof(float));
 
+    const int profile_tail = getenv("QW3_METAL_PROFILE_CPU_TAIL") != NULL;
+    const double tail_t0 = profile_tail ? qw3_now_sec() : 0.0;
     bool ok = true;
     for (int il = first_layer; il < QW3_N_LAYER; il++) {
+        const double layer_t0 = profile_tail ? qw3_now_sec() : 0.0;
         if (s->progress_fn) s->progress_fn(s->progress_ud, "layer", il, QW3_N_LAYER);
         if (qw3_layer_is_full_attention((uint32_t)il)) {
             int fl = s->kv.full_layer_map[il];
@@ -2466,12 +2469,25 @@ static bool qw3_cpu_eval_layer_range(qw3_session *s, int first_layer,
         trace_emit(trace, trace_json, trace_first_event,
                    qw3_layer_is_full_attention((uint32_t)il) ? "full" : "linear",
                    il, x1, QW3_N_EMBD);
+        if (profile_tail) {
+            fprintf(stderr,
+                    "qw3 metal cpu-tail profile pos=%llu layer=%d kind=%s ms=%.3f\n",
+                    (unsigned long long)s->kv.pos, il,
+                    qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
+                    (qw3_now_sec() - layer_t0) * 1000.0);
+        }
         float *tmp = x0;
         x0 = x1;
         x1 = tmp;
     }
 
     if (ok) memcpy(out, x0, (size_t)QW3_N_EMBD * sizeof(float));
+    if (profile_tail) {
+        fprintf(stderr,
+                "qw3 metal cpu-tail profile pos=%llu first_layer=%d total_ms=%.3f ok=%d\n",
+                (unsigned long long)s->kv.pos, first_layer,
+                (qw3_now_sec() - tail_t0) * 1000.0, ok ? 1 : 0);
+    }
     free(x1);
     free(x0);
     return ok;
@@ -12672,8 +12688,16 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
                          metal_layers);
             }
         }
-        if (ok) {
+        if (ok && logits_mode != QW3_METAL_LOGITS_DEFER) {
+            const int profile_tail = getenv("QW3_METAL_PROFILE_CPU_TAIL") != NULL;
+            const double logits_t0 = profile_tail ? qw3_now_sec() : 0.0;
             ok = qw3_cpu_output_logits(s, cpu_tail_out, err, errlen);
+            if (profile_tail) {
+                fprintf(stderr,
+                        "qw3 metal cpu-tail profile pos=%llu logits=cpu ms=%.3f ok=%d\n",
+                        (unsigned long long)s->kv.pos,
+                        (qw3_now_sec() - logits_t0) * 1000.0, ok ? 1 : 0);
+            }
             if (!ok && err && errlen && !err[0]) {
                 snprintf(err, errlen, "CPU output logits failed after layer %d",
                          QW3_N_LAYER - 1);
