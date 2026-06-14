@@ -195,6 +195,18 @@ static uint32_t qw3_metal_env_n_gpu_layers(void) {
     return (uint32_t)v;
 }
 
+static int qw3_metal_llama_split_enabled(void) {
+    const char *env = getenv("QW3_METAL_LLAMACPP_SPLIT");
+    if (env && env[0]) return strcmp(env, "0") != 0;
+    return 1;
+}
+
+static uint32_t qw3_metal_llama_split_start(uint32_t n_gpu_layers) {
+    if (n_gpu_layers == 0) return 40u;
+    if (n_gpu_layers >= 41u) return 0;
+    return 41u - n_gpu_layers;
+}
+
 static void qw3_metal_count_layer_types_before(uint32_t n_layers,
                                                uint32_t *n_full,
                                                uint32_t *n_linear) {
@@ -202,6 +214,20 @@ static void qw3_metal_count_layer_types_before(uint32_t n_layers,
     uint32_t full = 0;
     uint32_t linear = 0;
     for (uint32_t il = 0; il < n_layers; il++) {
+        if (qw3_metal_layer_is_full_attention(il)) full++;
+        else linear++;
+    }
+    if (n_full) *n_full = full;
+    if (n_linear) *n_linear = linear;
+}
+
+static void qw3_metal_count_layer_types_from(uint32_t first_layer,
+                                             uint32_t *n_full,
+                                             uint32_t *n_linear) {
+    if (first_layer > 40u) first_layer = 40u;
+    uint32_t full = 0;
+    uint32_t linear = 0;
+    for (uint32_t il = first_layer; il < 40u; il++) {
         if (qw3_metal_layer_is_full_attention(il)) full++;
         else linear++;
     }
@@ -9089,9 +9115,15 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
     const uint32_t gqa_max_attn_splits = gqa_split_attn ? 256u : 32u;
     uint32_t metal_full_layers = QW3_METAL_N_FULL_ATTN_LAYERS;
     uint32_t metal_linear_layers = QW3_METAL_N_LINEAR_LAYERS;
-    qw3_metal_count_layer_types_before(qw3_metal_env_n_gpu_layers(),
-                                       &metal_full_layers,
-                                       &metal_linear_layers);
+    const uint32_t ngl = qw3_metal_env_n_gpu_layers();
+    if (ngl < 40u && qw3_metal_llama_split_enabled()) {
+        qw3_metal_count_layer_types_from(qw3_metal_llama_split_start(ngl),
+                                         &metal_full_layers,
+                                         &metal_linear_layers);
+    } else {
+        qw3_metal_count_layer_types_before(ngl, &metal_full_layers,
+                                           &metal_linear_layers);
+    }
     const uint64_t gqa_cache_token_bytes = gqa_kv_q8 ?
         (uint64_t)QW3_METAL_N_HEAD_KV * (QW3_METAL_N_HEAD_DIM / 32u) * 34ull :
         (gqa_kv_f16 ?

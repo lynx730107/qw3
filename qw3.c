@@ -50,6 +50,8 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#define QW3_CPU_MAX_THREADS 16
+
 /* =========================================================================
  * Fixed Qwen3.6-35B-A3B Shape.
  * =========================================================================
@@ -710,6 +712,7 @@ static int qw3_metal_session_eval_prefill_batch_mode(qw3_session *s,
                                                      int logits_mode);
 static int qw3_metal_env_n_gpu_layers(void);
 static int qw3_session_uses_partial_metal(const qw3_session *s);
+static int qw3_session_argmax_uses_metal_logits(const qw3_session *s);
 #endif
 static void trace_emit(FILE *fp, bool json, bool *first_event,
                        const char *name, int il, const float *x, int n);
@@ -810,6 +813,33 @@ static void qw3_count_layer_types_before(int n_layers,
     if (n_linear) *n_linear = linear;
 }
 
+static int qw3_metal_llama_split_enabled(void) {
+    const char *env = getenv("QW3_METAL_LLAMACPP_SPLIT");
+    if (env && env[0]) return strcmp(env, "0") != 0;
+    return 1;
+}
+
+static int qw3_metal_llama_split_start(int n_gpu_layers) {
+    if (n_gpu_layers <= 0) return QW3_N_LAYER;
+    if (n_gpu_layers >= QW3_N_LAYER + 1) return 0;
+    return QW3_N_LAYER + 1 - n_gpu_layers;
+}
+
+static void qw3_count_layer_types_from(int first_layer,
+                                       int *n_full,
+                                       int *n_linear) {
+    if (first_layer < 0) first_layer = 0;
+    if (first_layer > QW3_N_LAYER) first_layer = QW3_N_LAYER;
+    int full = 0;
+    int linear = 0;
+    for (int il = first_layer; il < QW3_N_LAYER; il++) {
+        if (qw3_layer_is_full_attention((uint32_t)il)) full++;
+        else linear++;
+    }
+    if (n_full) *n_full = full;
+    if (n_linear) *n_linear = linear;
+}
+
 #ifndef QW3_NO_METAL
 static int qw3_metal_env_n_gpu_layers(void) {
     const char *env = getenv("QW3_METAL_NGL");
@@ -826,6 +856,15 @@ static int qw3_session_uses_partial_metal(const qw3_session *s) {
     return s && s->engine && s->engine->backend == QW3_BACKEND_METAL &&
            s->metal && s->metal_n_gpu_layers >= 0 &&
            s->metal_n_gpu_layers < QW3_N_LAYER;
+}
+
+static int qw3_session_argmax_uses_metal_logits(const qw3_session *s) {
+    if (!s || !s->engine || s->engine->backend != QW3_BACKEND_METAL ||
+        !s->metal) {
+        return 0;
+    }
+    if (!qw3_session_uses_partial_metal(s)) return 1;
+    return qw3_metal_llama_split_enabled();
 }
 #endif
 
@@ -861,9 +900,15 @@ qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
     if (backend == QW3_BACKEND_METAL) {
         int metal_full_layers = QW3_N_FULL_ATTN_LAYERS;
         int metal_linear_layers = QW3_N_LINEAR_LAYERS;
-        qw3_count_layer_types_before(qw3_metal_env_n_gpu_layers(),
-                                     &metal_full_layers,
-                                     &metal_linear_layers);
+        const int ngl = qw3_metal_env_n_gpu_layers();
+        if (ngl < QW3_N_LAYER && qw3_metal_llama_split_enabled()) {
+            qw3_count_layer_types_from(qw3_metal_llama_split_start(ngl),
+                                       &metal_full_layers,
+                                       &metal_linear_layers);
+        } else {
+            qw3_count_layer_types_before(ngl, &metal_full_layers,
+                                         &metal_linear_layers);
+        }
         mem.deltanet_state_bytes = (uint64_t)metal_linear_layers *
                                    QW3_N_LINEAR_V_HEADS *
                                    QW3_N_LINEAR_HEAD_DIM *
@@ -1586,30 +1631,117 @@ static float tensor_read_dense_linear(const qw3_model *m, const qw3_tensor *t,
     return 0.0f;
 }
 
+typedef void (*qw3_row_range_fn)(void *ud, uint64_t begin, uint64_t end);
+
+typedef struct {
+    qw3_row_range_fn fn;
+    void *ud;
+    uint64_t begin;
+    uint64_t end;
+} qw3_cpu_row_task;
+
+static int qw3_cpu_thread_count(void) {
+    static int cached = 0;
+    if (cached > 0) return cached;
+    int n = 0;
+    const char *env = getenv("QW3_CPU_THREADS");
+    if (env && env[0]) {
+        char *end = NULL;
+        long v = strtol(env, &end, 10);
+        if (end != env && v > 0) n = (int)v;
+    }
+    if (n <= 0) {
+        long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        n = cpus > 0 ? (int)cpus : 1;
+    }
+    if (n < 1) n = 1;
+    if (n > QW3_CPU_MAX_THREADS) n = QW3_CPU_MAX_THREADS;
+    cached = n;
+    return cached;
+}
+
+static void *qw3_cpu_row_worker(void *arg) {
+    qw3_cpu_row_task *task = (qw3_cpu_row_task *)arg;
+    task->fn(task->ud, task->begin, task->end);
+    return NULL;
+}
+
+static void qw3_cpu_parallel_rows(uint64_t n_rows, qw3_row_range_fn fn,
+                                  void *ud) {
+    int n_threads = qw3_cpu_thread_count();
+    if (n_threads <= 1 || n_rows < 128) {
+        fn(ud, 0, n_rows);
+        return;
+    }
+    if ((uint64_t)n_threads > n_rows) n_threads = (int)n_rows;
+
+    pthread_t threads[QW3_CPU_MAX_THREADS];
+    qw3_cpu_row_task tasks[QW3_CPU_MAX_THREADS];
+    int created = 0;
+    uint64_t begin = 0;
+    for (int t = 0; t < n_threads; t++) {
+        uint64_t end = (uint64_t)(t + 1) * n_rows / (uint64_t)n_threads;
+        tasks[t] = (qw3_cpu_row_task){ .fn = fn, .ud = ud,
+                                       .begin = begin, .end = end };
+        begin = end;
+        if (t == 0) continue;
+        if (pthread_create(&threads[t], NULL, qw3_cpu_row_worker,
+                           &tasks[t]) != 0) {
+            for (int j = 1; j < created + 1; j++) pthread_join(threads[j], NULL);
+            fn(ud, 0, n_rows);
+            return;
+        }
+        created++;
+    }
+    fn(ud, tasks[0].begin, tasks[0].end);
+    for (int t = 1; t <= created; t++) pthread_join(threads[t], NULL);
+}
+
+typedef struct {
+    const uint8_t *base;
+    uint32_t type;
+    uint64_t n_in;
+    const float *x;
+    float *y;
+} qw3_cpu_dense_matvec_ud;
+
+static void qw3_cpu_matvec_dense_rows(void *ud, uint64_t begin, uint64_t end) {
+    qw3_cpu_dense_matvec_ud *p = (qw3_cpu_dense_matvec_ud *)ud;
+    for (uint64_t row = begin; row < end; row++) {
+        float sum = 0.0f;
+        if (p->type == QW3_TENSOR_F32) {
+            const float *wr = (const float *)p->base + row * p->n_in;
+            for (uint64_t i = 0; i < p->n_in; i++) sum += wr[i] * p->x[i];
+        } else if (p->type == QW3_TENSOR_F16) {
+            const uint8_t *wr = p->base + row * p->n_in * sizeof(uint16_t);
+            for (uint64_t i = 0; i < p->n_in; i++) {
+                sum += qw3_f16_to_f32(qw3_load_u16(wr + i * sizeof(uint16_t))) *
+                       p->x[i];
+            }
+        } else if (p->type == QW3_TENSOR_BF16) {
+            const uint8_t *wr = p->base + row * p->n_in * sizeof(uint16_t);
+            for (uint64_t i = 0; i < p->n_in; i++) {
+                sum += qw3_bf16_to_f32(qw3_load_u16(wr + i * sizeof(uint16_t))) *
+                       p->x[i];
+            }
+        }
+        p->y[row] = sum;
+    }
+}
+
 static bool cpu_matvec_dense(const qw3_model *m, const qw3_tensor *w,
                              const float *x, float *y) {
     if (w->ndim != 2 || !tensor_is_dense_float(w->type)) return false;
     const uint64_t n_in = w->dim[0];
     const uint64_t n_out = w->dim[1];
-    for (uint64_t row = 0; row < n_out; row++) {
-        const uint8_t *base = tensor_data(m, w);
-        float sum = 0.0f;
-        if (w->type == QW3_TENSOR_F32) {
-            const float *wr = (const float *)base + row * n_in;
-            for (uint64_t i = 0; i < n_in; i++) sum += wr[i] * x[i];
-        } else if (w->type == QW3_TENSOR_F16) {
-            const uint8_t *wr = base + row * n_in * sizeof(uint16_t);
-            for (uint64_t i = 0; i < n_in; i++) {
-                sum += qw3_f16_to_f32(qw3_load_u16(wr + i * sizeof(uint16_t))) * x[i];
-            }
-        } else if (w->type == QW3_TENSOR_BF16) {
-            const uint8_t *wr = base + row * n_in * sizeof(uint16_t);
-            for (uint64_t i = 0; i < n_in; i++) {
-                sum += qw3_bf16_to_f32(qw3_load_u16(wr + i * sizeof(uint16_t))) * x[i];
-            }
-        }
-        y[row] = sum;
-    }
+    qw3_cpu_dense_matvec_ud ud = {
+        .base = tensor_data(m, w),
+        .type = w->type,
+        .n_in = n_in,
+        .x = x,
+        .y = y,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_matvec_dense_rows, &ud);
     return true;
 }
 
@@ -1635,6 +1767,33 @@ static bool cpu_dot_dense_1d(const qw3_model *m, const qw3_tensor *w,
     return true;
 }
 
+typedef struct {
+    const uint8_t *base;
+    uint64_t blocks_per_row;
+    uint64_t block_size;
+    const float *x;
+    float *y;
+} qw3_cpu_q8_matvec_ud;
+
+static void qw3_cpu_q8_0_rows(void *ptr, uint64_t begin, uint64_t end) {
+    qw3_cpu_q8_matvec_ud *p = (qw3_cpu_q8_matvec_ud *)ptr;
+    for (uint64_t row = begin; row < end; row++) {
+        const uint8_t *src =
+            p->base + row * p->blocks_per_row * p->block_size;
+        float sum = 0.0f;
+        for (uint64_t b = 0; b < p->blocks_per_row; b++) {
+            const uint8_t *blk = src + b * p->block_size;
+            const float d = qw3_f16_to_f32(qw3_load_u16(blk));
+            const int8_t *qs = (const int8_t *)(blk + sizeof(uint16_t));
+            const float *xx = p->x + b * 32;
+            for (uint64_t i = 0; i < 32; i++) {
+                sum += d * (float)qs[i] * xx[i];
+            }
+        }
+        p->y[row] = sum;
+    }
+}
+
 static bool cpu_matvec_q8_0(const qw3_model *m, const qw3_tensor *w,
                             const float *x, float *y) {
     if (w->ndim != 2 || w->type != QW3_TENSOR_Q8_0) return false;
@@ -1644,22 +1803,58 @@ static bool cpu_matvec_q8_0(const qw3_model *m, const qw3_tensor *w,
 
     const uint64_t blocks_per_row = n_in / 32;
     const uint64_t block_size = sizeof(uint16_t) + 32;
-    const uint8_t *base = tensor_data(m, w);
-    for (uint64_t row = 0; row < n_out; row++) {
-        const uint8_t *src = base + row * blocks_per_row * block_size;
-        float sum = 0.0f;
-        for (uint64_t b = 0; b < blocks_per_row; b++) {
-            const uint8_t *blk = src + b * block_size;
-            const float d = qw3_f16_to_f32(qw3_load_u16(blk));
-            const int8_t *qs = (const int8_t *)(blk + sizeof(uint16_t));
-            const float *xx = x + b * 32;
-            for (uint64_t i = 0; i < 32; i++) {
-                sum += d * (float)qs[i] * xx[i];
-            }
-        }
-        y[row] = sum;
-    }
+    qw3_cpu_q8_matvec_ud ud = {
+        .base = tensor_data(m, w),
+        .blocks_per_row = blocks_per_row,
+        .block_size = block_size,
+        .x = x,
+        .y = y,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_q8_0_rows, &ud);
     return true;
+}
+
+static float cpu_dot_iq4_xs_row(const uint8_t *src, const float *x,
+                                uint64_t n_in);
+static float cpu_dot_q6_k_row(const uint8_t *src, const float *x,
+                              uint64_t n_in);
+static float cpu_dot_iq3_s_row(const uint8_t *src, const float *x,
+                               uint64_t n_in);
+
+typedef struct {
+    const uint8_t *base;
+    uint64_t blocks_per_row;
+    uint64_t block_size;
+    uint64_t n_in;
+    const float *x;
+    float *y;
+} qw3_cpu_quant_matvec_ud;
+
+static void qw3_cpu_iq4_xs_rows(void *ptr, uint64_t begin, uint64_t end) {
+    qw3_cpu_quant_matvec_ud *p = (qw3_cpu_quant_matvec_ud *)ptr;
+    for (uint64_t row = begin; row < end; row++) {
+        p->y[row] = cpu_dot_iq4_xs_row(
+            p->base + row * p->blocks_per_row * p->block_size, p->x,
+            p->n_in);
+    }
+}
+
+static void qw3_cpu_q6_k_rows(void *ptr, uint64_t begin, uint64_t end) {
+    qw3_cpu_quant_matvec_ud *p = (qw3_cpu_quant_matvec_ud *)ptr;
+    for (uint64_t row = begin; row < end; row++) {
+        p->y[row] = cpu_dot_q6_k_row(
+            p->base + row * p->blocks_per_row * p->block_size, p->x,
+            p->n_in);
+    }
+}
+
+static void qw3_cpu_iq3_s_rows(void *ptr, uint64_t begin, uint64_t end) {
+    qw3_cpu_quant_matvec_ud *p = (qw3_cpu_quant_matvec_ud *)ptr;
+    for (uint64_t row = begin; row < end; row++) {
+        p->y[row] = cpu_dot_iq3_s_row(
+            p->base + row * p->blocks_per_row * p->block_size, p->x,
+            p->n_in);
+    }
 }
 
 static const int8_t qw3_iq4nl[16] = {
@@ -1752,11 +1947,15 @@ static bool cpu_matvec_iq4_xs(const qw3_model *m, const qw3_tensor *w,
     const uint64_t blocks_per_row = n_in / QW3_QK_K;
     const uint64_t block_size = sizeof(uint16_t) + sizeof(uint16_t) +
                                 QW3_QK_K / 64 + QW3_QK_K / 2;
-    const uint8_t *base = tensor_data(m, w);
-    for (uint64_t row = 0; row < n_out; row++) {
-        y[row] = cpu_dot_iq4_xs_row(base + row * blocks_per_row * block_size,
-                                    x, n_in);
-    }
+    qw3_cpu_quant_matvec_ud ud = {
+        .base = tensor_data(m, w),
+        .blocks_per_row = blocks_per_row,
+        .block_size = block_size,
+        .n_in = n_in,
+        .x = x,
+        .y = y,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_iq4_xs_rows, &ud);
     return true;
 }
 
@@ -1774,10 +1973,15 @@ static bool cpu_matvec_iq4_xs_expert(const qw3_model *m, const qw3_tensor *w,
                                 QW3_QK_K / 64 + QW3_QK_K / 2;
     const uint8_t *base = tensor_data(m, w) +
                           (uint64_t)expert * n_out * blocks_per_row * block_size;
-    for (uint64_t row = 0; row < n_out; row++) {
-        y[row] = cpu_dot_iq4_xs_row(base + row * blocks_per_row * block_size,
-                                    x, n_in);
-    }
+    qw3_cpu_quant_matvec_ud ud = {
+        .base = base,
+        .blocks_per_row = blocks_per_row,
+        .block_size = block_size,
+        .n_in = n_in,
+        .x = x,
+        .y = y,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_iq4_xs_rows, &ud);
     return true;
 }
 
@@ -1826,11 +2030,15 @@ static bool cpu_matvec_q6_k(const qw3_model *m, const qw3_tensor *w,
     const uint64_t blocks_per_row = n_in / QW3_QK_K;
     const uint64_t block_size = QW3_QK_K / 2 + QW3_QK_K / 4 +
                                 QW3_QK_K / 16 + sizeof(uint16_t);
-    const uint8_t *base = tensor_data(m, w);
-    for (uint64_t row = 0; row < n_out; row++) {
-        y[row] = cpu_dot_q6_k_row(base + row * blocks_per_row * block_size,
-                                  x, n_in);
-    }
+    qw3_cpu_quant_matvec_ud ud = {
+        .base = tensor_data(m, w),
+        .blocks_per_row = blocks_per_row,
+        .block_size = block_size,
+        .n_in = n_in,
+        .x = x,
+        .y = y,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_q6_k_rows, &ud);
     return true;
 }
 
@@ -1849,10 +2057,15 @@ static bool cpu_matvec_q6_k_expert(const qw3_model *m, const qw3_tensor *w,
     const uint8_t *base = tensor_data(m, w) +
                           (uint64_t)expert * n_out *
                           blocks_per_row * block_size;
-    for (uint64_t row = 0; row < n_out; row++) {
-        y[row] = cpu_dot_q6_k_row(base + row * blocks_per_row * block_size,
-                                  x, n_in);
-    }
+    qw3_cpu_quant_matvec_ud ud = {
+        .base = base,
+        .blocks_per_row = blocks_per_row,
+        .block_size = block_size,
+        .n_in = n_in,
+        .x = x,
+        .y = y,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_q6_k_rows, &ud);
     return true;
 }
 
@@ -1930,10 +2143,15 @@ static bool cpu_matvec_iq3_s_expert(const qw3_model *m, const qw3_tensor *w,
     const uint64_t block_size = sizeof(uint16_t) + 64 + 8 + 32 + 4;
     const uint8_t *base = tensor_data(m, w) +
                           (uint64_t)expert * n_out * blocks_per_row * block_size;
-    for (uint64_t row = 0; row < n_out; row++) {
-        y[row] = cpu_dot_iq3_s_row(base + row * blocks_per_row * block_size,
-                                   x, n_in);
-    }
+    qw3_cpu_quant_matvec_ud ud = {
+        .base = base,
+        .blocks_per_row = blocks_per_row,
+        .block_size = block_size,
+        .n_in = n_in,
+        .x = x,
+        .y = y,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_iq3_s_rows, &ud);
     return true;
 }
 
@@ -2422,14 +2640,16 @@ done:
     return ok;
 }
 
-static bool qw3_cpu_eval_layer_range(qw3_session *s, int first_layer,
-                                     const float *input, float *out,
-                                     char *err, size_t errlen,
-                                     FILE *trace, bool trace_json,
-                                     bool *trace_first_event) {
+static bool qw3_cpu_eval_layer_span(qw3_session *s, int first_layer,
+                                    int end_layer, const float *input,
+                                    float *out, char *err, size_t errlen,
+                                    FILE *trace, bool trace_json,
+                                    bool *trace_first_event) {
     if (!s || !s->engine || !input || !out) return false;
     if (first_layer < 0) first_layer = 0;
     if (first_layer > QW3_N_LAYER) first_layer = QW3_N_LAYER;
+    if (end_layer < first_layer) end_layer = first_layer;
+    if (end_layer > QW3_N_LAYER) end_layer = QW3_N_LAYER;
 
     qw3_engine *e = s->engine;
     float *x0 = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
@@ -2439,7 +2659,7 @@ static bool qw3_cpu_eval_layer_range(qw3_session *s, int first_layer,
     const int profile_tail = getenv("QW3_METAL_PROFILE_CPU_TAIL") != NULL;
     const double tail_t0 = profile_tail ? qw3_now_sec() : 0.0;
     bool ok = true;
-    for (int il = first_layer; il < QW3_N_LAYER; il++) {
+    for (int il = first_layer; il < end_layer; il++) {
         const double layer_t0 = profile_tail ? qw3_now_sec() : 0.0;
         if (s->progress_fn) s->progress_fn(s->progress_ud, "layer", il, QW3_N_LAYER);
         if (qw3_layer_is_full_attention((uint32_t)il)) {
@@ -2484,13 +2704,23 @@ static bool qw3_cpu_eval_layer_range(qw3_session *s, int first_layer,
     if (ok) memcpy(out, x0, (size_t)QW3_N_EMBD * sizeof(float));
     if (profile_tail) {
         fprintf(stderr,
-                "qw3 metal cpu-tail profile pos=%llu first_layer=%d total_ms=%.3f ok=%d\n",
-                (unsigned long long)s->kv.pos, first_layer,
+                "qw3 metal cpu-tail profile pos=%llu layers=%d..%d total_ms=%.3f ok=%d\n",
+                (unsigned long long)s->kv.pos, first_layer, end_layer - 1,
                 (qw3_now_sec() - tail_t0) * 1000.0, ok ? 1 : 0);
     }
     free(x1);
     free(x0);
     return ok;
+}
+
+static bool qw3_cpu_eval_layer_range(qw3_session *s, int first_layer,
+                                     const float *input, float *out,
+                                     char *err, size_t errlen,
+                                     FILE *trace, bool trace_json,
+                                     bool *trace_first_event) {
+    return qw3_cpu_eval_layer_span(s, first_layer, QW3_N_LAYER, input, out,
+                                   err, errlen, trace, trace_json,
+                                   trace_first_event);
 }
 
 static bool qw3_cpu_output_logits(qw3_session *s, const float *x,
@@ -12241,10 +12471,43 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
     if (metal_layers < 0 || metal_layers > QW3_N_LAYER) {
         metal_layers = QW3_N_LAYER;
     }
+    const int llama_split = qw3_metal_llama_split_enabled() &&
+                            metal_layers < QW3_N_LAYER;
+    const int metal_start = llama_split ?
+        qw3_metal_llama_split_start(metal_layers) : 0;
+    const int metal_end = llama_split ? QW3_N_LAYER : metal_layers;
     float *cpu_tail_in = NULL;
+    float *cpu_prefix_in = NULL;
     int batch_open = 0;
     int ok = 1;
-    if (metal_layers > 0) {
+    if (llama_split && metal_start > 0) {
+        cpu_prefix_in = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+        cpu_tail_in = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+        ok = tensor_read_dense_row(&e->model, e->weights.token_embd,
+                                   (uint64_t)token, cpu_prefix_in);
+        if (!ok && err && errlen) {
+            snprintf(err, errlen, "embedding read failed for tensor type %s",
+                     tensor_type_name(e->weights.token_embd->type));
+        }
+        if (ok) {
+            ok = qw3_cpu_eval_layer_span(s, 0, metal_start, cpu_prefix_in,
+                                         cpu_tail_in, err, errlen,
+                                         NULL, false, NULL);
+            if (!ok && err && errlen && !err[0]) {
+                snprintf(err, errlen, "CPU prefix failed before layer %d",
+                         metal_start);
+            }
+        }
+    }
+    if (ok && metal_end > metal_start) {
+        if (llama_split && metal_start > 0) {
+            ok = qw3_metal_session_write_x0(s->metal, cpu_tail_in, QW3_N_EMBD);
+            if (!ok && err && errlen && !err[0]) {
+                snprintf(err, errlen,
+                         "Metal activation upload failed before layer %d",
+                         metal_start);
+            }
+        }
         ok = qw3_metal_begin_commands();
         if (!ok && qw3_metal_synchronize()) {
             ok = qw3_metal_begin_commands();
@@ -12252,7 +12515,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
         if (!ok && err && errlen && !err[0]) {
             snprintf(err, errlen, "Metal command buffer begin failed");
         }
-        if (ok) {
+        if (ok && !(llama_split && metal_start > 0)) {
             ok = qw3_metal_session_embed_q8_0(
                 s->metal, e->weights.token_embd->offset, (uint32_t)token,
                 QW3_N_EMBD, NULL);
@@ -12262,18 +12525,20 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
         }
         batch_open = ok;
     } else {
-        cpu_tail_in = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
-        ok = tensor_read_dense_row(&e->model, e->weights.token_embd,
-                                   (uint64_t)token, cpu_tail_in);
-        if (!ok && err && errlen) {
-            snprintf(err, errlen, "embedding read failed for tensor type %s",
-                     tensor_type_name(e->weights.token_embd->type));
+        if (!cpu_tail_in) {
+            cpu_tail_in = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+            ok = tensor_read_dense_row(&e->model, e->weights.token_embd,
+                                       (uint64_t)token, cpu_tail_in);
+            if (!ok && err && errlen) {
+                snprintf(err, errlen, "embedding read failed for tensor type %s",
+                         tensor_type_name(e->weights.token_embd->type));
+            }
         }
     }
     int full_slot = 0;
     int linear_slot = 0;
     int last_metal_layer = -1;
-    for (int il = 0; ok && il < metal_layers; il++) {
+    for (int il = metal_start; ok && il < metal_end; il++) {
         last_metal_layer = il;
         const double t_layer_sync0 = profile_layer_sync ? qw3_now_sec() : 0.0;
         double t_stage_sync0 = profile_stage_sync ? qw3_now_sec() : 0.0;
@@ -12645,7 +12910,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
                             qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
                             (qw3_now_sec() - t_layer_sync0) * 1000.0);
                 }
-                if (ok && il + 1 < metal_layers) {
+                if (ok && il + 1 < metal_end) {
                     ok = qw3_metal_begin_commands();
                     batch_open = ok;
                 }
@@ -12658,7 +12923,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
                  last_metal_layer);
     }
 
-    if (ok && metal_layers < QW3_N_LAYER) {
+    if (ok && !llama_split && metal_layers < QW3_N_LAYER) {
         if (!cpu_tail_in) {
             cpu_tail_in = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
             if (batch_open) {
@@ -12787,6 +13052,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
 
     free(router);
     free(cpu_tail_in);
+    free(cpu_prefix_in);
     if (profile) {
         const double total = qw3_now_sec() - t_eval0;
         fprintf(stderr,
@@ -14425,8 +14691,7 @@ int qw3_engine_metal_gqa_real_layer_test(qw3_engine *e, int token, FILE *fp) {
 int qw3_session_argmax(qw3_session *s) {
     if (!s) return -1;
 #ifndef QW3_NO_METAL
-    if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal &&
-        !qw3_session_uses_partial_metal(s)) {
+    if (qw3_session_argmax_uses_metal_logits(s)) {
         uint32_t idx = 0;
         float val = 0.0f;
         if (qw3_metal_session_argmax_logits(s->metal, QW3_N_VOCAB,
