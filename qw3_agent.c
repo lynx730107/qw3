@@ -77,6 +77,9 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS 768
 #define QW3_AGENT_SUB_AGENT_FILE_MAX_BYTES (256 * 1024)
 #define QW3_AGENT_SUB_AGENT_RESULT_MAX_BYTES 8192
+#define QW3_AGENT_SUB_AGENT_OUTPUT_HIDE 0
+#define QW3_AGENT_SUB_AGENT_OUTPUT_COMPACT 1
+#define QW3_AGENT_SUB_AGENT_OUTPUT_FULL 2
 #define QW3_AGENT_REPEAT_PENALTY_DEFAULT 1.06f
 #define QW3_AGENT_REPEAT_LAST_N_DEFAULT 1024
 #define QW3_AGENT_INPUT_INITIAL_BUFLEN 4096
@@ -148,7 +151,7 @@ typedef struct {
     int ctx_size;
     int max_tool_rounds;
     bool tools_enabled;
-    bool show_sub_agent_output;
+    int sub_agent_output_mode;
     bool dump_prompt;
     qw3_backend backend;
     qw3_think_mode think_mode;
@@ -2799,9 +2802,11 @@ static char *tool_sub_agent_analyze(agent_state *parent,
     sub_agent.is_sub_agent = true;
     sub_agent.output_write = agent_sink_write;
     sub_agent.output_ud = NULL;
-    sub_agent.status_write = parent->cfg.show_sub_agent_output ?
+    sub_agent.status_write = parent->cfg.sub_agent_output_mode ==
+        QW3_AGENT_SUB_AGENT_OUTPUT_FULL ?
         parent->status_write : agent_sink_write;
-    sub_agent.status_ud = parent->cfg.show_sub_agent_output ?
+    sub_agent.status_ud = parent->cfg.sub_agent_output_mode ==
+        QW3_AGENT_SUB_AGENT_OUTPUT_FULL ?
         parent->status_ud : NULL;
     sub_agent.output_color = parent->output_color;
     sub_agent.should_interrupt = parent->should_interrupt;
@@ -2857,10 +2862,13 @@ static char *tool_sub_agent_analyze(agent_state *parent,
     sb_append(&user, prompt);
     if (user.len == 0 || user.p[user.len - 1] != '\n') sb_append(&user, "\n");
 
-    if (parent->cfg.show_sub_agent_output) {
+    if (parent->cfg.sub_agent_output_mode == QW3_AGENT_SUB_AGENT_OUTPUT_FULL) {
         agent_statusf(parent, "\n[sub-agent] start%s%s\n",
                       path && path[0] ? " path=" : "",
                       path && path[0] ? path : "");
+    } else if (parent->cfg.sub_agent_output_mode ==
+               QW3_AGENT_SUB_AGENT_OUTPUT_COMPACT) {
+        agent_statusf(parent, "\nsub-agent thinking...\n");
     }
     int rc = user.p ? run_agent_turn(&sub_agent, user.p) : -1;
 
@@ -2875,8 +2883,11 @@ static char *tool_sub_agent_analyze(agent_state *parent,
                   sub_agent.last_assistant_text ? sub_agent.last_assistant_text : "");
         answer = err.p;
     }
-    if (parent->cfg.show_sub_agent_output) {
+    if (parent->cfg.sub_agent_output_mode == QW3_AGENT_SUB_AGENT_OUTPUT_FULL) {
         agent_statusf(parent, "[sub-agent] done\n");
+    } else if (parent->cfg.sub_agent_output_mode ==
+               QW3_AGENT_SUB_AGENT_OUTPUT_COMPACT) {
+        agent_statusf(parent, "sub-agent done\n");
     }
 
     sb_free(&user);
@@ -2929,7 +2940,7 @@ static char *tool_via_sub_agent(agent_state *parent, const tool_call *call) {
     sub_call.params[0].value = prompt.p;
     sub_call.n_params = 1;
 
-    if (parent->cfg.show_sub_agent_output) {
+    if (parent->cfg.sub_agent_output_mode == QW3_AGENT_SUB_AGENT_OUTPUT_FULL) {
         agent_statusf(parent, "\n[sub-agent] route tool=%s\n",
                       call && call->name[0] ? call->name : "unknown");
     }
@@ -4126,7 +4137,8 @@ static void print_help(void) {
         "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
         "  --hide-sub-agent     Hide sub-agent route/tool/status output\n"
-        "  --show-sub-agent     Show sub-agent route/tool/status output (default)\n"
+        "  --compact-sub-agent  Show only a compact sub-agent thinking marker (default)\n"
+        "  --show-sub-agent     Show full sub-agent route/tool/status output\n"
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
         "  --tool-dsml-file PATH\n"
         "                       Execute DSML tool_calls read from a file and exit\n"
@@ -4149,7 +4161,7 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     cfg->ctx_size = 32768;
     cfg->max_tool_rounds = QW3_AGENT_MAX_TOOL_ROUNDS;
     cfg->tools_enabled = true;
-    cfg->show_sub_agent_output = true;
+    cfg->sub_agent_output_mode = QW3_AGENT_SUB_AGENT_OUTPUT_COMPACT;
     cfg->think_mode = QW3_THINK_ON;
     cfg->sample.temperature = 0.6f;
     cfg->sample.sample_top_k = 20;
@@ -4255,9 +4267,11 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         } else if (!strcmp(argv[i], "--no-tools")) {
             cfg->tools_enabled = false;
         } else if (!strcmp(argv[i], "--hide-sub-agent")) {
-            cfg->show_sub_agent_output = false;
+            cfg->sub_agent_output_mode = QW3_AGENT_SUB_AGENT_OUTPUT_HIDE;
+        } else if (!strcmp(argv[i], "--compact-sub-agent")) {
+            cfg->sub_agent_output_mode = QW3_AGENT_SUB_AGENT_OUTPUT_COMPACT;
         } else if (!strcmp(argv[i], "--show-sub-agent")) {
-            cfg->show_sub_agent_output = true;
+            cfg->sub_agent_output_mode = QW3_AGENT_SUB_AGENT_OUTPUT_FULL;
         } else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc) {
             cfg->tool_dsml = argv[++i];
         } else if (!strcmp(argv[i], "--tool-dsml-file") && i + 1 < argc) {
