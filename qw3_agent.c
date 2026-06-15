@@ -60,6 +60,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_SOURCE_READ_TURN_MAX_CHUNKS 10
 #define QW3_AGENT_SOURCE_READ_TRACKED 8
 #define QW3_AGENT_MAX_TOOL_ROUNDS 24
+#define QW3_AGENT_TOOL_HISTORY_MAX 128
 #define QW3_AGENT_CODENAV_MAX_BYTES 30000
 #define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
 #define QW3_AGENT_CODENAV_TIMEOUT_SEC 30.0
@@ -117,6 +118,16 @@ typedef struct {
     tool_call calls[8];
     int n_calls;
 } tool_call_list;
+
+typedef struct {
+    uint64_t hash;
+    char name[64];
+} agent_tool_history_item;
+
+typedef struct {
+    agent_tool_history_item items[QW3_AGENT_TOOL_HISTORY_MAX];
+    int n_items;
+} agent_tool_history;
 
 typedef struct {
     const char *model_path;
@@ -2917,6 +2928,89 @@ static bool execute_native_tools_append(agent_state *a,
     return true;
 }
 
+static uint64_t agent_tool_hash_update(uint64_t h, const void *data, size_t len) {
+    const unsigned char *p = (const unsigned char *)data;
+    for (size_t i = 0; i < len; i++) {
+        h ^= (uint64_t)p[i];
+        h *= UINT64_C(1099511628211);
+    }
+    return h;
+}
+
+static uint64_t agent_tool_call_hash(const tool_call *call) {
+    uint64_t h = UINT64_C(1469598103934665603);
+    h = agent_tool_hash_update(h, call->name, strlen(call->name));
+    for (int i = 0; i < call->n_params; i++) {
+        const tool_param *param = &call->params[i];
+        const char sep = '\n';
+        const char eq = '=';
+        h = agent_tool_hash_update(h, &sep, 1);
+        h = agent_tool_hash_update(h, param->name, strlen(param->name));
+        h = agent_tool_hash_update(h, &eq, 1);
+        h = agent_tool_hash_update(h, param->value ? param->value : "",
+                                   param->value ? strlen(param->value) : 0);
+    }
+    return h;
+}
+
+static bool agent_tool_history_seen_or_add(agent_tool_history *history,
+                                           const tool_call *call,
+                                           char *repeat_name,
+                                           size_t repeat_name_len) {
+    const uint64_t hash = agent_tool_call_hash(call);
+    for (int i = 0; i < history->n_items; i++) {
+        if (history->items[i].hash == hash) {
+            snprintf(repeat_name, repeat_name_len, "%s",
+                     history->items[i].name[0] ? history->items[i].name
+                                                : call->name);
+            return true;
+        }
+    }
+    if (history->n_items < QW3_AGENT_TOOL_HISTORY_MAX) {
+        agent_tool_history_item *item = &history->items[history->n_items++];
+        item->hash = hash;
+        snprintf(item->name, sizeof(item->name), "%s", call->name);
+    }
+    return false;
+}
+
+static bool agent_tool_history_list_has_repeat(agent_tool_history *history,
+                                               const tool_call_list *calls,
+                                               char *repeat_name,
+                                               size_t repeat_name_len) {
+    for (int i = 0; i < calls->n_calls; i++) {
+        if (agent_tool_history_seen_or_add(history, &calls->calls[i],
+                                           repeat_name, repeat_name_len)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool agent_append_tool_loop_guard(agent_state *a,
+                                         const char *tool_name,
+                                         char *err,
+                                         size_t err_len) {
+    strbuf msg;
+    sb_init(&msg);
+    sb_printf(&msg,
+              "Tool loop guard: repeated call to '%s' was skipped. "
+              "Use the tool outputs already present in the conversation and "
+              "answer the user now. Do not call more tools for this request.",
+              tool_name && tool_name[0] ? tool_name : "unknown");
+    bool ok = agent_ensure_message_room(a, "user", msg.p ? msg.p : "",
+                                        64, "tool loop guard would exceed context",
+                                        err, err_len);
+    if (ok) {
+        qw3_chat_append_message(a->engine, &a->transcript, "user",
+                                msg.p ? msg.p : "");
+        agent_statusf(a, "agent: skipped repeated tool call (%s)\n",
+                      tool_name && tool_name[0] ? tool_name : "unknown");
+    }
+    sb_free(&msg);
+    return ok;
+}
+
 static int run_tool_dsml(agent_state *a, const char *dsml) {
     tool_call_list calls;
     int n = parse_tool_calls(dsml ? dsml : "", &calls);
@@ -3706,6 +3800,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     agent_note_user_message(a, user_message);
     qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
 
+    agent_tool_history tool_history = {0};
+    int tool_loop_guard_hits = 0;
     for (int round = 0; round < a->cfg.max_tool_rounds; round++) {
         if (round > 0 &&
             !agent_compact_if_needed(a, "soft limit before tool continuation",
@@ -3732,6 +3828,26 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int n_native = parse_native_tool_calls(assistant ? assistant : "",
                                                &native_calls);
         if (n_native > 0) {
+            char repeat_name[64] = {0};
+            if (agent_tool_history_list_has_repeat(&tool_history, &native_calls,
+                                                   repeat_name,
+                                                   sizeof(repeat_name))) {
+                char loop_err[160] = {0};
+                free_tool_calls(&native_calls);
+                free(assistant);
+                if (++tool_loop_guard_hits >= 3) {
+                    agent_statusf(a, "agent: stopped repeated tool loop (%s)\n",
+                                  repeat_name[0] ? repeat_name : "unknown");
+                    return 0;
+                }
+                if (!agent_append_tool_loop_guard(a, repeat_name,
+                                                  loop_err, sizeof(loop_err))) {
+                    agent_statusf(a, "agent: %s\n",
+                                  loop_err[0] ? loop_err : "context full");
+                    return -1;
+                }
+                continue;
+            }
             bool ok = execute_native_tools_append(a, &native_calls);
             free_tool_calls(&native_calls);
             free(assistant);
@@ -3747,6 +3863,26 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             a->last_assistant_text = agent_strdup(assistant ? assistant : "");
             free(assistant);
             return 0;
+        }
+        char repeat_name[64] = {0};
+        if (agent_tool_history_list_has_repeat(&tool_history, &dsml_calls,
+                                               repeat_name,
+                                               sizeof(repeat_name))) {
+            char loop_err[160] = {0};
+            free_tool_calls(&dsml_calls);
+            free(assistant);
+            if (++tool_loop_guard_hits >= 3) {
+                agent_statusf(a, "agent: stopped repeated tool loop (%s)\n",
+                              repeat_name[0] ? repeat_name : "unknown");
+                return 0;
+            }
+            if (!agent_append_tool_loop_guard(a, repeat_name,
+                                              loop_err, sizeof(loop_err))) {
+                agent_statusf(a, "agent: %s\n",
+                              loop_err[0] ? loop_err : "context full");
+                return -1;
+            }
+            continue;
         }
         char *tool_result = execute_tools(a, &dsml_calls);
         free_tool_calls(&dsml_calls);
