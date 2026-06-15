@@ -76,6 +76,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_COMPACT_TAIL_CAP_TOKENS 4096
 #define QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS 768
 #define QW3_AGENT_SUB_AGENT_FILE_MAX_BYTES (256 * 1024)
+#define QW3_AGENT_SUB_AGENT_RESULT_MAX_BYTES 8192
 #define QW3_AGENT_REPEAT_PENALTY_DEFAULT 1.06f
 #define QW3_AGENT_REPEAT_LAST_N_DEFAULT 1024
 #define QW3_AGENT_INPUT_INITIAL_BUFLEN 4096
@@ -2753,6 +2754,24 @@ static char *tool_bash(const tool_call *call) {
     return out.p;
 }
 
+static char *agent_truncate_for_parent_context(char *text) {
+    if (!text) return agent_strdup("");
+    int max_bytes = agent_env_int("QW3_AGENT_SUB_AGENT_RESULT_MAX_BYTES",
+                                  QW3_AGENT_SUB_AGENT_RESULT_MAX_BYTES,
+                                  512, 65536);
+    size_t len = strlen(text);
+    if (len <= (size_t)max_bytes) return text;
+    strbuf out;
+    sb_init(&out);
+    sb_append_n(&out, text, (size_t)max_bytes);
+    sb_printf(&out,
+              "\n... truncated by qw3-agent sub-agent router "
+              "(%zu bytes -> %d byte parent-context cap)\n",
+              len, max_bytes);
+    free(text);
+    return out.p ? out.p : agent_strdup("");
+}
+
 static char *tool_sub_agent_analyze(agent_state *parent,
                                     const tool_call *call) {
     if (!parent || !call) return agent_strdup("error: invalid sub-agent call");
@@ -2862,13 +2881,62 @@ static char *tool_sub_agent_analyze(agent_state *parent,
     qw3_tokens_free(&sub_agent.transcript);
     qw3_session_free(sub_agent.session);
     free(sub_agent.cfg.system_prompt);
-    return answer ? answer : agent_strdup("error: sub-agent produced no output");
+    return agent_truncate_for_parent_context(
+        answer ? answer : agent_strdup("error: sub-agent produced no output"));
+}
+
+static bool agent_should_route_tool_via_sub_agent(agent_state *a,
+                                                  const tool_call *call) {
+    if (!a || !call) return false;
+    if (a->is_sub_agent) return false;
+    if (!a->engine || !a->session) return false;
+    if (!strcmp(call->name, "sub_agent_analyze")) return false;
+    return true;
+}
+
+static char *tool_via_sub_agent(agent_state *parent, const tool_call *call) {
+    tool_call_list one;
+    memset(&one, 0, sizeof(one));
+    one.n_calls = 1;
+    one.calls[0] = *call;
+    char *call_text = native_tool_call_text(&one);
+
+    strbuf prompt;
+    sb_init(&prompt);
+    sb_append(&prompt,
+              "Execute exactly the tool call below in this isolated context. "
+              "This routing exists to save the parent agent context: the raw "
+              "tool output must stay inside the sub-agent transcript. Return "
+              "only the smallest useful digest for the parent: facts, file "
+              "paths, line/function names, errors, numbers, or the direct "
+              "answer needed by the user's request. Do not paste large file "
+              "chunks, long command output, or unrelated details. Do not call "
+              "extra tools unless they are strictly necessary.\n\n");
+    sb_append(&prompt, "Original tool call:\n");
+    sb_append(&prompt, call_text ? call_text : "");
+
+    tool_call sub_call;
+    memset(&sub_call, 0, sizeof(sub_call));
+    snprintf(sub_call.name, sizeof(sub_call.name), "sub_agent_analyze");
+    snprintf(sub_call.params[0].name, sizeof(sub_call.params[0].name), "prompt");
+    sub_call.params[0].value = prompt.p;
+    sub_call.n_params = 1;
+
+    agent_statusf(parent, "\n[sub-agent] route tool=%s\n",
+                  call && call->name[0] ? call->name : "unknown");
+    char *out = tool_sub_agent_analyze(parent, &sub_call);
+    free(call_text);
+    sb_free(&prompt);
+    return out;
 }
 
 static char *execute_one_tool(agent_state *a, const tool_call *call) {
     if (!a->cfg.tools_enabled) return agent_strdup("error: tools are disabled");
     if (!strcmp(call->name, "sub_agent_analyze")) {
         return tool_sub_agent_analyze(a, call);
+    }
+    if (agent_should_route_tool_via_sub_agent(a, call)) {
+        return tool_via_sub_agent(a, call);
     }
     if (!strcmp(call->name, "read")) return tool_read(a, call);
     if (!strcmp(call->name, "more")) return tool_more(a, call);
