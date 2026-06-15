@@ -74,6 +74,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_COMPACT_TAIL_DIVISOR 4
 #define QW3_AGENT_COMPACT_TAIL_CAP_TOKENS 4096
 #define QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS 768
+#define QW3_AGENT_SUB_AGENT_FILE_MAX_BYTES (256 * 1024)
 #define QW3_AGENT_REPEAT_PENALTY_DEFAULT 1.06f
 #define QW3_AGENT_REPEAT_LAST_N_DEFAULT 1024
 #define QW3_AGENT_INPUT_INITIAL_BUFLEN 4096
@@ -196,6 +197,8 @@ typedef struct {
     agent_timing_fn timing_update;
     void *timing_ud;
     double progress_start_sec;
+    bool is_sub_agent;
+    char *last_assistant_text;
 } agent_state;
 
 typedef struct {
@@ -422,9 +425,17 @@ static void agent_tool_status_end(agent_state *a) {
 static void agent_tool_status_block(agent_state *a, const char *name,
                                     const char *out) {
     agent_tool_status_begin(a);
-    agent_statusf(a, "\n[tool] %s\n", name && name[0] ? name : "?");
+    agent_statusf(a, "\n[%s] %s\n",
+                  a && a->is_sub_agent ? "sub-agent tool" : "tool",
+                  name && name[0] ? name : "?");
     agent_statusf(a, "%s\n", out ? out : "");
     agent_tool_status_end(a);
+}
+
+static void agent_sink_write(void *ud, const char *s, size_t n) {
+    (void)ud;
+    (void)s;
+    (void)n;
 }
 
 static bool agent_should_interrupt(agent_state *a) {
@@ -461,6 +472,9 @@ static void sb_append_xml_escaped(strbuf *sb, const char *s) {
 static char *agent_strdup(const char *s);
 static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len);
 static void agent_init_transcript(agent_state *a);
+static int run_agent_turn(agent_state *a, const char *user_message);
+static char *build_system_prompt(const char *user_system, bool tools_enabled,
+                                 bool include_sub_agent_tool);
 static int agent_set_nonblock(int fd);
 static bool agent_compact_context(agent_state *a, const char *reason,
                                   char *err, size_t err_len);
@@ -499,7 +513,7 @@ static char *native_tool_call_text(const tool_call_list *calls) {
     return sb.p ? sb.p : agent_strdup("");
 }
 
-static char *native_tool_declarations(void) {
+static char *native_tool_declarations(bool include_sub_agent_tool) {
     strbuf sb;
     sb_init(&sb);
 #define TOOL_DECL(NAME, DESC, PARAMS) \
@@ -548,6 +562,11 @@ static char *native_tool_declarations(void) {
               TOOL_PARAM("new", "Replacement text"));
     TOOL_DECL("bash", "Run a shell command and return captured output.",
               TOOL_PARAM("cmd", "Shell command"));
+    if (include_sub_agent_tool) {
+        TOOL_DECL("sub_agent_analyze", "Run a temporary isolated sub-agent for context-heavy analysis. The sub-agent has its own KV cache and transcript, may use normal tools, and returns only its final concise result.",
+                  TOOL_PARAM("prompt", "Required detailed analysis task for the isolated sub-agent") ","
+                  TOOL_PARAM("path", "Optional file path to preload into the isolated context"));
+    }
 #undef TOOL_PARAM
 #undef TOOL_DECL
     return sb.p;
@@ -1526,7 +1545,7 @@ static void infer_tool_name_from_params(tool_call *call) {
 static const char *native_shorthand_tools[] = {
     "read", "more", "list", "get_skeleton", "get_function", "get_fucttion",
     "semantic_search", "google_search", "visit_page", "search", "write",
-    "edit", "bash",
+    "edit", "bash", "sub_agent_analyze",
 };
 
 static bool native_tool_name_is_known(const char *name, size_t len) {
@@ -2723,8 +2742,123 @@ static char *tool_bash(const tool_call *call) {
     return out.p;
 }
 
+static char *tool_sub_agent_analyze(agent_state *parent,
+                                    const tool_call *call) {
+    if (!parent || !call) return agent_strdup("error: invalid sub-agent call");
+    if (parent->is_sub_agent) {
+        return agent_strdup("error: sub_agent_analyze cannot be called by a sub-agent");
+    }
+    const char *prompt = tool_param_value(call, "prompt");
+    if (!prompt || !prompt[0]) {
+        prompt = tool_param_value(call, "task");
+    }
+    if (!prompt || !prompt[0]) {
+        return agent_strdup("error: sub_agent_analyze requires parameter 'prompt'");
+    }
+    const char *path = tool_param_value(call, "path");
+    if (!path || !path[0]) path = tool_param_value(call, "file");
+
+    agent_state sub_agent;
+    memset(&sub_agent, 0, sizeof(sub_agent));
+    sub_agent.engine = parent->engine;
+    sub_agent.cfg = parent->cfg;
+    sub_agent.cfg.tools_enabled = true;
+    sub_agent.cfg.system_prompt =
+        build_system_prompt(parent->cfg.user_system, true, false);
+    sub_agent.is_sub_agent = true;
+    sub_agent.output_write = agent_sink_write;
+    sub_agent.output_ud = NULL;
+    sub_agent.status_write = parent->status_write;
+    sub_agent.status_ud = parent->status_ud;
+    sub_agent.output_color = parent->output_color;
+    sub_agent.should_interrupt = parent->should_interrupt;
+    sub_agent.interrupt_ud = parent->interrupt_ud;
+
+    if (!sub_agent.cfg.system_prompt) {
+        return agent_strdup("error: failed to build sub-agent system prompt");
+    }
+    if (qw3_session_create(&sub_agent.session, sub_agent.engine,
+                           sub_agent.cfg.ctx_size) != 0) {
+        free(sub_agent.cfg.system_prompt);
+        return agent_strdup("error: failed to create isolated sub-agent session");
+    }
+    agent_init_transcript(&sub_agent);
+
+    char *file_text = NULL;
+    size_t file_len = 0;
+    strbuf user;
+    sb_init(&user);
+    sb_append(&user,
+              "You are an isolated sub-agent. Do the requested analysis in "
+              "this temporary context and return a compact, actionable final "
+              "answer for the parent agent. Do not mention hidden implementation "
+              "details unless relevant.\n\n");
+    if (path && path[0]) {
+        file_text = read_file_text(path, &file_len);
+        if (!file_text) {
+            sb_printf(&user,
+                      "--- FILE LOAD ERROR: %s ---\n%s\n\n",
+                      path, strerror(errno));
+        } else {
+            size_t take = file_len;
+            bool truncated = false;
+            if (take > QW3_AGENT_SUB_AGENT_FILE_MAX_BYTES) {
+                take = QW3_AGENT_SUB_AGENT_FILE_MAX_BYTES;
+                truncated = true;
+            }
+            sb_printf(&user, "--- FILE CONTENT: %s (%zu bytes%s) ---\n",
+                      path, file_len, truncated ? ", truncated" : "");
+            sb_append_n(&user, file_text, take);
+            if (take == 0 || file_text[take - 1] != '\n') sb_append(&user, "\n");
+            if (truncated) {
+                sb_printf(&user,
+                          "--- TRUNCATED after %d bytes; use tools such as "
+                          "get_skeleton, get_function, semantic_search, or read "
+                          "for targeted follow-up if needed. ---\n",
+                          QW3_AGENT_SUB_AGENT_FILE_MAX_BYTES);
+            }
+            sb_append(&user, "--- END FILE CONTENT ---\n\n");
+        }
+    }
+    sb_append(&user, "Task:\n");
+    sb_append(&user, prompt);
+    if (user.len == 0 || user.p[user.len - 1] != '\n') sb_append(&user, "\n");
+
+    agent_statusf(parent, "\n[sub-agent] start%s%s\n",
+                  path && path[0] ? " path=" : "",
+                  path && path[0] ? path : "");
+    int rc = user.p ? run_agent_turn(&sub_agent, user.p) : -1;
+
+    char *answer = NULL;
+    if (rc == 0 && sub_agent.last_assistant_text) {
+        answer = agent_strdup(sub_agent.last_assistant_text);
+    } else {
+        strbuf err;
+        sb_init(&err);
+        sb_printf(&err, "error: sub-agent failed%s%s",
+                  sub_agent.last_assistant_text ? ": " : "",
+                  sub_agent.last_assistant_text ? sub_agent.last_assistant_text : "");
+        answer = err.p;
+    }
+    agent_statusf(parent, "[sub-agent] done\n");
+
+    sb_free(&user);
+    free(file_text);
+    agent_reset_source_read_budget(&sub_agent);
+    free(sub_agent.last_read_path);
+    free(sub_agent.last_assistant_text);
+    agent_clear_session_meta(&sub_agent);
+    qw3_tokens_free(&sub_agent.transcript);
+    qw3_session_free(sub_agent.session);
+    free(sub_agent.cfg.system_prompt);
+    return answer ? answer : agent_strdup("error: sub-agent produced no output");
+}
+
 static char *execute_one_tool(agent_state *a, const tool_call *call) {
     if (!a->cfg.tools_enabled) return agent_strdup("error: tools are disabled");
+    if (!strcmp(call->name, "sub_agent_analyze")) {
+        return tool_sub_agent_analyze(a, call);
+    }
     if (!strcmp(call->name, "read")) return tool_read(a, call);
     if (!strcmp(call->name, "more")) return tool_more(a, call);
     if (!strcmp(call->name, "list")) return tool_list(call);
@@ -3552,6 +3686,8 @@ static int generate_once(agent_state *a, char **assistant_text) {
 }
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
+    free(a->last_assistant_text);
+    a->last_assistant_text = NULL;
     agent_reset_source_read_budget(a);
     char compact_err[160] = {0};
     if (!agent_compact_if_needed(a, "soft limit before user turn",
@@ -3608,6 +3744,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int n_dsml = parse_tool_calls(assistant ? assistant : "", &dsml_calls);
         if (n_dsml <= 0) {
             free_tool_calls(&dsml_calls);
+            a->last_assistant_text = agent_strdup(assistant ? assistant : "");
             free(assistant);
             return 0;
         }
@@ -3648,7 +3785,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     return 0;
 }
 
-static char *build_system_prompt(const char *user_system, bool tools_enabled) {
+static char *build_system_prompt(const char *user_system, bool tools_enabled,
+                                 bool include_sub_agent_tool) {
     strbuf sb;
     sb_init(&sb);
     if (tools_enabled) {
@@ -3656,7 +3794,7 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "# Tools\n\n"
             "You have access to the following functions:\n\n"
             "<tools>\n");
-        char *tools = native_tool_declarations();
+        char *tools = native_tool_declarations(include_sub_agent_tool);
         sb_append(&sb, tools ? tools : "");
         free(tools);
         sb_append(&sb,
@@ -3701,7 +3839,14 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "known URL. If web tools fail, say so; do not invent current web "
             "content.\n"
             "- Use read only for small non-source files or precise source line "
-            "ranges with explicit start and lines.\n\n");
+            "ranges with explicit start and lines.\n");
+        if (include_sub_agent_tool) {
+            sb_append(&sb,
+                "- Use sub_agent_analyze for large file/codebase analysis that "
+                "would pollute the main conversation context; ask it for a "
+                "compact final summary and keep only that result.\n");
+        }
+        sb_append(&sb, "\n");
     }
     char now_text[96] = {0};
     time_t now = time(NULL);
@@ -3968,7 +4113,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         fprintf(stderr, "agent: cannot create store directory\n");
         return -1;
     }
-    cfg->system_prompt = build_system_prompt(cfg->user_system, cfg->tools_enabled);
+    cfg->system_prompt = build_system_prompt(cfg->user_system,
+                                             cfg->tools_enabled, true);
     if (!cfg->system_prompt) return -1;
     return 0;
 }
@@ -5417,6 +5563,10 @@ static void agent_direct_progress_update(void *ud, const char *phase,
     p->active = true;
 }
 
+static bool tool_text_requests_sub_agent(const char *text) {
+    return text && strstr(text, "sub_agent_analyze") != NULL;
+}
+
 int main(int argc, char **argv) {
     agent_state a;
     memset(&a, 0, sizeof(a));
@@ -5432,14 +5582,19 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (a.cfg.tool_dsml) {
+    const bool defer_tool_dsml =
+        a.cfg.tool_dsml && tool_text_requests_sub_agent(a.cfg.tool_dsml);
+    const bool defer_tool_native =
+        a.cfg.tool_native && tool_text_requests_sub_agent(a.cfg.tool_native);
+
+    if (a.cfg.tool_dsml && !defer_tool_dsml) {
         int rc = run_tool_dsml(&a, a.cfg.tool_dsml);
         agent_reset_source_read_budget(&a);
         free(a.last_read_path);
         free_config(&a.cfg);
         return rc;
     }
-    if (a.cfg.tool_native) {
+    if (a.cfg.tool_native && !defer_tool_native) {
         int rc = run_tool_native(&a, a.cfg.tool_native);
         agent_reset_source_read_budget(&a);
         free(a.last_read_path);
@@ -5469,6 +5624,19 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
+
+    if (defer_tool_dsml || defer_tool_native) {
+        int rc = defer_tool_dsml ?
+            run_tool_dsml(&a, a.cfg.tool_dsml) :
+            run_tool_native(&a, a.cfg.tool_native);
+        agent_reset_source_read_budget(&a);
+        free(a.last_read_path);
+        free(a.last_assistant_text);
+        qw3_engine_close(a.engine);
+        free_config(&a.cfg);
+        return rc;
+    }
+
     if (qw3_session_create(&a.session, a.engine, a.cfg.ctx_size) != 0) {
         fprintf(stderr, "agent: cannot create %s session\n",
                 qw3_backend_name(a.cfg.backend));
@@ -5512,6 +5680,7 @@ int main(int argc, char **argv) {
 
     agent_reset_source_read_budget(&a);
     free(a.last_read_path);
+    free(a.last_assistant_text);
     agent_clear_session_meta(&a);
     qw3_tokens_free(&a.transcript);
     qw3_session_free(a.session);
