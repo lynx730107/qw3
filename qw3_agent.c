@@ -148,6 +148,7 @@ typedef struct {
     int ctx_size;
     int max_tool_rounds;
     bool tools_enabled;
+    bool show_sub_agent_output;
     bool dump_prompt;
     qw3_backend backend;
     qw3_think_mode think_mode;
@@ -2798,8 +2799,10 @@ static char *tool_sub_agent_analyze(agent_state *parent,
     sub_agent.is_sub_agent = true;
     sub_agent.output_write = agent_sink_write;
     sub_agent.output_ud = NULL;
-    sub_agent.status_write = parent->status_write;
-    sub_agent.status_ud = parent->status_ud;
+    sub_agent.status_write = parent->cfg.show_sub_agent_output ?
+        parent->status_write : agent_sink_write;
+    sub_agent.status_ud = parent->cfg.show_sub_agent_output ?
+        parent->status_ud : NULL;
     sub_agent.output_color = parent->output_color;
     sub_agent.should_interrupt = parent->should_interrupt;
     sub_agent.interrupt_ud = parent->interrupt_ud;
@@ -2854,9 +2857,11 @@ static char *tool_sub_agent_analyze(agent_state *parent,
     sb_append(&user, prompt);
     if (user.len == 0 || user.p[user.len - 1] != '\n') sb_append(&user, "\n");
 
-    agent_statusf(parent, "\n[sub-agent] start%s%s\n",
-                  path && path[0] ? " path=" : "",
-                  path && path[0] ? path : "");
+    if (parent->cfg.show_sub_agent_output) {
+        agent_statusf(parent, "\n[sub-agent] start%s%s\n",
+                      path && path[0] ? " path=" : "",
+                      path && path[0] ? path : "");
+    }
     int rc = user.p ? run_agent_turn(&sub_agent, user.p) : -1;
 
     char *answer = NULL;
@@ -2870,7 +2875,9 @@ static char *tool_sub_agent_analyze(agent_state *parent,
                   sub_agent.last_assistant_text ? sub_agent.last_assistant_text : "");
         answer = err.p;
     }
-    agent_statusf(parent, "[sub-agent] done\n");
+    if (parent->cfg.show_sub_agent_output) {
+        agent_statusf(parent, "[sub-agent] done\n");
+    }
 
     sb_free(&user);
     free(file_text);
@@ -2922,8 +2929,10 @@ static char *tool_via_sub_agent(agent_state *parent, const tool_call *call) {
     sub_call.params[0].value = prompt.p;
     sub_call.n_params = 1;
 
-    agent_statusf(parent, "\n[sub-agent] route tool=%s\n",
-                  call && call->name[0] ? call->name : "unknown");
+    if (parent->cfg.show_sub_agent_output) {
+        agent_statusf(parent, "\n[sub-agent] route tool=%s\n",
+                      call && call->name[0] ? call->name : "unknown");
+    }
     char *out = tool_sub_agent_analyze(parent, &sub_call);
     free(call_text);
     sb_free(&prompt);
@@ -4116,6 +4125,8 @@ static void print_help(void) {
         "  --chdir PATH         Change working directory before loading/running\n"
         "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
+        "  --hide-sub-agent     Hide sub-agent route/tool/status output\n"
+        "  --show-sub-agent     Show sub-agent route/tool/status output (default)\n"
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
         "  --tool-dsml-file PATH\n"
         "                       Execute DSML tool_calls read from a file and exit\n"
@@ -4138,6 +4149,7 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     cfg->ctx_size = 32768;
     cfg->max_tool_rounds = QW3_AGENT_MAX_TOOL_ROUNDS;
     cfg->tools_enabled = true;
+    cfg->show_sub_agent_output = true;
     cfg->think_mode = QW3_THINK_ON;
     cfg->sample.temperature = 0.6f;
     cfg->sample.sample_top_k = 20;
@@ -4242,6 +4254,10 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             if (cfg->max_tool_rounds > 128) cfg->max_tool_rounds = 128;
         } else if (!strcmp(argv[i], "--no-tools")) {
             cfg->tools_enabled = false;
+        } else if (!strcmp(argv[i], "--hide-sub-agent")) {
+            cfg->show_sub_agent_output = false;
+        } else if (!strcmp(argv[i], "--show-sub-agent")) {
+            cfg->show_sub_agent_output = true;
         } else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc) {
             cfg->tool_dsml = argv[++i];
         } else if (!strcmp(argv[i], "--tool-dsml-file") && i + 1 < argc) {
