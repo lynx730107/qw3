@@ -2962,10 +2962,13 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls) {
     sb_init(&result);
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
+        bool routed = agent_should_route_tool_via_sub_agent(a, call);
         char *out = execute_one_tool(a, call);
         sb_printf(&result, "<tool_result name=\"%s\">\n%s\n</tool_result>\n",
                   call->name, out ? out : "");
-        agent_tool_status_block(a, call->name, out ? out : "");
+        if (!routed) {
+            agent_tool_status_block(a, call->name, out ? out : "");
+        }
         free(out);
     }
     return result.p ? result.p : agent_strdup("");
@@ -2975,8 +2978,11 @@ static bool execute_native_tools_append(agent_state *a,
                                         const tool_call_list *calls) {
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
+        bool routed = agent_should_route_tool_via_sub_agent(a, call);
         char *out = execute_one_tool(a, call);
-        agent_tool_status_block(a, call->name, out ? out : "");
+        if (!routed) {
+            agent_tool_status_block(a, call->name, out ? out : "");
+        }
         char *response = native_tool_response_text(call->name, out ? out : "");
         char compact_err[160] = {0};
         if (!agent_ensure_message_room(a, "user", response,
