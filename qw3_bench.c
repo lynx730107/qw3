@@ -48,6 +48,7 @@ typedef struct {
     uint64_t ssd_streaming_cache_bytes;
     uint32_t ssd_streaming_preload_experts;
     uint64_t simulate_used_memory_bytes;
+    uint64_t simulate_total_memory_bytes;
 } bench_config;
 
 static double bench_now_sec(void) {
@@ -89,6 +90,8 @@ static void usage(FILE *fp) {
         "  --streaming-preload N  Number of experts to pre-load from hotlist (default: auto)\n"
         "  --simulate-used-memory NNgb\n"
         "                         Simulate NN GiB of system memory being locked before loading\n"
+        "  --simulate-total-memory NNgb\n"
+        "                         Simulate total memory for SSD streaming auto-cache planning\n"
         "\n"
         "Sweep:\n"
         "  --ctx-start N          First measured frontier. Default: 2048\n"
@@ -295,6 +298,12 @@ static bench_config parse_options(int argc, char **argv) {
             const char *val = need_arg(&i, argc, argv, arg);
             if (!qw3_parse_gib_arg(val, &c.simulate_used_memory_bytes)) {
                 fprintf(stderr, "qw3-bench: invalid --simulate-used-memory '%s'\n", val);
+                exit(2);
+            }
+        } else if (!strcmp(arg, "--simulate-total-memory")) {
+            const char *val = need_arg(&i, argc, argv, arg);
+            if (!qw3_parse_gib_arg(val, &c.simulate_total_memory_bytes)) {
+                fprintf(stderr, "qw3-bench: invalid --simulate-total-memory '%s'\n", val);
                 exit(2);
             }
         } else {
@@ -684,6 +693,7 @@ int main(int argc, char **argv) {
         .ssd_streaming_cache_bytes = cfg.ssd_streaming_cache_bytes,
         .ssd_streaming_preload_experts = cfg.ssd_streaming_preload_experts,
         .simulate_used_memory_bytes = cfg.simulate_used_memory_bytes,
+        .simulate_total_memory_bytes = cfg.simulate_total_memory_bytes,
         .ssd_streaming = cfg.ssd_streaming,
         .ssd_streaming_cold = cfg.ssd_streaming_cold,
     };

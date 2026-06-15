@@ -111,6 +111,21 @@ bool qw3_ssd_memory_lock_acquire(qw3_ssd_memory_lock *lock,
     lock->ptr = NULL;
     lock->bytes = 0;
     if (bytes == 0) return true;
+#ifdef __APPLE__
+    const uint64_t safe_max = 4ull * QW3_GIB;
+    const char *allow_large = getenv("QW3_ALLOW_LARGE_SIMULATE_USED_MEMORY");
+    if (bytes > safe_max &&
+        (!allow_large || !allow_large[0] || strcmp(allow_large, "0") == 0)) {
+        fprintf(stderr,
+                "qw3: refusing to mlock %.2f GiB with --simulate-used-memory on macOS; "
+                "large wired-memory tests can make the desktop unresponsive. "
+                "Use --simulate-total-memory for planner simulation, reduce "
+                "--streaming-cache for a smaller expert cache, or set "
+                "QW3_ALLOW_LARGE_SIMULATE_USED_MEMORY=1 to override.\n",
+                (double)bytes / (double)QW3_GIB);
+        return false;
+    }
+#endif
     if (bytes > (uint64_t)SIZE_MAX) {
         fprintf(stderr,
                 "qw3: --simulate-used-memory is too large for this process\n");

@@ -736,6 +736,7 @@ struct qw3_engine {
     uint64_t ssd_streaming_cache_bytes;
     uint32_t ssd_streaming_preload_experts;
     qw3_ssd_memory_lock simulated_memory;
+    uint64_t simulate_total_memory_bytes;
     uint64_t per_expert_bytes;
 };
 
@@ -805,6 +806,17 @@ static int qw3_metal_prefill_batch_size(void) {
     if (end == env || v < 1) return 1;
     if (v > 4096) return 4096;
     return (int)v;
+}
+
+static int qw3_session_prefill_batch_size(const qw3_session *s) {
+    if (!s || !s->engine) return 1;
+    if (s->engine->ssd_streaming) return 1;
+#ifndef QW3_NO_METAL
+    if (qw3_session_uses_partial_metal(s)) return 1;
+    return qw3_metal_prefill_batch_size();
+#else
+    return 1;
+#endif
 }
 
 static void qw3_count_layer_types_before(int n_layers,
@@ -1535,6 +1547,154 @@ static void weights_bind(qw3_engine *e) {
         require_tensor(m, name, QW3_TENSOR_ANY, 2,
                        QW3_N_FF_SHARED, QW3_N_EMBD, 0, &lw->ffn_down_shared);
     }
+}
+
+typedef struct {
+    uint64_t off;
+    uint64_t end;
+} qw3_model_map_span;
+
+typedef struct {
+    qw3_model_map_span *v;
+    uint32_t len;
+    uint32_t cap;
+} qw3_model_map_span_vec;
+
+static uint64_t qw3_tensor_row_bytes(const qw3_tensor *t) {
+    if (!t || t->ndim == 0) return 0;
+    switch (t->type) {
+    case QW3_TENSOR_F32:
+        return t->dim[0] * (uint64_t)sizeof(float);
+    case QW3_TENSOR_F16:
+    case QW3_TENSOR_BF16:
+        return t->dim[0] * (uint64_t)sizeof(uint16_t);
+    case QW3_TENSOR_Q8_0:
+        if (t->dim[0] % 32u != 0) return 0;
+        return (t->dim[0] / 32u) * (sizeof(uint16_t) + 32u);
+    case QW3_TENSOR_Q6_K:
+        if (t->dim[0] % QW3_QK_K != 0) return 0;
+        return (t->dim[0] / QW3_QK_K) *
+               (QW3_QK_K / 2u + QW3_QK_K / 4u +
+                QW3_QK_K / 16u + sizeof(uint16_t));
+    case QW3_TENSOR_IQ3_S:
+        if (t->dim[0] % QW3_QK_K != 0) return 0;
+        return (t->dim[0] / QW3_QK_K) *
+               (sizeof(uint16_t) + 64u + 8u + 32u + 4u);
+    case QW3_TENSOR_IQ4_XS:
+        if (t->dim[0] % QW3_QK_K != 0) return 0;
+        return (t->dim[0] / QW3_QK_K) *
+               (sizeof(uint16_t) + sizeof(uint16_t) +
+                QW3_QK_K / 64u + QW3_QK_K / 2u);
+    default:
+        return 0;
+    }
+}
+
+static uint64_t qw3_tensor_nbytes(const qw3_tensor *t) {
+    if (!t) return 0;
+    uint64_t bytes = qw3_tensor_row_bytes(t);
+    if (bytes == 0) return 0;
+    for (uint32_t d = 1; d < t->ndim; d++) {
+        if (t->dim[d] != 0 && bytes > UINT64_MAX / t->dim[d]) return 0;
+        bytes *= t->dim[d];
+    }
+    return bytes;
+}
+
+static bool qw3_model_map_span_vec_push(qw3_model_map_span_vec *spans,
+                                        uint64_t off,
+                                        uint64_t end) {
+    if (!spans || end <= off) return false;
+    if (spans->len == spans->cap) {
+        uint32_t cap = spans->cap ? spans->cap * 2u : 64u;
+        if (cap < spans->cap) return false;
+        spans->v = qw3_xrealloc(spans->v, (size_t)cap * sizeof(spans->v[0]));
+        spans->cap = cap;
+    }
+    spans->v[spans->len++] = (qw3_model_map_span){ off, end };
+    return true;
+}
+
+static bool qw3_model_map_span_vec_include_one(qw3_model_map_span_vec *spans,
+                                               const qw3_tensor *t) {
+    if (!t) return true;
+    const uint64_t bytes = qw3_tensor_nbytes(t);
+    if (bytes == 0 || t->offset > UINT64_MAX - bytes) return false;
+    return qw3_model_map_span_vec_push(spans, t->offset, t->offset + bytes);
+}
+
+static int qw3_model_map_span_cmp(const void *a, const void *b) {
+    const qw3_model_map_span *sa = a;
+    const qw3_model_map_span *sb = b;
+    if (sa->off < sb->off) return -1;
+    if (sa->off > sb->off) return 1;
+    if (sa->end < sb->end) return -1;
+    if (sa->end > sb->end) return 1;
+    return 0;
+}
+
+static bool qw3_model_map_span_vec_finish(qw3_model_map_span_vec *spans) {
+    if (!spans || spans->len == 0) return false;
+    qsort(spans->v, spans->len, sizeof(spans->v[0]), qw3_model_map_span_cmp);
+    uint32_t out = 0;
+    for (uint32_t i = 0; i < spans->len; i++) {
+        if (out == 0 || spans->v[i].off > spans->v[out - 1u].end) {
+            spans->v[out++] = spans->v[i];
+        } else if (spans->v[i].end > spans->v[out - 1u].end) {
+            spans->v[out - 1u].end = spans->v[i].end;
+        }
+    }
+    spans->len = out;
+    return spans->len != 0;
+}
+
+static bool qw3_weights_tensor_is_routed_expert(const qw3_weights *w,
+                                                const qw3_tensor  *t) {
+    if (!w || !t) return false;
+    for (uint32_t il = 0; il < QW3_N_LAYER; il++) {
+        const qw3_layer_weights *lw = &w->layer[il];
+        if (t == lw->ffn_gate_exps ||
+            t == lw->ffn_up_exps ||
+            t == lw->ffn_down_exps) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool qw3_weights_streaming_non_routed_spans(
+        const qw3_model   *m,
+        const qw3_weights *w,
+        qw3_model_map_span_vec *spans) {
+    if (!m || !w || !spans) return false;
+    memset(spans, 0, sizeof(*spans));
+    for (uint32_t i = 0; i < m->n_tensors; i++) {
+        const qw3_tensor *t = &m->tensors[i];
+        if (qw3_weights_tensor_is_routed_expert(w, t)) continue;
+        if (!qw3_model_map_span_vec_include_one(spans, t)) {
+            free(spans->v);
+            memset(spans, 0, sizeof(*spans));
+            return false;
+        }
+    }
+    if (!qw3_model_map_span_vec_finish(spans)) {
+        free(spans->v);
+        memset(spans, 0, sizeof(*spans));
+        return false;
+    }
+    return true;
+}
+
+static uint64_t qw3_model_map_span_vec_total_bytes(
+        const qw3_model_map_span_vec *spans) {
+    if (!spans) return 0;
+    uint64_t total = 0;
+    for (uint32_t i = 0; i < spans->len; i++) {
+        const uint64_t bytes = spans->v[i].end - spans->v[i].off;
+        if (total > UINT64_MAX - bytes) return UINT64_MAX;
+        total += bytes;
+    }
+    return total;
 }
 
 /* =========================================================================
@@ -3167,14 +3327,19 @@ static uint64_t qw3_tensor_expert_row_bytes(const qw3_tensor *t) {
     } else if (t->type == QW3_TENSOR_IQ4_XS) {
         block_size = sizeof(uint16_t) + sizeof(uint16_t) + QW3_QK_K / 64 + QW3_QK_K / 2;
     } else if (t->type == QW3_TENSOR_F16) {
-        block_size = sizeof(uint16_t);
+        return t->dim[0] * (uint64_t)sizeof(uint16_t);
     } else if (t->type == QW3_TENSOR_F32) {
-        block_size = sizeof(float);
+        return t->dim[0] * (uint64_t)sizeof(float);
+    } else if (t->type == QW3_TENSOR_BF16) {
+        return t->dim[0] * (uint64_t)sizeof(uint16_t);
     } else {
         qw3_die("unsupported expert tensor type in streaming");
     }
+    if (t->dim[0] % QW3_QK_K != 0) {
+        qw3_die("streaming expert tensor row is not aligned to quant block size");
+    }
     const uint64_t blocks_per_row = t->dim[0] / QW3_QK_K;
-    return (t->dim[0] % QW3_QK_K == 0) ? (blocks_per_row * block_size) : (t->dim[0] * block_size / QW3_QK_K);
+    return blocks_per_row * block_size;
 }
 
 static bool qw3_streaming_routed_expert_bytes(
@@ -3202,6 +3367,199 @@ static bool qw3_streaming_routed_expert_bytes(
     return *per_expert_bytes_out != 0;
 }
 
+#include "qw3_streaming_hotlist.inc"
+
+static const char *qw3_streaming_expert_hotlist_path(void) {
+    const char *path = getenv("QW3_EXPERT_HOTLIST");
+    if (!path || !path[0]) path = getenv("QW3_STREAMING_EXPERT_HOTLIST");
+    return path && path[0] ? path : NULL;
+}
+
+static bool qw3_streaming_expert_hotlist_enabled(const qw3_engine *e) {
+    return e &&
+           e->ssd_streaming &&
+           !e->ssd_streaming_cold &&
+           getenv("QW3_METAL_DISABLE_STREAMING_EXPERT_HOTLIST") == NULL;
+}
+
+static uint32_t qw3_streaming_expert_preload_count(const qw3_engine *e) {
+    if (!e || e->ssd_streaming_cache_experts == 0) return 0;
+    if (!qw3_streaming_expert_hotlist_enabled(e)) return 0;
+    const uint16_t (*hotlist)[2] = qw3_default_streaming_hotlist;
+    (void)hotlist;
+
+    uint32_t preload = e->ssd_streaming_preload_experts;
+    if (preload == 0) {
+        preload = e->ssd_streaming_cache_experts;
+        const char *env = getenv("QW3_METAL_STREAMING_EXPERT_AUTO_PRELOAD_CAP");
+        uint32_t cap = 4096;
+        if (env && env[0]) {
+            char *end = NULL;
+            errno = 0;
+            unsigned long v = strtoul(env, &end, 10);
+            if (end != env && *end == '\0' && errno == 0) {
+                cap = v > UINT32_MAX ? UINT32_MAX : (uint32_t)v;
+            }
+        }
+        if (cap != 0 && preload > cap) preload = cap;
+    }
+    if (preload > e->ssd_streaming_cache_experts) {
+        preload = e->ssd_streaming_cache_experts;
+    }
+    const uint64_t max_possible = (uint64_t)QW3_N_LAYER * (uint64_t)QW3_N_EXPERT;
+    if ((uint64_t)preload > max_possible) preload = (uint32_t)max_possible;
+    if (!qw3_streaming_expert_hotlist_path() &&
+        preload > qw3_default_streaming_hotlist_count) {
+        preload = qw3_default_streaming_hotlist_count;
+    }
+    return preload;
+}
+
+#ifndef QW3_NO_METAL
+static bool qw3_streaming_expert_preload_one(qw3_engine *e,
+                                             uint32_t    layer,
+                                             uint32_t    expert,
+                                             uint32_t    priority) {
+    if (!e || layer >= QW3_N_LAYER || expert >= QW3_N_EXPERT) return true;
+    const qw3_layer_weights *lw = &e->weights.layer[layer];
+    if (!lw->ffn_gate_exps || !lw->ffn_up_exps || !lw->ffn_down_exps) {
+        return false;
+    }
+    return qw3_metal_stream_expert_ensure_loaded(
+        lw->ffn_gate_exps->offset,
+        lw->ffn_up_exps->offset,
+        lw->ffn_down_exps->offset,
+        (uint32_t)lw->ffn_gate_exps->type,
+        (uint32_t)lw->ffn_up_exps->type,
+        (uint32_t)lw->ffn_down_exps->type,
+        expert, QW3_N_EMBD, QW3_N_FF_EXP, layer, priority) != 0;
+}
+
+static bool qw3_streaming_expert_hotlist_add(qw3_engine *e,
+                                             uint32_t    layer,
+                                             uint32_t    expert,
+                                             uint32_t    priority,
+                                             bool        seen[QW3_N_LAYER][QW3_N_EXPERT],
+                                             uint32_t   *loaded) {
+    if (layer >= QW3_N_LAYER || expert >= QW3_N_EXPERT) return true;
+    if (seen[layer][expert]) return true;
+    if (!qw3_streaming_expert_preload_one(e, layer, expert, priority)) {
+        return false;
+    }
+    seen[layer][expert] = true;
+    (*loaded)++;
+    return true;
+}
+
+static bool qw3_streaming_expert_hotlist_load_file(
+        qw3_engine *e,
+        const char *path,
+        uint32_t    max_entries,
+        bool        seen[QW3_N_LAYER][QW3_N_EXPERT],
+        uint32_t   *loaded) {
+    if (!e || !path || !path[0] || max_entries == 0 || !seen || !loaded) {
+        return true;
+    }
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        fprintf(stderr, "qw3: failed to open streaming expert hotlist %s: %s\n",
+                path, strerror(errno));
+        return false;
+    }
+
+    char line[256];
+    uint64_t lineno = 0;
+    while (*loaded < max_entries && fgets(line, sizeof(line), fp)) {
+        lineno++;
+        char *p = line;
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p == '\0' || *p == '#') continue;
+
+        errno = 0;
+        char *end = NULL;
+        unsigned long layer = strtoul(p, &end, 10);
+        if (end == p || errno != 0) goto bad_line;
+        p = end;
+        while (*p && isspace((unsigned char)*p)) p++;
+
+        errno = 0;
+        unsigned long expert = strtoul(p, &end, 10);
+        if (end == p || errno != 0) goto bad_line;
+        p = end;
+        while (*p && isspace((unsigned char)*p)) p++;
+
+        errno = 0;
+        unsigned long long hits = strtoull(p, &end, 10);
+        if (end == p || errno != 0) goto bad_line;
+        if (hits == 0) continue;
+        uint32_t priority = hits > UINT32_MAX ? UINT32_MAX : (uint32_t)hits;
+        if (!qw3_streaming_expert_hotlist_add(
+                e, (uint32_t)layer, (uint32_t)expert, priority,
+                seen, loaded)) {
+            fclose(fp);
+            return false;
+        }
+        continue;
+
+bad_line:
+        fprintf(stderr,
+                "qw3: invalid streaming expert hotlist line %" PRIu64 " in %s\n",
+                lineno, path);
+        fclose(fp);
+        return false;
+    }
+    if (ferror(fp)) {
+        fprintf(stderr, "qw3: failed to read streaming expert hotlist %s: %s\n",
+                path, strerror(errno));
+        fclose(fp);
+        return false;
+    }
+    fclose(fp);
+    return true;
+}
+
+static bool qw3_streaming_expert_hotlist_preload(qw3_engine *e,
+                                                 uint32_t    max_entries) {
+    if (!e || !e->ssd_streaming || max_entries == 0) return true;
+    bool seen[QW3_N_LAYER][QW3_N_EXPERT];
+    memset(seen, 0, sizeof(seen));
+
+    uint32_t loaded = 0;
+    const char *path = qw3_streaming_expert_hotlist_path();
+    if (path && !qw3_streaming_expert_hotlist_load_file(
+                    e, path, max_entries, seen, &loaded)) {
+        return false;
+    }
+
+    for (uint32_t i = 0;
+         i < qw3_default_streaming_hotlist_count && loaded < max_entries;
+         i++) {
+        if (!qw3_streaming_expert_hotlist_add(
+                e,
+                qw3_default_streaming_hotlist[i][0],
+                qw3_default_streaming_hotlist[i][1],
+                max_entries - loaded,
+                seen,
+                &loaded)) {
+            return false;
+        }
+    }
+
+    if (loaded != 0) {
+        fprintf(stderr,
+                "qw3: SSD streaming preloaded %u expert(s)%s%s\n",
+                loaded,
+                path ? " from " : "",
+                path ? path : "");
+    } else if (path) {
+        fprintf(stderr,
+                "qw3: streaming expert hotlist %s had no usable entries\n",
+                path);
+    }
+    return true;
+}
+#endif
+
 int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
     if (!out || !opt || !qw3_backend_supported(opt->backend)) {
         return -1;
@@ -3213,6 +3571,7 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
     e->ssd_streaming_cache_experts = opt->ssd_streaming_cache_experts;
     e->ssd_streaming_cache_bytes = opt->ssd_streaming_cache_bytes;
     e->ssd_streaming_preload_experts = opt->ssd_streaming_preload_experts;
+    e->simulate_total_memory_bytes = opt->simulate_total_memory_bytes;
 
     if (opt->simulate_used_memory_bytes != 0 &&
         !qw3_ssd_memory_lock_acquire(&e->simulated_memory,
@@ -3245,7 +3604,7 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
     if (e->ssd_streaming) {
         uint64_t per_expert_bytes = 0;
         if (!qw3_streaming_routed_expert_bytes(&e->weights, &per_expert_bytes)) {
-            fprintf(stderr, "qw3: failed to compute routed expert bytes\n");
+            fprintf(stderr, "qw3: Metal SSD streaming could not measure routed expert size\n");
             qw3_engine_close(e);
             *out = NULL;
             return -1;
@@ -3262,20 +3621,64 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
             if (recommended == 0) {
                 recommended = 32ull * 1024ull * 1024ull * 1024ull;
             }
+            if (e->simulate_total_memory_bytes != 0) {
+                recommended = e->simulate_total_memory_bytes;
+                fprintf(stderr,
+                        "qw3: simulating %.2f GiB total memory for SSD streaming cache planning\n",
+                        (double)recommended / 1073741824.0);
+            }
 
-            uint64_t total_expert_bytes = 40ull * 256ull * per_expert_bytes;
-            uint64_t non_routed_bytes = (e->model.map_size > total_expert_bytes) ? (e->model.map_size - total_expert_bytes) : 0;
+            qw3_model_map_span_vec non_routed_spans;
+            if (!qw3_weights_streaming_non_routed_spans(&e->model, &e->weights,
+                                                        &non_routed_spans)) {
+                fprintf(stderr,
+                        "qw3: Metal SSD streaming auto cache could not measure non-routed model weights\n");
+                qw3_engine_close(e);
+                *out = NULL;
+                return -1;
+            }
+            uint64_t non_routed_bytes =
+                qw3_model_map_span_vec_total_bytes(&non_routed_spans);
+            free(non_routed_spans.v);
 
             qw3_ssd_cache_plan plan;
-            if (qw3_ssd_auto_cache_plan(recommended, non_routed_bytes, per_expert_bytes, 40ull * 256ull, &plan)) {
+            if (qw3_ssd_auto_cache_plan(recommended, non_routed_bytes, per_expert_bytes,
+                                        (uint64_t)QW3_N_LAYER * (uint64_t)QW3_N_EXPERT,
+                                        &plan)) {
                 e->ssd_streaming_cache_experts = plan.cache_experts;
                 e->ssd_streaming_cache_bytes = plan.effective_cache_bytes;
+                fprintf(stderr, "qw3: Metal SSD streaming auto cache budget\n");
+                fprintf(stderr, "qw3:   Metal recommends %.2f GiB working set\n",
+                        (double)recommended / 1073741824.0);
+                fprintf(stderr, "qw3:   using 80%% total for model + cached experts: %.2f GiB\n",
+                        (double)plan.model_target_bytes / 1073741824.0);
+                fprintf(stderr, "qw3:   estimated non-routed weights: %.2f GiB\n",
+                        (double)non_routed_bytes / 1073741824.0);
+                fprintf(stderr, "qw3:   routed expert size: %.2f MiB\n",
+                        (double)per_expert_bytes / 1048576.0);
+                fprintf(stderr, "qw3:   cached expert count: %u (%.2f GiB)\n",
+                        e->ssd_streaming_cache_experts,
+                        (double)plan.effective_cache_bytes / 1073741824.0);
+                if (plan.model_target_bytes <= non_routed_bytes) {
+                    fprintf(stderr,
+                            "qw3:   note: non-routed weights already fill the 80%% target; keeping a one-expert cache\n");
+                }
             } else {
-                e->ssd_streaming_cache_experts = 1024;
-                e->ssd_streaming_cache_bytes = 1024ull * per_expert_bytes;
+                fprintf(stderr,
+                        "qw3: Metal SSD streaming auto cache could not compute a valid cache budget\n");
+                qw3_engine_close(e);
+                *out = NULL;
+                return -1;
             }
         } else if (e->ssd_streaming_cache_bytes != 0) {
             e->ssd_streaming_cache_experts = qw3_ssd_cache_experts_for_byte_budget(e->ssd_streaming_cache_bytes, per_expert_bytes);
+            if (e->ssd_streaming_cache_experts == 0) {
+                fprintf(stderr,
+                        "qw3: --streaming-cache byte budget is too small or invalid for this model\n");
+                qw3_engine_close(e);
+                *out = NULL;
+                return -1;
+            }
         } else if (e->ssd_streaming_cache_experts != 0) {
             e->ssd_streaming_cache_bytes = (uint64_t)e->ssd_streaming_cache_experts * per_expert_bytes;
         }
@@ -3285,7 +3688,18 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
                 (double)e->ssd_streaming_cache_bytes / (1024.0*1024.0*1024.0),
                 (double)per_expert_bytes / (1024.0*1024.0),
                 e->ssd_streaming_cache_experts,
-                (double)e->ssd_streaming_cache_experts / 10240.0 * 100.0);
+                (double)e->ssd_streaming_cache_experts /
+                    ((double)QW3_N_LAYER * (double)QW3_N_EXPERT) * 100.0);
+        const uint32_t preload = qw3_streaming_expert_preload_count(e);
+        if (qw3_streaming_expert_hotlist_enabled(e)) {
+            qw3_log(stderr, QW3_LOG_OK,
+                    "qw3: SSD streaming hotlist entries available=%u preload=%u\n",
+                    qw3_default_streaming_hotlist_count,
+                    preload);
+        } else if (e->ssd_streaming_cold) {
+            qw3_log(stderr, QW3_LOG_DEFAULT,
+                    "qw3: SSD streaming cold start: hotlist preload disabled\n");
+        }
     }
 
 #ifndef QW3_NO_METAL
@@ -3294,16 +3708,56 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
             qw3_engine_close(e);
             return -1;
         }
-        uint64_t data_offset = e->model.tensor_data_offset;
-        uint64_t data_size = e->model.map_size - data_offset;
-        if (!qw3_metal_set_model_map_range(e->model.map, e->model.map_size,
-                                           data_offset, data_size)) {
-            qw3_engine_close(e);
-            return -1;
+        if (e->ssd_streaming) {
+            qw3_model_map_span_vec spans;
+            if (!qw3_weights_streaming_non_routed_spans(&e->model, &e->weights,
+                                                        &spans)) {
+                fprintf(stderr,
+                        "qw3: invalid SSD streaming non-routed model map\n");
+                qw3_engine_close(e);
+                return -1;
+            }
+            uint64_t *offsets = qw3_xmalloc((size_t)spans.len * sizeof(offsets[0]));
+            uint64_t *sizes = qw3_xmalloc((size_t)spans.len * sizeof(sizes[0]));
+            uint64_t span_bytes = 0;
+            for (uint32_t i = 0; i < spans.len; i++) {
+                offsets[i] = spans.v[i].off;
+                sizes[i] = spans.v[i].end - spans.v[i].off;
+                span_bytes += sizes[i];
+            }
+            fprintf(stderr,
+                    "qw3: SSD streaming initial Metal model map restricted to non-routed tensors (%u spans, %.2f GiB tensor span)\n",
+                    spans.len,
+                    (double)span_bytes / 1073741824.0);
+            const int map_ok = qw3_metal_set_model_map_spans(
+                    e->model.map, e->model.map_size, offsets, sizes, spans.len);
+            free(offsets);
+            free(sizes);
+            free(spans.v);
+            if (!map_ok) {
+                qw3_engine_close(e);
+                return -1;
+            }
+        } else {
+            uint64_t data_offset = e->model.tensor_data_offset;
+            uint64_t data_size = e->model.map_size - data_offset;
+            if (!qw3_metal_set_model_map_range(e->model.map, e->model.map_size,
+                                               data_offset, data_size)) {
+                qw3_engine_close(e);
+                return -1;
+            }
         }
         e->metal_ready = true;
         qw3_metal_set_ssd_streaming(e->ssd_streaming);
         qw3_metal_set_streaming_expert_cache_budget(e->ssd_streaming_cache_experts);
+        if (e->ssd_streaming) {
+            const uint32_t preload = qw3_streaming_expert_preload_count(e);
+            if (preload != 0 &&
+                !qw3_streaming_expert_hotlist_preload(e, preload)) {
+                qw3_engine_close(e);
+                return -1;
+            }
+        }
         qw3_log(stderr, QW3_LOG_OK,
                 "qw3: Metal backend initialized for graph bring-up (%s)\n",
                 qw3_metal_device_name());
@@ -4366,8 +4820,7 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
     }
 #ifndef QW3_NO_METAL
     if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal) {
-        const int prefill_batch = qw3_session_uses_partial_metal(s) ?
-            1 : qw3_metal_prefill_batch_size();
+        const int prefill_batch = qw3_session_prefill_batch_size(s);
         if (prefill_batch > 1) {
             for (int i = common; i < prompt->len;) {
                 int n = prompt->len - i;
@@ -12955,6 +13408,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
                          s->metal, lw->ffn_gate_exps->offset,
                          lw->ffn_up_exps->offset, lw->ffn_down_exps->offset,
                          (uint32_t)lw->ffn_down_exps->type,
+                         (uint32_t)il,
                          QW3_N_EXPERT_USED, QW3_N_EMBD, QW3_N_FF_EXP);
             } else if (gpu_router_topk) {
                 ok = ok &&
@@ -13465,8 +13919,7 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
     char err[256] = {0};
     int ok = qw3_session_create(&gpu, e, ctx_size) == 0;
     const double t_prefill0 = qw3_now_sec();
-    const int prefill_batch = qw3_session_uses_partial_metal(gpu) ?
-        1 : qw3_metal_prefill_batch_size();
+    const int prefill_batch = qw3_session_prefill_batch_size(gpu);
     if (prefill_batch > 1) {
         for (int i = 0; ok && i < prompt->len;) {
             int n = prompt->len - i;
@@ -13582,8 +14035,7 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
 
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
-    const int prefill_batch = qw3_session_uses_partial_metal(s) ?
-        1 : qw3_metal_prefill_batch_size();
+    const int prefill_batch = qw3_session_prefill_batch_size(s);
      
     if (prefill_batch > 1) {
         for (int i = 0; i < prompt->len;) {
@@ -13717,8 +14169,7 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
 
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
-    const int prefill_batch = qw3_session_uses_partial_metal(s) ?
-        1 : qw3_metal_prefill_batch_size();
+    const int prefill_batch = qw3_session_prefill_batch_size(s);
     if (prefill_batch > 1) {
         for (int i = 0; i < prompt->len;) {
             int n = prompt->len - i;

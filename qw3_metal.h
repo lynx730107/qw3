@@ -292,6 +292,7 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
                                                           uint64_t up_offset,
                                                           uint64_t down_offset,
                                                           uint32_t down_type,
+                                                          uint32_t layer,
                                                           uint32_t n_active,
                                                           uint32_t n_embd,
                                                           uint32_t n_ff);
@@ -333,6 +334,10 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
 
 int qw3_metal_set_model_map_range(const void *model_map, uint64_t model_size,
                                   uint64_t map_offset, uint64_t map_size);
+int qw3_metal_set_model_map_spans(const void *model_map, uint64_t model_size,
+                                  const uint64_t *offsets,
+                                  const uint64_t *sizes,
+                                  uint32_t count);
 const char *qw3_metal_device_name(void);
 int qw3_metal_rmsnorm_plain(const float *x, float *out, uint32_t n, float eps);
 int qw3_metal_rmsnorm_weight_f32(const float *x, uint64_t weight_offset,

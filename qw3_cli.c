@@ -844,6 +844,8 @@ static void usage(void)
             "              Number of experts to pre-load from hotlist (default: auto)\n"
             "  --simulate-used-memory NNgb\n"
             "              Simulate NN GiB of system memory being locked before loading\n"
+            "  --simulate-total-memory NNgb\n"
+            "              Simulate total system memory for SSD streaming auto-cache planning\n"
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
             "  --inspect    Print GGUF metadata summary after loading\n"
             "  --layer-types N\n"
@@ -1053,6 +1055,7 @@ int main(int argc, char **argv)
     uint64_t ssd_streaming_cache_bytes = 0;
     uint32_t ssd_streaming_preload_experts = 0;
     uint64_t simulate_used_memory_bytes = 0;
+    uint64_t simulate_total_memory_bytes = 0;
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
     int inspect = 0;
     int layer_types = -1;
@@ -1232,6 +1235,14 @@ int main(int argc, char **argv)
             const char *arg = argv[++i];
             if (!qw3_parse_gib_arg(arg, &simulate_used_memory_bytes)) {
                 fprintf(stderr, "qw3: invalid --simulate-used-memory '%s'\n", arg);
+                return 1;
+            }
+        }
+        else if (strcmp(argv[i], "--simulate-total-memory") == 0 && i + 1 < argc)
+        {
+            const char *arg = argv[++i];
+            if (!qw3_parse_gib_arg(arg, &simulate_total_memory_bytes)) {
+                fprintf(stderr, "qw3: invalid --simulate-total-memory '%s'\n", arg);
                 return 1;
             }
         }
@@ -1850,6 +1861,7 @@ int main(int argc, char **argv)
         .ssd_streaming_cache_bytes = ssd_streaming_cache_bytes,
         .ssd_streaming_preload_experts = ssd_streaming_preload_experts,
         .simulate_used_memory_bytes = simulate_used_memory_bytes,
+        .simulate_total_memory_bytes = simulate_total_memory_bytes,
         .ssd_streaming = ssd_streaming,
         .ssd_streaming_cold = ssd_streaming_cold,
     };

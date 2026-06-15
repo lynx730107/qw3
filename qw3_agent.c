@@ -145,6 +145,7 @@ typedef struct {
     uint64_t ssd_streaming_cache_bytes;
     uint32_t ssd_streaming_preload_experts;
     uint64_t simulate_used_memory_bytes;
+    uint64_t simulate_total_memory_bytes;
 } agent_config;
 
 typedef void (*agent_output_fn)(void *ud, const char *s, size_t n);
@@ -3769,6 +3770,8 @@ static void print_help(void) {
         "  --streaming-preload N Number of experts to pre-load from hotlist (default: auto)\n"
         "  --simulate-used-memory NNgb\n"
         "                       Simulate NN GiB of system memory being locked before loading\n"
+        "  --simulate-total-memory NNgb\n"
+        "                       Simulate total memory for SSD streaming auto-cache planning\n"
         "  --store-dir PATH     Conversation store directory\n"
         "  --conversation NAME  Load/save a named conversation\n"
         "  --chdir PATH         Change working directory before loading/running\n"
@@ -3904,6 +3907,12 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             const char *arg = argv[++i];
             if (!qw3_parse_gib_arg(arg, &cfg->simulate_used_memory_bytes)) {
                 fprintf(stderr, "agent: invalid --simulate-used-memory '%s'\n", arg);
+                return -1;
+            }
+        } else if (!strcmp(argv[i], "--simulate-total-memory") && i + 1 < argc) {
+            const char *arg = argv[++i];
+            if (!qw3_parse_gib_arg(arg, &cfg->simulate_total_memory_bytes)) {
+                fprintf(stderr, "agent: invalid --simulate-total-memory '%s'\n", arg);
                 return -1;
             }
         } else if (!strcmp(argv[i], "--store-dir") && i + 1 < argc) {
@@ -5498,6 +5507,7 @@ int main(int argc, char **argv) {
         .ssd_streaming_cache_bytes = a.cfg.ssd_streaming_cache_bytes,
         .ssd_streaming_preload_experts = a.cfg.ssd_streaming_preload_experts,
         .simulate_used_memory_bytes = a.cfg.simulate_used_memory_bytes,
+        .simulate_total_memory_bytes = a.cfg.simulate_total_memory_bytes,
         .ssd_streaming = a.cfg.ssd_streaming,
         .ssd_streaming_cold = a.cfg.ssd_streaming_cold,
     };

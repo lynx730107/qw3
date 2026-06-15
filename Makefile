@@ -18,77 +18,80 @@ all: qw3 qw3-agent qw3-eval qw3-bench
 agent: qw3-agent
 cpu: qw3-cpu qw3-agent-cpu qw3-eval-cpu qw3-bench-cpu
 
-qw3_cpu_core.o: qw3.c qw3.h
+qw3_ssd.o: qw3_ssd.c qw3_ssd.h
+	$(CC) $(CFLAGS) -c -o $@ qw3_ssd.c
+
+qw3_cpu_core.o: qw3.c qw3.h qw3_ssd.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3.c
 
-qw3_cpu_cli.o: qw3_cli.c qw3.h
+qw3_cpu_cli.o: qw3_cli.c qw3.h qw3_ssd.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_cli.c
 
-qw3_cpu_cli_test.o: qw3_cli.c qw3.h
+qw3_cpu_cli_test.o: qw3_cli.c qw3.h qw3_ssd.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_cpu_agent.o: qw3_agent.c qw3.h linenoise.h
+qw3_cpu_agent.o: qw3_agent.c qw3.h qw3_ssd.h linenoise.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
 
-qw3_eval_cpu.o: qw3_eval.c qw3.h
+qw3_eval_cpu.o: qw3_eval.c qw3.h qw3_ssd.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_eval.c
 
-qw3_bench.o: qw3_bench.c qw3.h
+qw3_bench.o: qw3_bench.c qw3.h qw3_ssd.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_bench.c
 
 linenoise_qw3.o: linenoise.c linenoise.h
 	$(CC) $(CFLAGS) -c -o $@ linenoise.c
 
-qw3-cpu: qw3_cpu_cli.o qw3_cpu_core.o
-	$(CC) $(CFLAGS) -o $@ qw3_cpu_cli.o qw3_cpu_core.o $(LDLIBS)
+qw3-cpu: qw3_cpu_cli.o qw3_cpu_core.o qw3_ssd.o
+	$(CC) $(CFLAGS) -o $@ qw3_cpu_cli.o qw3_cpu_core.o qw3_ssd.o $(LDLIBS)
 
-qw3-cpu-test: qw3_cpu_cli_test.o qw3_cpu_core.o
-	$(CC) $(CFLAGS) -o $@ qw3_cpu_cli_test.o qw3_cpu_core.o $(LDLIBS)
+qw3-cpu-test: qw3_cpu_cli_test.o qw3_cpu_core.o qw3_ssd.o
+	$(CC) $(CFLAGS) -o $@ qw3_cpu_cli_test.o qw3_cpu_core.o qw3_ssd.o $(LDLIBS)
 
-qw3-bench-cpu: qw3_bench.o qw3_cpu_core.o
-	$(CC) $(CFLAGS) -o $@ qw3_bench.o qw3_cpu_core.o $(LDLIBS)
+qw3-bench-cpu: qw3_bench.o qw3_cpu_core.o qw3_ssd.o
+	$(CC) $(CFLAGS) -o $@ qw3_bench.o qw3_cpu_core.o qw3_ssd.o $(LDLIBS)
 
-qw3-agent-cpu: qw3_cpu_agent.o qw3_cpu_core.o linenoise_qw3.o
-	$(CC) $(CFLAGS) -o $@ qw3_cpu_agent.o qw3_cpu_core.o linenoise_qw3.o $(LDLIBS)
+qw3-agent-cpu: qw3_cpu_agent.o qw3_cpu_core.o qw3_ssd.o linenoise_qw3.o
+	$(CC) $(CFLAGS) -o $@ qw3_cpu_agent.o qw3_cpu_core.o qw3_ssd.o linenoise_qw3.o $(LDLIBS)
 
-qw3-eval-cpu: qw3_eval_cpu.o qw3_cpu_core.o
-	$(CC) $(CFLAGS) -o $@ qw3_eval_cpu.o qw3_cpu_core.o $(LDLIBS)
+qw3-eval-cpu: qw3_eval_cpu.o qw3_cpu_core.o qw3_ssd.o
+	$(CC) $(CFLAGS) -o $@ qw3_eval_cpu.o qw3_cpu_core.o qw3_ssd.o $(LDLIBS)
 
 ifeq ($(UNAME_S),Darwin)
 metal: qw3 qw3-agent qw3-eval qw3-bench
 
-qw3_metal_core.o: qw3.c qw3.h qw3_metal.h
+qw3_metal_core.o: qw3.c qw3.h qw3_ssd.h qw3_metal.h
 	$(CC) $(CFLAGS) -c -o $@ qw3.c
 
-qw3_metal_cli.o: qw3_cli.c qw3.h
+qw3_metal_cli.o: qw3_cli.c qw3.h qw3_ssd.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_cli.c
 
-qw3_metal_cli_test.o: qw3_cli.c qw3.h
+qw3_metal_cli_test.o: qw3_cli.c qw3.h qw3_ssd.h
 	$(CC) $(CFLAGS) -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_metal_agent.o: qw3_agent.c qw3.h linenoise.h
+qw3_metal_agent.o: qw3_agent.c qw3.h qw3_ssd.h linenoise.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_agent.c
 
-qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h
+qw3_eval_metal.o: qw3_eval.c qw3.h qw3_ssd.h qw3_metal.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_eval.c
 
 qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS)
 	$(CC) $(OBJCFLAGS) -c -o $@ qw3_metal.m
 
-qw3: qw3_metal_cli.o qw3_metal_core.o qw3_metal.o
-	$(CC) $(CFLAGS) -o $@ qw3_metal_cli.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+qw3: qw3_metal_cli.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
+	$(CC) $(CFLAGS) -o $@ qw3_metal_cli.o qw3_metal_core.o qw3_ssd.o qw3_metal.o $(METAL_LDLIBS)
 
-qw3-test: qw3_metal_cli_test.o qw3_metal_core.o qw3_metal.o
-	$(CC) $(CFLAGS) -o $@ qw3_metal_cli_test.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+qw3-test: qw3_metal_cli_test.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
+	$(CC) $(CFLAGS) -o $@ qw3_metal_cli_test.o qw3_metal_core.o qw3_ssd.o qw3_metal.o $(METAL_LDLIBS)
 
-qw3-bench: qw3_bench.o qw3_metal_core.o qw3_metal.o
-	$(CC) $(CFLAGS) -o $@ qw3_bench.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+qw3-bench: qw3_bench.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
+	$(CC) $(CFLAGS) -o $@ qw3_bench.o qw3_metal_core.o qw3_ssd.o qw3_metal.o $(METAL_LDLIBS)
 
-qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o
-	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
+qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_ssd.o qw3_metal.o linenoise_qw3.o
+	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_ssd.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
 
-qw3-eval: qw3_eval_metal.o qw3_metal_core.o qw3_metal.o
-	$(CC) $(CFLAGS) -o $@ qw3_eval_metal.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+qw3-eval: qw3_eval_metal.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
+	$(CC) $(CFLAGS) -o $@ qw3_eval_metal.o qw3_metal_core.o qw3_ssd.o qw3_metal.o $(METAL_LDLIBS)
 
 qw3-metal: qw3
 	cp qw3 qw3-metal

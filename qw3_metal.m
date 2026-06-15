@@ -153,9 +153,10 @@ static id<MTLComputePipelineState> g_matvec_iq3_s_expert_slot_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_expert_slot_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_expert_slot_pipeline;
 static id<MTLComputePipelineState> g_scale_scratch_add_x0_slot_pipeline;
-static const uint8_t *g_model_view_ptrs[32];
-static uint64_t g_model_view_offsets[32];
-static uint64_t g_model_view_sizes[32];
+#define QW3_METAL_MAX_MODEL_VIEWS 2048
+static const uint8_t *g_model_view_ptrs[QW3_METAL_MAX_MODEL_VIEWS];
+static uint64_t g_model_view_offsets[QW3_METAL_MAX_MODEL_VIEWS];
+static uint64_t g_model_view_sizes[QW3_METAL_MAX_MODEL_VIEWS];
 static uint32_t g_model_view_count;
 static char g_device_name[256];
 static const void *g_model_map_ptr;
@@ -169,6 +170,31 @@ static int g_metal4_queue_supported;
 static int g_metal4_m5_neural_accelerators_hint;
 static int g_metal4_tensor_api_enabled;
 static int g_metal4_tensor_api_compile_supported;
+static int g_ssd_streaming_mode;
+static uint32_t g_streaming_expert_cache_budget;
+static int g_streaming_expert_unavailable_warned;
+
+typedef struct {
+    uint32_t layer;
+    uint32_t expert;
+    uint32_t down_type;
+    uint64_t last_used;
+    uint8_t valid;
+} qw3_streaming_expert_slot;
+
+static qw3_streaming_expert_slot *g_streaming_expert_slots;
+static uint32_t g_streaming_expert_slot_count;
+static uint64_t g_streaming_expert_clock;
+static uint64_t g_streaming_gate_stride;
+static uint64_t g_streaming_up_stride;
+static uint64_t g_streaming_down_stride;
+static id<MTLBuffer> g_streaming_gate_cache;
+static id<MTLBuffer> g_streaming_up_cache;
+static id<MTLBuffer> g_streaming_down_cache;
+static uint64_t *g_expert_profile_hits;
+static char *g_expert_profile_path;
+
+static void qw3_metal_streaming_cache_reset(void);
 
 static int qw3_metal_env_bool(const char *name) {
     const char *v = getenv(name);
@@ -438,6 +464,7 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic, strong) id<MTLBuffer> gqaAttnPartial;
 @property(nonatomic, strong) id<MTLBuffer> routerIds;
 @property(nonatomic, strong) id<MTLBuffer> routerWeights;
+@property(nonatomic, strong) id<MTLBuffer> streamingSlotIds;
 @property(nonatomic, strong) id<MTLBuffer> argmaxVals;
 @property(nonatomic, strong) id<MTLBuffer> argmaxIdxs;
 @property(nonatomic, strong) id<MTLBuffer> prefillTokens;
@@ -8541,6 +8568,304 @@ const char *qw3_metal_device_name(void) {
     return g_device_name[0] ? g_device_name : "unknown Metal device";
 }
 
+uint64_t qw3_gpu_recommended_working_set_size(void) {
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!g_device) return 0;
+    if ([g_device respondsToSelector:@selector(recommendedMaxWorkingSetSize)]) {
+        return (uint64_t)[g_device recommendedMaxWorkingSetSize];
+    }
+    return 0;
+}
+
+void qw3_metal_set_ssd_streaming(int enabled) {
+    g_ssd_streaming_mode = enabled ? 1 : 0;
+    g_streaming_expert_unavailable_warned = 0;
+}
+
+void qw3_metal_set_streaming_expert_cache_budget(uint32_t experts) {
+    g_streaming_expert_cache_budget = experts;
+}
+
+static uint64_t qw3_metal_streaming_row_bytes(uint32_t type, uint32_t n_in) {
+    if (type == 21) return (uint64_t)(n_in / 256u) * 110ull; /* IQ3_S */
+    if (type == 23) return (uint64_t)(n_in / 256u) * 136ull; /* IQ4_XS */
+    if (type == 14) return (uint64_t)(n_in / 256u) * 210ull; /* Q6_K */
+    return 0;
+}
+
+static void qw3_metal_streaming_cache_reset(void) {
+    free(g_streaming_expert_slots);
+    g_streaming_expert_slots = NULL;
+    g_streaming_expert_slot_count = 0;
+    g_streaming_expert_clock = 0;
+    g_streaming_gate_stride = 0;
+    g_streaming_up_stride = 0;
+    g_streaming_down_stride = 0;
+    g_streaming_gate_cache = nil;
+    g_streaming_up_cache = nil;
+    g_streaming_down_cache = nil;
+}
+
+typedef struct {
+    uint32_t layer;
+    uint32_t expert;
+    uint64_t hits;
+} qw3_expert_profile_entry;
+
+static int qw3_expert_profile_entry_cmp(const void *a, const void *b) {
+    const qw3_expert_profile_entry *ea = (const qw3_expert_profile_entry *)a;
+    const qw3_expert_profile_entry *eb = (const qw3_expert_profile_entry *)b;
+    if (ea->hits < eb->hits) return 1;
+    if (ea->hits > eb->hits) return -1;
+    if (ea->layer != eb->layer) return ea->layer < eb->layer ? -1 : 1;
+    if (ea->expert != eb->expert) return ea->expert < eb->expert ? -1 : 1;
+    return 0;
+}
+
+static int qw3_metal_expert_profile_enabled(void) {
+    const char *path = getenv("QW3_EXPERT_PROFILE");
+    if (!path || !path[0]) path = getenv("QW3_STREAMING_EXPERT_PROFILE");
+    if (!path || !path[0]) return 0;
+    if (!g_expert_profile_hits) {
+        g_expert_profile_hits = calloc(40u * 256u, sizeof(uint64_t));
+        if (!g_expert_profile_hits) return 0;
+    }
+    if (!g_expert_profile_path || strcmp(g_expert_profile_path, path) != 0) {
+        free(g_expert_profile_path);
+        g_expert_profile_path = strdup(path);
+    }
+    return g_expert_profile_path != NULL;
+}
+
+static void qw3_metal_expert_profile_record(uint32_t layer,
+                                            const int32_t *ids,
+                                            uint32_t n_ids) {
+    if (!ids || !qw3_metal_expert_profile_enabled()) return;
+    if (layer >= 40u) return;
+    for (uint32_t i = 0; i < n_ids; i++) {
+        if (ids[i] >= 0 && ids[i] < 256) {
+            g_expert_profile_hits[(uint64_t)layer * 256ull + (uint32_t)ids[i]]++;
+        }
+    }
+}
+
+static void qw3_metal_expert_profile_dump(void) {
+    if (!g_expert_profile_hits || !g_expert_profile_path) return;
+
+    qw3_expert_profile_entry entries[40u * 256u];
+    uint32_t n = 0;
+    for (uint32_t layer = 0; layer < 40u; layer++) {
+        for (uint32_t expert = 0; expert < 256u; expert++) {
+            uint64_t hits = g_expert_profile_hits[(uint64_t)layer * 256ull + expert];
+            if (hits == 0) continue;
+            entries[n++] = (qw3_expert_profile_entry){ layer, expert, hits };
+        }
+    }
+    qsort(entries, n, sizeof(entries[0]), qw3_expert_profile_entry_cmp);
+
+    FILE *fp = fopen(g_expert_profile_path, "wb");
+    if (!fp) {
+        fprintf(stderr, "qw3: failed to write expert profile %s\n",
+                g_expert_profile_path);
+    } else {
+        fputs("# layer expert hits\n", fp);
+        for (uint32_t i = 0; i < n; i++) {
+            fprintf(fp, "%u %u %llu\n",
+                    entries[i].layer,
+                    entries[i].expert,
+                    (unsigned long long)entries[i].hits);
+        }
+        fclose(fp);
+        fprintf(stderr, "qw3: wrote expert profile %s (%u nonzero entries)\n",
+                g_expert_profile_path, n);
+    }
+
+    free(g_expert_profile_hits);
+    g_expert_profile_hits = NULL;
+    free(g_expert_profile_path);
+    g_expert_profile_path = NULL;
+}
+
+static int qw3_metal_streaming_cache_ensure(uint32_t budget,
+                                            uint64_t gate_stride,
+                                            uint64_t up_stride,
+                                            uint64_t down_stride) {
+    if (!g_device || budget == 0 ||
+        gate_stride == 0 || up_stride == 0 || down_stride == 0) {
+        return 0;
+    }
+    if (g_streaming_expert_slot_count == budget &&
+        g_streaming_gate_stride == gate_stride &&
+        g_streaming_up_stride == up_stride &&
+        g_streaming_down_stride == down_stride &&
+        g_streaming_gate_cache && g_streaming_up_cache &&
+        g_streaming_down_cache) {
+        return 1;
+    }
+
+    qw3_metal_streaming_cache_reset();
+    if (gate_stride > UINT64_MAX / budget ||
+        up_stride > UINT64_MAX / budget ||
+        down_stride > UINT64_MAX / budget) {
+        fprintf(stderr, "qw3: SSD streaming expert cache byte size overflow\n");
+        return 0;
+    }
+
+    g_streaming_expert_slots = calloc((size_t)budget,
+                                      sizeof(g_streaming_expert_slots[0]));
+    if (!g_streaming_expert_slots) return 0;
+    g_streaming_gate_cache =
+        [g_device newBufferWithLength:(NSUInteger)(gate_stride * budget)
+                              options:MTLResourceStorageModeShared];
+    g_streaming_up_cache =
+        [g_device newBufferWithLength:(NSUInteger)(up_stride * budget)
+                              options:MTLResourceStorageModeShared];
+    g_streaming_down_cache =
+        [g_device newBufferWithLength:(NSUInteger)(down_stride * budget)
+                              options:MTLResourceStorageModeShared];
+    if (!g_streaming_gate_cache || !g_streaming_up_cache ||
+        !g_streaming_down_cache) {
+        fprintf(stderr,
+                "qw3: SSD streaming expert cache allocation failed for %u slots\n",
+                budget);
+        qw3_metal_streaming_cache_reset();
+        return 0;
+    }
+
+    g_streaming_expert_slot_count = budget;
+    g_streaming_gate_stride = gate_stride;
+    g_streaming_up_stride = up_stride;
+    g_streaming_down_stride = down_stride;
+    fprintf(stderr,
+            "qw3: SSD streaming expert cache allocated %u slots (gate %.2f MiB, up %.2f MiB, down %.2f MiB per slot)\n",
+            budget,
+            (double)gate_stride / (1024.0 * 1024.0),
+            (double)up_stride / (1024.0 * 1024.0),
+            (double)down_stride / (1024.0 * 1024.0));
+    return 1;
+}
+
+static int qw3_metal_stream_expert_ensure_loaded_slot(
+    uint64_t gate_offset, uint64_t up_offset, uint64_t down_offset,
+    uint32_t gate_type, uint32_t up_type, uint32_t down_type,
+    uint32_t expert, uint32_t n_in, uint32_t n_ff,
+    uint32_t layer, uint32_t priority, uint32_t *slot_out) {
+    if (slot_out) *slot_out = UINT32_MAX;
+    if (!g_ssd_streaming_mode) return 1;
+    if (!slot_out || !g_model_map_ptr || g_streaming_expert_cache_budget == 0 ||
+        n_in == 0 || n_ff == 0 || (n_in % 256u) != 0 ||
+        (n_ff % 256u) != 0 || expert >= 256u) {
+        return 0;
+    }
+    if (gate_type != 21 || up_type != 21 ||
+        (down_type != 23 && down_type != 14)) {
+        fprintf(stderr,
+                "qw3: SSD streaming unsupported expert tensor types gate=%u up=%u down=%u\n",
+                gate_type, up_type, down_type);
+        return 0;
+    }
+
+    const uint64_t gate_row_bytes = qw3_metal_streaming_row_bytes(gate_type, n_in);
+    const uint64_t up_row_bytes = qw3_metal_streaming_row_bytes(up_type, n_in);
+    const uint64_t down_row_bytes = qw3_metal_streaming_row_bytes(down_type, n_ff);
+    const uint64_t q6_down_row_bytes = qw3_metal_streaming_row_bytes(14, n_ff);
+    const uint64_t gate_bytes = gate_row_bytes * (uint64_t)n_ff;
+    const uint64_t up_bytes = up_row_bytes * (uint64_t)n_ff;
+    const uint64_t down_bytes = down_row_bytes * (uint64_t)n_in;
+    const uint64_t down_stride = q6_down_row_bytes * (uint64_t)n_in;
+    if (gate_bytes == 0 || up_bytes == 0 || down_bytes == 0 ||
+        down_stride == 0) {
+        return 0;
+    }
+    if (!qw3_metal_streaming_cache_ensure(g_streaming_expert_cache_budget,
+                                          gate_bytes, up_bytes, down_stride)) {
+        return 0;
+    }
+
+    g_streaming_expert_clock++;
+    for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
+        qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
+        if (slot->valid && slot->layer == layer && slot->expert == expert &&
+            slot->down_type == down_type) {
+            slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
+            *slot_out = i;
+            return 1;
+        }
+    }
+
+    uint32_t victim = UINT32_MAX;
+    uint64_t oldest = UINT64_MAX;
+    for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
+        qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
+        if (!slot->valid) {
+            victim = i;
+            break;
+        }
+        if (slot->last_used < oldest) {
+            oldest = slot->last_used;
+            victim = i;
+        }
+    }
+    if (victim == UINT32_MAX) return 0;
+
+    const uint64_t gate_src = gate_offset + (uint64_t)expert * gate_bytes;
+    const uint64_t up_src = up_offset + (uint64_t)expert * up_bytes;
+    const uint64_t down_src = down_offset + (uint64_t)expert * down_bytes;
+    if (gate_src > g_model_map_size || gate_bytes > g_model_map_size - gate_src ||
+        up_src > g_model_map_size || up_bytes > g_model_map_size - up_src ||
+        down_src > g_model_map_size || down_bytes > g_model_map_size - down_src) {
+        fprintf(stderr,
+                "qw3: SSD streaming expert %u/%u points outside GGUF mapping\n",
+                layer, expert);
+        return 0;
+    }
+
+    memcpy((uint8_t *)g_streaming_gate_cache.contents +
+               (uint64_t)victim * g_streaming_gate_stride,
+           (const uint8_t *)g_model_map_ptr + gate_src,
+           (size_t)gate_bytes);
+    memcpy((uint8_t *)g_streaming_up_cache.contents +
+               (uint64_t)victim * g_streaming_up_stride,
+           (const uint8_t *)g_model_map_ptr + up_src,
+           (size_t)up_bytes);
+    memcpy((uint8_t *)g_streaming_down_cache.contents +
+               (uint64_t)victim * g_streaming_down_stride,
+           (const uint8_t *)g_model_map_ptr + down_src,
+           (size_t)down_bytes);
+
+    qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[victim];
+    slot->layer = layer;
+    slot->expert = expert;
+    slot->down_type = down_type;
+    slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
+    slot->valid = 1;
+    *slot_out = victim;
+    return 1;
+}
+
+int qw3_metal_stream_expert_cache_reset_route_hotness(void) {
+    for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
+        if (g_streaming_expert_slots[i].valid) {
+            g_streaming_expert_slots[i].last_used = 1;
+        }
+    }
+    g_streaming_expert_clock = 1;
+    return 1;
+}
+
+int qw3_metal_stream_expert_ensure_loaded(
+    uint64_t gate_offset, uint64_t up_offset, uint64_t down_offset,
+    uint32_t gate_type, uint32_t up_type, uint32_t down_type,
+    uint32_t expert, uint32_t n_in, uint32_t n_ff,
+    uint32_t layer, uint32_t priority) {
+    if (!g_ssd_streaming_mode) return 1;
+    uint32_t slot = UINT32_MAX;
+    return qw3_metal_stream_expert_ensure_loaded_slot(
+        gate_offset, up_offset, down_offset,
+        gate_type, up_type, down_type,
+        expert, n_in, n_ff, layer, priority, &slot);
+}
+
 int qw3_metal_begin_commands(void) {
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (g_batch_cb) return 0;
@@ -13635,6 +13960,7 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
                                                           uint64_t up_offset,
                                                           uint64_t down_offset,
                                                           uint32_t down_type,
+                                                          uint32_t layer,
                                                           uint32_t n_active,
                                                           uint32_t n_embd,
                                                           uint32_t n_ff) {
@@ -13682,36 +14008,10 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
     }
     const uint64_t down_expert_bytes = down_row_bytes * (uint64_t)n_embd;
 
-    const uint64_t gate_tensor_bytes = iq3_expert_bytes * 256ull;
-    const uint64_t up_tensor_bytes = iq3_expert_bytes * 256ull;
-    const uint64_t down_tensor_bytes = down_expert_bytes * 256ull;
     uint64_t gate_inner = 0, up_inner = 0, down_inner = 0;
-    id<MTLBuffer> gate_w = qw3_metal_model_view_for(
-        gate_offset, gate_tensor_bytes, &gate_inner);
-    id<MTLBuffer> up_w = qw3_metal_model_view_for(
-        up_offset, up_tensor_bytes, &up_inner);
-    id<MTLBuffer> down_w = qw3_metal_model_view_for(
-        down_offset, down_tensor_bytes, &down_inner);
-    if (!gate_w) {
-        gate_w = qw3_metal_model_temp_buffer_for(
-            gate_offset, gate_tensor_bytes, &gate_inner);
-    }
-    if (!up_w) {
-        up_w = qw3_metal_model_temp_buffer_for(
-            up_offset, up_tensor_bytes, &up_inner);
-    }
-    if (!down_w) {
-        down_w = qw3_metal_model_temp_buffer_for(
-            down_offset, down_tensor_bytes, &down_inner);
-    }
-    if (!gate_w || !up_w || !down_w) {
-        fprintf(stderr,
-                "qw3: Metal dynamic sparse MoE tensor view failed gate=%p up=%p down=%p sizes=%llu/%llu\n",
-                gate_w, up_w, down_w,
-                (unsigned long long)gate_tensor_bytes,
-                (unsigned long long)down_tensor_bytes);
-        return 0;
-    }
+    id<MTLBuffer> gate_w = nil;
+    id<MTLBuffer> up_w = nil;
+    id<MTLBuffer> down_w = nil;
 
     struct {
         uint32_t n_in;
@@ -13753,7 +14053,112 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
     threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
-    if (g_batch_cb && getenv("QW3_METAL_DYNAMIC_LEGACY_MOE") == NULL &&
+    id<MTLBuffer> ids_for_slots = obj.routerIds;
+    if (g_ssd_streaming_mode) {
+        id<MTLBuffer> router_ids_readback =
+            [g_device newBufferWithLength:(NSUInteger)n_active * sizeof(int32_t)
+                                  options:MTLResourceStorageModeShared];
+        if (!router_ids_readback) return 0;
+        qw3_metal_close_batch_encoder();
+        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        if (!blit) return 0;
+        [blit copyFromBuffer:obj.routerIds sourceOffset:0
+                    toBuffer:router_ids_readback destinationOffset:0
+                        size:(NSUInteger)n_active * sizeof(int32_t)];
+        [blit endEncoding];
+        int router_ok = owned ? qw3_metal_finish_command_buffer(cb, owned, "operation")
+                              : qw3_metal_end_commands();
+        if (!router_ok) return 0;
+
+        const int32_t *router_ids = (const int32_t *)router_ids_readback.contents;
+        qw3_metal_expert_profile_record(layer, router_ids, n_active);
+        int32_t slot_ids[8];
+        for (uint32_t kk = 0; kk < n_active; kk++) {
+            if (router_ids[kk] < 0 || router_ids[kk] >= 256) return 0;
+            uint32_t slot = UINT32_MAX;
+            if (!qw3_metal_stream_expert_ensure_loaded_slot(
+                    gate_offset, up_offset, down_offset,
+                    21, 21, down_type, (uint32_t)router_ids[kk],
+                    n_embd, n_ff, layer, n_active - kk, &slot)) {
+                return 0;
+            }
+            slot_ids[kk] = (int32_t)slot;
+        }
+        if (!obj.streamingSlotIds ||
+            obj.streamingSlotIds.length < (uint64_t)n_active * sizeof(int32_t)) {
+            obj.streamingSlotIds =
+                [g_device newBufferWithLength:(NSUInteger)n_active * sizeof(int32_t)
+                                      options:MTLResourceStorageModeShared];
+        }
+        if (!obj.streamingSlotIds) return 0;
+        memcpy(obj.streamingSlotIds.contents, slot_ids,
+               (size_t)n_active * sizeof(int32_t));
+
+        gate_w = g_streaming_gate_cache;
+        up_w = g_streaming_up_cache;
+        down_w = g_streaming_down_cache;
+        ids_for_slots = obj.streamingSlotIds;
+        iq3_args.expert_bytes = (uint32_t)g_streaming_gate_stride;
+        down_args.expert_bytes = (uint32_t)g_streaming_down_stride;
+        if (!gate_w || !up_w || !down_w || !ids_for_slots) return 0;
+        if (!qw3_metal_begin_commands()) return 0;
+        owned = 0;
+        cb = qw3_metal_command_buffer(&owned);
+        if (!cb) return 0;
+    } else {
+        const uint64_t gate_tensor_bytes = iq3_expert_bytes * 256ull;
+        const uint64_t up_tensor_bytes = iq3_expert_bytes * 256ull;
+        const uint64_t down_tensor_bytes = down_expert_bytes * 256ull;
+        gate_w = qw3_metal_model_view_for(
+            gate_offset, gate_tensor_bytes, &gate_inner);
+        up_w = qw3_metal_model_view_for(
+            up_offset, up_tensor_bytes, &up_inner);
+        down_w = qw3_metal_model_view_for(
+            down_offset, down_tensor_bytes, &down_inner);
+        if (!gate_w) {
+            gate_w = qw3_metal_model_temp_buffer_for(
+                gate_offset, gate_tensor_bytes, &gate_inner);
+        }
+        if (!up_w) {
+            up_w = qw3_metal_model_temp_buffer_for(
+                up_offset, up_tensor_bytes, &up_inner);
+        }
+        if (!down_w) {
+            down_w = qw3_metal_model_temp_buffer_for(
+                down_offset, down_tensor_bytes, &down_inner);
+        }
+        if (!gate_w || !up_w || !down_w) {
+            fprintf(stderr,
+                    "qw3: Metal dynamic sparse MoE tensor view failed gate=%p up=%p down=%p sizes=%llu/%llu\n",
+                    gate_w, up_w, down_w,
+                    (unsigned long long)gate_tensor_bytes,
+                    (unsigned long long)down_tensor_bytes);
+            return 0;
+        }
+        if (qw3_metal_expert_profile_enabled()) {
+            id<MTLBuffer> router_ids_readback =
+                [g_device newBufferWithLength:(NSUInteger)n_active * sizeof(int32_t)
+                                      options:MTLResourceStorageModeShared];
+            if (!router_ids_readback) return 0;
+            qw3_metal_close_batch_encoder();
+            id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+            if (!blit) return 0;
+            [blit copyFromBuffer:obj.routerIds sourceOffset:0
+                        toBuffer:router_ids_readback destinationOffset:0
+                            size:(NSUInteger)n_active * sizeof(int32_t)];
+            [blit endEncoding];
+            int router_ok = owned ? qw3_metal_finish_command_buffer(cb, owned, "operation")
+                                  : qw3_metal_end_commands();
+            if (!router_ok) return 0;
+            qw3_metal_expert_profile_record(
+                layer, (const int32_t *)router_ids_readback.contents, n_active);
+            cb = qw3_metal_command_buffer(&owned);
+            if (!cb) return 0;
+        }
+    }
+
+    if (!g_ssd_streaming_mode &&
+        g_batch_cb && getenv("QW3_METAL_DYNAMIC_LEGACY_MOE") == NULL &&
         getenv("QW3_METAL_NO_BATCH_MOE") == NULL) {
         int ok = qw3_metal_session_sparse_moe_topk_batch(
             s, gate_offset, up_offset, down_offset, down_type,
@@ -13775,7 +14180,7 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
         [enc setBuffer:obj.x1 offset:0 atIndex:3];
         [enc setBuffer:obj.scratch offset:0 atIndex:4];
         [enc setBuffer:kgb offset:0 atIndex:5];
-        [enc setBuffer:obj.routerIds offset:0 atIndex:6];
+        [enc setBuffer:ids_for_slots offset:0 atIndex:6];
         [enc setThreadgroupMemoryLength:64 * sizeof(float) atIndex:0];
         NSUInteger threads = 64;
         [enc dispatchThreadgroups:MTLSizeMake((n_ff + 7u) / 8u, 1, 1)
@@ -13800,7 +14205,7 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
             [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
             [enc setBuffer:obj.inner offset:0 atIndex:2];
             [enc setBuffer:obj.x0 offset:0 atIndex:3];
-            [enc setBuffer:obj.routerIds offset:0 atIndex:4];
+            [enc setBuffer:ids_for_slots offset:0 atIndex:4];
             [enc setBuffer:obj.routerWeights offset:0 atIndex:5];
             [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
             threads = 64;
@@ -13814,7 +14219,7 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
             [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
             [enc setBuffer:obj.inner offset:0 atIndex:2];
             [enc setBuffer:obj.scratch offset:0 atIndex:3];
-            [enc setBuffer:obj.routerIds offset:0 atIndex:4];
+            [enc setBuffer:ids_for_slots offset:0 atIndex:4];
             [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
             threads = down_pipeline.maxTotalThreadsPerThreadgroup;
             if (threads > 256) threads = 256;
@@ -15643,14 +16048,23 @@ void qw3_metal_cleanup(void) {
     g_metal4_m5_neural_accelerators_hint = 0;
     g_metal4_tensor_api_enabled = 0;
     g_metal4_tensor_api_compile_supported = 0;
+    g_ssd_streaming_mode = 0;
+    g_streaming_expert_cache_budget = 0;
+    g_streaming_expert_unavailable_warned = 0;
+    qw3_metal_expert_profile_dump();
+    qw3_metal_streaming_cache_reset();
     g_initialized = 0;
 }
 
-int qw3_metal_set_model_map_range(const void *model_map, uint64_t model_size,
-                                  uint64_t map_offset, uint64_t map_size) {
-    if (!g_initialized && !qw3_metal_init()) return 0;
-    if (!model_map || map_offset > model_size || map_size > model_size - map_offset) {
-        fprintf(stderr, "qw3: invalid Metal model map range\n");
+static int qw3_metal_add_model_view_range(const void *model_map,
+                                          uint64_t model_size,
+                                          uint64_t map_offset,
+                                          uint64_t map_size,
+                                          uint64_t *mapped_total,
+                                          uint64_t *first_offset) {
+    if (!model_map || map_offset > model_size || map_size == 0 ||
+        map_size > model_size - map_offset) {
+        fprintf(stderr, "qw3: invalid Metal model map span\n");
         return 0;
     }
 
@@ -15670,13 +16084,16 @@ int qw3_metal_set_model_map_range(const void *model_map, uint64_t model_size,
         return 0;
     }
 
-    [g_model_buffers removeAllObjects];
-    [g_model_temp_buffers removeAllObjects];
     uint64_t done = 0;
-    uint32_t n_views = 0;
     while (done < mapped_size) {
         uint64_t view_size = mapped_size - done;
         if (view_size > max_buffer) view_size = max_buffer;
+        if (g_model_view_count >= QW3_METAL_MAX_MODEL_VIEWS) {
+            fprintf(stderr,
+                    "qw3: Metal model map needs more than %u views\n",
+                    QW3_METAL_MAX_MODEL_VIEWS);
+            return 0;
+        }
 
         id<MTLBuffer> buffer = [g_device newBufferWithBytesNoCopy:(void *)(base + page_offset + done)
                                                            length:(NSUInteger)view_size
@@ -15685,33 +16102,99 @@ int qw3_metal_set_model_map_range(const void *model_map, uint64_t model_size,
         if (!buffer) {
             fprintf(stderr,
                     "qw3: Metal could not wrap GGUF view %u at %.2f GiB size %.2f GiB\n",
-                    n_views,
+                    g_model_view_count,
                     (double)(page_offset + done) / (1024.0 * 1024.0 * 1024.0),
                     (double)view_size / (1024.0 * 1024.0 * 1024.0));
-            [g_model_buffers removeAllObjects];
             return 0;
         }
-        buffer.label = [NSString stringWithFormat:@"qw3_model_view_%u", n_views];
+        buffer.label = [NSString stringWithFormat:@"qw3_model_view_%u", g_model_view_count];
         [g_model_buffers addObject:buffer];
-        if (n_views < 32) {
-            g_model_view_ptrs[n_views] = (const uint8_t *)(base + page_offset + done);
-            g_model_view_offsets[n_views] = page_offset + done;
-            g_model_view_sizes[n_views] = view_size;
+        g_model_view_ptrs[g_model_view_count] = (const uint8_t *)(base + page_offset + done);
+        g_model_view_offsets[g_model_view_count] = page_offset + done;
+        g_model_view_sizes[g_model_view_count] = view_size;
+        if (mapped_total) *mapped_total += view_size;
+        if (first_offset && page_offset + done < *first_offset) {
+            *first_offset = page_offset + done;
         }
         done += view_size;
-        n_views++;
+        g_model_view_count++;
+    }
+    return 1;
+}
+
+int qw3_metal_set_model_map_range(const void *model_map, uint64_t model_size,
+                                  uint64_t map_offset, uint64_t map_size) {
+    if (!g_initialized && !qw3_metal_init()) return 0;
+
+    [g_model_buffers removeAllObjects];
+    [g_model_temp_buffers removeAllObjects];
+    g_model_view_count = 0;
+    memset(g_model_view_ptrs, 0, sizeof(g_model_view_ptrs));
+    memset(g_model_view_offsets, 0, sizeof(g_model_view_offsets));
+    memset(g_model_view_sizes, 0, sizeof(g_model_view_sizes));
+
+    uint64_t mapped_total = 0;
+    uint64_t first_offset = UINT64_MAX;
+    if (!qw3_metal_add_model_view_range(model_map, model_size, map_offset,
+                                        map_size, &mapped_total,
+                                        &first_offset)) {
+        [g_model_buffers removeAllObjects];
+        g_model_view_count = 0;
+        return 0;
     }
     g_model_map_ptr = model_map;
     g_model_map_size = model_size;
-    g_model_offset = page_offset;
-    g_model_size = mapped_size;
-    g_model_view_count = n_views > 32 ? 32 : n_views;
+    g_model_offset = first_offset == UINT64_MAX ? 0 : first_offset;
+    g_model_size = mapped_total;
 
     fprintf(stderr,
             "qw3: Metal model mapped %.2f MiB from GGUF offset %.2f MiB in %u view(s)\n",
             (double)g_model_size / (1024.0 * 1024.0),
             (double)g_model_offset / (1024.0 * 1024.0),
-            n_views);
+            g_model_view_count);
+    return 1;
+}
+
+int qw3_metal_set_model_map_spans(const void *model_map, uint64_t model_size,
+                                  const uint64_t *offsets,
+                                  const uint64_t *sizes,
+                                  uint32_t count) {
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!model_map || !offsets || !sizes || count == 0) return 0;
+    if (count == 1) {
+        return qw3_metal_set_model_map_range(model_map, model_size,
+                                             offsets[0], sizes[0]);
+    }
+
+    [g_model_buffers removeAllObjects];
+    [g_model_temp_buffers removeAllObjects];
+    g_model_view_count = 0;
+    memset(g_model_view_ptrs, 0, sizeof(g_model_view_ptrs));
+    memset(g_model_view_offsets, 0, sizeof(g_model_view_offsets));
+    memset(g_model_view_sizes, 0, sizeof(g_model_view_sizes));
+
+    uint64_t mapped_total = 0;
+    uint64_t first_offset = UINT64_MAX;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!qw3_metal_add_model_view_range(model_map, model_size,
+                                            offsets[i], sizes[i],
+                                            &mapped_total, &first_offset)) {
+            [g_model_buffers removeAllObjects];
+            g_model_view_count = 0;
+            return 0;
+        }
+    }
+
+    g_model_map_ptr = model_map;
+    g_model_map_size = model_size;
+    g_model_offset = first_offset == UINT64_MAX ? 0 : first_offset;
+    g_model_size = mapped_total;
+
+    fprintf(stderr,
+            "qw3: Metal model mapped %.2f MiB across %u GGUF span(s) in %u view(s)\n",
+            (double)g_model_size / (1024.0 * 1024.0),
+            count,
+            g_model_view_count);
     return 1;
 }
 

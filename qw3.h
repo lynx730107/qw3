@@ -80,6 +80,7 @@ typedef struct {
     uint64_t ssd_streaming_cache_bytes;
     uint32_t ssd_streaming_preload_experts;
     uint64_t simulate_used_memory_bytes;
+    uint64_t simulate_total_memory_bytes;
     bool ssd_streaming;
     bool ssd_streaming_cold;
 } qw3_engine_options;

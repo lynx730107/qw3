@@ -5,6 +5,80 @@ Performance-only checks are not enough: every prefill optimization must preserve
 CPU/Metal final logits and greedy top-1 choices before it can be enabled by
 default.
 
+## 2026-06-15 SSD Streaming Bring-Up Notes
+
+The `ssd-streaming` branch now wires the base SSD streaming options through
+the QW3 engine and all frontends (`qw3`, `qw3-agent`, `qw3-bench`) and links
+`qw3_ssd.o` into both CPU and Metal targets. Startup computes routed expert
+bytes from the first layer's `ffn_gate_exps`, `ffn_up_exps`, and
+`ffn_down_exps` tensors, derives explicit or automatic cache budgets, and logs
+the resulting expert count before Metal initialization.
+
+The Metal bridge now records SSD streaming mode and expert-cache budget and
+has a first synchronous selected-expert cache for single-token dynamic-router
+decode. After the GPU router writes top-8 ids, the streaming path reads those
+ids back, copies the selected expert tensors from the GGUF mmap into shared
+Metal cache slots, remaps expert ids to slot ids, and runs the existing
+`expert_slot` kernels against the cache. This is intentionally the correctness
+bring-up version: LRU eviction works, but async pread/overlap is still future
+work.
+
+The SSD streaming Metal model map now follows the DS4 pattern: in streaming
+mode it wraps only non-routed tensors as disjoint Metal views and leaves
+`ffn_gate_exps`, `ffn_up_exps`, and `ffn_down_exps` outside the initial GPU
+mapping. Selected routed experts are then copied into the streaming cache on
+demand. On the M5 test machine, the Qwen3.6 IQ4_XS startup map dropped from
+the full 16.5 GiB GGUF tensor region to about 2.38 GiB of non-routed tensor
+spans before the expert cache is allocated.
+
+Fase 3 hotlist scaffolding is present with an intentionally empty
+`qw3_streaming_hotlist.inc`. The real table must be generated from Qwen3.6
+expert-routing profiles; until then hotlist preload logs `available=0
+preload=0`. With `--ssd-streaming`, prefill now intentionally falls back to
+token-by-token decode mode so it can use the selected-expert cache instead of
+the resident full-expert batch path.
+
+Memory-pressure simulation:
+- `--simulate-used-memory NNgb` keeps the DS4-style physical pressure test: it
+  mmaps, touches, and locks anonymous memory before loading the model.
+- `--simulate-total-memory NNgb` affects the SSD streaming automatic cache
+  planner only. For example, `--ssd-streaming --simulate-total-memory 16gb`
+  asks the planner to target 80% of 16 GiB for non-routed weights plus cached
+  experts.
+- On an interactive 24 GiB macOS machine, avoid large
+  `--simulate-used-memory` values such as `8gb`: they use `mlock()` and can make
+  the desktop unresponsive by wiring too much RAM. The default build refuses
+  values above 4 GiB unless `QW3_ALLOW_LARGE_SIMULATE_USED_MEMORY=1` is set.
+- For a safer “behave like 16 GiB or less” test, prefer planner simulation plus
+  an explicit cache budget, e.g. `--simulate-total-memory 16gb
+  --streaming-cache 4gb`. This keeps the working set small without pinning
+  anonymous memory.
+- To force a smaller expert cache directly, keep using
+  `--streaming-cache N` or `--streaming-cache NNgb`. This is the clearest way
+  to test “16 GiB or less” envelopes once the non-routed map is fixed.
+
+Validation:
+- `make`
+- `make cpu` (passes with the existing `QW3_NO_METAL` unused-function warnings)
+- `make test-metal-logits`
+- `./qw3-test ... --ctx 1024 --ssd-streaming --streaming-cache 32
+  --metal-greedy-test 1 -p ciao` allocates the streaming expert cache and
+  preserves the CPU/GPU greedy top-1.
+- `./qw3 ... --ctx 1024 --nothink --ssd-streaming --simulate-total-memory 16gb
+  -p ciao -n 0` logs a 16 GiB simulated planner target, a 2.38 GiB non-routed
+  Metal map, and a 10.42 GiB automatic expert cache.
+
+Expert profile workflow:
+- Set `QW3_EXPERT_PROFILE=profiles/code.tsv` while running representative
+  coding-agent sessions. The profiler writes sorted `layer expert hits` rows
+  at shutdown. It works with normal Metal decode too, but it adds router-id
+  readbacks and should not be used for speed measurements.
+- Reuse a collected TSV as a startup hotlist with
+  `QW3_EXPERT_HOTLIST=profiles/code.tsv --ssd-streaming --streaming-preload N`.
+  QW3 preloads up to `N` unique `(layer, expert)` pairs before decode begins.
+- The same TSV can later be converted into `qw3_streaming_hotlist.inc` once a
+  stable code-oriented workload profile exists.
+
 ## 2026-06-11 MoE Fast-Layout Probe Notes
 
 Two DS4/llama.cpp-inspired MoE prefill probes were evaluated and not retained:
