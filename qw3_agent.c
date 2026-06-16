@@ -542,10 +542,12 @@ static char *native_tool_declarations(void) {
     TOOL_DECL("write", "Create or overwrite a text file.",
               TOOL_PARAM("path", "Path to write") ","
               TOOL_PARAM("content", "File content"));
-    TOOL_DECL("edit", "Replace the first exact text occurrence in a file.",
+    TOOL_DECL("edit", "Edit a text file without shell scripts. Default mode replaces the first exact old text. Modes: replace, replace_all, insert_before, insert_after, append, prepend.",
               TOOL_PARAM("path", "Path to edit") ","
-              TOOL_PARAM("old", "Old exact text") ","
-              TOOL_PARAM("new", "Replacement text"));
+              TOOL_PARAM("old", "Old exact text for replace modes; also accepted as anchor for insert modes") ","
+              TOOL_PARAM("anchor", "Exact anchor text for insert_before/insert_after") ","
+              TOOL_PARAM("new", "Replacement or inserted text") ","
+              TOOL_PARAM("mode", "replace, replace_all, insert_before, insert_after, append, or prepend"));
     TOOL_DECL("bash", "Run a shell command and return captured output.",
               TOOL_PARAM("cmd", "Shell command"));
 #undef TOOL_PARAM
@@ -2566,12 +2568,75 @@ static char *tool_write(agent_state *a, const tool_call *call) {
     return out.p;
 }
 
+static void edit_append_match_hint(strbuf *out, const char *file,
+                                   const char *needle) {
+    if (!out || !file || !needle || !needle[0]) return;
+
+    char sample[96] = {0};
+    size_t sample_len = 0;
+    const char *best = NULL;
+    size_t best_len = 0;
+    for (const char *p = needle; *p;) {
+        while (*p && !(isalnum((unsigned char)*p) || *p == '_' ||
+                       *p == '-' || *p == '.')) {
+            p++;
+        }
+        const char *start = p;
+        while (*p && (isalnum((unsigned char)*p) || *p == '_' ||
+                      *p == '-' || *p == '.')) {
+            p++;
+        }
+        size_t len = (size_t)(p - start);
+        if (len > best_len) {
+            best = start;
+            best_len = len;
+        }
+    }
+    if (best && best_len > 0) {
+        sample_len = best_len;
+        if (sample_len >= sizeof(sample)) sample_len = sizeof(sample) - 1;
+        memcpy(sample, best, sample_len);
+    }
+    sample[sample_len] = '\0';
+    if (sample_len < 3) return;
+
+    const char *line = file;
+    int lno = 1;
+    int shown = 0;
+    while (*line && shown < 5) {
+        const char *line_end = strchr(line, '\n');
+        if (!line_end) line_end = line + strlen(line);
+        size_t len = (size_t)(line_end - line);
+        char *tmp = malloc(len + 1);
+        if (!tmp) return;
+        memcpy(tmp, line, len);
+        tmp[len] = '\0';
+        if (strstr(tmp, sample)) {
+            if (shown == 0) {
+                sb_append(out, "\nnearby candidate lines:\n");
+            }
+            sb_printf(out, "%d: %s\n", lno, tmp);
+            shown++;
+        }
+        free(tmp);
+        if (*line_end == '\n') {
+            line = line_end + 1;
+            lno++;
+        } else {
+            break;
+        }
+    }
+}
+
 static char *tool_edit(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     const char *old = tool_param_value(call, "old");
+    const char *anchor = tool_param_value(call, "anchor");
     const char *new_text = tool_param_value(call, "new");
-    if (!path || !old || !new_text) {
-        return agent_strdup("error: edit requires path, old and new");
+    const char *mode = tool_param_value(call, "mode");
+    if (!mode || !mode[0]) mode = "replace";
+    if (!path || !new_text) {
+        return agent_strdup("error: edit requires path and new");
     }
     size_t n = 0;
     char *file = read_file_text(path, &n);
@@ -2581,18 +2646,105 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
         sb_printf(&err, "error: cannot read %s: %s", path, strerror(errno));
         return err.p;
     }
-    char *hit = strstr(file, old);
-    if (!hit) {
-        free(file);
-        return agent_strdup("error: old text not found");
-    }
-    size_t old_n = strlen(old);
-    size_t new_n = strlen(new_text);
+
     strbuf out_file;
     sb_init(&out_file);
-    sb_append_n(&out_file, file, (size_t)(hit - file));
-    sb_append_n(&out_file, new_text, new_n);
-    sb_append(&out_file, hit + old_n);
+    int replacements = 0;
+
+    if (!strcmp(mode, "append")) {
+        sb_append_n(&out_file, file, n);
+        if (n > 0 && file[n - 1] != '\n') sb_append(&out_file, "\n");
+        sb_append(&out_file, new_text);
+        replacements = 1;
+    } else if (!strcmp(mode, "prepend")) {
+        sb_append(&out_file, new_text);
+        if (new_text[0] && new_text[strlen(new_text) - 1] != '\n') {
+            sb_append(&out_file, "\n");
+        }
+        sb_append_n(&out_file, file, n);
+        replacements = 1;
+    } else if (!strcmp(mode, "insert_before") ||
+               !strcmp(mode, "insert_after")) {
+        const char *needle = (anchor && anchor[0]) ? anchor : old;
+        if (!needle || !needle[0]) {
+            sb_free(&out_file);
+            free(file);
+            return agent_strdup(
+                "error: edit insert mode requires anchor or old text");
+        }
+        char *hit = strstr(file, needle);
+        if (!hit) {
+            strbuf err;
+            sb_init(&err);
+            sb_append(&err, "error: anchor text not found");
+            edit_append_match_hint(&err, file, needle);
+            sb_free(&out_file);
+            free(file);
+            return err.p;
+        }
+        size_t needle_n = strlen(needle);
+        if (!strcmp(mode, "insert_before")) {
+            sb_append_n(&out_file, file, (size_t)(hit - file));
+            sb_append(&out_file, new_text);
+            if (new_text[0] && new_text[strlen(new_text) - 1] != '\n') {
+                sb_append(&out_file, "\n");
+            }
+            sb_append(&out_file, hit);
+        } else {
+            sb_append_n(&out_file, file, (size_t)(hit - file) + needle_n);
+            if (needle_n > 0 && hit[needle_n - 1] != '\n') {
+                sb_append(&out_file, "\n");
+            }
+            sb_append(&out_file, new_text);
+            if (new_text[0] && new_text[strlen(new_text) - 1] != '\n') {
+                sb_append(&out_file, "\n");
+            }
+            sb_append(&out_file, hit + needle_n);
+        }
+        replacements = 1;
+    } else if (!strcmp(mode, "replace") ||
+               !strcmp(mode, "replace_first") ||
+               !strcmp(mode, "replace_all")) {
+        if (!old || !old[0]) {
+            sb_free(&out_file);
+            free(file);
+            return agent_strdup("error: edit replace mode requires old text");
+        }
+        size_t old_n = strlen(old);
+        size_t new_n = strlen(new_text);
+        char *cursor = file;
+        while (1) {
+            char *hit = strstr(cursor, old);
+            if (!hit) {
+                sb_append(&out_file, cursor);
+                break;
+            }
+            sb_append_n(&out_file, cursor, (size_t)(hit - cursor));
+            sb_append_n(&out_file, new_text, new_n);
+            replacements++;
+            cursor = hit + old_n;
+            if (strcmp(mode, "replace_all") != 0) {
+                sb_append(&out_file, cursor);
+                break;
+            }
+        }
+        if (replacements == 0) {
+            strbuf err;
+            sb_init(&err);
+            sb_append(&err, "error: old text not found");
+            edit_append_match_hint(&err, file, old);
+            sb_free(&out_file);
+            free(file);
+            return err.p;
+        }
+    } else {
+        sb_free(&out_file);
+        free(file);
+        return agent_strdup(
+            "error: unsupported edit mode; use replace, replace_all, "
+            "insert_before, insert_after, append, or prepend");
+    }
+
     int rc = write_file_text(path, out_file.p ? out_file.p : "");
     sb_free(&out_file);
     free(file);
@@ -2603,10 +2755,14 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
         return err.p;
     }
     agent_reset_source_read_budget_for_path(a, path);
-    return agent_strdup(
-        "ok: edited first occurrence\n"
-        "verification_hint: read a small explicit line range around the "
-        "change if you need to verify formatting; do not walk the file.");
+    strbuf ok;
+    sb_init(&ok);
+    sb_printf(&ok,
+              "ok: edited %s (%d change%s)\n"
+              "verification_hint: read a small explicit line range around the "
+              "change if you need to verify formatting; do not walk the file.",
+              path, replacements, replacements == 1 ? "" : "s");
+    return ok.p ? ok.p : agent_strdup("ok: edited");
 }
 
 static bool looks_text_file(const char *path) {

@@ -11,7 +11,7 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav \
-	test-vectors test-metal-smoke test-metal-logits test-metal-logits-concurrent \
+	test-vectors test-agent-edit test-metal-smoke test-metal-logits test-metal-logits-concurrent \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 all: qw3-cli qw3-agent qw3-eval qw3-bench
@@ -125,6 +125,9 @@ tools codenav:
 
 test-vectors: qw3-cpu
 	sh tests/test_vectors.sh
+
+test-agent-edit: qw3-agent
+	sh tests/test_agent_edit_tool.sh
 
 test-metal-smoke: qw3-test
 	QW3_METAL_BIN=./qw3-test sh tests/test_metal_smoke.sh
