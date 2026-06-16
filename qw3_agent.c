@@ -2228,6 +2228,13 @@ static char *tool_list(const tool_call *call) {
     return out.p;
 }
 
+static const char *agent_codenav_command(void) {
+    const char *env = getenv("QW3_AGENT_CODENAV");
+    if (env && env[0]) return env;
+    if (access("./codenavsrc/codenav", X_OK) == 0) return "./codenavsrc/codenav";
+    return "codenav";
+}
+
 static char *tool_get_skeleton(const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     if (!path || !path[0]) path = tool_param_value(call, "file");
@@ -2237,8 +2244,9 @@ static char *tool_get_skeleton(const tool_call *call) {
     int max_bytes = agent_env_int("QW3_AGENT_CODENAV_MAX_BYTES",
                                   QW3_AGENT_CODENAV_MAX_BYTES,
                                   4096, 200000);
+    const char *codenav = agent_codenav_command();
     char *argv[] = {
-        "codenav",
+        (char *)codenav,
         "get_skeleton",
         (char *)path,
         NULL
@@ -2265,15 +2273,16 @@ static char *tool_get_function(const tool_call *call) {
     int max_bytes = agent_env_int("QW3_AGENT_CODENAV_MAX_BYTES",
                                   QW3_AGENT_CODENAV_MAX_BYTES,
                                   4096, 200000);
+    const char *codenav = agent_codenav_command();
     char *argv_with_path[] = {
-        "codenav",
+        (char *)codenav,
         "get_function",
         (char *)name,
         (char *)path,
         NULL
     };
     char *argv_no_path[] = {
-        "codenav",
+        (char *)codenav,
         "get_function",
         (char *)name,
         NULL

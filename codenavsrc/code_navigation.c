@@ -210,6 +210,7 @@ static char *make_line_signature(const char *function_text);
 static char *compact_include_text(const char *include_text);
 static char *compact_macro_name(const char *macro_text);
 static char *compact_typedef_label(const char *typedef_text);
+static char *compact_global_label(const char *global_text, int c_style);
 static const char *basename_from_path(const char *path);
 static char *compact_signature(const char *signature);
 static const LanguageDefinition *detect_language_from_path(const char *file_path);
@@ -1687,9 +1688,12 @@ ToolResult get_skeleton_compact(const char *file_path) {
         jb_append(&jb, "- (none)\n\n");
     } else {
         for (int i = 0; i < global_variable_count; i++) {
+            char *value = compact_global_label(global_variables[i].text,
+                                               lang->is_c_style_signature);
             jb_append(&jb, "- ");
-            jb_append(&jb, global_variables[i].text);
+            jb_append(&jb, value ? value : global_variables[i].text);
             jb_append(&jb, "\n");
+            free(value);
         }
         jb_append(&jb, "\n");
     }
@@ -2036,6 +2040,61 @@ static char *compact_typedef_label(const char *typedef_text) {
     memcpy(out + prefix_len, p, name_len);
     out[prefix_len + name_len] = '\0';
 
+    return out;
+}
+
+static char *compact_global_label(const char *global_text, int c_style) {
+    if (!global_text) {
+        return NULL;
+    }
+
+    const char *start = global_text;
+
+    while (*start && isspace((unsigned char)*start)) {
+        start++;
+    }
+
+    const char *end = NULL;
+
+    if (c_style) {
+        end = strchr(start, '=');
+    }
+
+    if (!end) {
+        end = strchr(start, '\n');
+    }
+
+    if (!end) {
+        end = strchr(start, '\r');
+    }
+
+    if (!end) {
+        end = start + strlen(start);
+    }
+
+    while (end > start && isspace((unsigned char)end[-1])) {
+        end--;
+    }
+
+    if (end <= start) {
+        return NULL;
+    }
+
+    int has_semicolon = end > start && end[-1] == ';';
+    size_t len = (size_t)(end - start);
+    char *out = (char *)malloc(len + (has_semicolon ? 1 : 2));
+
+    if (!out) {
+        return NULL;
+    }
+
+    memcpy(out, start, len);
+
+    if (!has_semicolon && c_style) {
+        out[len++] = ';';
+    }
+
+    out[len] = '\0';
     return out;
 }
 
