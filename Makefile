@@ -136,6 +136,6 @@ test-metal-logits-concurrent: qw3-test
 	QW3_METAL_BIN=./qw3-test QW3_METAL_PREFILL_CONCURRENT=1 sh tests/test_metal_logits_regression.sh
 
 clean:
-	rm -f qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-metal qw3-agent qw3-agent-cpu \
+	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

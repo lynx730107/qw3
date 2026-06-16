@@ -72,7 +72,7 @@ make clean
 Generation:
 
 ```sh
-./qw3 -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 16000 --nothink -p "hello"
 ```
 
@@ -172,7 +172,7 @@ Minimum checks before trusting a Metal change:
 ```sh
 make
 make test-metal-logits
-./qw3 -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128
 ```
 
