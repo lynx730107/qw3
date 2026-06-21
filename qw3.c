@@ -1830,6 +1830,17 @@ typedef struct {
     float *y;
 } qw3_cpu_quant_matvec_ud;
 
+typedef struct {
+    const uint8_t *base_a;
+    const uint8_t *base_b;
+    uint64_t blocks_per_row;
+    uint64_t block_size;
+    uint64_t n_in;
+    const float *x;
+    float *a;
+    float *b;
+} qw3_cpu_quant_matvec_pair_ud;
+
 static void qw3_cpu_iq4_xs_rows(void *ptr, uint64_t begin, uint64_t end) {
     qw3_cpu_quant_matvec_ud *p = (qw3_cpu_quant_matvec_ud *)ptr;
     for (uint64_t row = begin; row < end; row++) {
@@ -1854,6 +1865,15 @@ static void qw3_cpu_iq3_s_rows(void *ptr, uint64_t begin, uint64_t end) {
         p->y[row] = cpu_dot_iq3_s_row(
             p->base + row * p->blocks_per_row * p->block_size, p->x,
             p->n_in);
+    }
+}
+
+static void qw3_cpu_iq3_s_pair_rows(void *ptr, uint64_t begin, uint64_t end) {
+    qw3_cpu_quant_matvec_pair_ud *p = (qw3_cpu_quant_matvec_pair_ud *)ptr;
+    for (uint64_t row = begin; row < end; row++) {
+        const uint64_t off = row * p->blocks_per_row * p->block_size;
+        p->a[row] = cpu_dot_iq3_s_row(p->base_a + off, p->x, p->n_in);
+        p->b[row] = cpu_dot_iq3_s_row(p->base_b + off, p->x, p->n_in);
     }
 }
 
@@ -2155,6 +2175,45 @@ static bool cpu_matvec_iq3_s_expert(const qw3_model *m, const qw3_tensor *w,
     return true;
 }
 
+static bool cpu_matvec_iq3_s_expert_pair(const qw3_model *m,
+                                         const qw3_tensor *wa,
+                                         const qw3_tensor *wb,
+                                         int expert,
+                                         const float *x,
+                                         float *a,
+                                         float *b) {
+    if (!wa || !wb || wa->ndim != 3 || wb->ndim != 3 ||
+        wa->type != QW3_TENSOR_IQ3_S || wb->type != QW3_TENSOR_IQ3_S) {
+        return false;
+    }
+    const uint64_t n_in = wa->dim[0];
+    const uint64_t n_out = wa->dim[1];
+    const uint64_t n_expert = wa->dim[2];
+    if (wb->dim[0] != n_in || wb->dim[1] != n_out ||
+        wb->dim[2] != n_expert) {
+        return false;
+    }
+    if (expert < 0 || (uint64_t)expert >= n_expert) return false;
+    if ((n_in % QW3_QK_K) != 0) return false;
+
+    const uint64_t blocks_per_row = n_in / QW3_QK_K;
+    const uint64_t block_size = sizeof(uint16_t) + 64 + 8 + 32 + 4;
+    const uint64_t expert_offset = (uint64_t)expert * n_out *
+                                   blocks_per_row * block_size;
+    qw3_cpu_quant_matvec_pair_ud ud = {
+        .base_a = tensor_data(m, wa) + expert_offset,
+        .base_b = tensor_data(m, wb) + expert_offset,
+        .blocks_per_row = blocks_per_row,
+        .block_size = block_size,
+        .n_in = n_in,
+        .x = x,
+        .a = a,
+        .b = b,
+    };
+    qw3_cpu_parallel_rows(n_out, qw3_cpu_iq3_s_pair_rows, &ud);
+    return true;
+}
+
 static bool cpu_matvec(const qw3_model *m, const qw3_tensor *w,
                        const float *x, float *y) {
     if (tensor_is_dense_float(w->type)) return cpu_matvec_dense(m, w, x, y);
@@ -2211,6 +2270,8 @@ static bool cpu_moe_layer(qw3_engine *e, int il, const float *x,
     if (!e || il < 0 || il >= QW3_N_LAYER || !x || !out) return false;
     const qw3_model *m = &e->model;
     const qw3_layer_weights *lw = &e->weights.layer[il];
+    const int profile_stage = getenv("QW3_METAL_PROFILE_CPU_STAGE") != NULL;
+    double stage_t0 = profile_stage ? qw3_now_sec() : 0.0;
 
     float *router = qw3_xmalloc((size_t)QW3_N_EXPERT * sizeof(float));
     float *gate = qw3_xmalloc((size_t)QW3_N_FF_EXP * sizeof(float));
@@ -2225,6 +2286,12 @@ static bool cpu_moe_layer(qw3_engine *e, int il, const float *x,
 
     bool ok = cpu_matvec(m, lw->ffn_gate_inp, x, router);
     if (!ok) goto done;
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=moe_router ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
 
     int ids[QW3_N_EXPERT_USED];
     float scores[QW3_N_EXPERT_USED];
@@ -2249,6 +2316,12 @@ static bool cpu_moe_layer(qw3_engine *e, int il, const float *x,
             out[i] *= shared_gate;
         }
     }
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=moe_shared ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
 
     float max_route = scores[0];
     float route_sum = 0.0f;
@@ -2260,8 +2333,13 @@ static bool cpu_moe_layer(qw3_engine *e, int il, const float *x,
 
     for (int k = 0; k < QW3_N_EXPERT_USED; k++) {
         route_w[k] /= route_sum;
-        ok = cpu_matvec_iq3_s_expert(m, lw->ffn_gate_exps, ids[k], x, gate) &&
-             cpu_matvec_iq3_s_expert(m, lw->ffn_up_exps, ids[k], x, up);
+        ok = cpu_matvec_iq3_s_expert_pair(m, lw->ffn_gate_exps,
+                                          lw->ffn_up_exps, ids[k],
+                                          x, gate, up);
+        if (!ok) {
+            ok = cpu_matvec_iq3_s_expert(m, lw->ffn_gate_exps, ids[k], x, gate) &&
+                 cpu_matvec_iq3_s_expert(m, lw->ffn_up_exps, ids[k], x, up);
+        }
         if (!ok) goto done;
         for (int i = 0; i < QW3_N_FF_EXP; i++) {
             hidden[i] = cpu_silu(gate[i]) * up[i];
@@ -2277,6 +2355,11 @@ static bool cpu_moe_layer(qw3_engine *e, int il, const float *x,
         for (int i = 0; i < QW3_N_EMBD; i++) {
             out[i] += route_w[k] * down[i];
         }
+    }
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=moe_routed ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
     }
 
 done:
@@ -2461,6 +2544,8 @@ static bool cpu_deltanet_layer(qw3_engine *e, int il, const float *x,
 
     const qw3_model *m = &e->model;
     const qw3_layer_weights *lw = &e->weights.layer[il];
+    const int profile_stage = getenv("QW3_METAL_PROFILE_CPU_STAGE") != NULL;
+    double stage_t0 = profile_stage ? qw3_now_sec() : 0.0;
     float *xn = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
     float *qkv = qw3_xmalloc((size_t)tensor_linear_qkv() * sizeof(float));
     float *z = qw3_xmalloc((size_t)tensor_linear_inner() * sizeof(float));
@@ -2485,6 +2570,12 @@ static bool cpu_deltanet_layer(qw3_engine *e, int il, const float *x,
          cpu_matvec(m, lw->linear_ssm_alpha, xn, alpha) &&
          cpu_matvec(m, lw->linear_ssm_beta, xn, beta);
     if (!ok) goto done;
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=linear_project ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
 
     ok = cpu_deltanet_conv1d_step(m, lw, qkv, conv_state, conv);
     if (!ok) goto done;
@@ -2544,6 +2635,12 @@ static bool cpu_deltanet_layer(qw3_engine *e, int il, const float *x,
             oh[j] = acc;
         }
     }
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=linear_recur ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
 
     for (int hv = 0; hv < QW3_N_LINEAR_V_HEADS; hv++) {
         float *dst = inner + hv * QW3_N_LINEAR_HEAD_DIM;
@@ -2565,10 +2662,21 @@ static bool cpu_deltanet_layer(qw3_engine *e, int il, const float *x,
 
     ok = cpu_matvec(m, lw->linear_ssm_out, inner, attn);
     if (!ok) goto done;
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=linear_out ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
     for (int i = 0; i < QW3_N_EMBD; i++) resid[i] = x[i] + attn[i];
     cpu_rmsnorm(ffn_in, resid, m, lw->ffn_norm, QW3_N_EMBD);
     ok = cpu_moe_layer(e, il, ffn_in, moe, NULL, NULL);
     if (!ok) goto done;
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=linear_moe_total ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+    }
     for (int i = 0; i < QW3_N_EMBD; i++) out[i] = resid[i] + moe[i];
 
 done:
@@ -2599,6 +2707,8 @@ static bool cpu_full_attention_layer(qw3_engine *e, int il, int pos,
 
     const qw3_model *m = &e->model;
     const qw3_layer_weights *lw = &e->weights.layer[il];
+    const int profile_stage = getenv("QW3_METAL_PROFILE_CPU_STAGE") != NULL;
+    double stage_t0 = profile_stage ? qw3_now_sec() : 0.0;
     float *q = qw3_xmalloc((size_t)(QW3_N_HEAD * QW3_N_HEAD_DIM) * sizeof(float));
     float *k = qw3_xmalloc((size_t)tensor_cols_kv() * sizeof(float));
     float *v = qw3_xmalloc((size_t)tensor_cols_kv() * sizeof(float));
@@ -2611,6 +2721,12 @@ static bool cpu_full_attention_layer(qw3_engine *e, int il, int pos,
 
     bool ok = cpu_gqa_project_token(e, il, pos, x, q, k, v, gate);
     if (!ok) goto done;
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=gqa_project ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
 
     memcpy(k_cache + (uint64_t)pos * tensor_cols_kv(), k,
            (size_t)tensor_cols_kv() * sizeof(float));
@@ -2618,13 +2734,30 @@ static bool cpu_full_attention_layer(qw3_engine *e, int il, int pos,
            (size_t)tensor_cols_kv() * sizeof(float));
 
     cpu_gqa_attend_inner(q, gate, k_cache, v_cache, pos + 1, inner);
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=gqa_attend ctx=%d ms=%.3f\n",
+                il, pos + 1, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
     ok = cpu_matvec(m, lw->attn_o_proj, inner, attn);
     if (!ok) goto done;
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=gqa_out ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+        stage_t0 = qw3_now_sec();
+    }
 
     for (int i = 0; i < QW3_N_EMBD; i++) resid[i] = x[i] + attn[i];
     cpu_rmsnorm(ffn_in, resid, m, lw->ffn_norm, QW3_N_EMBD);
     ok = cpu_moe_layer(e, il, ffn_in, moe, NULL, NULL);
     if (!ok) goto done;
+    if (profile_stage) {
+        fprintf(stderr,
+                "qw3 cpu stage profile layer=%d stage=gqa_moe_total ms=%.3f\n",
+                il, (qw3_now_sec() - stage_t0) * 1000.0);
+    }
     for (int i = 0; i < QW3_N_EMBD; i++) out[i] = resid[i] + moe[i];
 
 done:
@@ -2656,11 +2789,16 @@ static bool qw3_cpu_eval_layer_span(qw3_session *s, int first_layer,
     float *x1 = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
     memcpy(x0, input, (size_t)QW3_N_EMBD * sizeof(float));
 
-    const int profile_tail = getenv("QW3_METAL_PROFILE_CPU_TAIL") != NULL;
-    const double tail_t0 = profile_tail ? qw3_now_sec() : 0.0;
+    const int profile_span = getenv("QW3_METAL_PROFILE_CPU_SPAN") != NULL ||
+                             getenv("QW3_METAL_PROFILE_CPU_TAIL") != NULL;
+    const char *profile_span_name =
+        (first_layer == 0 && end_layer < QW3_N_LAYER) ? "cpu-prefix" :
+        (first_layer > 0 && end_layer == QW3_N_LAYER) ? "cpu-tail" :
+        "cpu-span";
+    const double span_t0 = profile_span ? qw3_now_sec() : 0.0;
     bool ok = true;
     for (int il = first_layer; il < end_layer; il++) {
-        const double layer_t0 = profile_tail ? qw3_now_sec() : 0.0;
+        const double layer_t0 = profile_span ? qw3_now_sec() : 0.0;
         if (s->progress_fn) s->progress_fn(s->progress_ud, "layer", il, QW3_N_LAYER);
         if (qw3_layer_is_full_attention((uint32_t)il)) {
             int fl = s->kv.full_layer_map[il];
@@ -2689,10 +2827,10 @@ static bool qw3_cpu_eval_layer_span(qw3_session *s, int first_layer,
         trace_emit(trace, trace_json, trace_first_event,
                    qw3_layer_is_full_attention((uint32_t)il) ? "full" : "linear",
                    il, x1, QW3_N_EMBD);
-        if (profile_tail) {
+        if (profile_span) {
             fprintf(stderr,
-                    "qw3 metal cpu-tail profile pos=%llu layer=%d kind=%s ms=%.3f\n",
-                    (unsigned long long)s->kv.pos, il,
+                    "qw3 metal %s profile pos=%llu layer=%d kind=%s ms=%.3f\n",
+                    profile_span_name, (unsigned long long)s->kv.pos, il,
                     qw3_layer_is_full_attention((uint32_t)il) ? "gqa" : "linear",
                     (qw3_now_sec() - layer_t0) * 1000.0);
         }
@@ -2702,11 +2840,12 @@ static bool qw3_cpu_eval_layer_span(qw3_session *s, int first_layer,
     }
 
     if (ok) memcpy(out, x0, (size_t)QW3_N_EMBD * sizeof(float));
-    if (profile_tail) {
+    if (profile_span) {
         fprintf(stderr,
-                "qw3 metal cpu-tail profile pos=%llu layers=%d..%d total_ms=%.3f ok=%d\n",
-                (unsigned long long)s->kv.pos, first_layer, end_layer - 1,
-                (qw3_now_sec() - tail_t0) * 1000.0, ok ? 1 : 0);
+                "qw3 metal %s profile pos=%llu layers=%d..%d total_ms=%.3f ok=%d\n",
+                profile_span_name, (unsigned long long)s->kv.pos,
+                first_layer, end_layer - 1,
+                (qw3_now_sec() - span_t0) * 1000.0, ok ? 1 : 0);
     }
     free(x1);
     free(x0);

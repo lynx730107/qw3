@@ -19,6 +19,8 @@
 #include <string.h>
 #include <time.h>
 
+#define QW3_BENCH_N_LAYER 40
+
 typedef struct {
     const char *model_path;
     const char *prompt_path;
@@ -35,6 +37,8 @@ typedef struct {
     int gen_tokens;
     int depth;
     int repetitions;
+    int ngl;
+    bool ngl_set;
     double step_mul;
     const char *dump_frontier_logits_dir;
     uint32_t seed;
@@ -73,6 +77,7 @@ static void usage(FILE *fp) {
         "  -m, --model FILE       GGUF model path. Default: qw3.gguf\n"
         "  --metal | --cpu | --backend NAME\n"
         "      Select backend explicitly. Defaults to Metal on macOS, CPU elsewhere.\n"
+        "  --ngl N                Metal layers to keep on GPU, 0..40.\n"
         "  -t, --threads N        CPU helper threads.\n"
         "  --quality              Ignored by qw3-bench.\n"
         "  --warm-weights         Touch mapped tensor pages before benchmarking.\n"
@@ -259,6 +264,10 @@ static bench_config parse_options(int argc, char **argv) {
             c.backend = QW3_BACKEND_METAL;
         } else if (!strcmp(arg, "--cpu")) {
             c.backend = QW3_BACKEND_CPU;
+        } else if (!strcmp(arg, "--ngl")) {
+            c.ngl = parse_nonnegative_int(need_arg(&i, argc, argv, arg), arg);
+            c.ngl_set = true;
+            c.backend = QW3_BACKEND_METAL;
         } else if (!strcmp(arg, "--cuda")) {
             fprintf(stderr, "qw3-bench: CUDA backend is not supported\n");
             exit(2);
@@ -269,6 +278,17 @@ static bench_config parse_options(int argc, char **argv) {
         } else {
             fprintf(stderr, "qw3-bench: unknown option: %s\n", arg);
             usage(stderr);
+            exit(2);
+        }
+    }
+    if (c.ngl_set) {
+        if (c.backend != QW3_BACKEND_METAL) {
+            fprintf(stderr, "qw3-bench: --ngl is available only with the Metal backend\n");
+            exit(2);
+        }
+        if (c.ngl > QW3_BENCH_N_LAYER) {
+            fprintf(stderr, "qw3-bench: --ngl must be in the range 0..%d\n",
+                    QW3_BENCH_N_LAYER);
             exit(2);
         }
     }
@@ -642,6 +662,11 @@ static int run_llama_style_bench(qw3_engine *engine, const bench_config *cfg) {
 
 int main(int argc, char **argv) {
     bench_config cfg = parse_options(argc, argv);
+    if (cfg.ngl_set) {
+        char ngl_env[16];
+        snprintf(ngl_env, sizeof(ngl_env), "%d", cfg.ngl);
+        setenv("QW3_METAL_NGL", ngl_env, 1);
+    }
     log_context_memory(cfg.backend, cfg.ctx_alloc);
 
     qw3_engine_options opt = {

@@ -12,7 +12,7 @@ endif
 
 .PHONY: all clean cpu metal agent tools codenav \
 	test-vectors test-agent-edit test-metal-smoke test-metal-logits test-metal-logits-concurrent \
-	test-runtime-regression test-regression test-regression-full \
+	test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 all: qw3-cli qw3-agent qw3-eval qw3-bench
@@ -141,6 +141,9 @@ test-metal-logits-concurrent: qw3-test
 
 test-runtime-regression: qw3-cli qw3-agent
 	sh tests/test_runtime_regression.sh
+
+test-prefill-bench: qw3-bench
+	sh tests/test_prefill_bench_regression.sh
 
 test-regression: test-agent-edit test-metal-logits test-runtime-regression
 

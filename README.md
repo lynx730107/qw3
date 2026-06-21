@@ -184,6 +184,12 @@ For larger Metal changes:
 make test-regression-full
 ```
 
+For prefill optimization work, also run the throughput guard:
+
+```sh
+make test-prefill-bench
+```
+
 Development notes and benchmark history are kept in:
 
 ```text

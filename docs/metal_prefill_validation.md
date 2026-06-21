@@ -822,11 +822,50 @@ Optimization priority after this profile: first reduce the full-attention
 `attend` cost with a more llama.cpp-like tiled/FlashAttention path, then revisit
 linear DeltaNet/projection batching and MoE down.
 
+## 2026-06-21 Partial Offload Diagnostics
+
+`qw3-bench` now accepts `--ngl N`, matching the client option, and
+`make test-prefill-bench` runs a conservative `pp4096` throughput guard. The
+guard is intentionally not part of the default regression target because it is
+performance-sensitive, but it should be run during prefill/Metal optimization.
+
+For llama.cpp-style split offload, `--ngl 35` keeps the last 35 layers on Metal
+and evaluates the first 6 layers on CPU. A small decode profile:
+
+```sh
+QW3_METAL_PROFILE_CPU_SPAN=1 QW3_METAL_PROFILE=1 \
+./qw3-bench -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --llama-style --ngl 35 -p 0 -n 4 -d 16 -r 1 --no-warmup
+```
+
+showed the CPU prefix at about `33-36 ms/token`, with total decode around
+`55 ms/token` after the short setup phase. Stage profiling with
+`QW3_METAL_PROFILE_CPU_STAGE=1` showed routed MoE as the main CPU-prefix cost:
+roughly `3 ms/layer` for `moe_routed`, while linear projection is about
+`1.2-1.7 ms/layer` and the short-context CPU GQA attend part is negligible.
+
+The first small optimization fused CPU IQ3_S expert `gate`+`up` evaluation for
+the routed MoE path into one parallel row pass. Validation:
+
+- `make test-regression`: passed.
+- `make test-prefill-bench`: passed, `pp4096` above `600 tok/s`.
+- `./qw3-cli ... --ctx 4096 --ngl 35 --nothink -p ciao -n 32`: coherent
+  greeting, no garbage.
+- `./qw3-bench ... --llama-style --ngl 35 -p 0 -n 8 -d 16 -r 3 --no-warmup`:
+  `tg` improved to about `19.7 tok/s` in the short-depth diagnostic case.
+
+Remaining concern: if a CPU-prefix full-attention layer remains on CPU at very
+large contexts, its scalar attention path will scale with context length. That
+needs a separate long-context measurement and likely a dedicated policy or
+optimized CPU attention path.
+
 ## 2026-06-02 Partial Metal Layer Offload
 
 `QW3_METAL_NGL=N`, exposed as `--ngl N` on `qw3-metal` and `qw3-agent`, keeps
-only the first `N` transformer layers active on Metal and evaluates the
-remaining layers on the CPU reference path. This mirrors the operational role
+only `N` transformer layers active on Metal and evaluates the
+remaining layers on the CPU reference path. With the current default
+llama.cpp-style split, those are the final `N` layers, so lower-numbered
+prefix layers run on CPU. This mirrors the operational role
 of llama.cpp `--ngl`: it reduces Metal KV/state residency for very large
 contexts, especially `--ctx 64000`, where f16 KV alone is still too much
 pressure on the 24 GB test machine.
