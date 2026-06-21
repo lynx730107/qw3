@@ -540,7 +540,7 @@ static uint64_t round_up_u64(uint64_t v, uint64_t align) {
     return (v + align - 1) & ~(align - 1);
 }
 
-static NSString *qw3_metal_kernel_source(void) {
+static NSString *qw3_metal_embedded_kernel_source(void) {
     return @"#include <metal_stdlib>\n"
             "#ifdef QW3_METAL_HAS_TENSOR\n"
             "#include <metal_tensor>\n"
@@ -6861,6 +6861,37 @@ static NSString *qw3_metal_kernel_source(void) {
             "        out_idxs[block] = sh_idxs[0];\n"
             "    }\n"
             "}\n";
+}
+
+static NSString *qw3_metal_read_text_file(NSString *path, NSError **error) {
+    return [NSString stringWithContentsOfFile:path
+                                    encoding:NSUTF8StringEncoding
+                                       error:error];
+}
+
+static NSString *qw3_metal_kernel_source(void) {
+    const char *kernel_path_env = getenv("QW3_METAL_KERNEL_SOURCE");
+    NSError *read_error = nil;
+    if (kernel_path_env && kernel_path_env[0]) {
+        NSString *path = [NSString stringWithUTF8String:kernel_path_env];
+        NSString *source = qw3_metal_read_text_file(path, &read_error);
+        if (source) return source;
+        fprintf(stderr, "qw3: failed to read Metal kernel source %s: %s\n",
+                [path UTF8String],
+                read_error ? [[read_error localizedDescription] UTF8String] : "(unknown)");
+        return qw3_metal_embedded_kernel_source();
+    }
+
+    NSArray<NSString *> *candidates = @[
+        @"metal/qw3_kernels.metal",
+        @"../metal/qw3_kernels.metal",
+    ];
+    for (NSString *candidate in candidates) {
+        read_error = nil;
+        NSString *source = qw3_metal_read_text_file(candidate, &read_error);
+        if (source) return source;
+    }
+    return qw3_metal_embedded_kernel_source();
 }
 
 static NSString *qw3_metal_full_kernel_source(void) {
