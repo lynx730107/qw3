@@ -203,9 +203,16 @@ static int qw3_metal_llama_split_enabled(void) {
 }
 
 static uint32_t qw3_metal_llama_split_start(uint32_t n_gpu_layers) {
-    if (n_gpu_layers == 0) return 40u;
-    if (n_gpu_layers >= 41u) return 0;
-    return 41u - n_gpu_layers;
+    uint32_t start;
+    if (n_gpu_layers == 0) start = 40u;
+    else if (n_gpu_layers >= 41u) start = 0u;
+    else start = 41u - n_gpu_layers;
+    if (qw3_metal_env_bool("QW3_METAL_SPLIT_AVOID_CPU_FULL_ATTN")) {
+        for (uint32_t il = 0; il < start; il++) {
+            if (qw3_metal_layer_is_full_attention(il)) return il;
+        }
+    }
+    return start;
 }
 
 static void qw3_metal_count_layer_types_before(uint32_t n_layers,

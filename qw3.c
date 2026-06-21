@@ -819,10 +819,22 @@ static int qw3_metal_llama_split_enabled(void) {
     return 1;
 }
 
+static int qw3_metal_split_avoid_cpu_full_attention(void) {
+    const char *env = getenv("QW3_METAL_SPLIT_AVOID_CPU_FULL_ATTN");
+    return env && env[0] && strcmp(env, "0") != 0;
+}
+
 static int qw3_metal_llama_split_start(int n_gpu_layers) {
-    if (n_gpu_layers <= 0) return QW3_N_LAYER;
-    if (n_gpu_layers >= QW3_N_LAYER + 1) return 0;
-    return QW3_N_LAYER + 1 - n_gpu_layers;
+    int start;
+    if (n_gpu_layers <= 0) start = QW3_N_LAYER;
+    else if (n_gpu_layers >= QW3_N_LAYER + 1) start = 0;
+    else start = QW3_N_LAYER + 1 - n_gpu_layers;
+    if (qw3_metal_split_avoid_cpu_full_attention()) {
+        for (int il = 0; il < start; il++) {
+            if (qw3_layer_is_full_attention((uint32_t)il)) return il;
+        }
+    }
+    return start;
 }
 
 static void qw3_count_layer_types_from(int first_layer,

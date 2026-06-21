@@ -859,6 +859,14 @@ large contexts, its scalar attention path will scale with context length. That
 needs a separate long-context measurement and likely a dedicated policy or
 optimized CPU attention path.
 
+An opt-in policy was added for this:
+`QW3_METAL_SPLIT_AVOID_CPU_FULL_ATTN=1`. When enabled with the llama-style
+split, the CPU prefix is shortened so that the first full-attention layer is
+kept on Metal. For `--ngl 35` this means layers `0..2` run on CPU and
+layers `3..39` run on Metal. This is not the default because it changes the
+effective number of Metal layers and increases Metal KV/state residency, but it
+is the path to test for long-context usability on machines with enough memory.
+
 ## 2026-06-02 Partial Metal Layer Offload
 
 `QW3_METAL_NGL=N`, exposed as `--ngl N` on `qw3-metal` and `qw3-agent`, keeps
