@@ -294,6 +294,18 @@ int qw3_metal_session_matvec_q6_k_x1_to_logits(qw3_metal_session *s,
                                                float *out);
 int qw3_metal_session_argmax_logits(qw3_metal_session *s, uint32_t n,
                                     uint32_t *idx_out, float *val_out);
+int qw3_metal_session_argmax_logits_repetition(qw3_metal_session *s,
+                                               uint32_t n,
+                                               const unsigned char *seen,
+                                               float repeat_penalty,
+                                               uint32_t *idx_out,
+                                               float *val_out);
+int qw3_metal_session_topk_logits_repetition(qw3_metal_session *s,
+                                             uint32_t n, uint32_t k,
+                                             const unsigned char *seen,
+                                             float repeat_penalty,
+                                             uint32_t *idx_out,
+                                             float *val_out);
 int qw3_metal_session_residual_rmsnorm_x0_x1(qw3_metal_session *s,
                                              uint64_t weight_offset, uint32_t n,
                                              float eps, float *out);

@@ -2,6 +2,7 @@
 #import <Metal/Metal.h>
 
 #include <stdint.h>
+#include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,6 +140,8 @@ static id<MTLComputePipelineState> g_residual_rmsnorm_batch_update_x0_pipeline;
 static id<MTLComputePipelineState> g_silu_mul_pipeline;
 static id<MTLComputePipelineState> g_scale_pipeline;
 static id<MTLComputePipelineState> g_argmax_blocks_pipeline;
+static id<MTLComputePipelineState> g_argmax_penalty_blocks_pipeline;
+static id<MTLComputePipelineState> g_topk_penalty_blocks_pipeline;
 static id<MTLComputePipelineState> g_add_moe_to_x0_pipeline;
 static id<MTLComputePipelineState> g_silu_mul_offsets_pipeline;
 static id<MTLComputePipelineState> g_silu_mul_rows_offsets_pipeline;
@@ -447,6 +450,7 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @property(nonatomic, strong) id<MTLBuffer> routerWeights;
 @property(nonatomic, strong) id<MTLBuffer> argmaxVals;
 @property(nonatomic, strong) id<MTLBuffer> argmaxIdxs;
+@property(nonatomic, strong) id<MTLBuffer> argmaxSeen;
 @property(nonatomic, strong) id<MTLBuffer> prefillTokens;
 @property(nonatomic, strong) id<MTLBuffer> prefillX0;
 @property(nonatomic, strong) id<MTLBuffer> prefillX1;
@@ -824,6 +828,8 @@ static int qw3_metal_compile_kernels(void) {
         g_residual_rmsnorm_batch_update_x0_pipeline &&
         g_silu_mul_pipeline &&
         g_scale_pipeline && g_argmax_blocks_pipeline &&
+        g_argmax_penalty_blocks_pipeline &&
+        g_topk_penalty_blocks_pipeline &&
         g_add_moe_to_x0_pipeline && g_silu_mul_offsets_pipeline &&
         g_silu_mul_rows_offsets_pipeline &&
         g_scale_x1_scalar_add_x0_pipeline && g_scale_x1_add_x0_pipeline &&
@@ -2265,6 +2271,30 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_argmax_penalty_blocks"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_argmax_penalty_blocks not found\n");
+        return 0;
+    }
+    g_argmax_penalty_blocks_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                               error:&error];
+    if (!g_argmax_penalty_blocks_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_argmax_penalty_blocks failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
+    fn = [g_library newFunctionWithName:@"qw3_topk_penalty_blocks"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_topk_penalty_blocks not found\n");
+        return 0;
+    }
+    g_topk_penalty_blocks_pipeline = [g_device newComputePipelineStateWithFunction:fn
+                                                                             error:&error];
+    if (!g_topk_penalty_blocks_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_topk_penalty_blocks failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     return 1;
 }
 
@@ -3041,6 +3071,8 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
                                            options:MTLResourceStorageModeShared];
     obj.argmaxIdxs = [g_device newBufferWithLength:(NSUInteger)(argmax_blocks * sizeof(uint32_t))
                                            options:MTLResourceStorageModeShared];
+    obj.argmaxSeen = [g_device newBufferWithLength:(NSUInteger)vocab_size
+                                           options:MTLResourceStorageModeShared];
 
     if (((gqa_layer_buffers && (!obj.gqaKLayers || !obj.gqaVLayers)) ||
          (!gqa_layer_buffers && (!obj.gqaK || !obj.gqaV))) ||
@@ -3050,7 +3082,8 @@ qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
         !obj.gqaTmpQ || !obj.gqaTmpK || !obj.gqaTokenQ || !obj.gqaTokenK ||
         !obj.gqaTokenV || !obj.gqaTokenGate || !obj.routerIds ||
         ((gqa_split_q8 || gqa_split_attn) && !obj.gqaAttnPartial) ||
-        !obj.routerWeights || !obj.argmaxVals || !obj.argmaxIdxs) {
+        !obj.routerWeights || !obj.argmaxVals || !obj.argmaxIdxs ||
+        !obj.argmaxSeen) {
         return NULL;
     }
 
@@ -7841,6 +7874,202 @@ int qw3_metal_session_argmax_logits(qw3_metal_session *s, uint32_t n,
     return 1;
 }
 
+int qw3_metal_session_argmax_logits_repetition(qw3_metal_session *s,
+                                               uint32_t n,
+                                               const unsigned char *seen,
+                                               float repeat_penalty,
+                                               uint32_t *idx_out,
+                                               float *val_out) {
+    if (!seen || repeat_penalty <= 1.0f) {
+        return qw3_metal_session_argmax_logits(s, n, idx_out, val_out);
+    }
+    if (!s || !s->obj || !idx_out || !val_out || n == 0) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    if (!obj.logits || obj.logits.length < (NSUInteger)n * sizeof(float)) {
+        return 0;
+    }
+
+    const uint32_t threads_u32 = 256;
+    const uint32_t n_blocks = (n + threads_u32 - 1) / threads_u32;
+    const NSUInteger seen_bytes = (NSUInteger)n * sizeof(unsigned char);
+    const NSUInteger vals_bytes = (NSUInteger)n_blocks * sizeof(float);
+    const NSUInteger idxs_bytes = (NSUInteger)n_blocks * sizeof(uint32_t);
+    id<MTLBuffer> seenb = obj.argmaxSeen;
+    if (!seenb || seenb.length < seen_bytes) {
+        seenb = [g_device newBufferWithLength:seen_bytes
+                                      options:MTLResourceStorageModeShared];
+        obj.argmaxSeen = seenb;
+    }
+    id<MTLBuffer> valsb = obj.argmaxVals;
+    id<MTLBuffer> idxsb = obj.argmaxIdxs;
+    if (!valsb || !idxsb || valsb.length < vals_bytes || idxsb.length < idxs_bytes) {
+        valsb = [g_device newBufferWithLength:vals_bytes
+                                      options:MTLResourceStorageModeShared];
+        idxsb = [g_device newBufferWithLength:idxs_bytes
+                                      options:MTLResourceStorageModeShared];
+    }
+    if (!seenb || !valsb || !idxsb) {
+        fprintf(stderr, "qw3: Metal session penalized argmax buffer allocation failed\n");
+        return 0;
+    }
+    memcpy(seenb.contents, seen, seen_bytes);
+
+    struct {
+        uint32_t n;
+        float repeat_penalty;
+    } args = { n, repeat_penalty };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_argmax_penalty_blocks_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.logits offset:0 atIndex:1];
+    [enc setBuffer:seenb offset:0 atIndex:2];
+    [enc setBuffer:valsb offset:0 atIndex:3];
+    [enc setBuffer:idxsb offset:0 atIndex:4];
+    [enc setThreadgroupMemoryLength:(NSUInteger)threads_u32 * sizeof(float)
+                            atIndex:0];
+    [enc setThreadgroupMemoryLength:(NSUInteger)threads_u32 * sizeof(uint32_t)
+                            atIndex:1];
+    [enc dispatchThreadgroups:MTLSizeMake(n_blocks, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads_u32, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal session penalized argmax command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+
+    const float *vals = (const float *)valsb.contents;
+    const uint32_t *idxs = (const uint32_t *)idxsb.contents;
+    uint32_t best_idx = idxs[0];
+    float best_val = vals[0];
+    for (uint32_t i = 1; i < n_blocks; i++) {
+        uint32_t idx = idxs[i];
+        float val = vals[i];
+        if (val > best_val || (val == best_val && idx < best_idx)) {
+            best_val = val;
+            best_idx = idx;
+        }
+    }
+    *idx_out = best_idx;
+    *val_out = best_val;
+    return 1;
+}
+
+int qw3_metal_session_topk_logits_repetition(qw3_metal_session *s,
+                                             uint32_t n, uint32_t k,
+                                             const unsigned char *seen,
+                                             float repeat_penalty,
+                                             uint32_t *idx_out,
+                                             float *val_out) {
+    if (!s || !s->obj || !idx_out || !val_out || n == 0 || k == 0 || k > 64) {
+        return 0;
+    }
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    if (!obj.logits || obj.logits.length < (NSUInteger)n * sizeof(float)) {
+        return 0;
+    }
+
+    const uint32_t n_blocks = (n + 255u) / 256u;
+    const NSUInteger seen_bytes = (NSUInteger)n * sizeof(unsigned char);
+    const NSUInteger vals_bytes = (NSUInteger)n_blocks * (NSUInteger)k * sizeof(float);
+    const NSUInteger idxs_bytes = (NSUInteger)n_blocks * (NSUInteger)k * sizeof(uint32_t);
+    const int apply_penalty = seen && repeat_penalty > 1.0f;
+    id<MTLBuffer> seenb = obj.argmaxSeen;
+    if (apply_penalty) {
+        if (!seenb || seenb.length < seen_bytes) {
+            seenb = [g_device newBufferWithLength:seen_bytes
+                                          options:MTLResourceStorageModeShared];
+            obj.argmaxSeen = seenb;
+        }
+        if (!seenb) {
+            fprintf(stderr, "qw3: Metal session top-k seen buffer allocation failed\n");
+            return 0;
+        }
+        memcpy(seenb.contents, seen, seen_bytes);
+    } else if (!seenb) {
+        seenb = [g_device newBufferWithLength:1 options:MTLResourceStorageModeShared];
+        obj.argmaxSeen = seenb;
+        if (!seenb) return 0;
+        ((unsigned char *)seenb.contents)[0] = 0;
+    }
+
+    id<MTLBuffer> valsb = obj.argmaxVals;
+    id<MTLBuffer> idxsb = obj.argmaxIdxs;
+    if (!valsb || !idxsb || valsb.length < vals_bytes || idxsb.length < idxs_bytes) {
+        valsb = [g_device newBufferWithLength:vals_bytes
+                                      options:MTLResourceStorageModeShared];
+        idxsb = [g_device newBufferWithLength:idxs_bytes
+                                      options:MTLResourceStorageModeShared];
+        obj.argmaxVals = valsb;
+        obj.argmaxIdxs = idxsb;
+    }
+    if (!valsb || !idxsb) {
+        fprintf(stderr, "qw3: Metal session top-k buffer allocation failed\n");
+        return 0;
+    }
+
+    struct {
+        uint32_t n;
+        uint32_t k;
+        float repeat_penalty;
+        uint32_t apply_penalty;
+    } args = { n, k, repeat_penalty, (uint32_t)apply_penalty };
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:g_topk_penalty_blocks_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.logits offset:0 atIndex:1];
+    [enc setBuffer:seenb offset:0 atIndex:2];
+    [enc setBuffer:valsb offset:0 atIndex:3];
+    [enc setBuffer:idxsb offset:0 atIndex:4];
+    [enc dispatchThreadgroups:MTLSizeMake(n_blocks, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "qw3: Metal session top-k command failed: %s\n",
+                [[cb.error localizedDescription] UTF8String]);
+        return 0;
+    }
+
+    const float *vals = (const float *)valsb.contents;
+    const uint32_t *idxs = (const uint32_t *)idxsb.contents;
+    for (uint32_t i = 0; i < k; i++) {
+        val_out[i] = -FLT_MAX;
+        idx_out[i] = UINT32_MAX;
+    }
+    const uint32_t n_candidates = n_blocks * k;
+    for (uint32_t i = 0; i < n_candidates; i++) {
+        uint32_t idx = idxs[i];
+        float val = vals[i];
+        if (idx >= n) continue;
+        for (uint32_t j = 0; j < k; j++) {
+            if (val > val_out[j] || (val == val_out[j] && idx < idx_out[j])) {
+                for (uint32_t m = k - 1u; m > j; m--) {
+                    val_out[m] = val_out[m - 1u];
+                    idx_out[m] = idx_out[m - 1u];
+                }
+                val_out[j] = val;
+                idx_out[j] = idx;
+                break;
+            }
+        }
+    }
+    return idx_out[0] != UINT32_MAX;
+}
+
 int qw3_metal_session_residual_rmsnorm_x0_x1(qw3_metal_session *s,
                                              uint64_t weight_offset,
                                              uint32_t n, float eps,
@@ -9394,6 +9623,9 @@ void qw3_metal_cleanup(void) {
     g_residual_rmsnorm_batch_update_x0_pipeline = nil;
     g_silu_mul_pipeline = nil;
     g_scale_pipeline = nil;
+    g_argmax_blocks_pipeline = nil;
+    g_argmax_penalty_blocks_pipeline = nil;
+    g_topk_penalty_blocks_pipeline = nil;
     g_add_moe_to_x0_pipeline = nil;
     g_silu_mul_offsets_pipeline = nil;
     g_silu_mul_rows_offsets_pipeline = nil;

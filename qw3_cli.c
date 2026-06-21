@@ -638,8 +638,9 @@ static int generate_chat_turn(qw3_engine *engine, qw3_backend backend,
         }
         else
         {
-            rc = qw3_engine_metal_generate_argmax(
+            rc = qw3_engine_metal_generate_argmax_repetition(
                 engine, transcript, n_predict, ctx_size,
+                sample->repeat_last_n, sample->repeat_penalty,
                 emit_token, emit_done, &emit);
         }
     }
@@ -2846,8 +2847,9 @@ int main(int argc, char **argv)
             }
             else
             {
-                gen_rc = qw3_engine_metal_generate_argmax(
+                gen_rc = qw3_engine_metal_generate_argmax_repetition(
                     engine, &tokens, n_predict, ctx_size,
+                    sample.repeat_last_n, sample.repeat_penalty,
                     emit_token, emit_done, &emit);
             }
         }
