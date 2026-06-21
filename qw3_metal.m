@@ -546,6 +546,30 @@ static NSString *qw3_metal_read_text_file(NSString *path, NSError **error) {
                                        error:error];
 }
 
+static NSString *qw3_metal_join_path(NSString *dir, NSString *name) {
+    return [dir stringByAppendingPathComponent:name];
+}
+
+static NSString *qw3_metal_kernel_source_from_dir(NSString *dir) {
+    NSArray<NSString *> *parts = @[
+        @"qw3_core_common.metal",
+        @"qw3_core_linear.metal",
+        @"qw3_core_sequence.metal",
+        @"qw3_core_deltanet.metal",
+        @"qw3_core_moe.metal",
+        @"qw3_core_argmax.metal",
+    ];
+    NSMutableString *source = [NSMutableString string];
+    for (NSString *part in parts) {
+        NSError *read_error = nil;
+        NSString *path = qw3_metal_join_path(dir, part);
+        NSString *part_source = qw3_metal_read_text_file(path, &read_error);
+        if (!part_source) return nil;
+        [source appendString:part_source];
+    }
+    return source;
+}
+
 static NSString *qw3_metal_kernel_source(void) {
     const char *kernel_path_env = getenv("QW3_METAL_KERNEL_SOURCE");
     NSError *read_error = nil;
@@ -559,17 +583,26 @@ static NSString *qw3_metal_kernel_source(void) {
         return nil;
     }
 
-    NSArray<NSString *> *candidates = @[
+    NSArray<NSString *> *dirs = @[
+        @"metal",
+        @"../metal",
+    ];
+    for (NSString *dir in dirs) {
+        NSString *source = qw3_metal_kernel_source_from_dir(dir);
+        if (source) return source;
+    }
+
+    NSArray<NSString *> *monolithic_candidates = @[
         @"metal/qw3_kernels.metal",
         @"../metal/qw3_kernels.metal",
     ];
-    for (NSString *candidate in candidates) {
+    for (NSString *candidate in monolithic_candidates) {
         read_error = nil;
         NSString *source = qw3_metal_read_text_file(candidate, &read_error);
         if (source) return source;
     }
     fprintf(stderr,
-            "qw3: failed to read Metal kernel source metal/qw3_kernels.metal "
+            "qw3: failed to read split Metal kernel sources from metal/ "
             "(set QW3_METAL_KERNEL_SOURCE or run from the project root)\n");
     return nil;
 }
