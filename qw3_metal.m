@@ -550,8 +550,8 @@ static NSString *qw3_metal_join_path(NSString *dir, NSString *name) {
     return [dir stringByAppendingPathComponent:name];
 }
 
-static NSString *qw3_metal_kernel_source_from_dir(NSString *dir) {
-    NSArray<NSString *> *parts = @[
+static NSArray<NSString *> *qw3_metal_kernel_source_parts(void) {
+    return @[
         @"qw3_core_common.metal",
         @"qw3_core_linear.metal",
         @"qw3_core_sequence.metal",
@@ -559,12 +559,21 @@ static NSString *qw3_metal_kernel_source_from_dir(NSString *dir) {
         @"qw3_core_moe.metal",
         @"qw3_core_argmax.metal",
     ];
+}
+
+static NSString *qw3_metal_kernel_source_from_dir(NSString *dir,
+                                                  NSString **missing_path,
+                                                  NSError **missing_error) {
     NSMutableString *source = [NSMutableString string];
-    for (NSString *part in parts) {
+    for (NSString *part in qw3_metal_kernel_source_parts()) {
         NSError *read_error = nil;
         NSString *path = qw3_metal_join_path(dir, part);
         NSString *part_source = qw3_metal_read_text_file(path, &read_error);
-        if (!part_source) return nil;
+        if (!part_source) {
+            if (missing_path) *missing_path = path;
+            if (missing_error) *missing_error = read_error;
+            return nil;
+        }
         [source appendString:part_source];
     }
     return source;
@@ -583,13 +592,34 @@ static NSString *qw3_metal_kernel_source(void) {
         return nil;
     }
 
+    const char *kernel_dir_env = getenv("QW3_METAL_KERNEL_DIR");
+    if (kernel_dir_env && kernel_dir_env[0]) {
+        NSString *dir = [NSString stringWithUTF8String:kernel_dir_env];
+        NSString *missing_path = nil;
+        NSError *missing_error = nil;
+        NSString *source =
+            qw3_metal_kernel_source_from_dir(dir, &missing_path, &missing_error);
+        if (source) return source;
+        fprintf(stderr, "qw3: failed to read split Metal kernel source %s: %s\n",
+                missing_path ? [missing_path UTF8String] : [dir UTF8String],
+                missing_error ? [[missing_error localizedDescription] UTF8String] : "(unknown)");
+        return nil;
+    }
+
     NSArray<NSString *> *dirs = @[
         @"metal",
         @"../metal",
     ];
+    NSString *last_missing_path = nil;
+    NSError *last_missing_error = nil;
     for (NSString *dir in dirs) {
-        NSString *source = qw3_metal_kernel_source_from_dir(dir);
+        NSString *missing_path = nil;
+        NSError *missing_error = nil;
+        NSString *source =
+            qw3_metal_kernel_source_from_dir(dir, &missing_path, &missing_error);
         if (source) return source;
+        last_missing_path = missing_path;
+        last_missing_error = missing_error;
     }
 
     NSArray<NSString *> *monolithic_candidates = @[
@@ -602,8 +632,10 @@ static NSString *qw3_metal_kernel_source(void) {
         if (source) return source;
     }
     fprintf(stderr,
-            "qw3: failed to read split Metal kernel sources from metal/ "
-            "(set QW3_METAL_KERNEL_SOURCE or run from the project root)\n");
+            "qw3: failed to read split Metal kernel sources; last missing source %s: %s "
+            "(set QW3_METAL_KERNEL_DIR, set QW3_METAL_KERNEL_SOURCE, or run from the project root)\n",
+            last_missing_path ? [last_missing_path UTF8String] : "(unknown)",
+            last_missing_error ? [[last_missing_error localizedDescription] UTF8String] : "(unknown)");
     return nil;
 }
 

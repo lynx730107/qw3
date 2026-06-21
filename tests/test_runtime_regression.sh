@@ -22,7 +22,8 @@ cli_out="$tmpdir/cli.out"
 agent_out="$tmpdir/agent.out"
 tool_file="$tmpdir/bash_tool.xml"
 
-"$CLI" -m "$MODEL" --ctx "$CTX" --nothink -p "ciao" -n 48 >"$cli_out" 2>&1 ||
+QW3_METAL_KERNEL_DIR="${QW3_METAL_KERNEL_DIR:-metal}" \
+    "$CLI" -m "$MODEL" --ctx "$CTX" --nothink -p "ciao" -n 48 >"$cli_out" 2>&1 ||
     fail "qw3-cli failed"
 
 grep -q 'Ciao' "$cli_out" ||

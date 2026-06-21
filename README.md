@@ -165,21 +165,30 @@ The q8 KV cache and several experimental environment flags should still be
 considered unstable. Before promoting any Metal optimization, run logits
 regressions and a no-garbage test on a real prompt.
 
+The Metal runtime loads split kernel sources from `metal/` by default. See
+`docs/metal_kernels.md` for the file order and environment overrides such as
+`QW3_METAL_KERNEL_DIR`.
+
 ## Validation
 
 Minimum checks before trusting a Metal change:
 
 ```sh
 make
-make test-metal-logits
-./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
-  --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128
+make test-regression
+```
+
+For larger Metal changes:
+
+```sh
+make test-regression-full
 ```
 
 Development notes and benchmark history are kept in:
 
 ```text
 docs/metal_prefill_validation.md
+docs/metal_kernels.md
 ```
 
 ## License
