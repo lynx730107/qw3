@@ -3278,6 +3278,61 @@ static void agent_emit_token(void *ud, int token) {
     free(text);
 }
 
+static bool token_window_equal_with_next(const qw3_tokens *tokens, int next,
+                                         int a_start, int b_start, int n) {
+    for (int i = 0; i < n; i++) {
+        int ai = a_start + i;
+        int bi = b_start + i;
+        int av = ai == tokens->len ? next : tokens->v[ai];
+        int bv = bi == tokens->len ? next : tokens->v[bi];
+        if (av != bv) return false;
+    }
+    return true;
+}
+
+static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next) {
+    if (!tokens || tokens->len < 8) return false;
+    const int total = tokens->len + 1;
+    const int max_n = total / 4 < 16 ? total / 4 : 16;
+    for (int n = 1; n <= max_n; n++) {
+        int reps = n == 1 ? 8 : (n == 2 ? 5 : 4);
+        if (total < n * reps) continue;
+        bool same = true;
+        int last = total - n;
+        for (int r = 1; r < reps; r++) {
+            int prev = total - n * (r + 1);
+            if (!token_window_equal_with_next(tokens, next, prev, last, n)) {
+                same = false;
+                break;
+            }
+        }
+        if (same) return true;
+    }
+    return false;
+}
+
+static bool text_slice_has_nonspace(const char *s, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (!isspace((unsigned char)s[i])) return true;
+    }
+    return false;
+}
+
+static bool agent_text_has_repeated_suffix(const char *text, size_t len) {
+    if (!text || len < 96) return false;
+    const size_t max_pat = len / 4 < 96 ? len / 4 : 96;
+    for (size_t pat = 8; pat <= max_pat; pat++) {
+        if (!text_slice_has_nonspace(text + len - pat, pat)) continue;
+        size_t reps = 1;
+        while (len >= pat * (reps + 1) &&
+               !memcmp(text + len - pat, text + len - pat * (reps + 1), pat)) {
+            reps++;
+            if (reps >= 4 && pat * reps >= 80) return true;
+        }
+    }
+    return false;
+}
+
 static void agent_emit_done(void *ud) {
     agent_emit_ctx *ctx = (agent_emit_ctx *)ud;
     agent_flush_visible(ctx, true);
@@ -3675,8 +3730,16 @@ static int generate_once(agent_state *a, char **assistant_text) {
                 break;
             }
             if (token == eos) break;
+            if (agent_would_repeat_token_ngram(&emit.generated, token)) {
+                agent_statusf(a, "agent: stopped repeated token loop\n");
+                break;
+            }
             agent_emit_token(&emit, token);
             n_generated++;
+            if (agent_text_has_repeated_suffix(emit.text.p, emit.text.len)) {
+                agent_statusf(a, "agent: stopped repeated text loop\n");
+                break;
+            }
             if (qw3_session_eval(a->session, token, err, sizeof(err)) != 0) {
                 agent_statusf(a, "agent: decode failed: %s\n", err);
                 rc = -1;
@@ -3903,7 +3966,7 @@ static void print_help(void) {
         "  --prompt-file PATH   Read prompt from a file\n"
         "  -sys TEXT            Extra system prompt\n"
         "  --system-file PATH   Read extra system prompt from a file\n"
-        "  -n N                 Max tokens per assistant turn (default: 768)\n"
+        "  -n N                 Max tokens per assistant turn (default: 2048)\n"
         "  --ctx N              Context size (default: 32768)\n"
         "  --ngl N              Metal layers to keep on GPU, 0..40 (default: 40)\n"
         "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32, f16, or q8_0\n"
@@ -3944,7 +4007,7 @@ static void print_help(void) {
 static int parse_args(agent_config *cfg, int argc, char **argv) {
     memset(cfg, 0, sizeof(*cfg));
     cfg->model_path = "./qw3.gguf";
-    cfg->n_predict = 768;
+    cfg->n_predict = 2048;
     cfg->ctx_size = 32768;
     cfg->max_tool_rounds = QW3_AGENT_MAX_TOOL_ROUNDS;
     cfg->tools_enabled = true;
