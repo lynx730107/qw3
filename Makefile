@@ -10,18 +10,21 @@ ifeq ($(UNAME_S),Darwin)
 METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
-.PHONY: all clean cpu metal agent tools codenav \
+.PHONY: all clean cpu metal agent tools codenav hotlist code-profile-dataset \
 	test-vectors test-metal-smoke test-metal-logits test-metal-logits-concurrent \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
-all: qw3 qw3-agent qw3-eval qw3-bench
+all: qw3-cli qw3-agent qw3-eval qw3-bench
 agent: qw3-agent
 cpu: qw3-cpu qw3-agent-cpu qw3-eval-cpu qw3-bench-cpu
+HOTLIST_TOP ?= 4096
+CODE_PROFILE_TASKS ?= 20
+CODE_PROFILE_MODE ?= mixed
 
 qw3_ssd.o: qw3_ssd.c qw3_ssd.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_ssd.c
 
-qw3_cpu_core.o: qw3.c qw3.h qw3_ssd.h
+qw3_cpu_core.o: qw3.c qw3.h qw3_ssd.h qw3_streaming_hotlist.inc
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3.c
 
 qw3_cpu_cli.o: qw3_cli.c qw3.h qw3_ssd.h
@@ -58,9 +61,9 @@ qw3-eval-cpu: qw3_eval_cpu.o qw3_cpu_core.o qw3_ssd.o
 	$(CC) $(CFLAGS) -o $@ qw3_eval_cpu.o qw3_cpu_core.o qw3_ssd.o $(LDLIBS)
 
 ifeq ($(UNAME_S),Darwin)
-metal: qw3 qw3-agent qw3-eval qw3-bench
+metal: qw3-cli qw3-agent qw3-eval qw3-bench
 
-qw3_metal_core.o: qw3.c qw3.h qw3_ssd.h qw3_metal.h
+qw3_metal_core.o: qw3.c qw3.h qw3_ssd.h qw3_metal.h qw3_streaming_hotlist.inc
 	$(CC) $(CFLAGS) -c -o $@ qw3.c
 
 qw3_metal_cli.o: qw3_cli.c qw3.h qw3_ssd.h
@@ -78,7 +81,7 @@ qw3_eval_metal.o: qw3_eval.c qw3.h qw3_ssd.h qw3_metal.h
 qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS)
 	$(CC) $(OBJCFLAGS) -c -o $@ qw3_metal.m
 
-qw3: qw3_metal_cli.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
+qw3-cli: qw3_metal_cli.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_cli.o qw3_metal_core.o qw3_ssd.o qw3_metal.o $(METAL_LDLIBS)
 
 qw3-test: qw3_metal_cli_test.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
@@ -93,8 +96,8 @@ qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_ssd.o qw3_metal.o linenoise_qw
 qw3-eval: qw3_eval_metal.o qw3_metal_core.o qw3_ssd.o qw3_metal.o
 	$(CC) $(CFLAGS) -o $@ qw3_eval_metal.o qw3_metal_core.o qw3_ssd.o qw3_metal.o $(METAL_LDLIBS)
 
-qw3-metal: qw3
-	cp qw3 qw3-metal
+qw3-metal: qw3-cli
+	cp qw3-cli qw3-metal
 
 qw3-bench-metal: qw3-bench
 	cp qw3-bench qw3-bench-metal
@@ -106,8 +109,8 @@ metal:
 	@echo "Metal backend requires Darwin/Apple Metal"
 	@exit 1
 
-qw3: qw3-cpu
-	cp qw3-cpu qw3
+qw3-cli: qw3-cpu
+	cp qw3-cpu qw3-cli
 
 qw3-bench: qw3-bench-cpu
 	cp qw3-bench-cpu qw3-bench
@@ -126,6 +129,18 @@ endif
 tools codenav:
 	$(MAKE) -C codenavsrc
 
+hotlist:
+	@if [ -z "$(PROFILE)" ]; then \
+		echo "usage: make hotlist PROFILE=profiles/code.tsv [HOTLIST_TOP=4096]"; \
+		exit 2; \
+	fi
+	python3 scripts/qw3_profile_to_hotlist_inc.py --top $(HOTLIST_TOP) \
+		--output qw3_streaming_hotlist.inc $(PROFILE)
+
+code-profile-dataset:
+	python3 scripts/download_code_profile_dataset.py \
+		--mode $(CODE_PROFILE_MODE) --max-tasks $(CODE_PROFILE_TASKS)
+
 test-vectors: qw3-cpu
 	sh tests/test_vectors.sh
 
@@ -140,5 +155,6 @@ test-metal-logits-concurrent: qw3-test
 
 clean:
 	rm -f qw3 qw3-cpu qw3-test qw3-cpu-test qw3-metal qw3-agent qw3-agent-cpu \
+		qw3-cli \
 		qw3-bench qw3-bench-cpu qw3-bench-metal \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

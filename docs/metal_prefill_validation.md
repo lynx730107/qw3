@@ -64,20 +64,34 @@ Validation:
 - `./qw3-test ... --ctx 1024 --ssd-streaming --streaming-cache 32
   --metal-greedy-test 1 -p ciao` allocates the streaming expert cache and
   preserves the CPU/GPU greedy top-1.
-- `./qw3 ... --ctx 1024 --nothink --ssd-streaming --simulate-total-memory 16gb
+- `./qw3-cli ... --ctx 1024 --nothink --ssd-streaming --simulate-total-memory 16gb
   -p ciao -n 0` logs a 16 GiB simulated planner target, a 2.38 GiB non-routed
   Metal map, and a 10.42 GiB automatic expert cache.
 
 Expert profile workflow:
+- Optionally generate a compact C/C++ profiling prompt set with
+  `make code-profile-dataset CODE_PROFILE_TASKS=20 CODE_PROFILE_MODE=mixed`.
+  This downloads HumanEval-X C++ under `datasets/humaneval-x-cpp/` and renders
+  audit/implementation prompts for routing-profile collection.
 - Set `QW3_EXPERT_PROFILE=profiles/code.tsv` while running representative
   coding-agent sessions. The profiler writes sorted `layer expert hits` rows
   at shutdown. It works with normal Metal decode too, but it adds router-id
   readbacks and should not be used for speed measurements.
+- For a bounded 16 GiB-style profiling pass, use
+  `QW3_EXPERT_PROFILE=profiles/code.tsv ./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 32000 --kv-f16 --nothink --ssd-streaming --streaming-cache 4gb --prompt-file datasets/humaneval-x-cpp/mixed_profile_prompt.txt -n 16`.
+- At `--ctx 32000`, f16 GQA KV is about 625 MiB. Keep `--kv-f16` explicit for
+  16 GiB-class runs.
+- The 20-task mixed prompt is about 32 KB and is intended for `--ctx 32000`;
+  larger values are for larger contexts or repeated profiling runs over the
+  JSONL prompts.
 - Reuse a collected TSV as a startup hotlist with
   `QW3_EXPERT_HOTLIST=profiles/code.tsv --ssd-streaming --streaming-preload N`.
   QW3 preloads up to `N` unique `(layer, expert)` pairs before decode begins.
-- The same TSV can later be converted into `qw3_streaming_hotlist.inc` once a
-  stable code-oriented workload profile exists.
+- Compile one or more profile TSV files into the default built-in hotlist with
+  `make hotlist PROFILE=profiles/code.tsv HOTLIST_TOP=4096`, then rebuild with
+  `make`. This updates `qw3_streaming_hotlist.inc`.
+- Use a representative code workload for `profiles/code.tsv`; toy prompts such
+  as `ciao` produce a misleading hotlist.
 
 ## 2026-06-11 MoE Fast-Layout Probe Notes
 

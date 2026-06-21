@@ -3,8 +3,8 @@
  * =========================================================================
  *
  * Usage:
- *   ./qw3 -m model.gguf -p "prompt"
- *   ./qw3 -m model.gguf                  (interactive mode)
+ *   ./qw3-cli -m model.gguf -p "prompt"
+ *   ./qw3-cli -m model.gguf              (interactive mode)
  */
 
 #include <stdio.h>
@@ -800,10 +800,10 @@ static int interactive_chat(qw3_engine *engine, qw3_backend backend,
 static void usage(void)
 {
     fprintf(stderr,
-            "qw3 — Qwen3.6-35B-A3B inference engine\n"
+            "qw3-cli — Qwen3.6-35B-A3B inference engine\n"
             "\n"
             "Usage:\n"
-            "  qw3 [options]\n"
+            "  qw3-cli [options]\n"
             "\n"
             "Options:\n"
             "  -m PATH     Model GGUF path (default: ./qw3.gguf)\n"

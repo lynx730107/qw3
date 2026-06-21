@@ -49,7 +49,7 @@ make
 The default Darwin build produces Metal binaries without a `metal` suffix:
 
 ```text
-qw3        generation CLI
+qw3-cli    generation CLI
 qw3-agent  local coding agent
 qw3-bench  benchmark tool
 qw3-eval   evaluation tool
@@ -72,7 +72,7 @@ make clean
 Generation:
 
 ```sh
-./qw3 -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 16000 --nothink -p "hello"
 ```
 
@@ -165,6 +165,47 @@ The q8 KV cache and several experimental environment flags should still be
 considered unstable. Before promoting any Metal optimization, run logits
 regressions and a no-garbage test on a real prompt.
 
+## SSD Streaming
+
+The `ssd-streaming` branch can keep routed MoE experts out of the initial Metal
+model map and load selected `(layer, expert)` pairs on demand into a bounded
+cache. This is intended for smaller unified-memory machines.
+
+Conservative 16 GB-style command with a usable coding context:
+
+```sh
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --ctx 32000 --kv-f16 --nothink \
+  --ssd-streaming --streaming-cache 4gb \
+  -p "ciao" -n 16
+```
+
+`--streaming-cache NNgb` is the main memory knob: it sets the Metal cache budget
+for routed experts. The non-routed tensor map is about 2.38 GiB for the current
+IQ4_XS model, before KV/state and Metal overhead. At `--ctx 32000`, f16 GQA KV
+is about 625 MiB, so `--kv-f16` should be kept explicit for 16 GB-class runs.
+
+To build a workload-specific preload hotlist:
+
+```sh
+make code-profile-dataset CODE_PROFILE_TASKS=20 CODE_PROFILE_MODE=mixed
+mkdir -p profiles
+QW3_EXPERT_PROFILE=profiles/code.tsv ./qw3-cli \
+  -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --ctx 32000 --kv-f16 --nothink \
+  --ssd-streaming --streaming-cache 4gb \
+  --prompt-file datasets/humaneval-x-cpp/mixed_profile_prompt.txt -n 16
+make hotlist PROFILE=profiles/code.tsv HOTLIST_TOP=4096
+make
+```
+
+`profiles/` is ignored by git; the generated `qw3_streaming_hotlist.inc` is the
+compiled source artifact. The helper dataset target downloads HumanEval-X C++
+and renders C/C++-oriented audit/implementation prompts; use your own real
+coding-agent transcripts as additional profile input when available. The default
+20-task prompt is sized for `--ctx 32000`; raise it only when using a larger
+context or when profiling prompts in separate runs.
+
 ## Validation
 
 Minimum checks before trusting a Metal change:
@@ -172,7 +213,7 @@ Minimum checks before trusting a Metal change:
 ```sh
 make
 make test-metal-logits
-./qw3 -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 16000 --nothink --prompt-file ./prompt_perf.txt -n 128
 ```
 
