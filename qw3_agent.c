@@ -3934,7 +3934,7 @@ static void print_help(void) {
         "                       Execute Qwen tool_call text read from a file and exit\n"
         "  --help               Show help\n\n"
         "Interactive commands:\n"
-        "  /help, /quit, /new, /ctx, /compact, /save [name], /list, /switch id\n"
+        "  /help, /quit, /new, /ctx, /chdir [path], /compact, /save [name], /list, /switch id\n"
         "  /del id, /strip [id], /load name, /sessions\n"
         "  /read PATH, /think, /nothink, /tools on|off\n",
         (double)QW3_AGENT_REPEAT_PENALTY_DEFAULT,
@@ -4186,6 +4186,7 @@ static void interactive_help(void) {
         "  /quit              Exit\n"
         "  /new               Start a new conversation\n"
         "  /ctx               Print token count and context size\n"
+        "  /chdir [path]      Change or print working directory\n"
         "  /compact           Compact the current context now\n"
         "  /save [name]       Save conversation\n"
         "  /list              List saved conversations\n"
@@ -4218,6 +4219,37 @@ static char *read_line_agent(agent_state *a) {
     return line;
 }
 
+static char *trim_command_arg(char *s) {
+    while (*s && isspace((unsigned char)*s)) s++;
+    char *end = s + strlen(s);
+    while (end > s && isspace((unsigned char)end[-1])) *--end = '\0';
+    return s;
+}
+
+static void handle_chdir_command(agent_state *a, char *arg) {
+    arg = trim_command_arg(arg);
+    if (!arg[0]) {
+        char cwd[PATH_MAX];
+        if (getcwd(cwd, sizeof(cwd))) {
+            agent_statusf(a, "agent: cwd=%s\n", cwd);
+        } else {
+            agent_statusf(a, "agent: cannot get cwd: %s\n", strerror(errno));
+        }
+        return;
+    }
+    if (chdir(arg) != 0) {
+        agent_statusf(a, "agent: cannot chdir to %s: %s\n",
+                      arg, strerror(errno));
+        return;
+    }
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd))) {
+        agent_statusf(a, "agent: cwd=%s\n", cwd);
+    } else {
+        agent_statusf(a, "agent: changed directory to %s\n", arg);
+    }
+}
+
 static int handle_command(agent_state *a, char *line, char **message_out) {
     *message_out = NULL;
     if (line[0] != '/') {
@@ -4236,6 +4268,10 @@ static int handle_command(agent_state *a, char *line, char **message_out) {
                       a->transcript.len, a->cfg.ctx_size,
                       a->cfg.tools_enabled ? "on" : "off",
                       qw3_think_mode_name(a->cfg.think_mode));
+    } else if (!strcmp(line, "/chdir")) {
+        handle_chdir_command(a, "");
+    } else if (!strncmp(line, "/chdir ", 7)) {
+        handle_chdir_command(a, line + 7);
     } else if (!strcmp(line, "/compact")) {
         char err[160] = {0};
         if (!agent_compact_context(a, "manual /compact", err, sizeof(err))) {

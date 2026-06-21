@@ -124,6 +124,7 @@ Useful interactive commands:
 /tools off
 /think
 /nothink
+/chdir PATH
 /compact
 /quit
 ```
