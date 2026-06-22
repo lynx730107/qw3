@@ -814,7 +814,7 @@ static void usage(void)
             "  -sys TEXT    System prompt\n"
             "  --system-file PATH\n"
             "              Read system prompt from a file\n"
-            "  -n N         Max tokens to generate (default: 512)\n"
+            "  -n N         Max tokens to generate (default: 1024)\n"
             "  --temp N     Sampling temperature (default: 0, greedy)\n"
             "  --sample-top-k N\n"
             "              Sampling top-k (default: 40, 0 = full vocab)\n"
@@ -1016,7 +1016,7 @@ int main(int argc, char **argv)
     char *prompt_owned = NULL;
     const char *system_prompt = NULL;
     char *system_owned = NULL;
-    int n_predict = 512;
+    int n_predict = 1024;
     int ctx_size = 32768;
     int ngl = -1;
     int ngl_set = 0;
