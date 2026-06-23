@@ -8,7 +8,7 @@ default.
 ## 2026-06-15 SSD Streaming Bring-Up Notes
 
 The `ssd-streaming` branch now wires the base SSD streaming options through
-the QW3 engine and all frontends (`qw3`, `qw3-agent`, `qw3-bench`) and links
+the QW3 engine and all frontends (`qw3-cli`, `qw3-agent`, `qw3-bench`) and links
 `qw3_ssd.o` into both CPU and Metal targets. Startup computes routed expert
 bytes from the first layer's `ffn_gate_exps`, `ffn_up_exps`, and
 `ffn_down_exps` tensors, derives explicit or automatic cache budgets, and logs
@@ -34,9 +34,10 @@ spans before the expert cache is allocated.
 Fase 3 hotlist scaffolding is present with an intentionally empty
 `qw3_streaming_hotlist.inc`. The real table must be generated from Qwen3.6
 expert-routing profiles; until then hotlist preload logs `available=0
-preload=0`. With `--ssd-streaming`, prefill now intentionally falls back to
-token-by-token decode mode so it can use the selected-expert cache instead of
-the resident full-expert batch path.
+preload=0`. With `--ssd-streaming`, prefill uses token-by-token mode by default,
+but `QW3_METAL_STREAMING_PREFILL_BATCH` enables an experimental batch path that
+remaps router-selected `(layer, expert)` pairs to SSD-cache slots and then runs
+the legacy batch MoE kernels against those slots.
 
 Memory-pressure simulation:
 - `--simulate-used-memory NNgb` keeps the DS4-style physical pressure test: it
@@ -92,6 +93,28 @@ Expert profile workflow:
   `make`. This updates `qw3_streaming_hotlist.inc`.
 - Use a representative code workload for `profiles/code.tsv`; toy prompts such
   as `ciao` produce a misleading hotlist.
+- SSD streaming now dumps cache telemetry at Metal cleanup: requests, hits,
+  misses, loads, evictions, unique `(layer, expert)` pairs, estimated
+  full-residency budget, resident slots, copied MiB, and preload/dynamic split.
+  Churn warnings mean the hotlist does not match the workload, preload is too
+  aggressive, or `--streaming-cache` is too small.
+- Auto hotlist preload is capped at 512 experts by default. Override with
+  `--streaming-preload N` or `QW3_METAL_STREAMING_EXPERT_AUTO_PRELOAD_CAP`; use
+  `--ssd-streaming-cold` for no preload. With
+  `QW3_METAL_STREAMING_PREFILL_BATCH` enabled, the auto cap drops to 128 experts
+  unless overridden.
+- Experimental SSD streaming batch prefill is enabled with
+  `QW3_METAL_STREAMING_PREFILL_BATCH=1` or a numeric token batch such as
+  `QW3_METAL_STREAMING_PREFILL_BATCH=128`. The default opt-in value is 128 and
+  it is clamped by the expert-cache slot count. Prompts below 64 tokens keep the
+  token path unless `QW3_METAL_STREAMING_PREFILL_BATCH_MIN` lowers the threshold.
+- On the M5 24 GB validation machine, a 366-token C/C++ prompt excerpt with
+  `--ctx 32000 --kv-f16 --ssd-streaming --simulate-total-memory 16gb
+  --streaming-cache 4gb` measured 8.27 tok/s at batch 16, 15.07 tok/s at batch
+  64, 21.26 tok/s at batch 128, and 16.13 tok/s at batch 256. Batch 128 is the
+  current local sweet spot.
+- Deduplicating router-selected experts per batch and lowering auto-preload to
+  128 improved the same 366-token excerpt to 23.71 tok/s in the validation run.
 
 ## 2026-06-11 MoE Fast-Layout Probe Notes
 

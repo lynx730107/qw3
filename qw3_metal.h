@@ -134,8 +134,8 @@ int qw3_metal_session_batch_router_topk_from_scratch(
     int *ids_out, float *weights_out);
 int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
-    uint64_t down_offset, uint32_t down_type, uint32_t n_tokens,
-    uint32_t n_active, uint32_t n_embd, uint32_t n_ff,
+    uint64_t down_offset, uint32_t down_type, uint32_t layer,
+    uint32_t n_tokens, uint32_t n_active, uint32_t n_embd, uint32_t n_ff,
     uint32_t router_offset, uint32_t hidden_offset, uint32_t stride);
 int qw3_metal_session_batch_silu_mul_scratch_to_scratch(
     qw3_metal_session *s, uint32_t n_tokens, uint32_t n,

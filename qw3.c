@@ -810,13 +810,44 @@ static int qw3_metal_prefill_batch_size(void) {
 
 static int qw3_session_prefill_batch_size(const qw3_session *s) {
     if (!s || !s->engine) return 1;
-    if (s->engine->ssd_streaming) return 1;
+    if (s->engine->ssd_streaming) {
+        const char *env = getenv("QW3_METAL_STREAMING_PREFILL_BATCH");
+        if (!env || !env[0] || strcmp(env, "0") == 0) return 1;
+        long v = 128;
+        char *end = NULL;
+        long parsed = strtol(env, &end, 10);
+        if (end != env && parsed > 1) v = parsed;
+        if (v > 256) v = 256;
+        if (s->engine->ssd_streaming_cache_experts > 0) {
+            long max_by_cache =
+                (long)(s->engine->ssd_streaming_cache_experts / QW3_N_EXPERT_USED);
+            if (max_by_cache < 1) return 1;
+            if (v > max_by_cache) v = max_by_cache;
+        }
+        return (int)v;
+    }
 #ifndef QW3_NO_METAL
     if (qw3_session_uses_partial_metal(s)) return 1;
     return qw3_metal_prefill_batch_size();
 #else
     return 1;
 #endif
+}
+
+static int qw3_session_effective_prefill_batch_size(const qw3_session *s,
+                                                    int n_tokens) {
+    const int batch = qw3_session_prefill_batch_size(s);
+    if (batch <= 1 || !s || !s->engine || !s->engine->ssd_streaming) {
+        return batch;
+    }
+    long min_tokens = 64;
+    const char *env = getenv("QW3_METAL_STREAMING_PREFILL_BATCH_MIN");
+    if (env && env[0]) {
+        char *end = NULL;
+        long parsed = strtol(env, &end, 10);
+        if (end != env && parsed > 1) min_tokens = parsed;
+    }
+    return n_tokens >= min_tokens ? batch : 1;
 }
 
 static void qw3_count_layer_types_before(int n_layers,
@@ -3392,7 +3423,9 @@ static uint32_t qw3_streaming_expert_preload_count(const qw3_engine *e) {
     if (preload == 0) {
         preload = e->ssd_streaming_cache_experts;
         const char *env = getenv("QW3_METAL_STREAMING_EXPERT_AUTO_PRELOAD_CAP");
-        uint32_t cap = 4096;
+        const char *batch_env = getenv("QW3_METAL_STREAMING_PREFILL_BATCH");
+        uint32_t cap =
+            (batch_env && batch_env[0] && strcmp(batch_env, "0") != 0) ? 128 : 512;
         if (env && env[0]) {
             char *end = NULL;
             errno = 0;
@@ -3401,7 +3434,7 @@ static uint32_t qw3_streaming_expert_preload_count(const qw3_engine *e) {
                 cap = v > UINT32_MAX ? UINT32_MAX : (uint32_t)v;
             }
         }
-        if (cap != 0 && preload > cap) preload = cap;
+        if (preload > cap) preload = cap;
     }
     if (preload > e->ssd_streaming_cache_experts) {
         preload = e->ssd_streaming_cache_experts;
@@ -4820,7 +4853,8 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
     }
 #ifndef QW3_NO_METAL
     if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal) {
-        const int prefill_batch = qw3_session_prefill_batch_size(s);
+        const int prefill_batch =
+            qw3_session_effective_prefill_batch_size(s, total_prefill);
         if (prefill_batch > 1) {
             for (int i = common; i < prompt->len;) {
                 int n = prompt->len - i;
@@ -10357,7 +10391,7 @@ int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
                  qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                      s->metal, lw->ffn_gate_exps->offset,
                      lw->ffn_up_exps->offset, lw->ffn_down_exps->offset,
-                     (uint32_t)lw->ffn_down_exps->type, n_tokens,
+                     (uint32_t)lw->ffn_down_exps->type, 0, n_tokens,
                      QW3_N_EXPERT_USED, QW3_N_EMBD, QW3_N_FF_EXP,
                      router_offset, moe_hidden_offset, stage_stride) &&
                  qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
@@ -12901,7 +12935,7 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
                 ok = qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                     s->metal, lw->ffn_gate_exps->offset,
                     lw->ffn_up_exps->offset, lw->ffn_down_exps->offset,
-                    (uint32_t)lw->ffn_down_exps->type, ntok,
+                    (uint32_t)lw->ffn_down_exps->type, (uint32_t)il, ntok,
                     QW3_N_EXPERT_USED, QW3_N_EMBD, QW3_N_FF_EXP,
                     router_offset, moe_hidden_offset, stage_stride);
             }
@@ -13919,7 +13953,8 @@ int qw3_engine_metal_greedy_run(qw3_engine *e, const qw3_tokens *prompt,
     char err[256] = {0};
     int ok = qw3_session_create(&gpu, e, ctx_size) == 0;
     const double t_prefill0 = qw3_now_sec();
-    const int prefill_batch = qw3_session_prefill_batch_size(gpu);
+    const int prefill_batch =
+        qw3_session_effective_prefill_batch_size(gpu, prompt->len);
     if (prefill_batch > 1) {
         for (int i = 0; ok && i < prompt->len;) {
             int n = prompt->len - i;
@@ -14035,7 +14070,8 @@ int qw3_engine_metal_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
 
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
-    const int prefill_batch = qw3_session_prefill_batch_size(s);
+    const int prefill_batch =
+        qw3_session_effective_prefill_batch_size(s, prompt->len);
      
     if (prefill_batch > 1) {
         for (int i = 0; i < prompt->len;) {
@@ -14169,7 +14205,8 @@ int qw3_engine_metal_generate_sample(qw3_engine *e, const qw3_tokens *prompt,
 
     /* --- Prefill phase --- */
     const double t_prefill_start = qw3_now_sec();
-    const int prefill_batch = qw3_session_prefill_batch_size(s);
+    const int prefill_batch =
+        qw3_session_effective_prefill_batch_size(s, prompt->len);
     if (prefill_batch > 1) {
         for (int i = 0; i < prompt->len;) {
             int n = prompt->len - i;

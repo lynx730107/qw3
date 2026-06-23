@@ -174,7 +174,8 @@ cache. This is intended for smaller unified-memory machines.
 Conservative 16 GB-style command with a usable coding context:
 
 ```sh
-./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+QW3_METAL_STREAMING_PREFILL_BATCH=128 ./qw3-cli \
+  -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 32000 --kv-f16 --nothink \
   --ssd-streaming --streaming-cache 4gb \
   -p "ciao" -n 16
@@ -205,6 +206,27 @@ and renders C/C++-oriented audit/implementation prompts; use your own real
 coding-agent transcripts as additional profile input when available. The default
 20-task prompt is sized for `--ctx 32000`; raise it only when using a larger
 context or when profiling prompts in separate runs.
+
+At shutdown, SSD streaming prints cache telemetry: requests, hits, misses,
+loads, evictions, unique `(layer, expert)` pairs, estimated full-residency
+budget, resident slots, copied MiB, and preload/dynamic split. If it reports
+cache churn, the hotlist is probably mismatched for the prompt or the cache is
+too small; try `--ssd-streaming-cold`, lower `--streaming-preload`, or increase
+`--streaming-cache`.
+
+Automatic hotlist preload is intentionally conservative and caps at 512 experts
+unless overridden. Use `--streaming-preload N` to force a larger preload, or
+`--ssd-streaming-cold` to disable preload completely.
+
+SSD streaming prefill batching is available behind
+`QW3_METAL_STREAMING_PREFILL_BATCH`. Set it to `1` for the current default
+batch of 128 tokens, or set a numeric token batch directly. The value is clamped
+to the expert-cache capacity so a batch cannot reference more live expert slots
+than the cache can hold. The batch path is skipped for prompts below 64 tokens
+by default; override with `QW3_METAL_STREAMING_PREFILL_BATCH_MIN=N`. When batch
+streaming is enabled, automatic hotlist preload caps at 128 experts unless
+overridden, because the prefill quickly fills the cache with prompt-specific
+experts.
 
 ## Validation
 

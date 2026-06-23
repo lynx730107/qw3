@@ -182,6 +182,28 @@ typedef struct {
     uint8_t valid;
 } qw3_streaming_expert_slot;
 
+typedef struct {
+    uint64_t requests;
+    uint64_t hits;
+    uint64_t misses;
+    uint64_t loads;
+    uint64_t evictions;
+    uint64_t preload_requests;
+    uint64_t preload_hits;
+    uint64_t preload_loads;
+    uint64_t dynamic_requests;
+    uint64_t dynamic_hits;
+    uint64_t dynamic_loads;
+    uint64_t bytes_copied;
+    uint64_t failures;
+    uint64_t allocations;
+    uint32_t unique_pairs;
+    uint32_t unique_preload_pairs;
+    uint32_t unique_dynamic_pairs;
+    uint32_t resident_slots;
+    uint32_t max_slots;
+} qw3_streaming_cache_stats;
+
 static qw3_streaming_expert_slot *g_streaming_expert_slots;
 static uint32_t g_streaming_expert_slot_count;
 static uint64_t g_streaming_expert_clock;
@@ -191,6 +213,10 @@ static uint64_t g_streaming_down_stride;
 static id<MTLBuffer> g_streaming_gate_cache;
 static id<MTLBuffer> g_streaming_up_cache;
 static id<MTLBuffer> g_streaming_down_cache;
+static qw3_streaming_cache_stats g_streaming_cache_stats;
+static uint8_t g_streaming_seen_pairs[40u * 256u];
+static uint8_t g_streaming_seen_preload_pairs[40u * 256u];
+static uint8_t g_streaming_seen_dynamic_pairs[40u * 256u];
 static uint64_t *g_expert_profile_hits;
 static char *g_expert_profile_path;
 
@@ -8578,6 +8604,12 @@ uint64_t qw3_gpu_recommended_working_set_size(void) {
 }
 
 void qw3_metal_set_ssd_streaming(int enabled) {
+    if (enabled) {
+        memset(&g_streaming_cache_stats, 0, sizeof(g_streaming_cache_stats));
+        memset(g_streaming_seen_pairs, 0, sizeof(g_streaming_seen_pairs));
+        memset(g_streaming_seen_preload_pairs, 0, sizeof(g_streaming_seen_preload_pairs));
+        memset(g_streaming_seen_dynamic_pairs, 0, sizeof(g_streaming_seen_dynamic_pairs));
+    }
     g_ssd_streaming_mode = enabled ? 1 : 0;
     g_streaming_expert_unavailable_warned = 0;
 }
@@ -8604,6 +8636,88 @@ static void qw3_metal_streaming_cache_reset(void) {
     g_streaming_gate_cache = nil;
     g_streaming_up_cache = nil;
     g_streaming_down_cache = nil;
+    g_streaming_cache_stats.resident_slots = 0;
+    g_streaming_cache_stats.max_slots = 0;
+}
+
+static void qw3_metal_streaming_cache_stats_record_pair(uint32_t layer,
+                                                        uint32_t expert,
+                                                        int preload) {
+    if (layer >= 40u || expert >= 256u) return;
+    const uint32_t idx = layer * 256u + expert;
+    if (!g_streaming_seen_pairs[idx]) {
+        g_streaming_seen_pairs[idx] = 1;
+        g_streaming_cache_stats.unique_pairs++;
+    }
+    if (preload) {
+        if (!g_streaming_seen_preload_pairs[idx]) {
+            g_streaming_seen_preload_pairs[idx] = 1;
+            g_streaming_cache_stats.unique_preload_pairs++;
+        }
+    } else if (!g_streaming_seen_dynamic_pairs[idx]) {
+        g_streaming_seen_dynamic_pairs[idx] = 1;
+        g_streaming_cache_stats.unique_dynamic_pairs++;
+    }
+}
+
+static void qw3_metal_streaming_cache_stats_dump(void) {
+    const uint64_t activity =
+        g_streaming_cache_stats.requests +
+        g_streaming_cache_stats.loads +
+        g_streaming_cache_stats.allocations +
+        g_streaming_cache_stats.failures;
+    if (activity == 0) return;
+
+    const double hit_rate =
+        g_streaming_cache_stats.requests != 0 ?
+        (100.0 * (double)g_streaming_cache_stats.hits /
+         (double)g_streaming_cache_stats.requests) : 0.0;
+    const double copied_mib =
+        (double)g_streaming_cache_stats.bytes_copied / (1024.0 * 1024.0);
+    const uint64_t slot_bytes =
+        g_streaming_gate_stride + g_streaming_up_stride + g_streaming_down_stride;
+    const double unique_cache_gib =
+        (double)slot_bytes * (double)g_streaming_cache_stats.unique_pairs /
+        (1024.0 * 1024.0 * 1024.0);
+    fprintf(stderr,
+            "qw3: SSD streaming cache stats: requests=%llu hits=%llu misses=%llu hit_rate=%.1f%% loads=%llu evictions=%llu resident=%u/%u\n",
+            (unsigned long long)g_streaming_cache_stats.requests,
+            (unsigned long long)g_streaming_cache_stats.hits,
+            (unsigned long long)g_streaming_cache_stats.misses,
+            hit_rate,
+            (unsigned long long)g_streaming_cache_stats.loads,
+            (unsigned long long)g_streaming_cache_stats.evictions,
+            g_streaming_cache_stats.resident_slots,
+            g_streaming_cache_stats.max_slots);
+    fprintf(stderr,
+            "qw3: SSD streaming cache stats: unique pairs total/preload/dynamic=%u/%u/%u estimated_full_residency=%.2f GiB\n",
+            g_streaming_cache_stats.unique_pairs,
+            g_streaming_cache_stats.unique_preload_pairs,
+            g_streaming_cache_stats.unique_dynamic_pairs,
+            unique_cache_gib);
+    fprintf(stderr,
+            "qw3: SSD streaming cache stats: preload req/hit/load=%llu/%llu/%llu dynamic req/hit/load=%llu/%llu/%llu copied=%.2f MiB failures=%llu allocations=%llu\n",
+            (unsigned long long)g_streaming_cache_stats.preload_requests,
+            (unsigned long long)g_streaming_cache_stats.preload_hits,
+            (unsigned long long)g_streaming_cache_stats.preload_loads,
+            (unsigned long long)g_streaming_cache_stats.dynamic_requests,
+            (unsigned long long)g_streaming_cache_stats.dynamic_hits,
+            (unsigned long long)g_streaming_cache_stats.dynamic_loads,
+            copied_mib,
+            (unsigned long long)g_streaming_cache_stats.failures,
+            (unsigned long long)g_streaming_cache_stats.allocations);
+    if (g_streaming_cache_stats.evictions != 0 &&
+        g_streaming_cache_stats.dynamic_loads != 0) {
+        fprintf(stderr,
+                "qw3: SSD streaming cache churn detected; consider a larger --streaming-cache, a smaller --streaming-preload, --ssd-streaming-cold, or a hotlist profiled for this workload\n");
+    }
+    if (g_streaming_cache_stats.unique_pairs > g_streaming_cache_stats.max_slots &&
+        g_streaming_cache_stats.max_slots != 0) {
+        fprintf(stderr,
+                "qw3: SSD streaming working set exceeds cache slots (%u unique pairs > %u slots); evictions are expected unless the workload is batched or cache budget grows\n",
+                g_streaming_cache_stats.unique_pairs,
+                g_streaming_cache_stats.max_slots);
+    }
 }
 
 typedef struct {
@@ -8736,6 +8850,8 @@ static int qw3_metal_streaming_cache_ensure(uint32_t budget,
     g_streaming_gate_stride = gate_stride;
     g_streaming_up_stride = up_stride;
     g_streaming_down_stride = down_stride;
+    g_streaming_cache_stats.allocations++;
+    g_streaming_cache_stats.max_slots = budget;
     fprintf(stderr,
             "qw3: SSD streaming expert cache allocated %u slots (gate %.2f MiB, up %.2f MiB, down %.2f MiB per slot)\n",
             budget,
@@ -8749,12 +8865,13 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     uint64_t gate_offset, uint64_t up_offset, uint64_t down_offset,
     uint32_t gate_type, uint32_t up_type, uint32_t down_type,
     uint32_t expert, uint32_t n_in, uint32_t n_ff,
-    uint32_t layer, uint32_t priority, uint32_t *slot_out) {
+    uint32_t layer, uint32_t priority, int preload, uint32_t *slot_out) {
     if (slot_out) *slot_out = UINT32_MAX;
     if (!g_ssd_streaming_mode) return 1;
     if (!slot_out || !g_model_map_ptr || g_streaming_expert_cache_budget == 0 ||
         n_in == 0 || n_ff == 0 || (n_in % 256u) != 0 ||
         (n_ff % 256u) != 0 || expert >= 256u) {
+        g_streaming_cache_stats.failures++;
         return 0;
     }
     if (gate_type != 21 || up_type != 21 ||
@@ -8762,6 +8879,7 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
         fprintf(stderr,
                 "qw3: SSD streaming unsupported expert tensor types gate=%u up=%u down=%u\n",
                 gate_type, up_type, down_type);
+        g_streaming_cache_stats.failures++;
         return 0;
     }
 
@@ -8775,13 +8893,22 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     const uint64_t down_stride = q6_down_row_bytes * (uint64_t)n_in;
     if (gate_bytes == 0 || up_bytes == 0 || down_bytes == 0 ||
         down_stride == 0) {
+        g_streaming_cache_stats.failures++;
         return 0;
     }
     if (!qw3_metal_streaming_cache_ensure(g_streaming_expert_cache_budget,
                                           gate_bytes, up_bytes, down_stride)) {
+        g_streaming_cache_stats.failures++;
         return 0;
     }
 
+    g_streaming_cache_stats.requests++;
+    if (preload) {
+        g_streaming_cache_stats.preload_requests++;
+    } else {
+        g_streaming_cache_stats.dynamic_requests++;
+    }
+    qw3_metal_streaming_cache_stats_record_pair(layer, expert, preload);
     g_streaming_expert_clock++;
     for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
         qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
@@ -8789,9 +8916,16 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
             slot->down_type == down_type) {
             slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
             *slot_out = i;
+            g_streaming_cache_stats.hits++;
+            if (preload) {
+                g_streaming_cache_stats.preload_hits++;
+            } else {
+                g_streaming_cache_stats.dynamic_hits++;
+            }
             return 1;
         }
     }
+    g_streaming_cache_stats.misses++;
 
     uint32_t victim = UINT32_MAX;
     uint64_t oldest = UINT64_MAX;
@@ -8806,7 +8940,10 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
             victim = i;
         }
     }
-    if (victim == UINT32_MAX) return 0;
+    if (victim == UINT32_MAX) {
+        g_streaming_cache_stats.failures++;
+        return 0;
+    }
 
     const uint64_t gate_src = gate_offset + (uint64_t)expert * gate_bytes;
     const uint64_t up_src = up_offset + (uint64_t)expert * up_bytes;
@@ -8817,9 +8954,11 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
         fprintf(stderr,
                 "qw3: SSD streaming expert %u/%u points outside GGUF mapping\n",
                 layer, expert);
+        g_streaming_cache_stats.failures++;
         return 0;
     }
 
+    const int replacing_valid = g_streaming_expert_slots[victim].valid != 0;
     memcpy((uint8_t *)g_streaming_gate_cache.contents +
                (uint64_t)victim * g_streaming_gate_stride,
            (const uint8_t *)g_model_map_ptr + gate_src,
@@ -8840,6 +8979,18 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
     slot->valid = 1;
     *slot_out = victim;
+    g_streaming_cache_stats.loads++;
+    if (preload) {
+        g_streaming_cache_stats.preload_loads++;
+    } else {
+        g_streaming_cache_stats.dynamic_loads++;
+    }
+    if (replacing_valid) {
+        g_streaming_cache_stats.evictions++;
+    } else if (g_streaming_cache_stats.resident_slots < g_streaming_expert_slot_count) {
+        g_streaming_cache_stats.resident_slots++;
+    }
+    g_streaming_cache_stats.bytes_copied += gate_bytes + up_bytes + down_bytes;
     return 1;
 }
 
@@ -8863,7 +9014,7 @@ int qw3_metal_stream_expert_ensure_loaded(
     return qw3_metal_stream_expert_ensure_loaded_slot(
         gate_offset, up_offset, down_offset,
         gate_type, up_type, down_type,
-        expert, n_in, n_ff, layer, priority, &slot);
+        expert, n_in, n_ff, layer, priority, 1, &slot);
 }
 
 int qw3_metal_begin_commands(void) {
@@ -13369,8 +13520,8 @@ static int qw3_metal_session_sparse_moe_topk_batch(qw3_metal_session *s,
 
 int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
-    uint64_t down_offset, uint32_t down_type, uint32_t n_tokens,
-    uint32_t n_active, uint32_t n_embd, uint32_t n_ff,
+    uint64_t down_offset, uint32_t down_type, uint32_t layer,
+    uint32_t n_tokens, uint32_t n_active, uint32_t n_embd, uint32_t n_ff,
     uint32_t router_offset, uint32_t hidden_offset, uint32_t stride) {
     if (!s || !s->obj || n_tokens == 0 || n_active == 0 || n_active > 8 ||
         n_embd == 0 || n_ff == 0 || (n_embd % 256) != 0 ||
@@ -13389,8 +13540,10 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
     const uint64_t x_bytes = (uint64_t)n_tokens * n_embd * sizeof(float);
     const uint64_t scratch_bytes = (uint64_t)n_tokens * stride * sizeof(float);
+    const int streaming_moe = g_ssd_streaming_mode != 0;
     const int use_mapped_gateup =
-        n_tokens >= 32 && getenv("QW3_METAL_MOE_MAP_GATEUP_DISABLE") == NULL;
+        !streaming_moe && n_tokens >= 32 &&
+        getenv("QW3_METAL_MOE_MAP_GATEUP_DISABLE") == NULL;
     const int use_mapped_mpp =
         g_metal4_tensor_api_enabled &&
         getenv("QW3_METAL_MOE_MPP_DISABLE") == NULL;
@@ -13414,7 +13567,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         getenv("QW3_METAL_MOE_MPP_GATEUP_DISABLE") == NULL &&
         getenv("QW3_METAL_MOE_MPP_GATEUP_PAIR_DISABLE") == NULL;
     const int use_mapped_down =
-        (down_type == 23 || down_type == 14) && n_tokens >= 32 &&
+        !streaming_moe && (down_type == 23 || down_type == 14) && n_tokens >= 32 &&
         getenv("QW3_METAL_MOE_MAP_DOWN_DISABLE") == NULL;
     const int use_mapped_mid_f16 =
         down_type == 23 && use_mapped_gateup && use_mapped_down &&
@@ -13455,10 +13608,24 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         return 0;
     }
 
+    const uint64_t pair_count = (uint64_t)n_tokens * (uint64_t)n_active;
+    if (pair_count > UINT32_MAX) return 0;
+    const int profile_experts = qw3_metal_expert_profile_enabled();
+    int *router_ids_readback = NULL;
+    if (streaming_moe || profile_experts) {
+        router_ids_readback = calloc((size_t)pair_count, sizeof(router_ids_readback[0]));
+        if (!router_ids_readback) return 0;
+    }
+
     if (!qw3_metal_session_batch_router_topk_from_scratch(
             s, n_tokens, router_offset, stride, QW3_METAL_N_EXPERT,
-            n_active, NULL, NULL)) {
+            n_active, router_ids_readback, NULL)) {
+        free(router_ids_readback);
         return 0;
+    }
+    if (profile_experts && router_ids_readback) {
+        qw3_metal_expert_profile_record(
+            layer, (const int32_t *)router_ids_readback, (uint32_t)pair_count);
     }
     if (!qw3_metal_batch_barrier()) return 0;
 
@@ -13472,26 +13639,116 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
     const uint64_t up_tensor_bytes = iq3_expert_bytes * 256ull;
     const uint64_t down_tensor_bytes = down_expert_bytes * 256ull;
     uint64_t gate_inner = 0, up_inner = 0, down_inner = 0;
-    id<MTLBuffer> gate_w =
-        qw3_metal_model_view_for(gate_offset, gate_tensor_bytes, &gate_inner);
-    id<MTLBuffer> up_w =
-        qw3_metal_model_view_for(up_offset, up_tensor_bytes, &up_inner);
-    id<MTLBuffer> down_w =
-        qw3_metal_model_view_for(down_offset, down_tensor_bytes, &down_inner);
-    if (!gate_w) {
-        gate_w = qw3_metal_model_temp_buffer_for(
-            gate_offset, gate_tensor_bytes, &gate_inner);
+    uint64_t iq3_expert_bytes_for_args = iq3_expert_bytes;
+    uint64_t down_expert_bytes_for_args = down_expert_bytes;
+    id<MTLBuffer> ids_for_moe = obj.routerIds;
+    id<MTLBuffer> gate_w = nil;
+    id<MTLBuffer> up_w = nil;
+    id<MTLBuffer> down_w = nil;
+
+    if (streaming_moe) {
+        const uint64_t ids_bytes = pair_count * sizeof(int32_t);
+        if (layer >= 40u || !router_ids_readback) {
+            free(router_ids_readback);
+            return 0;
+        }
+        uint8_t batch_seen_experts[256] = {0};
+        uint32_t batch_priority[256] = {0};
+        uint32_t slot_by_expert[256];
+        uint32_t batch_experts[256];
+        uint32_t batch_unique_experts = 0;
+        for (uint32_t expert = 0; expert < 256u; expert++) {
+            slot_by_expert[expert] = UINT32_MAX;
+        }
+        for (uint64_t i = 0; i < pair_count; i++) {
+            const int expert = router_ids_readback[i];
+            if (expert < 0 || expert >= 256) {
+                free(router_ids_readback);
+                return 0;
+            }
+            const uint32_t priority = (uint32_t)(pair_count - i);
+            if (!batch_seen_experts[expert]) {
+                batch_seen_experts[expert] = 1;
+                batch_priority[expert] = priority;
+                batch_experts[batch_unique_experts] = (uint32_t)expert;
+                batch_unique_experts++;
+            } else if (priority > batch_priority[expert]) {
+                batch_priority[expert] = priority;
+            }
+        }
+        if (g_streaming_expert_cache_budget != 0 &&
+            batch_unique_experts > g_streaming_expert_cache_budget) {
+            fprintf(stderr,
+                    "qw3: SSD streaming batch needs %u experts but cache has %u slots; reduce QW3_METAL_STREAMING_PREFILL_BATCH or increase --streaming-cache\n",
+                    batch_unique_experts, g_streaming_expert_cache_budget);
+            free(router_ids_readback);
+            return 0;
+        }
+        if (!obj.streamingSlotIds ||
+            obj.streamingSlotIds.length < (NSUInteger)ids_bytes) {
+            obj.streamingSlotIds =
+                [g_device newBufferWithLength:(NSUInteger)ids_bytes
+                                      options:MTLResourceStorageModeShared];
+        }
+        if (!obj.streamingSlotIds) {
+            free(router_ids_readback);
+            return 0;
+        }
+
+        int32_t *slot_ids = (int32_t *)obj.streamingSlotIds.contents;
+        for (uint32_t ei = 0; ei < batch_unique_experts; ei++) {
+            const uint32_t expert = batch_experts[ei];
+            uint32_t slot = UINT32_MAX;
+            if (!qw3_metal_stream_expert_ensure_loaded_slot(
+                    gate_offset, up_offset, down_offset,
+                    21, 21, down_type, expert,
+                    n_embd, n_ff, layer, batch_priority[expert], 0, &slot)) {
+                free(router_ids_readback);
+                return 0;
+            }
+            slot_by_expert[expert] = slot;
+        }
+        for (uint64_t i = 0; i < pair_count; i++) {
+            const int expert = router_ids_readback[i];
+            if (expert < 0 || expert >= 256 ||
+                slot_by_expert[expert] == UINT32_MAX) {
+                free(router_ids_readback);
+                return 0;
+            }
+            slot_ids[i] = (int32_t)slot_by_expert[expert];
+        }
+        ids_for_moe = obj.streamingSlotIds;
+        gate_w = g_streaming_gate_cache;
+        up_w = g_streaming_up_cache;
+        down_w = g_streaming_down_cache;
+        iq3_expert_bytes_for_args = g_streaming_gate_stride;
+        down_expert_bytes_for_args = g_streaming_down_stride;
+        gate_inner = 0;
+        up_inner = 0;
+        down_inner = 0;
+    } else {
+        gate_w =
+            qw3_metal_model_view_for(gate_offset, gate_tensor_bytes, &gate_inner);
+        up_w =
+            qw3_metal_model_view_for(up_offset, up_tensor_bytes, &up_inner);
+        down_w =
+            qw3_metal_model_view_for(down_offset, down_tensor_bytes, &down_inner);
+        if (!gate_w) {
+            gate_w = qw3_metal_model_temp_buffer_for(
+                gate_offset, gate_tensor_bytes, &gate_inner);
+        }
+        if (!up_w) {
+            up_w = qw3_metal_model_temp_buffer_for(
+                up_offset, up_tensor_bytes, &up_inner);
+        }
+        if (!down_w) {
+            down_w = qw3_metal_model_temp_buffer_for(
+                down_offset, down_tensor_bytes, &down_inner);
+        }
     }
-    if (!up_w) {
-        up_w = qw3_metal_model_temp_buffer_for(
-            up_offset, up_tensor_bytes, &up_inner);
-    }
-    if (!down_w) {
-        down_w = qw3_metal_model_temp_buffer_for(
-            down_offset, down_tensor_bytes, &down_inner);
-    }
+    free(router_ids_readback);
     id<MTLBuffer> kgb = qw3_metal_iq3s_expanded_kgrid_buffer();
-    if (!gate_w || !up_w || !down_w || !kgb) return 0;
+    if (!gate_w || !up_w || !down_w || !kgb || !ids_for_moe) return 0;
 
     struct {
         uint32_t n_in;
@@ -13509,8 +13766,8 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         uint32_t mid_preweighted;
     } args = {
         n_embd, n_ff, n_embd, n_tokens, n_active,
-        (uint32_t)iq3_row_bytes, (uint32_t)iq3_expert_bytes,
-        (uint32_t)down_row_bytes, (uint32_t)down_expert_bytes,
+        (uint32_t)iq3_row_bytes, (uint32_t)iq3_expert_bytes_for_args,
+        (uint32_t)down_row_bytes, (uint32_t)down_expert_bytes_for_args,
         stride, hidden_offset, (uint32_t)use_compact_moe_blocks,
         (uint32_t)use_mapped_mid_preweighted
     };
@@ -13708,7 +13965,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         [enc setBuffer:obj.prefillX1 offset:0 atIndex:3];
         [enc setBuffer:obj.prefillScratch offset:0 atIndex:4];
         [enc setBuffer:kgb offset:0 atIndex:5];
-        [enc setBuffer:obj.routerIds offset:0 atIndex:6];
+        [enc setBuffer:ids_for_moe offset:0 atIndex:6];
         [enc setThreadgroupMemoryLength:64 * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(((n_ff + 7u) / 8u) *
                                               n_active * n_tokens, 1, 1)
@@ -13789,7 +14046,7 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
         [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];
         [enc setBuffer:obj.prefillX0 offset:0 atIndex:3];
-        [enc setBuffer:obj.routerIds offset:0 atIndex:4];
+        [enc setBuffer:ids_for_moe offset:0 atIndex:4];
         [enc setBuffer:obj.routerWeights offset:0 atIndex:5];
         [enc setThreadgroupMemoryLength:16 * sizeof(float) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(((n_embd + 1u) / 2u) * n_tokens,
@@ -14079,7 +14336,7 @@ int qw3_metal_session_sparse_moe_topk_from_router_scratch(qw3_metal_session *s,
             if (!qw3_metal_stream_expert_ensure_loaded_slot(
                     gate_offset, up_offset, down_offset,
                     21, 21, down_type, (uint32_t)router_ids[kk],
-                    n_embd, n_ff, layer, n_active - kk, &slot)) {
+                    n_embd, n_ff, layer, n_active - kk, 0, &slot)) {
                 return 0;
             }
             slot_ids[kk] = (int32_t)slot;
@@ -16052,7 +16309,12 @@ void qw3_metal_cleanup(void) {
     g_streaming_expert_cache_budget = 0;
     g_streaming_expert_unavailable_warned = 0;
     qw3_metal_expert_profile_dump();
+    qw3_metal_streaming_cache_stats_dump();
     qw3_metal_streaming_cache_reset();
+    memset(&g_streaming_cache_stats, 0, sizeof(g_streaming_cache_stats));
+    memset(g_streaming_seen_pairs, 0, sizeof(g_streaming_seen_pairs));
+    memset(g_streaming_seen_preload_pairs, 0, sizeof(g_streaming_seen_preload_pairs));
+    memset(g_streaming_seen_dynamic_pairs, 0, sizeof(g_streaming_seen_dynamic_pairs));
     g_initialized = 0;
 }
 
