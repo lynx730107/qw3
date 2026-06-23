@@ -842,6 +842,12 @@ static void usage(void)
             "              Size of GPU cache for streaming experts (count or budget in GiB)\n"
             "  --streaming-preload N\n"
             "              Number of experts to pre-load from hotlist (default: auto)\n"
+            "  --streaming-prefill-batch [N]\n"
+            "              Enable SSD streaming batch prefill (default batch: 128)\n"
+            "  --streaming-prefill-batch-min N\n"
+            "              Minimum prompt tokens before streaming batch prefill (default: 64)\n"
+            "  --no-streaming-prefill-batch\n"
+            "              Disable SSD streaming batch prefill\n"
             "  --simulate-used-memory NNgb\n"
             "              Simulate NN GiB of system memory being locked before loading\n"
             "  --simulate-total-memory NNgb\n"
@@ -1054,6 +1060,8 @@ int main(int argc, char **argv)
     uint32_t ssd_streaming_cache_experts = 0;
     uint64_t ssd_streaming_cache_bytes = 0;
     uint32_t ssd_streaming_preload_experts = 0;
+    int streaming_prefill_batch = -1;
+    int streaming_prefill_batch_min = -1;
     uint64_t simulate_used_memory_bytes = 0;
     uint64_t simulate_total_memory_bytes = 0;
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
@@ -1229,6 +1237,40 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--streaming-preload") == 0 && i + 1 < argc)
         {
             ssd_streaming_preload_experts = (uint32_t)atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--streaming-prefill-batch") == 0)
+        {
+            streaming_prefill_batch = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+            {
+                char *end = NULL;
+                long v = strtol(argv[++i], &end, 10);
+                if (end == argv[i] || *end != '\0' || v < 1 || v > 256)
+                {
+                    fprintf(stderr,
+                            "qw3: invalid --streaming-prefill-batch '%s' (expected 1..256)\n",
+                            argv[i]);
+                    return 1;
+                }
+                streaming_prefill_batch = (int)v;
+            }
+        }
+        else if (strcmp(argv[i], "--streaming-prefill-batch-min") == 0 && i + 1 < argc)
+        {
+            char *end = NULL;
+            long v = strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || v < 1 || v > 4096)
+            {
+                fprintf(stderr,
+                        "qw3: invalid --streaming-prefill-batch-min '%s' (expected 1..4096)\n",
+                        argv[i]);
+                return 1;
+            }
+            streaming_prefill_batch_min = (int)v;
+        }
+        else if (strcmp(argv[i], "--no-streaming-prefill-batch") == 0)
+        {
+            streaming_prefill_batch = 0;
         }
         else if (strcmp(argv[i], "--simulate-used-memory") == 0 && i + 1 < argc)
         {
@@ -1823,6 +1865,30 @@ int main(int argc, char **argv)
                     cache_type_k);
             return 1;
         }
+    }
+    if (streaming_prefill_batch >= 0)
+    {
+        if (!ssd_streaming)
+        {
+            fprintf(stderr,
+                    "qw3: --streaming-prefill-batch requires --ssd-streaming\n");
+            return 1;
+        }
+        char batch_env[16];
+        snprintf(batch_env, sizeof(batch_env), "%d", streaming_prefill_batch);
+        setenv("QW3_METAL_STREAMING_PREFILL_BATCH", batch_env, 1);
+    }
+    if (streaming_prefill_batch_min >= 0)
+    {
+        if (!ssd_streaming)
+        {
+            fprintf(stderr,
+                    "qw3: --streaming-prefill-batch-min requires --ssd-streaming\n");
+            return 1;
+        }
+        char min_env[16];
+        snprintf(min_env, sizeof(min_env), "%d", streaming_prefill_batch_min);
+        setenv("QW3_METAL_STREAMING_PREFILL_BATCH_MIN", min_env, 1);
     }
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
     if (backend == QW3_BACKEND_METAL &&

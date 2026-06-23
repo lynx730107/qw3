@@ -174,10 +174,9 @@ cache. This is intended for smaller unified-memory machines.
 Conservative 16 GB-style command with a usable coding context:
 
 ```sh
-QW3_METAL_STREAMING_PREFILL_BATCH=128 ./qw3-cli \
-  -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 32000 --kv-f16 --nothink \
-  --ssd-streaming --streaming-cache 4gb \
+  --ssd-streaming --streaming-cache 4gb --streaming-prefill-batch \
   -p "ciao" -n 16
 ```
 
@@ -218,15 +217,14 @@ Automatic hotlist preload is intentionally conservative and caps at 512 experts
 unless overridden. Use `--streaming-preload N` to force a larger preload, or
 `--ssd-streaming-cold` to disable preload completely.
 
-SSD streaming prefill batching is available behind
-`QW3_METAL_STREAMING_PREFILL_BATCH`. Set it to `1` for the current default
-batch of 128 tokens, or set a numeric token batch directly. The value is clamped
-to the expert-cache capacity so a batch cannot reference more live expert slots
-than the cache can hold. The batch path is skipped for prompts below 64 tokens
-by default; override with `QW3_METAL_STREAMING_PREFILL_BATCH_MIN=N`. When batch
-streaming is enabled, automatic hotlist preload caps at 128 experts unless
-overridden, because the prefill quickly fills the cache with prompt-specific
-experts.
+SSD streaming prefill batching is enabled with `--streaming-prefill-batch`.
+Pass a numeric value, for example `--streaming-prefill-batch 64`, to force a
+specific token batch. The default is 128 and the value is clamped to the
+expert-cache capacity so a batch cannot reference more live expert slots than
+the cache can hold. The batch path is skipped for prompts below 64 tokens by
+default; override with `--streaming-prefill-batch-min N`. When batch streaming
+is enabled, automatic hotlist preload caps at 128 experts unless overridden,
+because the prefill quickly fills the cache with prompt-specific experts.
 
 ## Validation
 

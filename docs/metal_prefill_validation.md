@@ -104,10 +104,10 @@ Expert profile workflow:
   `QW3_METAL_STREAMING_PREFILL_BATCH` enabled, the auto cap drops to 128 experts
   unless overridden.
 - Experimental SSD streaming batch prefill is enabled with
-  `QW3_METAL_STREAMING_PREFILL_BATCH=1` or a numeric token batch such as
-  `QW3_METAL_STREAMING_PREFILL_BATCH=128`. The default opt-in value is 128 and
-  it is clamped by the expert-cache slot count. Prompts below 64 tokens keep the
-  token path unless `QW3_METAL_STREAMING_PREFILL_BATCH_MIN` lowers the threshold.
+  `--streaming-prefill-batch` or a numeric token batch such as
+  `--streaming-prefill-batch 128`. The default opt-in value is 128 and it is
+  clamped by the expert-cache slot count. Prompts below 64 tokens keep the token
+  path unless `--streaming-prefill-batch-min N` lowers the threshold.
 - On the M5 24 GB validation machine, a 366-token C/C++ prompt excerpt with
   `--ctx 32000 --kv-f16 --ssd-streaming --simulate-total-memory 16gb
   --streaming-cache 4gb` measured 8.27 tok/s at batch 16, 15.07 tok/s at batch
