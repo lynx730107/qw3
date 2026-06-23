@@ -179,6 +179,7 @@ typedef struct {
     uint32_t expert;
     uint32_t down_type;
     uint64_t last_used;
+    uint64_t pin_epoch;
     uint8_t valid;
 } qw3_streaming_expert_slot;
 
@@ -207,6 +208,8 @@ typedef struct {
 static qw3_streaming_expert_slot *g_streaming_expert_slots;
 static uint32_t g_streaming_expert_slot_count;
 static uint64_t g_streaming_expert_clock;
+static uint64_t g_streaming_expert_pin_epoch;
+static uint64_t g_streaming_expert_pin_clock;
 static uint64_t g_streaming_gate_stride;
 static uint64_t g_streaming_up_stride;
 static uint64_t g_streaming_down_stride;
@@ -8630,6 +8633,8 @@ static void qw3_metal_streaming_cache_reset(void) {
     g_streaming_expert_slots = NULL;
     g_streaming_expert_slot_count = 0;
     g_streaming_expert_clock = 0;
+    g_streaming_expert_pin_epoch = 0;
+    g_streaming_expert_pin_clock = 0;
     g_streaming_gate_stride = 0;
     g_streaming_up_stride = 0;
     g_streaming_down_stride = 0;
@@ -8910,11 +8915,13 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     }
     qw3_metal_streaming_cache_stats_record_pair(layer, expert, preload);
     g_streaming_expert_clock++;
+    const uint64_t active_pin_epoch = g_streaming_expert_pin_epoch;
     for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
         qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
         if (slot->valid && slot->layer == layer && slot->expert == expert &&
             slot->down_type == down_type) {
             slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
+            if (active_pin_epoch != 0) slot->pin_epoch = active_pin_epoch;
             *slot_out = i;
             g_streaming_cache_stats.hits++;
             if (preload) {
@@ -8934,6 +8941,9 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
         if (!slot->valid) {
             victim = i;
             break;
+        }
+        if (active_pin_epoch != 0 && slot->pin_epoch == active_pin_epoch) {
+            continue;
         }
         if (slot->last_used < oldest) {
             oldest = slot->last_used;
@@ -8977,6 +8987,7 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     slot->expert = expert;
     slot->down_type = down_type;
     slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
+    slot->pin_epoch = active_pin_epoch;
     slot->valid = 1;
     *slot_out = victim;
     g_streaming_cache_stats.loads++;
@@ -13696,6 +13707,9 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
         }
 
         int32_t *slot_ids = (int32_t *)obj.streamingSlotIds.contents;
+        g_streaming_expert_pin_clock++;
+        if (g_streaming_expert_pin_clock == 0) g_streaming_expert_pin_clock = 1;
+        g_streaming_expert_pin_epoch = g_streaming_expert_pin_clock;
         for (uint32_t ei = 0; ei < batch_unique_experts; ei++) {
             const uint32_t expert = batch_experts[ei];
             uint32_t slot = UINT32_MAX;
@@ -13703,11 +13717,13 @@ int qw3_metal_session_batch_sparse_moe_topk_from_router_scratch(
                     gate_offset, up_offset, down_offset,
                     21, 21, down_type, expert,
                     n_embd, n_ff, layer, batch_priority[expert], 0, &slot)) {
+                g_streaming_expert_pin_epoch = 0;
                 free(router_ids_readback);
                 return 0;
             }
             slot_by_expert[expert] = slot;
         }
+        g_streaming_expert_pin_epoch = 0;
         for (uint64_t i = 0; i < pair_count; i++) {
             const int expert = router_ids_readback[i];
             if (expert < 0 || expert >= 256 ||

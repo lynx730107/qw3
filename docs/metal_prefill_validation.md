@@ -115,6 +115,10 @@ Expert profile workflow:
   current local sweet spot.
 - Deduplicating router-selected experts per batch and lowering auto-preload to
   128 improved the same 366-token excerpt to 23.71 tok/s in the validation run.
+- Batch remap now pins slots while building the per-batch slot table, so LRU
+  replacement cannot evict an expert already assigned to the active batch. A
+  stress run with `--streaming-cache 512 --streaming-prefill-batch 8` completed
+  without cache lookup failures under heavy churn.
 
 ## 2026-06-11 MoE Fast-Layout Probe Notes
 
