@@ -190,10 +190,9 @@ To build a workload-specific preload hotlist:
 ```sh
 make code-profile-dataset CODE_PROFILE_TASKS=20 CODE_PROFILE_MODE=mixed
 mkdir -p profiles
-QW3_EXPERT_PROFILE=profiles/code.tsv ./qw3-cli \
-  -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 32000 --kv-f16 --nothink \
-  --ssd-streaming --streaming-cache 4gb \
+  --ssd-streaming --streaming-cache 4gb --expert-profile profiles/code.tsv \
   --prompt-file datasets/humaneval-x-cpp/mixed_profile_prompt.txt -n 16
 make hotlist PROFILE=profiles/code.tsv HOTLIST_TOP=4096
 make
@@ -215,7 +214,9 @@ too small; try `--ssd-streaming-cold`, lower `--streaming-preload`, or increase
 
 Automatic hotlist preload is intentionally conservative and caps at 512 experts
 unless overridden. Use `--streaming-preload N` to force a larger preload, or
-`--ssd-streaming-cold` to disable preload completely.
+`--ssd-streaming-cold` to disable preload completely. Use
+`--streaming-hotlist profiles/code.tsv` to test an external profile TSV without
+rebuilding the built-in `qw3_streaming_hotlist.inc`.
 
 SSD streaming prefill batching is enabled with `--streaming-prefill-batch`.
 Use `--streaming-prefill-batch auto` for the same default, or pass a numeric

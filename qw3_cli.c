@@ -842,6 +842,10 @@ static void usage(void)
             "              Size of GPU cache for streaming experts (count or budget in GiB)\n"
             "  --streaming-preload N\n"
             "              Number of experts to pre-load from hotlist (default: auto)\n"
+            "  --streaming-hotlist PATH\n"
+            "              Load startup streaming expert hotlist from a profile TSV\n"
+            "  --expert-profile PATH\n"
+            "              Write routed expert profile TSV at shutdown\n"
             "  --streaming-prefill-batch [auto|N|off]\n"
             "              Configure SSD streaming batch prefill (auto/default batch: 128)\n"
             "  --streaming-prefill-batch-min N\n"
@@ -1060,6 +1064,8 @@ int main(int argc, char **argv)
     uint32_t ssd_streaming_cache_experts = 0;
     uint64_t ssd_streaming_cache_bytes = 0;
     uint32_t ssd_streaming_preload_experts = 0;
+    const char *streaming_hotlist_path = NULL;
+    const char *expert_profile_path = NULL;
     const char *streaming_prefill_batch = NULL;
     int streaming_prefill_batch_min = -1;
     uint64_t simulate_used_memory_bytes = 0;
@@ -1237,6 +1243,14 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--streaming-preload") == 0 && i + 1 < argc)
         {
             ssd_streaming_preload_experts = (uint32_t)atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--streaming-hotlist") == 0 && i + 1 < argc)
+        {
+            streaming_hotlist_path = argv[++i];
+        }
+        else if (strcmp(argv[i], "--expert-profile") == 0 && i + 1 < argc)
+        {
+            expert_profile_path = argv[++i];
         }
         else if (strcmp(argv[i], "--streaming-prefill-batch") == 0)
         {
@@ -1884,6 +1898,20 @@ int main(int argc, char **argv)
             return 1;
         }
         setenv("QW3_METAL_STREAMING_PREFILL_BATCH", streaming_prefill_batch, 1);
+    }
+    if (streaming_hotlist_path)
+    {
+        if (!ssd_streaming)
+        {
+            fprintf(stderr,
+                    "qw3: --streaming-hotlist requires --ssd-streaming\n");
+            return 1;
+        }
+        setenv("QW3_EXPERT_HOTLIST", streaming_hotlist_path, 1);
+    }
+    if (expert_profile_path)
+    {
+        setenv("QW3_EXPERT_PROFILE", expert_profile_path, 1);
     }
     if (streaming_prefill_batch_min >= 0)
     {
