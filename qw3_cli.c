@@ -842,8 +842,8 @@ static void usage(void)
             "              Size of GPU cache for streaming experts (count or budget in GiB)\n"
             "  --streaming-preload N\n"
             "              Number of experts to pre-load from hotlist (default: auto)\n"
-            "  --streaming-prefill-batch [N]\n"
-            "              Enable SSD streaming batch prefill (default batch: 128)\n"
+            "  --streaming-prefill-batch [auto|N|off]\n"
+            "              Configure SSD streaming batch prefill (auto/default batch: 128)\n"
             "  --streaming-prefill-batch-min N\n"
             "              Minimum prompt tokens before streaming batch prefill (default: 64)\n"
             "  --no-streaming-prefill-batch\n"
@@ -1060,7 +1060,7 @@ int main(int argc, char **argv)
     uint32_t ssd_streaming_cache_experts = 0;
     uint64_t ssd_streaming_cache_bytes = 0;
     uint32_t ssd_streaming_preload_experts = 0;
-    int streaming_prefill_batch = -1;
+    const char *streaming_prefill_batch = NULL;
     int streaming_prefill_batch_min = -1;
     uint64_t simulate_used_memory_bytes = 0;
     uint64_t simulate_total_memory_bytes = 0;
@@ -1240,19 +1240,28 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "--streaming-prefill-batch") == 0)
         {
-            streaming_prefill_batch = 1;
+            streaming_prefill_batch = "auto";
             if (i + 1 < argc && argv[i + 1][0] != '-')
             {
-                char *end = NULL;
-                long v = strtol(argv[++i], &end, 10);
-                if (end == argv[i] || *end != '\0' || v < 1 || v > 256)
+                const char *arg = argv[++i];
+                if (strcmp(arg, "auto") == 0 || strcmp(arg, "on") == 0 ||
+                    strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0)
                 {
-                    fprintf(stderr,
-                            "qw3: invalid --streaming-prefill-batch '%s' (expected 1..256)\n",
-                            argv[i]);
-                    return 1;
+                    streaming_prefill_batch = arg;
                 }
-                streaming_prefill_batch = (int)v;
+                else
+                {
+                    char *end = NULL;
+                    long v = strtol(arg, &end, 10);
+                    if (end == arg || *end != '\0' || v < 1 || v > 256)
+                    {
+                        fprintf(stderr,
+                                "qw3: invalid --streaming-prefill-batch '%s' (expected auto, off, or 1..256)\n",
+                                arg);
+                        return 1;
+                    }
+                    streaming_prefill_batch = arg;
+                }
             }
         }
         else if (strcmp(argv[i], "--streaming-prefill-batch-min") == 0 && i + 1 < argc)
@@ -1270,7 +1279,7 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "--no-streaming-prefill-batch") == 0)
         {
-            streaming_prefill_batch = 0;
+            streaming_prefill_batch = "0";
         }
         else if (strcmp(argv[i], "--simulate-used-memory") == 0 && i + 1 < argc)
         {
@@ -1866,7 +1875,7 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    if (streaming_prefill_batch >= 0)
+    if (streaming_prefill_batch)
     {
         if (!ssd_streaming)
         {
@@ -1874,9 +1883,7 @@ int main(int argc, char **argv)
                     "qw3: --streaming-prefill-batch requires --ssd-streaming\n");
             return 1;
         }
-        char batch_env[16];
-        snprintf(batch_env, sizeof(batch_env), "%d", streaming_prefill_batch);
-        setenv("QW3_METAL_STREAMING_PREFILL_BATCH", batch_env, 1);
+        setenv("QW3_METAL_STREAMING_PREFILL_BATCH", streaming_prefill_batch, 1);
     }
     if (streaming_prefill_batch_min >= 0)
     {

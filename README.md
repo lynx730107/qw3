@@ -218,8 +218,9 @@ unless overridden. Use `--streaming-preload N` to force a larger preload, or
 `--ssd-streaming-cold` to disable preload completely.
 
 SSD streaming prefill batching is enabled with `--streaming-prefill-batch`.
-Pass a numeric value, for example `--streaming-prefill-batch 64`, to force a
-specific token batch. The default is 128 and the value is clamped to the
+Use `--streaming-prefill-batch auto` for the same default, or pass a numeric
+value, for example `--streaming-prefill-batch 64`, to force a specific token
+batch. The default is 128 and the value is clamped to the
 expert-cache capacity so a batch cannot reference more live expert slots than
 the cache can hold. The batch path is skipped for prompts below 64 tokens by
 default; override with `--streaming-prefill-batch-min N`. When batch streaming

@@ -812,11 +812,14 @@ static int qw3_session_prefill_batch_size(const qw3_session *s) {
     if (!s || !s->engine) return 1;
     if (s->engine->ssd_streaming) {
         const char *env = getenv("QW3_METAL_STREAMING_PREFILL_BATCH");
-        if (!env || !env[0] || strcmp(env, "0") == 0) return 1;
+        if (!env || !env[0] || strcmp(env, "0") == 0 ||
+            strcmp(env, "off") == 0 || strcmp(env, "false") == 0) {
+            return 1;
+        }
         long v = 128;
         char *end = NULL;
         long parsed = strtol(env, &end, 10);
-        if (end != env && parsed > 1) v = parsed;
+        if (end != env && *end == '\0' && parsed > 1) v = parsed;
         if (v > 256) v = 256;
         if (s->engine->ssd_streaming_cache_experts > 0) {
             long max_by_cache =
@@ -847,7 +850,15 @@ static int qw3_session_effective_prefill_batch_size(const qw3_session *s,
         long parsed = strtol(env, &end, 10);
         if (end != env && parsed > 1) min_tokens = parsed;
     }
-    return n_tokens >= min_tokens ? batch : 1;
+    const int effective = n_tokens >= min_tokens ? batch : 1;
+    static int reported = 0;
+    if (!reported) {
+        reported = 1;
+        fprintf(stderr,
+                "qw3: SSD streaming prefill batch requested=%d min_tokens=%ld effective=%d prompt_tokens=%d\n",
+                batch, min_tokens, effective, n_tokens);
+    }
+    return effective;
 }
 
 static void qw3_count_layer_types_before(int n_layers,
@@ -3424,8 +3435,10 @@ static uint32_t qw3_streaming_expert_preload_count(const qw3_engine *e) {
         preload = e->ssd_streaming_cache_experts;
         const char *env = getenv("QW3_METAL_STREAMING_EXPERT_AUTO_PRELOAD_CAP");
         const char *batch_env = getenv("QW3_METAL_STREAMING_PREFILL_BATCH");
-        uint32_t cap =
-            (batch_env && batch_env[0] && strcmp(batch_env, "0") != 0) ? 128 : 512;
+        const int batch_enabled =
+            batch_env && batch_env[0] && strcmp(batch_env, "0") != 0 &&
+            strcmp(batch_env, "off") != 0 && strcmp(batch_env, "false") != 0;
+        uint32_t cap = batch_enabled ? 128 : 512;
         if (env && env[0]) {
             char *end = NULL;
             errno = 0;
