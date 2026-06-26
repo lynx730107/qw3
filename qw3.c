@@ -848,7 +848,7 @@ static int qw3_session_effective_prefill_batch_size(const qw3_session *s,
     if (env && env[0]) {
         char *end = NULL;
         long parsed = strtol(env, &end, 10);
-        if (end != env && parsed > 1) min_tokens = parsed;
+        if (end != env && parsed >= 1) min_tokens = parsed;
     }
     const int effective = n_tokens >= min_tokens ? batch : 1;
     static int reported = 0;
