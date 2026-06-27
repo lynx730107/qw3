@@ -3764,6 +3764,7 @@ static void print_help(void) {
         "  --metal              Use Metal backend\n"
         "  --nothink            Disable thinking mode\n"
         "  --ssd-streaming      Enable SSD expert streaming (Metal only)\n"
+        "  --target-memory NNgb Preset SSD streaming for NN GiB unified memory\n"
         "  --ssd-streaming-cold Disable hotlist pre-caching during streaming startup\n"
         "  --streaming-cache N | NNgb\n"
         "                       Size of GPU cache for streaming experts (count or budget in GiB)\n"
@@ -3815,6 +3816,7 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
     const char *cache_type_alias = NULL;
+    uint64_t target_memory_bytes = 0;
     int ngl = -1;
     int ngl_set = 0;
     for (int i = 1; i < argc; i++) {
@@ -3893,6 +3895,14 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->think_mode = QW3_THINK_NONE;
         } else if (!strcmp(argv[i], "--ssd-streaming")) {
             cfg->ssd_streaming = true;
+        } else if (!strcmp(argv[i], "--target-memory") && i + 1 < argc) {
+            const char *arg = argv[++i];
+            if (!qw3_parse_gib_arg(arg, &target_memory_bytes)) {
+                fprintf(stderr, "agent: invalid --target-memory '%s'\n", arg);
+                return -1;
+            }
+            cfg->ssd_streaming = true;
+            cfg->backend = QW3_BACKEND_METAL;
         } else if (!strcmp(argv[i], "--ssd-streaming-cold")) {
             cfg->ssd_streaming_cold = true;
         } else if (!strcmp(argv[i], "--streaming-cache") && i + 1 < argc) {
@@ -3971,6 +3981,41 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         char ngl_env[16];
         snprintf(ngl_env, sizeof(ngl_env), "%d", ngl);
         setenv("QW3_METAL_NGL", ngl_env, 1);
+    }
+    if (target_memory_bytes != 0) {
+        if (cfg->backend != QW3_BACKEND_METAL) {
+            fprintf(stderr, "agent: --target-memory requires the Metal backend\n");
+            return -1;
+        }
+        if (cfg->ssd_streaming_cache_experts == 0 &&
+            cfg->ssd_streaming_cache_bytes == 0) {
+            uint64_t preset_cache = target_memory_bytes / 4u;
+            const uint64_t min_cache = 1ull * 1024ull * 1024ull * 1024ull;
+            const uint64_t max_cache = 6ull * 1024ull * 1024ull * 1024ull;
+            if (preset_cache < min_cache) preset_cache = min_cache;
+            if (preset_cache > max_cache) preset_cache = max_cache;
+            cfg->ssd_streaming_cache_bytes = preset_cache;
+        }
+        if (cfg->simulate_total_memory_bytes == 0) {
+            cfg->simulate_total_memory_bytes = target_memory_bytes;
+        }
+        if (!cache_type_alias && !cache_type_k && !cache_type_v) {
+            cache_type_alias = "f16";
+        }
+        if (getenv("QW3_METAL_STREAMING_PREFILL_BATCH") == NULL) {
+            setenv("QW3_METAL_STREAMING_PREFILL_BATCH", "auto", 1);
+        }
+        if (cfg->ssd_streaming_cache_bytes != 0) {
+            fprintf(stderr,
+                    "agent: target-memory preset %.2f GiB: --ssd-streaming, --simulate-total-memory, --kv-f16, streaming cache %.2f GiB, and streaming batch auto unless overridden\n",
+                    (double)target_memory_bytes / 1073741824.0,
+                    (double)cfg->ssd_streaming_cache_bytes / 1073741824.0);
+        } else {
+            fprintf(stderr,
+                    "agent: target-memory preset %.2f GiB: --ssd-streaming, --simulate-total-memory, --kv-f16, streaming cache %u expert slots, and streaming batch auto unless overridden\n",
+                    (double)target_memory_bytes / 1073741824.0,
+                    cfg->ssd_streaming_cache_experts);
+        }
     }
     if (cache_type_alias) {
         if (cache_type_k || cache_type_v) {
