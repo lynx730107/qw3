@@ -46,6 +46,11 @@ Memory-pressure simulation:
   planner only. For example, `--ssd-streaming --simulate-total-memory 16gb`
   asks the planner to target 80% of 16 GiB for non-routed weights plus cached
   experts.
+- `--target-memory NNgb` is the CLI preset for normal use on smaller Macs: it
+  enables SSD streaming, applies `--simulate-total-memory NNgb`, selects f16 KV,
+  chooses a conservative expert cache of about 25% of the target memory (4 GiB
+  for `16gb`, capped at 6 GiB), and turns on automatic streaming prefill batching
+  unless those knobs are explicitly overridden.
 - On an interactive 24 GiB macOS machine, avoid large
   `--simulate-used-memory` values such as `8gb`: they use `mlock()` and can make
   the desktop unresponsive by wiring too much RAM. The default build refuses
@@ -98,6 +103,9 @@ Expert profile workflow:
   full-residency budget, resident slots, copied MiB, and preload/dynamic split.
   Churn warnings mean the hotlist does not match the workload, preload is too
   aggressive, or `--streaming-cache` is too small.
+  The preload split includes reuse by dynamic requests; low reuse means the
+  startup hotlist is not helping this prompt, so test `--ssd-streaming-cold` or
+  a workload-specific `--streaming-hotlist`.
 - Auto hotlist preload is capped at 512 experts by default. Override with
   `--streaming-preload N` or `QW3_METAL_STREAMING_EXPERT_AUTO_PRELOAD_CAP`; use
   `--ssd-streaming-cold` for no preload. With

@@ -11,6 +11,7 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav hotlist code-profile-dataset \
+		code-profile-c-dataset \
 	test-vectors test-metal-smoke test-metal-logits test-metal-logits-concurrent \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
@@ -18,6 +19,7 @@ all: qw3-cli qw3-agent qw3-eval qw3-bench
 agent: qw3-agent
 cpu: qw3-cpu qw3-agent-cpu qw3-eval-cpu qw3-bench-cpu
 HOTLIST_TOP ?= 4096
+CODE_PROFILE_DATASET ?= humaneval-x-cpp
 CODE_PROFILE_TASKS ?= 20
 CODE_PROFILE_MODE ?= mixed
 
@@ -139,6 +141,12 @@ hotlist:
 
 code-profile-dataset:
 	python3 scripts/download_code_profile_dataset.py \
+		--dataset $(CODE_PROFILE_DATASET) \
+		--mode $(CODE_PROFILE_MODE) --max-tasks $(CODE_PROFILE_TASKS)
+
+code-profile-c-dataset:
+	python3 scripts/download_code_profile_dataset.py \
+		--dataset synthetic-c --out-dir datasets/synthetic-c \
 		--mode $(CODE_PROFILE_MODE) --max-tasks $(CODE_PROFILE_TASKS)
 
 test-vectors: qw3-cpu

@@ -175,10 +175,17 @@ Conservative 16 GB-style command with a usable coding context:
 
 ```sh
 ./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
-  --ctx 32000 --kv-f16 --nothink \
-  --ssd-streaming --streaming-cache 4gb --streaming-prefill-batch \
+  --ctx 32000 --nothink \
+  --target-memory 16gb \
   -p "ciao" -n 16
 ```
+
+`--target-memory NNgb` is the friendly preset for a smaller Mac: it enables SSD
+streaming, sets the planner target as if the machine had `NN` GiB of unified
+memory, selects f16 KV, chooses a conservative expert cache of about 25% of the
+target memory (capped at 6 GiB), and enables automatic streaming prefill batching
+unless you explicitly override those knobs. For `--target-memory 16gb` this means
+a 4 GiB expert cache.
 
 `--streaming-cache NNgb` is the main memory knob: it sets the Metal cache budget
 for routed experts. The non-routed tensor map is about 2.38 GiB for the current

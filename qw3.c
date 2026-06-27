@@ -3390,20 +3390,35 @@ static bool qw3_streaming_routed_expert_bytes(
     if (per_expert_bytes_out) *per_expert_bytes_out = 0;
     if (!weights || !per_expert_bytes_out) return false;
 
-    const qw3_layer_weights *layer = &weights->layer[0];
-    if (!layer->ffn_gate_exps ||
-        !layer->ffn_up_exps ||
-        !layer->ffn_down_exps) {
-        return false;
+    uint64_t gate_expert_bytes = 0;
+    uint64_t up_expert_bytes = 0;
+    uint64_t down_expert_bytes = 0;
+    for (int i = 0; i < QW3_N_LAYER; i++) {
+        const qw3_layer_weights *layer = &weights->layer[i];
+        if (!layer->ffn_gate_exps ||
+            !layer->ffn_up_exps ||
+            !layer->ffn_down_exps) {
+            return false;
+        }
+
+        const uint64_t gate_row_bytes =
+            qw3_tensor_expert_row_bytes(layer->ffn_gate_exps);
+        const uint64_t up_row_bytes =
+            qw3_tensor_expert_row_bytes(layer->ffn_up_exps);
+        const uint64_t down_row_bytes =
+            qw3_tensor_expert_row_bytes(layer->ffn_down_exps);
+
+        const uint64_t layer_gate_bytes =
+            layer->ffn_gate_exps->dim[1] * gate_row_bytes;
+        const uint64_t layer_up_bytes =
+            layer->ffn_up_exps->dim[1] * up_row_bytes;
+        const uint64_t layer_down_bytes =
+            layer->ffn_down_exps->dim[1] * down_row_bytes;
+
+        if (layer_gate_bytes > gate_expert_bytes) gate_expert_bytes = layer_gate_bytes;
+        if (layer_up_bytes > up_expert_bytes) up_expert_bytes = layer_up_bytes;
+        if (layer_down_bytes > down_expert_bytes) down_expert_bytes = layer_down_bytes;
     }
-
-    const uint64_t gate_row_bytes = qw3_tensor_expert_row_bytes(layer->ffn_gate_exps);
-    const uint64_t up_row_bytes = qw3_tensor_expert_row_bytes(layer->ffn_up_exps);
-    const uint64_t down_row_bytes = qw3_tensor_expert_row_bytes(layer->ffn_down_exps);
-
-    const uint64_t gate_expert_bytes = layer->ffn_gate_exps->dim[1] * gate_row_bytes;
-    const uint64_t up_expert_bytes = layer->ffn_up_exps->dim[1] * up_row_bytes;
-    const uint64_t down_expert_bytes = layer->ffn_down_exps->dim[1] * down_row_bytes;
 
     *per_expert_bytes_out = gate_expert_bytes + up_expert_bytes + down_expert_bytes;
     return *per_expert_bytes_out != 0;

@@ -192,6 +192,7 @@ typedef struct {
     uint64_t preload_requests;
     uint64_t preload_hits;
     uint64_t preload_loads;
+    uint64_t preload_reuse_hits;
     uint64_t dynamic_requests;
     uint64_t dynamic_hits;
     uint64_t dynamic_loads;
@@ -8645,11 +8646,19 @@ static void qw3_metal_streaming_cache_reset(void) {
     g_streaming_cache_stats.max_slots = 0;
 }
 
+static int qw3_metal_streaming_pair_index(uint32_t layer, uint32_t expert,
+                                          uint32_t *idx_out) {
+    if (idx_out) *idx_out = 0;
+    if (layer >= 40u || expert >= 256u || !idx_out) return 0;
+    *idx_out = layer * 256u + expert;
+    return 1;
+}
+
 static void qw3_metal_streaming_cache_stats_record_pair(uint32_t layer,
                                                         uint32_t expert,
                                                         int preload) {
-    if (layer >= 40u || expert >= 256u) return;
-    const uint32_t idx = layer * 256u + expert;
+    uint32_t idx = 0;
+    if (!qw3_metal_streaming_pair_index(layer, expert, &idx)) return;
     if (!g_streaming_seen_pairs[idx]) {
         g_streaming_seen_pairs[idx] = 1;
         g_streaming_cache_stats.unique_pairs++;
@@ -8684,6 +8693,9 @@ static void qw3_metal_streaming_cache_stats_dump(void) {
     const double unique_cache_gib =
         (double)slot_bytes * (double)g_streaming_cache_stats.unique_pairs /
         (1024.0 * 1024.0 * 1024.0);
+    const double current_cache_gib =
+        (double)slot_bytes * (double)g_streaming_cache_stats.max_slots /
+        (1024.0 * 1024.0 * 1024.0);
     fprintf(stderr,
             "qw3: SSD streaming cache stats: requests=%llu hits=%llu misses=%llu hit_rate=%.1f%% loads=%llu evictions=%llu resident=%u/%u\n",
             (unsigned long long)g_streaming_cache_stats.requests,
@@ -8701,10 +8713,11 @@ static void qw3_metal_streaming_cache_stats_dump(void) {
             g_streaming_cache_stats.unique_dynamic_pairs,
             unique_cache_gib);
     fprintf(stderr,
-            "qw3: SSD streaming cache stats: preload req/hit/load=%llu/%llu/%llu dynamic req/hit/load=%llu/%llu/%llu copied=%.2f MiB failures=%llu allocations=%llu\n",
+            "qw3: SSD streaming cache stats: preload req/hit/load/reuse=%llu/%llu/%llu/%llu dynamic req/hit/load=%llu/%llu/%llu copied=%.2f MiB failures=%llu allocations=%llu\n",
             (unsigned long long)g_streaming_cache_stats.preload_requests,
             (unsigned long long)g_streaming_cache_stats.preload_hits,
             (unsigned long long)g_streaming_cache_stats.preload_loads,
+            (unsigned long long)g_streaming_cache_stats.preload_reuse_hits,
             (unsigned long long)g_streaming_cache_stats.dynamic_requests,
             (unsigned long long)g_streaming_cache_stats.dynamic_hits,
             (unsigned long long)g_streaming_cache_stats.dynamic_loads,
@@ -8716,12 +8729,34 @@ static void qw3_metal_streaming_cache_stats_dump(void) {
         fprintf(stderr,
                 "qw3: SSD streaming cache churn detected; consider a larger --streaming-cache, a smaller --streaming-preload, --ssd-streaming-cold, or a hotlist profiled for this workload\n");
     }
+    if (g_streaming_cache_stats.preload_loads >= 32 &&
+        g_streaming_cache_stats.preload_reuse_hits == 0 &&
+        g_streaming_cache_stats.dynamic_requests != 0) {
+        fprintf(stderr,
+                "qw3: SSD streaming preload was not reused by this prompt; try --ssd-streaming-cold or a workload-specific --streaming-hotlist\n");
+    } else if (g_streaming_cache_stats.preload_loads != 0 &&
+               g_streaming_cache_stats.dynamic_hits != 0) {
+        const double preload_reuse_pct =
+            100.0 * (double)g_streaming_cache_stats.preload_reuse_hits /
+            (double)g_streaming_cache_stats.dynamic_hits;
+        if (preload_reuse_pct < 5.0 &&
+            g_streaming_cache_stats.evictions != 0) {
+            fprintf(stderr,
+                    "qw3: SSD streaming preload reuse is low (%.1f%% of dynamic hits); reduce --streaming-preload or use --ssd-streaming-cold for this workload\n",
+                    preload_reuse_pct);
+        }
+    }
     if (g_streaming_cache_stats.unique_pairs > g_streaming_cache_stats.max_slots &&
         g_streaming_cache_stats.max_slots != 0) {
         fprintf(stderr,
                 "qw3: SSD streaming working set exceeds cache slots (%u unique pairs > %u slots); evictions are expected unless the workload is batched or cache budget grows\n",
                 g_streaming_cache_stats.unique_pairs,
                 g_streaming_cache_stats.max_slots);
+        if (slot_bytes != 0) {
+            fprintf(stderr,
+                    "qw3: SSD streaming observed working set would need about %.2f GiB for full residency (current cache %.2f GiB)\n",
+                    unique_cache_gib, current_cache_gib);
+        }
     }
 }
 
@@ -8895,6 +8930,7 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     const uint64_t gate_bytes = gate_row_bytes * (uint64_t)n_ff;
     const uint64_t up_bytes = up_row_bytes * (uint64_t)n_ff;
     const uint64_t down_bytes = down_row_bytes * (uint64_t)n_in;
+    /* One shared cache must survive mixed IQ4_XS/Q6_K down experts. */
     const uint64_t down_stride = q6_down_row_bytes * (uint64_t)n_in;
     if (gate_bytes == 0 || up_bytes == 0 || down_bytes == 0 ||
         down_stride == 0) {
@@ -8928,6 +8964,11 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
                 g_streaming_cache_stats.preload_hits++;
             } else {
                 g_streaming_cache_stats.dynamic_hits++;
+                uint32_t pair_idx = 0;
+                if (qw3_metal_streaming_pair_index(layer, expert, &pair_idx) &&
+                    g_streaming_seen_preload_pairs[pair_idx]) {
+                    g_streaming_cache_stats.preload_reuse_hits++;
+                }
             }
             return 1;
         }
