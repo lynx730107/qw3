@@ -171,7 +171,7 @@ The `ssd-streaming` branch can keep routed MoE experts out of the initial Metal
 model map and load selected `(layer, expert)` pairs on demand into a bounded
 cache. This is intended for smaller unified-memory machines.
 
-Conservative 16 GB-style command with a usable coding context:
+Recommended 16 GB-style command with a usable coding context:
 
 ```sh
 ./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
@@ -187,26 +187,75 @@ target memory (capped at 6 GiB), and enables automatic streaming prefill batchin
 unless you explicitly override those knobs. For `--target-memory 16gb` this means
 a 4 GiB expert cache.
 
-`--streaming-cache NNgb` is the main memory knob: it sets the Metal cache budget
-for routed experts. The non-routed tensor map is about 2.38 GiB for the current
-IQ4_XS model, before KV/state and Metal overhead. At `--ctx 32000`, f16 GQA KV
-is about 625 MiB, so `--kv-f16` should be kept explicit for 16 GB-class runs.
+For the interactive coding agent, use the same preset:
+
+```sh
+./qw3-agent -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --ctx 32000 --nothink \
+  --target-memory 16gb
+```
+
+If you want to tune memory manually, keep SSD streaming enabled and set the
+expert cache explicitly:
+
+```sh
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --ctx 32000 --nothink \
+  --ssd-streaming --simulate-total-memory 16gb \
+  --streaming-cache 4gb --kv-f16 \
+  -p "ciao" -n 16
+```
+
+`--streaming-cache NNgb` is the main manual memory knob: it sets the Metal cache
+budget for routed experts. The non-routed tensor map is about 2.38 GiB for the
+current IQ4_XS model, before KV/state and Metal overhead. At `--ctx 32000`, f16
+GQA KV is about 625 MiB; `--target-memory` selects it automatically, while manual
+commands should keep `--kv-f16` explicit.
+
+Do not use `--simulate-used-memory` for normal runs. It intentionally pins memory
+with `mlock()` to stress the machine and can make a desktop system unresponsive.
+Use `--target-memory NNgb` or `--simulate-total-memory NNgb` instead when you only
+want to simulate the planner for a smaller Mac.
+
+To test the built-in C-oriented hotlist currently compiled into this branch:
+
+```sh
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --ctx 32000 --nothink \
+  --target-memory 16gb \
+  --prompt-file datasets/synthetic-c/mixed_profile_prompt.txt -n 0
+```
 
 To build a workload-specific preload hotlist:
+
+```sh
+make code-profile-c-dataset
+mkdir -p profiles
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --ctx 32000 --nothink \
+  --target-memory 16gb \
+  --expert-profile profiles/synthetic-c.tsv \
+  --prompt-file datasets/synthetic-c/mixed_profile_prompt.txt -n 16
+make hotlist PROFILE=profiles/synthetic-c.tsv HOTLIST_TOP=4096
+make
+```
+
+For a downloaded C/C++ profiling prompt instead of the offline synthetic C seed:
 
 ```sh
 make code-profile-dataset CODE_PROFILE_TASKS=20 CODE_PROFILE_MODE=mixed
 mkdir -p profiles
 ./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
-  --ctx 32000 --kv-f16 --nothink \
-  --ssd-streaming --streaming-cache 4gb --expert-profile profiles/code.tsv \
+  --ctx 32000 --nothink \
+  --target-memory 16gb \
+  --expert-profile profiles/code.tsv \
   --prompt-file datasets/humaneval-x-cpp/mixed_profile_prompt.txt -n 16
 make hotlist PROFILE=profiles/code.tsv HOTLIST_TOP=4096
 make
 ```
 
-For an offline C-only seed profile, use `make code-profile-c-dataset`; it renders
-small local C tasks under `datasets/synthetic-c/` without downloading anything.
+`make code-profile-c-dataset` renders small local C tasks under
+`datasets/synthetic-c/` without downloading anything.
 
 `profiles/` is ignored by git; the generated `qw3_streaming_hotlist.inc` is the
 compiled source artifact. The helper dataset target downloads HumanEval-X C++
@@ -214,6 +263,17 @@ and renders C/C++-oriented audit/implementation prompts; use your own real
 coding-agent transcripts as additional profile input when available. The default
 20-task prompt is sized for `--ctx 32000`; raise it only when using a larger
 context or when profiling prompts in separate runs.
+
+To test an external profile TSV without rebuilding:
+
+```sh
+./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --ctx 32000 --nothink \
+  --target-memory 16gb \
+  --streaming-hotlist profiles/synthetic-c.tsv \
+  --streaming-preload 1024 \
+  --prompt-file datasets/synthetic-c/mixed_profile_prompt.txt -n 0
+```
 
 At shutdown, SSD streaming prints cache telemetry: requests, hits, misses,
 loads, evictions, unique `(layer, expert)` pairs, estimated full-residency
