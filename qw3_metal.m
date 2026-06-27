@@ -180,6 +180,9 @@ typedef struct {
     uint32_t down_type;
     uint64_t last_used;
     uint64_t pin_epoch;
+    uint32_t hit_count;
+    uint8_t preloaded;
+    uint8_t preload_reused;
     uint8_t valid;
 } qw3_streaming_expert_slot;
 
@@ -8674,6 +8677,22 @@ static void qw3_metal_streaming_cache_stats_record_pair(uint32_t layer,
     }
 }
 
+static uint64_t qw3_metal_streaming_slot_eviction_score(
+        const qw3_streaming_expert_slot *slot) {
+    if (!slot) return 0;
+    uint64_t score = slot->last_used;
+    if (getenv("QW3_METAL_STREAMING_HOT_EVICTION_DISABLE") != NULL) {
+        return score;
+    }
+    uint32_t hits = slot->hit_count;
+    if (hits > 1024u) hits = 1024u;
+    score += (uint64_t)hits * 32ull;
+    if (slot->preloaded && slot->preload_reused) {
+        score += 8192ull;
+    }
+    return score;
+}
+
 static void qw3_metal_streaming_cache_stats_dump(void) {
     const uint64_t activity =
         g_streaming_cache_stats.requests +
@@ -8954,9 +8973,10 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     const uint64_t active_pin_epoch = g_streaming_expert_pin_epoch;
     for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
         qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
-        if (slot->valid && slot->layer == layer && slot->expert == expert &&
-            slot->down_type == down_type) {
+            if (slot->valid && slot->layer == layer && slot->expert == expert &&
+                slot->down_type == down_type) {
             slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
+            if (slot->hit_count < UINT32_MAX) slot->hit_count++;
             if (active_pin_epoch != 0) slot->pin_epoch = active_pin_epoch;
             *slot_out = i;
             g_streaming_cache_stats.hits++;
@@ -8968,6 +8988,7 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
                 if (qw3_metal_streaming_pair_index(layer, expert, &pair_idx) &&
                     g_streaming_seen_preload_pairs[pair_idx]) {
                     g_streaming_cache_stats.preload_reuse_hits++;
+                    if (slot->preloaded) slot->preload_reused = 1;
                 }
             }
             return 1;
@@ -8986,8 +9007,9 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
         if (active_pin_epoch != 0 && slot->pin_epoch == active_pin_epoch) {
             continue;
         }
-        if (slot->last_used < oldest) {
-            oldest = slot->last_used;
+        const uint64_t score = qw3_metal_streaming_slot_eviction_score(slot);
+        if (score < oldest) {
+            oldest = score;
             victim = i;
         }
     }
@@ -9029,6 +9051,9 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     slot->down_type = down_type;
     slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
     slot->pin_epoch = active_pin_epoch;
+    slot->hit_count = 0;
+    slot->preloaded = preload ? 1 : 0;
+    slot->preload_reused = 0;
     slot->valid = 1;
     *slot_out = victim;
     g_streaming_cache_stats.loads++;
