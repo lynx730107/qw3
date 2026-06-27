@@ -3769,6 +3769,14 @@ static void print_help(void) {
         "  --streaming-cache N | NNgb\n"
         "                       Size of GPU cache for streaming experts (count or budget in GiB)\n"
         "  --streaming-preload N Number of experts to pre-load from hotlist (default: auto)\n"
+        "  --streaming-hotlist PATH\n"
+        "                       Load startup streaming expert hotlist from a profile TSV\n"
+        "  --expert-profile PATH\n"
+        "                       Write routed expert profile TSV at shutdown\n"
+        "  --streaming-prefill-batch [auto|N|off]\n"
+        "                       Configure SSD streaming batch prefill\n"
+        "  --streaming-prefill-batch-min N\n"
+        "                       Minimum prompt tokens before streaming batch prefill\n"
         "  --simulate-used-memory NNgb\n"
         "                       Simulate NN GiB of system memory being locked before loading\n"
         "  --simulate-total-memory NNgb\n"
@@ -3816,6 +3824,10 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
     const char *cache_type_alias = NULL;
+    const char *streaming_hotlist_path = NULL;
+    const char *expert_profile_path = NULL;
+    const char *streaming_prefill_batch = NULL;
+    int streaming_prefill_batch_min = -1;
     uint64_t target_memory_bytes = 0;
     int ngl = -1;
     int ngl_set = 0;
@@ -3913,6 +3925,41 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             }
         } else if (!strcmp(argv[i], "--streaming-preload") && i + 1 < argc) {
             cfg->ssd_streaming_preload_experts = (uint32_t)atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--streaming-hotlist") && i + 1 < argc) {
+            streaming_hotlist_path = argv[++i];
+        } else if (!strcmp(argv[i], "--expert-profile") && i + 1 < argc) {
+            expert_profile_path = argv[++i];
+        } else if (!strcmp(argv[i], "--streaming-prefill-batch")) {
+            streaming_prefill_batch = "auto";
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                const char *arg = argv[++i];
+                if (!strcmp(arg, "auto") || !strcmp(arg, "on") ||
+                    !strcmp(arg, "off") || !strcmp(arg, "0")) {
+                    streaming_prefill_batch = arg;
+                } else {
+                    char *end = NULL;
+                    long v = strtol(arg, &end, 10);
+                    if (end == arg || *end != '\0' || v < 1 || v > 256) {
+                        fprintf(stderr,
+                                "agent: invalid --streaming-prefill-batch '%s' (expected auto, off, or 1..256)\n",
+                                arg);
+                        return -1;
+                    }
+                    streaming_prefill_batch = arg;
+                }
+            }
+        } else if (!strcmp(argv[i], "--streaming-prefill-batch-min") && i + 1 < argc) {
+            char *end = NULL;
+            long v = strtol(argv[++i], &end, 10);
+            if (end == argv[i] || *end != '\0' || v < 1 || v > 4096) {
+                fprintf(stderr,
+                        "agent: invalid --streaming-prefill-batch-min '%s' (expected 1..4096)\n",
+                        argv[i]);
+                return -1;
+            }
+            streaming_prefill_batch_min = (int)v;
+        } else if (!strcmp(argv[i], "--no-streaming-prefill-batch")) {
+            streaming_prefill_batch = "0";
         } else if (!strcmp(argv[i], "--simulate-used-memory") && i + 1 < argc) {
             const char *arg = argv[++i];
             if (!qw3_parse_gib_arg(arg, &cfg->simulate_used_memory_bytes)) {
@@ -4002,8 +4049,9 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         if (!cache_type_alias && !cache_type_k && !cache_type_v) {
             cache_type_alias = "f16";
         }
-        if (getenv("QW3_METAL_STREAMING_PREFILL_BATCH") == NULL) {
-            setenv("QW3_METAL_STREAMING_PREFILL_BATCH", "auto", 1);
+        if (!streaming_prefill_batch &&
+            getenv("QW3_METAL_STREAMING_PREFILL_BATCH") == NULL) {
+            streaming_prefill_batch = "auto";
         }
         if (cfg->ssd_streaming_cache_bytes != 0) {
             fprintf(stderr,
@@ -4016,6 +4064,34 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
                     (double)target_memory_bytes / 1073741824.0,
                     cfg->ssd_streaming_cache_experts);
         }
+    }
+    if (streaming_prefill_batch) {
+        if (!cfg->ssd_streaming) {
+            fprintf(stderr,
+                    "agent: --streaming-prefill-batch requires --ssd-streaming\n");
+            return -1;
+        }
+        setenv("QW3_METAL_STREAMING_PREFILL_BATCH", streaming_prefill_batch, 1);
+    }
+    if (streaming_prefill_batch_min >= 0) {
+        if (!cfg->ssd_streaming) {
+            fprintf(stderr,
+                    "agent: --streaming-prefill-batch-min requires --ssd-streaming\n");
+            return -1;
+        }
+        char min_env[16];
+        snprintf(min_env, sizeof(min_env), "%d", streaming_prefill_batch_min);
+        setenv("QW3_METAL_STREAMING_PREFILL_BATCH_MIN", min_env, 1);
+    }
+    if (streaming_hotlist_path) {
+        if (!cfg->ssd_streaming) {
+            fprintf(stderr, "agent: --streaming-hotlist requires --ssd-streaming\n");
+            return -1;
+        }
+        setenv("QW3_EXPERT_HOTLIST", streaming_hotlist_path, 1);
+    }
+    if (expert_profile_path) {
+        setenv("QW3_EXPERT_PROFILE", expert_profile_path, 1);
     }
     if (cache_type_alias) {
         if (cache_type_k || cache_type_v) {
