@@ -3453,7 +3453,13 @@ static uint32_t qw3_streaming_expert_preload_count(const qw3_engine *e) {
         const int batch_enabled =
             batch_env && batch_env[0] && strcmp(batch_env, "0") != 0 &&
             strcmp(batch_env, "off") != 0 && strcmp(batch_env, "false") != 0;
-        uint32_t cap = batch_enabled ? 128 : 512;
+        const int external_hotlist = qw3_streaming_expert_hotlist_path() != NULL;
+        uint32_t cap = batch_enabled ? (external_hotlist ? 1024u : 128u) :
+                                       (external_hotlist ? 1024u : 512u);
+        if (external_hotlist && e->ssd_streaming_cache_experts > 1) {
+            const uint32_t half_cache = e->ssd_streaming_cache_experts / 2u;
+            if (cap > half_cache) cap = half_cache;
+        }
         if (env && env[0]) {
             char *end = NULL;
             errno = 0;

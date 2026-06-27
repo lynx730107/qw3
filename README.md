@@ -205,6 +205,9 @@ make hotlist PROFILE=profiles/code.tsv HOTLIST_TOP=4096
 make
 ```
 
+For an offline C-only seed profile, use `make code-profile-c-dataset`; it renders
+small local C tasks under `datasets/synthetic-c/` without downloading anything.
+
 `profiles/` is ignored by git; the generated `qw3_streaming_hotlist.inc` is the
 compiled source artifact. The helper dataset target downloads HumanEval-X C++
 and renders C/C++-oriented audit/implementation prompts; use your own real
@@ -223,7 +226,10 @@ Automatic hotlist preload is intentionally conservative and caps at 512 experts
 unless overridden. Use `--streaming-preload N` to force a larger preload, or
 `--ssd-streaming-cold` to disable preload completely. Use
 `--streaming-hotlist profiles/code.tsv` to test an external profile TSV without
-rebuilding the built-in `qw3_streaming_hotlist.inc`.
+rebuilding the built-in `qw3_streaming_hotlist.inc`. With streaming prefill
+batching enabled, the built-in hotlist auto cap stays conservative at 128
+experts, while an explicit external hotlist can auto-preload up to 1024 entries
+(also limited to half the cache).
 
 SSD streaming prefill batching is enabled with `--streaming-prefill-batch`.
 Use `--streaming-prefill-batch auto` for the same default, or pass a numeric

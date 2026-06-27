@@ -110,7 +110,9 @@ Expert profile workflow:
   `--streaming-preload N` or `QW3_METAL_STREAMING_EXPERT_AUTO_PRELOAD_CAP`; use
   `--ssd-streaming-cold` for no preload. With
   `QW3_METAL_STREAMING_PREFILL_BATCH` enabled, the auto cap drops to 128 experts
-  unless overridden.
+  for the built-in hotlist unless overridden. External profile TSV hotlists are
+  treated as workload-specific and can auto-preload up to 1024 entries, bounded
+  by half the expert cache.
 - Experimental SSD streaming batch prefill is enabled with
   `--streaming-prefill-batch`, `--streaming-prefill-batch auto`, or a numeric
   token batch such as `--streaming-prefill-batch 128`. The default opt-in value
@@ -124,6 +126,12 @@ Expert profile workflow:
   current local sweet spot.
 - Deduplicating router-selected experts per batch and lowering auto-preload to
   128 improved the same 366-token excerpt to 23.71 tok/s in the validation run.
+- Synthetic C profile prompt (`datasets/synthetic-c/mixed_profile_prompt.txt`,
+  2481 tokens, `--target-memory 16gb`, batch auto) measured: previous built-in
+  hotlist 23.02 tok/s, `--ssd-streaming-cold` 23.53 tok/s, external
+  `profiles/synthetic-c.tsv` preload 128 at 26.86 tok/s, and the same profile
+  preload 1024 at 29.89 tok/s. The built-in hotlist is now generated from that
+  synthetic C profile.
 - Batch remap now pins slots while building the per-batch slot table, so LRU
   replacement cannot evict an expert already assigned to the active batch. A
   stress run with `--streaming-cache 512 --streaming-prefill-batch 8` completed
