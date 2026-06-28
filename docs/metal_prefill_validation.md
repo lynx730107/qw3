@@ -10,9 +10,10 @@ default.
 The `ssd-streaming` branch now wires the base SSD streaming options through
 the QW3 engine and all frontends (`qw3-cli`, `qw3-agent`, `qw3-bench`) and links
 `qw3_ssd.o` into both CPU and Metal targets. Startup computes routed expert
-bytes from the first layer's `ffn_gate_exps`, `ffn_up_exps`, and
-`ffn_down_exps` tensors, derives explicit or automatic cache budgets, and logs
-the resulting expert count before Metal initialization.
+bytes from the maximum routed expert footprint across all layers, derives
+explicit or automatic cache budgets, and logs the resulting expert count before
+Metal initialization. This matters for the current mixed IQ4_XS/Q6_K expert-down
+model because the shared cache slot size must fit the largest down tensor.
 
 The Metal bridge now records SSD streaming mode and expert-cache budget and
 has a first synchronous selected-expert cache for single-token dynamic-router
@@ -31,13 +32,15 @@ demand. On the M5 test machine, the Qwen3.6 IQ4_XS startup map dropped from
 the full 16.5 GiB GGUF tensor region to about 2.38 GiB of non-routed tensor
 spans before the expert cache is allocated.
 
-Fase 3 hotlist scaffolding is present with an intentionally empty
-`qw3_streaming_hotlist.inc`. The real table must be generated from Qwen3.6
-expert-routing profiles; until then hotlist preload logs `available=0
-preload=0`. With `--ssd-streaming`, prefill uses token-by-token mode by default,
-but `QW3_METAL_STREAMING_PREFILL_BATCH` enables an experimental batch path that
-remaps router-selected `(layer, expert)` pairs to SSD-cache slots and then runs
-the legacy batch MoE kernels against those slots.
+Fase 3 hotlist scaffolding now has a generated C-oriented
+`qw3_streaming_hotlist.inc`, built from the offline synthetic C profile. The
+runtime can also load an external profile TSV with `--streaming-hotlist PATH`
+for workload-specific A/B tests without rebuilding. `--target-memory NNgb`
+enables SSD streaming prefill batching automatically; use
+`--streaming-prefill-batch`, `--streaming-prefill-batch auto`, or a numeric
+value to override it. The batch path remaps router-selected `(layer, expert)`
+pairs to SSD-cache slots and then runs the legacy batch MoE kernels against
+those slots.
 
 Memory-pressure simulation:
 - `--simulate-used-memory NNgb` keeps the DS4-style physical pressure test: it
@@ -108,11 +111,10 @@ Expert profile workflow:
   a workload-specific `--streaming-hotlist`.
 - Auto hotlist preload is capped at 512 experts by default. Override with
   `--streaming-preload N` or `QW3_METAL_STREAMING_EXPERT_AUTO_PRELOAD_CAP`; use
-  `--ssd-streaming-cold` for no preload. With
-  `QW3_METAL_STREAMING_PREFILL_BATCH` enabled, the auto cap drops to 128 experts
-  for the built-in hotlist unless overridden. External profile TSV hotlists are
-  treated as workload-specific and can auto-preload up to 1024 entries, bounded
-  by half the expert cache.
+  `--ssd-streaming-cold` for no preload. With streaming prefill batching enabled,
+  the auto cap drops to 128 experts for the built-in hotlist unless overridden.
+  External profile TSV hotlists are treated as workload-specific and can
+  auto-preload up to 1024 entries, bounded by half the expert cache.
 - Experimental SSD streaming batch prefill is enabled with
   `--streaming-prefill-batch`, `--streaming-prefill-batch auto`, or a numeric
   token batch such as `--streaming-prefill-batch 128`. The default opt-in value
@@ -132,10 +134,22 @@ Expert profile workflow:
   `profiles/synthetic-c.tsv` preload 128 at 26.86 tok/s, and the same profile
   preload 1024 at 29.89 tok/s. The built-in hotlist is now generated from that
   synthetic C profile.
+- Hot eviction keeps reused hotlist slots warmer than plain LRU during heavy
+  churn. On the same synthetic C prompt with external `profiles/synthetic-c.tsv`
+  preload 1024, the hot-eviction run measured 28.63 tok/s with 6501 preload
+  reuse hits and 160.5 GiB copied; pure LRU via
+  `QW3_METAL_STREAMING_HOT_EVICTION_DISABLE=1` measured 20.53 tok/s with 338
+  preload reuse hits and 169.1 GiB copied. Use this env flag only for A/B
+  debugging.
 - Batch remap now pins slots while building the per-batch slot table, so LRU
   replacement cannot evict an expert already assigned to the active batch. A
   stress run with `--streaming-cache 512 --streaming-prefill-batch 8` completed
   without cache lookup failures under heavy churn.
+- The reproducible local benchmark wrapper is `make ssd-streaming-bench`; it
+  runs built-in, cold, and external-hotlist cases sequentially, refuses to start
+  if another qw3 model process is already active, and writes logs under
+  `bench/ssd-streaming-*`. Set `RUN_HOT_EVICTION_AB=1` to include the pure-LRU
+  comparison.
 
 ## 2026-06-11 MoE Fast-Layout Probe Notes
 

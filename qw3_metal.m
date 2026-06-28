@@ -173,6 +173,8 @@ static int g_metal4_tensor_api_compile_supported;
 static int g_ssd_streaming_mode;
 static uint32_t g_streaming_expert_cache_budget;
 static int g_streaming_expert_unavailable_warned;
+static int g_streaming_hot_eviction_env_checked;
+static int g_streaming_hot_eviction_disabled;
 
 typedef struct {
     uint32_t layer;
@@ -8616,6 +8618,8 @@ void qw3_metal_set_ssd_streaming(int enabled) {
         memset(g_streaming_seen_pairs, 0, sizeof(g_streaming_seen_pairs));
         memset(g_streaming_seen_preload_pairs, 0, sizeof(g_streaming_seen_preload_pairs));
         memset(g_streaming_seen_dynamic_pairs, 0, sizeof(g_streaming_seen_dynamic_pairs));
+        g_streaming_hot_eviction_env_checked = 0;
+        g_streaming_hot_eviction_disabled = 0;
     }
     g_ssd_streaming_mode = enabled ? 1 : 0;
     g_streaming_expert_unavailable_warned = 0;
@@ -8677,11 +8681,20 @@ static void qw3_metal_streaming_cache_stats_record_pair(uint32_t layer,
     }
 }
 
+static int qw3_metal_streaming_hot_eviction_enabled(void) {
+    if (!g_streaming_hot_eviction_env_checked) {
+        g_streaming_hot_eviction_disabled =
+            getenv("QW3_METAL_STREAMING_HOT_EVICTION_DISABLE") != NULL;
+        g_streaming_hot_eviction_env_checked = 1;
+    }
+    return !g_streaming_hot_eviction_disabled;
+}
+
 static uint64_t qw3_metal_streaming_slot_eviction_score(
         const qw3_streaming_expert_slot *slot) {
     if (!slot) return 0;
     uint64_t score = slot->last_used;
-    if (getenv("QW3_METAL_STREAMING_HOT_EVICTION_DISABLE") != NULL) {
+    if (!qw3_metal_streaming_hot_eviction_enabled()) {
         return score;
     }
     uint32_t hits = slot->hit_count;
@@ -8973,8 +8986,8 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     const uint64_t active_pin_epoch = g_streaming_expert_pin_epoch;
     for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
         qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
-            if (slot->valid && slot->layer == layer && slot->expert == expert &&
-                slot->down_type == down_type) {
+        if (slot->valid && slot->layer == layer && slot->expert == expert &&
+            slot->down_type == down_type) {
             slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
             if (slot->hit_count < UINT32_MAX) slot->hit_count++;
             if (active_pin_epoch != 0) slot->pin_epoch = active_pin_epoch;

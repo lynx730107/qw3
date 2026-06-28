@@ -275,6 +275,22 @@ To test an external profile TSV without rebuilding:
   --prompt-file datasets/synthetic-c/mixed_profile_prompt.txt -n 0
 ```
 
+To run the current local SSD streaming comparison suite:
+
+```sh
+make code-profile-c-dataset
+make ssd-streaming-bench
+```
+
+The benchmark runs the built-in hotlist, cold streaming, and an external TSV
+hotlist if `profiles/synthetic-c.tsv` exists. It writes logs under
+`bench/ssd-streaming-*`. To compare hot eviction against pure LRU on the
+external TSV case:
+
+```sh
+RUN_HOT_EVICTION_AB=1 make ssd-streaming-bench
+```
+
 At shutdown, SSD streaming prints cache telemetry: requests, hits, misses,
 loads, evictions, unique `(layer, expert)` pairs, estimated full-residency
 budget, resident slots, copied MiB, and preload/dynamic split. If it reports
@@ -290,6 +306,10 @@ rebuilding the built-in `qw3_streaming_hotlist.inc`. With streaming prefill
 batching enabled, the built-in hotlist auto cap stays conservative at 128
 experts, while an explicit external hotlist can auto-preload up to 1024 entries
 (also limited to half the cache).
+
+The eviction policy keeps reused hotlist slots warmer than plain LRU during
+heavy churn. Set `QW3_METAL_STREAMING_HOT_EVICTION_DISABLE=1` only for A/B
+debugging against pure LRU.
 
 SSD streaming prefill batching is enabled with `--streaming-prefill-batch`.
 Use `--streaming-prefill-batch auto` for the same default, or pass a numeric

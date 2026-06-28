@@ -11,7 +11,7 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav hotlist code-profile-dataset \
-		code-profile-c-dataset \
+		code-profile-c-dataset ssd-streaming-bench \
 	test-vectors test-metal-smoke test-metal-logits test-metal-logits-concurrent \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
@@ -148,6 +148,9 @@ code-profile-c-dataset:
 	python3 scripts/download_code_profile_dataset.py \
 		--dataset synthetic-c --out-dir datasets/synthetic-c \
 		--mode $(CODE_PROFILE_MODE) --max-tasks $(CODE_PROFILE_TASKS)
+
+ssd-streaming-bench: qw3-cli
+	sh scripts/bench_ssd_streaming.sh
 
 test-vectors: qw3-cpu
 	sh tests/test_vectors.sh
