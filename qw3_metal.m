@@ -175,6 +175,8 @@ static uint32_t g_streaming_expert_cache_budget;
 static int g_streaming_expert_unavailable_warned;
 static int g_streaming_hot_eviction_env_checked;
 static int g_streaming_hot_eviction_disabled;
+static int g_streaming_eviction_scan_env_checked;
+static uint32_t g_streaming_eviction_scan_limit;
 
 typedef struct {
     uint32_t layer;
@@ -202,6 +204,9 @@ typedef struct {
     uint64_t dynamic_hits;
     uint64_t dynamic_loads;
     uint64_t bytes_copied;
+    uint64_t victim_searches;
+    uint64_t victim_candidates;
+    uint64_t victim_full_scans;
     uint64_t failures;
     uint64_t allocations;
     uint32_t unique_pairs;
@@ -216,6 +221,7 @@ static uint32_t g_streaming_expert_slot_count;
 static uint64_t g_streaming_expert_clock;
 static uint64_t g_streaming_expert_pin_epoch;
 static uint64_t g_streaming_expert_pin_clock;
+static uint32_t g_streaming_expert_evict_cursor;
 static uint64_t g_streaming_gate_stride;
 static uint64_t g_streaming_up_stride;
 static uint64_t g_streaming_down_stride;
@@ -8624,6 +8630,8 @@ void qw3_metal_set_ssd_streaming(int enabled) {
         }
         g_streaming_hot_eviction_env_checked = 0;
         g_streaming_hot_eviction_disabled = 0;
+        g_streaming_eviction_scan_env_checked = 0;
+        g_streaming_eviction_scan_limit = 0;
     }
     g_ssd_streaming_mode = enabled ? 1 : 0;
     g_streaming_expert_unavailable_warned = 0;
@@ -8647,6 +8655,7 @@ static void qw3_metal_streaming_cache_reset(void) {
     g_streaming_expert_clock = 0;
     g_streaming_expert_pin_epoch = 0;
     g_streaming_expert_pin_clock = 0;
+    g_streaming_expert_evict_cursor = 0;
     g_streaming_gate_stride = 0;
     g_streaming_up_stride = 0;
     g_streaming_down_stride = 0;
@@ -8715,6 +8724,23 @@ static int qw3_metal_streaming_hot_eviction_enabled(void) {
     return !g_streaming_hot_eviction_disabled;
 }
 
+static uint32_t qw3_metal_streaming_eviction_scan_limit(void) {
+    if (!g_streaming_eviction_scan_env_checked) {
+        g_streaming_eviction_scan_limit = 64u;
+        const char *env = getenv("QW3_METAL_STREAMING_EVICTION_SCAN");
+        if (env && env[0]) {
+            char *end = NULL;
+            unsigned long v = strtoul(env, &end, 10);
+            if (end != env && *end == '\0') {
+                g_streaming_eviction_scan_limit =
+                    v > UINT32_MAX ? UINT32_MAX : (uint32_t)v;
+            }
+        }
+        g_streaming_eviction_scan_env_checked = 1;
+    }
+    return g_streaming_eviction_scan_limit;
+}
+
 static uint64_t qw3_metal_streaming_slot_eviction_score(
         const qw3_streaming_expert_slot *slot) {
     if (!slot) return 0;
@@ -8745,6 +8771,10 @@ static void qw3_metal_streaming_cache_stats_dump(void) {
          (double)g_streaming_cache_stats.requests) : 0.0;
     const double copied_mib =
         (double)g_streaming_cache_stats.bytes_copied / (1024.0 * 1024.0);
+    const double victim_scan_avg =
+        g_streaming_cache_stats.victim_searches != 0 ?
+        (double)g_streaming_cache_stats.victim_candidates /
+        (double)g_streaming_cache_stats.victim_searches : 0.0;
     const uint64_t slot_bytes =
         g_streaming_gate_stride + g_streaming_up_stride + g_streaming_down_stride;
     const double unique_cache_gib =
@@ -8781,6 +8811,13 @@ static void qw3_metal_streaming_cache_stats_dump(void) {
             copied_mib,
             (unsigned long long)g_streaming_cache_stats.failures,
             (unsigned long long)g_streaming_cache_stats.allocations);
+    if (g_streaming_cache_stats.victim_searches != 0) {
+        fprintf(stderr,
+                "qw3: SSD streaming cache stats: victim searches=%llu avg_scan=%.1f full_fallbacks=%llu\n",
+                (unsigned long long)g_streaming_cache_stats.victim_searches,
+                victim_scan_avg,
+                (unsigned long long)g_streaming_cache_stats.victim_full_scans);
+    }
     if (g_streaming_cache_stats.evictions != 0 &&
         g_streaming_cache_stats.dynamic_loads != 0) {
         fprintf(stderr,
@@ -9041,24 +9078,61 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
 
     uint32_t victim = UINT32_MAX;
     uint64_t oldest = UINT64_MAX;
-    for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
-        qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
-        if (!slot->valid) {
-            victim = i;
-            break;
+    g_streaming_cache_stats.victim_searches++;
+    if (g_streaming_cache_stats.resident_slots < g_streaming_expert_slot_count) {
+        const uint32_t start =
+            g_streaming_expert_evict_cursor % g_streaming_expert_slot_count;
+        for (uint32_t n = 0; n < g_streaming_expert_slot_count; n++) {
+            const uint32_t i = (start + n) % g_streaming_expert_slot_count;
+            g_streaming_cache_stats.victim_candidates++;
+            if (!g_streaming_expert_slots[i].valid) {
+                victim = i;
+                break;
+            }
         }
-        if (active_pin_epoch != 0 && slot->pin_epoch == active_pin_epoch) {
-            continue;
+    } else {
+        uint32_t scan = qw3_metal_streaming_eviction_scan_limit();
+        if (scan == 0 || scan > g_streaming_expert_slot_count) {
+            scan = g_streaming_expert_slot_count;
         }
-        const uint64_t score = qw3_metal_streaming_slot_eviction_score(slot);
-        if (score < oldest) {
-            oldest = score;
-            victim = i;
+        const uint32_t start =
+            g_streaming_expert_evict_cursor % g_streaming_expert_slot_count;
+        for (uint32_t n = 0; n < scan; n++) {
+            const uint32_t i = (start + n) % g_streaming_expert_slot_count;
+            qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
+            g_streaming_cache_stats.victim_candidates++;
+            if (active_pin_epoch != 0 && slot->pin_epoch == active_pin_epoch) {
+                continue;
+            }
+            const uint64_t score = qw3_metal_streaming_slot_eviction_score(slot);
+            if (score < oldest) {
+                oldest = score;
+                victim = i;
+            }
+        }
+        if (victim == UINT32_MAX && scan < g_streaming_expert_slot_count) {
+            g_streaming_cache_stats.victim_full_scans++;
+            for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
+                qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
+                g_streaming_cache_stats.victim_candidates++;
+                if (active_pin_epoch != 0 && slot->pin_epoch == active_pin_epoch) {
+                    continue;
+                }
+                const uint64_t score = qw3_metal_streaming_slot_eviction_score(slot);
+                if (score < oldest) {
+                    oldest = score;
+                    victim = i;
+                }
+            }
         }
     }
     if (victim == UINT32_MAX) {
         g_streaming_cache_stats.failures++;
         return 0;
+    }
+    if (g_streaming_expert_slot_count != 0) {
+        g_streaming_expert_evict_cursor =
+            (victim + 1u) % g_streaming_expert_slot_count;
     }
 
     const uint64_t gate_src = gate_offset + (uint64_t)expert * gate_bytes;

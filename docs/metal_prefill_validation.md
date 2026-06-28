@@ -147,6 +147,15 @@ Expert profile workflow:
   this measured 56.48 tok/s with the same 6501 preload reuse hits and 160.5 GiB
   copied. The earlier hot-eviction result above was 28.63 tok/s with linear
   lookup, so this removes a large CPU-side cache-management tax under churn.
+- Once the cache is full, victim selection now scans a bounded circular window
+  instead of the full cache on every miss. `QW3_METAL_STREAMING_EVICTION_SCAN=0`
+  restores full-cache victim scans; positive values tune the window. On the same
+  synthetic C prompt, scan 256 measured 57.50 tok/s with avg_scan 276.8, scan 64
+  measured 58.31 tok/s with avg_scan 89.0, and scan 32 dropped to 56.78 tok/s
+  with avg_scan 57.6. The default is therefore 64. After also making initial
+  free-slot fill use the same circular cursor, the default run measured 56.97
+  tok/s with avg_scan 62.6; the short `ciao` anti-garbage run reported avg_scan
+  1.0 while the cache was still filling.
 - Batch remap now pins slots while building the per-batch slot table, so LRU
   replacement cannot evict an expert already assigned to the active batch. A
   stress run with `--streaming-cache 512 --streaming-prefill-batch 8` completed

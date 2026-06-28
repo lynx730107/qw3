@@ -309,7 +309,10 @@ experts, while an explicit external hotlist can auto-preload up to 1024 entries
 
 The eviction policy keeps reused hotlist slots warmer than plain LRU during
 heavy churn. Set `QW3_METAL_STREAMING_HOT_EVICTION_DISABLE=1` only for A/B
-debugging against pure LRU.
+debugging against pure LRU. Victim selection uses a bounded scan of 64 cache
+slots by default once the cache is full; set
+`QW3_METAL_STREAMING_EVICTION_SCAN=0` to restore full-cache victim scans, or a
+different positive value to tune the scan window.
 
 SSD streaming prefill batching is enabled with `--streaming-prefill-batch`.
 Use `--streaming-prefill-batch auto` for the same default, or pass a numeric
