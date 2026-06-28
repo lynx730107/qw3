@@ -228,6 +228,7 @@ static uint8_t g_streaming_seen_preload_pairs[40u * 256u];
 static uint8_t g_streaming_seen_dynamic_pairs[40u * 256u];
 static uint64_t *g_expert_profile_hits;
 static char *g_expert_profile_path;
+static uint32_t g_streaming_pair_slots[40u * 256u];
 
 static void qw3_metal_streaming_cache_reset(void);
 
@@ -8618,6 +8619,9 @@ void qw3_metal_set_ssd_streaming(int enabled) {
         memset(g_streaming_seen_pairs, 0, sizeof(g_streaming_seen_pairs));
         memset(g_streaming_seen_preload_pairs, 0, sizeof(g_streaming_seen_preload_pairs));
         memset(g_streaming_seen_dynamic_pairs, 0, sizeof(g_streaming_seen_dynamic_pairs));
+        for (uint32_t i = 0; i < 40u * 256u; i++) {
+            g_streaming_pair_slots[i] = UINT32_MAX;
+        }
         g_streaming_hot_eviction_env_checked = 0;
         g_streaming_hot_eviction_disabled = 0;
     }
@@ -8651,6 +8655,9 @@ static void qw3_metal_streaming_cache_reset(void) {
     g_streaming_down_cache = nil;
     g_streaming_cache_stats.resident_slots = 0;
     g_streaming_cache_stats.max_slots = 0;
+    for (uint32_t i = 0; i < 40u * 256u; i++) {
+        g_streaming_pair_slots[i] = UINT32_MAX;
+    }
 }
 
 static int qw3_metal_streaming_pair_index(uint32_t layer, uint32_t expert,
@@ -8659,6 +8666,24 @@ static int qw3_metal_streaming_pair_index(uint32_t layer, uint32_t expert,
     if (layer >= 40u || expert >= 256u || !idx_out) return 0;
     *idx_out = layer * 256u + expert;
     return 1;
+}
+
+static void qw3_metal_streaming_pair_slot_clear(uint32_t layer,
+                                                uint32_t expert,
+                                                uint32_t slot_idx) {
+    uint32_t idx = 0;
+    if (!qw3_metal_streaming_pair_index(layer, expert, &idx)) return;
+    if (g_streaming_pair_slots[idx] == slot_idx) {
+        g_streaming_pair_slots[idx] = UINT32_MAX;
+    }
+}
+
+static void qw3_metal_streaming_pair_slot_set(uint32_t layer,
+                                              uint32_t expert,
+                                              uint32_t slot_idx) {
+    uint32_t idx = 0;
+    if (!qw3_metal_streaming_pair_index(layer, expert, &idx)) return;
+    g_streaming_pair_slots[idx] = slot_idx;
 }
 
 static void qw3_metal_streaming_cache_stats_record_pair(uint32_t layer,
@@ -8984,27 +9009,32 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     qw3_metal_streaming_cache_stats_record_pair(layer, expert, preload);
     g_streaming_expert_clock++;
     const uint64_t active_pin_epoch = g_streaming_expert_pin_epoch;
-    for (uint32_t i = 0; i < g_streaming_expert_slot_count; i++) {
-        qw3_streaming_expert_slot *slot = &g_streaming_expert_slots[i];
-        if (slot->valid && slot->layer == layer && slot->expert == expert &&
+    uint32_t pair_idx = 0;
+    if (qw3_metal_streaming_pair_index(layer, expert, &pair_idx)) {
+        const uint32_t cached_slot = g_streaming_pair_slots[pair_idx];
+        qw3_streaming_expert_slot *slot =
+            cached_slot < g_streaming_expert_slot_count ?
+                &g_streaming_expert_slots[cached_slot] : NULL;
+        if (slot && slot->valid && slot->layer == layer && slot->expert == expert &&
             slot->down_type == down_type) {
             slot->last_used = g_streaming_expert_clock + (uint64_t)priority;
             if (slot->hit_count < UINT32_MAX) slot->hit_count++;
             if (active_pin_epoch != 0) slot->pin_epoch = active_pin_epoch;
-            *slot_out = i;
+            *slot_out = cached_slot;
             g_streaming_cache_stats.hits++;
             if (preload) {
                 g_streaming_cache_stats.preload_hits++;
             } else {
                 g_streaming_cache_stats.dynamic_hits++;
-                uint32_t pair_idx = 0;
-                if (qw3_metal_streaming_pair_index(layer, expert, &pair_idx) &&
-                    g_streaming_seen_preload_pairs[pair_idx]) {
+                if (g_streaming_seen_preload_pairs[pair_idx]) {
                     g_streaming_cache_stats.preload_reuse_hits++;
                     if (slot->preloaded) slot->preload_reused = 1;
                 }
             }
             return 1;
+        }
+        if (cached_slot != UINT32_MAX) {
+            g_streaming_pair_slots[pair_idx] = UINT32_MAX;
         }
     }
     g_streaming_cache_stats.misses++;
@@ -9045,6 +9075,11 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     }
 
     const int replacing_valid = g_streaming_expert_slots[victim].valid != 0;
+    if (replacing_valid) {
+        qw3_metal_streaming_pair_slot_clear(g_streaming_expert_slots[victim].layer,
+                                            g_streaming_expert_slots[victim].expert,
+                                            victim);
+    }
     memcpy((uint8_t *)g_streaming_gate_cache.contents +
                (uint64_t)victim * g_streaming_gate_stride,
            (const uint8_t *)g_model_map_ptr + gate_src,
@@ -9068,6 +9103,7 @@ static int qw3_metal_stream_expert_ensure_loaded_slot(
     slot->preloaded = preload ? 1 : 0;
     slot->preload_reused = 0;
     slot->valid = 1;
+    qw3_metal_streaming_pair_slot_set(layer, expert, victim);
     *slot_out = victim;
     g_streaming_cache_stats.loads++;
     if (preload) {

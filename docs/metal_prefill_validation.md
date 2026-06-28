@@ -141,6 +141,12 @@ Expert profile workflow:
   `QW3_METAL_STREAMING_HOT_EVICTION_DISABLE=1` measured 20.53 tok/s with 338
   preload reuse hits and 169.1 GiB copied. Use this env flag only for A/B
   debugging.
+- SSD streaming cache hits now use a direct `(layer, expert) -> slot` lookup
+  instead of scanning every resident slot. On the synthetic C prompt with
+  external `profiles/synthetic-c.tsv` preload 1024 and `--target-memory 16gb`,
+  this measured 56.48 tok/s with the same 6501 preload reuse hits and 160.5 GiB
+  copied. The earlier hot-eviction result above was 28.63 tok/s with linear
+  lookup, so this removes a large CPU-side cache-management tax under churn.
 - Batch remap now pins slots while building the per-batch slot table, so LRU
   replacement cannot evict an expert already assigned to the active batch. A
   stress run with `--streaming-cache 512 --streaming-prefill-batch 8` completed
