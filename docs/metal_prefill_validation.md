@@ -939,3 +939,18 @@ The remaining credible margin is therefore in a deeper GDN decomposition or
 in the routed IQ3_S/IQ4_XS matmuls and their intermediate representation.
 Micro-flags and additional standalone dispatches are unlikely to close the
 gap.
+
+Two follow-up MoE probes were also rejected and fully reverted:
+
+- Writing the fused pair-MPP SwiGLU intermediate directly as F16 for the
+  IQ4_XS layers produced a non-finite final layer value in the 64-token batch
+  logits test (`layer_rmsdiff=nan`). It was rejected before benchmarking. The
+  existing compact F32 intermediate remains required for this path.
+- A `float4` version of the eight-slot expert reduction was logits-identical,
+  but its profiled reduction remained `2.87 ms/layer` versus about
+  `2.84 ms/layer` for the scalar source. The compiler or memory system already
+  extracts the available vectorization.
+
+The batch logits regression now rejects every non-finite max/RMS metric. This
+closes a test hole where IEEE NaN comparisons could previously leave the test
+status as `ok`.
