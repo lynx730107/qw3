@@ -903,3 +903,39 @@ Validation after the first partial-offload implementation:
 - `./qw3-metal ... --ctx 64000 --kv-f16 --ngl 35 --nothink -p ciao -n 4`
   starts successfully with a Metal memory estimate of 1057.6 MiB
   (`gqa_kv=1000.0 MiB`, `deltanet=54.0 MiB`) and generates the expected prefix.
+
+## 2026-07-10 Prefill Headroom Profile
+
+The warmed `pp4096` baseline on the M5 test machine was `632.19 tok/s` over
+three repetitions (standard deviation `3.89`). This leaves roughly an 8%
+gap from the locally observed llama.cpp result near `687 tok/s`.
+
+Synchronized stage profiles attribute the main costs as follows. The numbers
+are diagnostic totals and include profiler barriers, so they describe the
+relative optimization targets rather than normal end-to-end timing:
+
+- Linear-attention layers: about `2.86 s`, including `1.40 s` in DeltaNet GDN
+  and `0.89 s` in QKV/gate/alpha-beta projections.
+- Routed MoE: about `1.78 s`, including `0.95 s` in IQ3_S gate/up and `0.64 s`
+  in expert down projection.
+- Full-attention layers: about `0.89 s`, including `0.58 s` in FlashAttention.
+
+A batch version of the decode-time DeltaNet gate precomputation was tested and
+fully reverted. It was logits-safe, but reduced warmed `pp4096` from `638.54`
+to `623.76 tok/s`; the profiled GDN total increased from roughly `1.40 s` to
+`1.55 s`. Do not retry a separate alpha/beta precompute dispatch unless the
+recurrent pipeline is reorganized enough to absorb it without another node or
+barrier.
+
+A separate tiled2 variant that explicitly retained its two DeltaNet state
+columns in registers across the token loop was also logits-safe but neutral to
+negative: `633.73 tok/s` versus the nearby `638.54 tok/s` default, with the
+profiled GDN total at `1.48 s`. The Metal compiler likely already promotes the
+loop-carried state, or Q/K/V traffic and recurrence latency dominate. This
+variant was fully reverted and should not be retried as a source-level
+load/store hoist.
+
+The remaining credible margin is therefore in a deeper GDN decomposition or
+in the routed IQ3_S/IQ4_XS matmuls and their intermediate representation.
+Micro-flags and additional standalone dispatches are unlikely to close the
+gap.
