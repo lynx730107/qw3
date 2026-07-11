@@ -10077,6 +10077,9 @@ int qw3_engine_metal_session_prefill_q8_batch_test(qw3_engine *e, int token,
             !isfinite(layer_maxdiff) || !isfinite(layer_rmsdiff)) {
             gpu_ok = 0;
         }
+        if (layer_maxdiff > 0.05f || layer_rmsdiff > 0.005) {
+            gpu_ok = 0;
+        }
     }
     fprintf(fp,
             "metal session prefill q8 batch: %s token=%d n_tokens=%u stride=%u qkv_maxdiff=%.7g qkv_rmsdiff=%.7g gate_maxdiff=%.7g gate_rmsdiff=%.7g f32_maxdiff=%.7g f32_rmsdiff=%.7g convnorm_maxdiff=%.7g convnorm_rmsdiff=%.7g inner_maxdiff=%.7g inner_rmsdiff=%.7g attn_maxdiff=%.7g attn_rmsdiff=%.7g ffn_maxdiff=%.7g ffn_rmsdiff=%.7g router_maxdiff=%.7g router_rmsdiff=%.7g layer_maxdiff=%.7g layer_rmsdiff=%.7g qkv_first=[%.7g %.7g %.7g %.7g] router_first=[%.7g %.7g %.7g %.7g]\n",

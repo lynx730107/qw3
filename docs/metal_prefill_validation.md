@@ -954,3 +954,18 @@ Two follow-up MoE probes were also rejected and fully reverted:
 The batch logits regression now rejects every non-finite max/RMS metric. This
 closes a test hole where IEEE NaN comparisons could previously leave the test
 status as `ok`.
+
+Two deeper MPP occupancy/tile probes were evaluated and fully reverted:
+
+- Splitting the fused IQ3_S gate/up MPP kernel into two phases shortened the
+  lifetime of each cooperative-tensor accumulator, but lost the shared X load.
+  Gate/up increased from about `24.78` to `25.43 ms/layer` on the IQ4_XS
+  layers.
+- An IQ4_XS down MPP tile with 128 output rows used eight simdgroups and a
+  matching 128-row indirect dispatch. It did not preserve the expected output
+  layout: the 64-token batch ended at `layer_maxdiff=2.21` and
+  `layer_rmsdiff=0.126`. The 64x32/four-simdgroup tile remains required.
+
+The batch regression now also enforces final-layer tolerances of `0.05`
+maximum difference and `0.005` RMS difference. Previously a finite but badly
+divergent vector could still be printed as `ok`.
