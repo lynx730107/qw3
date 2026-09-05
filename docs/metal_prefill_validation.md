@@ -945,7 +945,8 @@ Two follow-up MoE probes were also rejected and fully reverted:
 - Writing the fused pair-MPP SwiGLU intermediate directly as F16 for the
   IQ4_XS layers produced a non-finite final layer value in the 64-token batch
   logits test (`layer_rmsdiff=nan`). It was rejected before benchmarking. The
-  existing compact F32 intermediate remains required for this path.
+  compact F32 intermediate was retained. This rejected that implementation;
+  it does not establish that every F16 intermediate implementation is unsafe.
 - A `float4` version of the eight-slot expert reduction was logits-identical,
   but its profiled reduction remained `2.87 ms/layer` versus about
   `2.84 ms/layer` for the scalar source. The compiler or memory system already
@@ -964,8 +965,67 @@ Two deeper MPP occupancy/tile probes were evaluated and fully reverted:
 - An IQ4_XS down MPP tile with 128 output rows used eight simdgroups and a
   matching 128-row indirect dispatch. It did not preserve the expected output
   layout: the 64-token batch ended at `layer_maxdiff=2.21` and
-  `layer_rmsdiff=0.126`. The 64x32/four-simdgroup tile remains required.
+  `layer_rmsdiff=0.126`. The validated 64x32/four-simdgroup tile was retained;
+  this result alone does not establish a hardware limitation on wider tiles.
 
 The batch regression now also enforces final-layer tolerances of `0.05`
 maximum difference and `0.005` RMS difference. Previously a finite but badly
 divergent vector could still be printed as `ok`.
+
+## 2026-09-05 MoE Reduction-Dimension Experiments
+
+Tested larger K tiles in the existing MPP kernels, preserving the 64 output
+rows, 32 routed token slots, four simdgroups, F32 intermediate, and F16 KV
+cache. This differs from the earlier 128-output-row experiment. The local
+llama.cpp routed MPP kernel also uses the original 64x32x32 shape.
+
+All model processes ran sequentially on the 24 GB M5. Measurements used:
+
+```sh
+./qw3-bench -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --llama-style -p 4096 -n 0 -r 3
+```
+
+The benchmark's untimed warmup remained enabled.
+
+| Configuration | Repetitions | Mean tok/s | Standard deviation |
+| --- | ---: | ---: | ---: |
+| Original, beginning of session | 3 | 636.92 | 4.29 |
+| IQ4_XS down, K=64 | 3 | 632.87 | 5.81 |
+| IQ4_XS down, K=128 | 3 | 612.93 | 7.18 |
+| IQ3_S fused gate/up, K=64 | 3 | 576.25 | 83.24 |
+| IQ3_S fused gate/up, K=64, repeated | 5 | 611.23 | 13.35 |
+| Original, restored at end | 3 | 608.41 | 7.45 |
+
+The unchanged baseline drifted by about 4.5% during the session. These runs
+therefore do not isolate a small speedup or slowdown from changing machine
+conditions. None demonstrated a reliable improvement, and all experimental
+kernel and host changes were removed. Do not promote a larger K tile on the
+basis of these measurements.
+
+Implementation and correctness findings:
+
+- For non-square B tiles, the tensor extents must match the K-contiguous
+  token rows: `(NK, NR1)`. Keeping `(NR1, NK)` from the square original caused
+  the first K=64 down attempt to fail with `layer_maxdiff=0.05067945` and
+  `layer_rmsdiff=0.005437171`. Correcting the extents restored the baseline
+  results. A and B also need disjoint shared-memory ranges: the down trials
+  used 12 KiB at K=64 and 24 KiB at K=128.
+- All three corrected variants passed the 64-token single-layer comparison
+  with `layer_maxdiff=0.0009708405` and `layer_rmsdiff=1.66781e-05`.
+- Down K=64 also matched the original JSON dump byte-for-byte for the top 64
+  logits at each of eight greedy generation steps after the 6399-token
+  `prompt_perf.txt` input. This covers the full model but only the saved top
+  logits, not every vocabulary entry. The other discarded variants were not
+  subjected to this long-prompt logits comparison.
+
+On the restored original, the 6399-token prompt generated a coherent
+128-token explanation of partial GPU offloading, with no observed garbage.
+That real-text run measured 491.61 tok/s prefill and 29.99 tok/s generation;
+its prompt length and content differ from synthetic pp4096.
+
+A live model-driven agent check also passed: asked to execute
+`printf 'qw3-prefill-tool-ok'`, the agent selected the native `bash` tool,
+executed it with exit status 0, and correctly reported the returned marker.
+This check used a separate temporary conversation store and did not inject
+a prewritten tool call.
