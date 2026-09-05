@@ -1029,3 +1029,104 @@ A live model-driven agent check also passed: asked to execute
 executed it with exit status 0, and correctly reported the returned marker.
 This check used a separate temporary conversation store and did not inject
 a prewritten tool call.
+
+## 2026-09-05 Decode Readback Batching And Measurement Controls
+
+The CPU-logits decode path now keeps the last layer, final RMSNorm, output
+projection, and logits readback in the same command batch. Previously it
+waited after the layer graph and again after the final norm. The Q6_K and
+Q8_0 output helpers now wait for caller-owned batches when a CPU output is
+requested; they must not return before that output is ready. No kernels,
+sampling parameters, cache formats, or agent/tool behavior were changed.
+The explicitly synchronized profiling path remains available.
+
+Pure-generation benchmark warmup now evaluates one token at position zero,
+matching the local llama-bench implementation. It no longer processes the
+entire depth prefix once just for warmup. Each measured repetition still
+prepares its depth outside the timer. Unlike llama-bench, qw3 currently
+recomputes this prefix instead of restoring a saved state between repetitions.
+Use one repetition per invocation for long-depth cross-engine comparisons to
+avoid that additional difference in thermal history.
+
+Some earlier measurements in this session were invalidated by repeated macOS
+Sleep/DarkWake transitions, confirmed in `pmset -g log`. The unchanged binary
+fell to 15-19 tok/s and returned to about 42 tok/s with sleep prevention.
+Those samples must not be used to judge an optimization or be attributed
+solely to thermal throttling. For unattended measurements on this machine use:
+
+```sh
+caffeinate -disu ./qw3-bench \
+  -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --llama-style -p 0 -n 128 -d 16000 -r 1 -t 4
+
+caffeinate -disu llama-bench \
+  -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  -p 0 -n 128 -d 0,4096,16000 -r 1 -t 4 -ngl 99 -fa 1 \
+  -ctk f16 -ctv f16 -mmp 0 -o json
+```
+
+Only one model process ran at a time. The sleep assertion ends with the
+command. The corrected runs used F16 KV, full Metal offload and normal warmup.
+Thermal-state spot checks were nominal; these are short benchmarks, not proof
+of sustained throughput on a hot fanless laptop.
+
+| Effective depth | qw3 tok/s | llama-bench tok/s |
+| --- | ---: | ---: |
+| 0 | 42.44 (3 repetitions, SD 0.33) | 35.85 (1 repetition) |
+| 4096 | 35.83 (1 repetition) | 34.60 (1 repetition) |
+| 16000 | 23.04 (1 repetition) | 30.58 (1 repetition) |
+
+The system llama-bench is build 8765, commit `9e209c5ae`; the inspected local
+source is `6b80c74f2`. Both benchmarks evaluate synthetic tokens without
+sampling, but their token streams differ. This is an engine comparison, not
+an identical-conversation or agent-throughput comparison.
+
+A controlled short-context A/B/A series measured the original at 41.97 and
+41.84 tok/s and the first readback-batched implementation at 42.50 tok/s
+(three repetitions each). Removing its redundant empty synchronization then
+measured 42.44 tok/s. A later original/final pair measured 40.82 (SD 0.77)
+and 41.07 (SD 0.24) tok/s. The observed benefit is small and variable,
+approximately 0.6-1.6% across these comparisons, with noise comparable to
+the smallest difference. It is not a guaranteed throughput gain and does
+not close the long-context attention gap.
+
+Three attention prototypes were removed: per-SIMD query-head ownership,
+shared split-reduction softmax weights, and a context-balanced split count.
+They passed the tested isolated F16 attention comparisons but did not
+establish a reliable end-to-end improvement. The shared-weight reduction
+also preserved eight selected generation tokens after the long prompt, with
+maximum saved-logit difference 0.0001078. Some of their timings preceded the
+sleep investigation, so they are inconclusive, not evidence of a hardware
+limit. Production attention kernels and split selection remain unchanged.
+
+Validation of the final readback-batching change:
+
+- `caffeinate -disu make test-metal-logits`: passed. CPU/Metal final logits,
+  short-session logits, four greedy steps, an agent-like prompt, and the
+  64-token batch comparison all passed. The latter retained
+  `layer_maxdiff=0.0009708405` and `layer_rmsdiff=1.66781e-05`.
+- With `--ctx 16000 --nothink --prompt-file prompt_perf.txt --temp 0 -n 8
+  --dump-logprobs ... --logprobs-top-k 64`, the JSON matched the pre-change
+  reference byte-for-byte. This compares the saved top 64 logits for eight
+  steps, not the entire vocabulary at long context.
+- The real 6399-token prompt generated a coherent 128-token explanation of
+  partial GPU offloading, without observed garbage: 539.20 tok/s prefill and
+  32.68 tok/s generation. This is not the synthetic benchmark above.
+- A live agent run, using a temporary store, selected `bash`, executed
+  `printf 'qw3-decode-tool-ok'` with exit status 0 and correctly reported its
+  output. No tool call was injected.
+- A profiled `-p 0 -n 1 -d 64 -r 1` benchmark logged the warmup at position
+  1 and the measured token at position 65, verifying that the timed decode
+  still follows the full depth prefix.
+- `caffeinate -disu make test-prefill-bench` passed at 498.20 tok/s without
+  warmup (test threshold 450). A separate warmed pp4096 check measured
+  583.63 tok/s (SD 27.43), followed by 565.52 (SD 29.18) on the original
+  executable, three repetitions each. Both are below the earlier session's
+  prefill figures and variable; they do not establish a prefill speedup or
+  a code-induced slowdown. The prefill kernels were not changed.
+
+The main remaining decode target is long-context full attention, based on
+the growing depth-dependent gap. Synchronized per-stage profiling points
+in the same direction but adds substantial overhead; its timings should not
+be treated as normal execution costs. A future attention change needs both
+controlled end-to-end timing and the long-prompt/tool regressions above.

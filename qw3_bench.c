@@ -555,7 +555,9 @@ static int run_llama_style_case(qw3_engine *engine, const bench_config *cfg,
 
     if (!cfg->no_warmup) {
         qw3_session_invalidate(session);
-        if (cfg->depth > 0 &&
+        /* Pure generation warms one token, as llama-bench does. Depth is
+         * prepared outside the timer in the measured repetition below. */
+        if (n_prompt > 0 && cfg->depth > 0 &&
             qw3_session_sync(session, &depth_prefix, err, sizeof(err)) != 0) {
             fprintf(stderr, "qw3-bench: warmup depth failed: %s\n", err);
             rc = 1;

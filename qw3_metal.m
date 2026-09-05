@@ -7724,7 +7724,12 @@ int qw3_metal_session_matvec_q8_0_x1_to_logits(qw3_metal_session *s,
         [blit endEncoding];
     }
 
-    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (out && !owned) {
+        /* A CPU output must be ready even inside a caller-owned command batch. */
+        if (!qw3_metal_synchronize()) return 0;
+    } else if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) {
+        return 0;
+    }
     if (cb.status == MTLCommandBufferStatusError) {
         fprintf(stderr, "qw3: Metal session q8_0 logits matvec command failed: %s\n",
                 [[cb.error localizedDescription] UTF8String]);
@@ -7793,7 +7798,11 @@ int qw3_metal_session_matvec_q6_k_x1_to_logits(qw3_metal_session *s,
         [blit endEncoding];
     }
 
-    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    if (out && !owned) {
+        if (!qw3_metal_synchronize()) return 0;
+    } else if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) {
+        return 0;
+    }
     if (cb.status == MTLCommandBufferStatusError) {
         fprintf(stderr, "qw3: Metal session q6_K logits matvec command failed: %s\n",
                 [[cb.error localizedDescription] UTF8String]);

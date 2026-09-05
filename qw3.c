@@ -13154,7 +13154,10 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
     } else if (ok && logits_mode == QW3_METAL_LOGITS_DEFER) {
         ok = batch_open ? qw3_metal_commit_commands() : 1;
         batch_open = 0;
-    } else if (ok && logits_mode == QW3_METAL_LOGITS_GPU) {
+    } else if (ok && (logits_mode == QW3_METAL_LOGITS_GPU ||
+                      (logits_mode == QW3_METAL_LOGITS_READ && !profile))) {
+        /* Keep final norm, projection and readback in the same command batch. */
+        float *logits_out = logits_mode == QW3_METAL_LOGITS_READ ? s->logits : NULL;
         double t0 = profile ? qw3_now_sec() : 0.0;
         if (profile) {
             ok = qw3_metal_synchronize();
@@ -13183,16 +13186,16 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
         if (ok && e->weights.output->type == QW3_TENSOR_Q8_0) {
             ok = qw3_metal_session_matvec_q8_0_x1_to_logits(
                 s->metal, e->weights.output->offset,
-                QW3_N_EMBD, QW3_N_VOCAB, NULL);
+                QW3_N_EMBD, QW3_N_VOCAB, logits_out);
         } else if (ok && e->weights.output->type == QW3_TENSOR_Q6_K) {
             ok = qw3_metal_session_matvec_q6_k_x1_to_logits(
                 s->metal, e->weights.output->offset,
-                QW3_N_EMBD, QW3_N_VOCAB, NULL);
+                QW3_N_EMBD, QW3_N_VOCAB, logits_out);
         } else {
             ok = 0;
         }
         if (ok && graph_token_profile) t_graph_encoded = qw3_now_sec();
-        if (ok) ok = qw3_metal_synchronize();
+        if (ok && !logits_out) ok = qw3_metal_synchronize();
         if (ok && graph_token_profile) t_graph_done = qw3_now_sec();
         if (profile) t_logits += qw3_now_sec() - t0;
         batch_open = 0;
