@@ -1200,3 +1200,66 @@ The restored build also generated a coherent 128-token explanation from
 generation). A live agent run selected `bash`, executed
 `printf 'qw3-sept6-tool-ok'` with exit status 0 and reported the marker correctly.
 No tool call was injected; a temporary conversation store was used.
+
+## 2026-09-06 Vector FlashAttention Decode
+
+The long-context F16 GQA decode path now uses the vector FlashAttention kernel
+from the local llama.cpp-derived Metal source. This is a structural change,
+not another tuning flag for the old split kernel. It uses 32 cache rows per
+workgroup, blockwise online softmax, 1/2/4 SIMD groups selected from context
+depth, and the corresponding vector reduction kernel. A small native kernel
+pads the final partial cache block and a second one applies the Qwen attention
+gate. The six specialized pipeline variants are cached so crossing a 32-token
+boundary does not trigger repeated Metal compilation.
+
+The path is enabled for F16 KV, head dimension 256, and contexts of at least
+1024 tokens. Unsupported configurations retain the previous implementation.
+Setting `QW3_METAL_GQA_FLASH_DECODE=0` provides an explicit diagnostic fallback.
+Q8 KV behavior was not changed.
+
+Isolated `make test-metal-gqa-decode` results after the final pipeline-cache
+change:
+
+| Context | Attend+out (ms) | Max difference | RMS difference |
+| ---: | ---: | ---: | ---: |
+| 1023, old unsplit path | 1.9725 | 0.000169933 | 0.0000436123 |
+| 1024 | 0.5852 | 0.000169337 | 0.0000436142 |
+| 4097 | 0.6627 | 0.000169337 | 0.0000436080 |
+| 16385 | 1.4305 | 0.000169754 | 0.0000436227 |
+
+Before this change the restored split kernel measured 1.0121 ms at 4097 and
+about 2.43 ms at 16385 in the same regression harness. The vector path is
+therefore about 35% faster at 4097 and 41% faster at 16385 for the isolated
+full-attention operation.
+
+Controlled full-model samples using `--llama-style -p 0 -n 128`:
+
+| Depth | Previous qw3 (tok/s) | Vector path (tok/s) |
+| ---: | ---: | ---: |
+| 1024 | 40.92 | 41.97 |
+| 4096 | 35.83 | 40.93 |
+| 16000 | 22.89 | 32.97 and 34.82 |
+
+The local system llama benchmark previously measured 30.58 tok/s at depth
+16000. This comparison indicates that the former long-context attention gap
+has been removed on the tested M5, but the single-run values are not confidence
+intervals. A later three-repetition qw3 run measured 28.32 tok/s with a very
+large 8.48 tok/s standard deviation after repeatedly rebuilding a 16k prefix;
+that thermally stressed run is retained here rather than discarded. Disabling
+per-layer command-buffer flushes was also tested separately and rejected:
+22.60 tok/s versus a 22.89 tok/s baseline.
+
+Final validation:
+
+- `make test-metal-gqa-decode test-metal-logits` passed. The boundary test
+  covers 1023, 1024, 4097, and 16385 tokens sequentially.
+- At the 6399-token real prompt, all eight selected tokens matched the saved
+  pre-change top-64 reference. Per-step maximum saved-logit difference stayed
+  at or below 0.0016632. This is a top-64 comparison, not full-vocabulary.
+- Two final 128-token runs of `prompt_perf.txt` were coherent, without observed
+  garbage. The last measured 446.23 tok/s prefill and 33.84 tok/s generation.
+- A final live agent run selected and executed `bash`, returned exit status 0,
+  and reported the expected marker. No tool call was injected.
+- `make test-prefill-bench` passed at 634.66 tok/s; the final full regression
+  invocation measured 589.85 tok/s. Both clear the 450 tok/s guard and confirm
+  that this decode change did not reduce the pp4096 path.

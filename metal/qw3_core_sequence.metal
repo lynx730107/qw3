@@ -688,6 +688,39 @@ kernel void qw3_gqa_flash_gate_from_compact(constant qw3_gqa_flash_gate_args &ar
     float g = row[args.gate_offset + head_off];
     row[args.out_offset + head_off] = flash_out[gid] / (1.0f + exp(-g));
 }
+struct qw3_gqa_flash_decode_pad_args { uint n_ctx; uint n_kv_heads; uint head_dim; };
+kernel void qw3_gqa_flash_decode_pad_f16(
+        constant qw3_gqa_flash_decode_pad_args &args,
+        device const half *k_cache,
+        device const half *v_cache,
+        device half *pad,
+        uint group [[threadgroup_position_in_grid]],
+        uint tid [[thread_index_in_threadgroup]],
+        uint nt [[threads_per_threadgroup]]) {
+    const uint C = 32u;
+    const uint row = group % C;
+    const uint kvh = group / C;
+    if (kvh >= args.n_kv_heads) return;
+    const uint valid = args.n_ctx % C;
+    const uint src_row = args.n_ctx - valid + row;
+    const uint kv_stride = args.n_kv_heads * args.head_dim;
+    const uint64_t plane = uint64_t(C) * args.n_kv_heads * kv_stride;
+    device half *kd = pad + (uint64_t(kvh) * C + row) * kv_stride;
+    device half *vd = pad + plane + (uint64_t(kvh) * C + row) * kv_stride;
+    for (uint d = tid; d < args.head_dim; d += nt) {
+        uint64_t src = uint64_t(src_row) * kv_stride + uint64_t(kvh) * args.head_dim + d;
+        kd[d] = row < valid ? k_cache[src] : half(0.0f);
+        vd[d] = row < valid ? v_cache[src] : half(0.0f);
+    }
+}
+struct qw3_gqa_flash_decode_gate_args { uint n; };
+kernel void qw3_gqa_flash_decode_gate(
+        constant qw3_gqa_flash_decode_gate_args &args,
+        device float *attn,
+        device const float *gate,
+        uint i [[thread_position_in_grid]]) {
+    if (i < args.n) attn[i] /= 1.0f + exp(-gate[i]);
+}
 struct qw3_gqa_flash_causal_mask_args { uint n_tokens; uint n_keys; uint pos0; uint n_q_blocks; uint n_k_blocks; };
 kernel void qw3_gqa_flash_causal_mask_block(constant qw3_gqa_flash_causal_mask_args &args,
                                           device half *mask,
