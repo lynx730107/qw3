@@ -1130,3 +1130,73 @@ the growing depth-dependent gap. Synchronized per-stage profiling points
 in the same direction but adds substantial overhead; its timings should not
 be treated as normal execution costs. A future attention change needs both
 controlled end-to-end timing and the long-prompt/tool regressions above.
+
+## 2026-09-06 Four-Row Decode Attention Experiments
+
+Compared the current grouped-head split kernel with llama.cpp's vector
+FlashAttention implementation (`kernel_flash_attn_ext_vec` in the local
+`ggml-metal.metal`). The latter processes blocks of cache rows and maintains
+a blockwise online softmax. Tested that scheduling idea in qw3 while keeping
+KV-head reuse, the split count, F16 cache, and the existing output reduction.
+This was not another split-count flag or the previous one-head-per-SIMD
+prototype.
+
+Three implementations were evaluated and then completely removed:
+
+1. Four cache rows per iteration, with separate dot-product scratch and
+   score storage. This reduced three threadgroup barriers per row to three
+   per block, preserving the per-row softmax update order.
+2. The same layout with blockwise softmax, rescaling the previous accumulator
+   once per block instead of once per row.
+3. Fixed-size, explicitly unrolled loops for the blockwise version, to expose
+   constant indexing to the compiler as in llama's vector implementation.
+
+The partial kernel needed 288 shared floats instead of 64. No extra global
+buffers, cache quantization, sampling changes, or prefill changes were used.
+
+| Variant | Isolated attend+out at 4097 (ms) | Full tg128 at depth 16000 (tok/s) |
+| --- | ---: | ---: |
+| Original, initial | not measured | 22.89 |
+| Four-row barriers, per-row softmax | 1.0227 | 22.51 |
+| Four-row blockwise softmax | 1.2879 | not measured |
+| Blockwise softmax, unrolled | 1.0937 | 20.93 |
+| Original, restored | 1.0121 | 22.81 |
+
+Full generation used `--llama-style -p 0 -n 128 -d 16000 -r 1 -t 4`, normal
+warmup, and `caffeinate -disu`. Model processes ran sequentially. These are
+single full-run samples, not statistical confidence intervals, but no variant
+demonstrated a useful gain and the restored baseline returned near its initial
+speed. The isolated test averages 64 attend+out calls on a cache constructed
+from a repeated input token; it is not a full-model throughput benchmark.
+
+All three variants passed the isolated CPU comparison at 4097 tokens, with
+maximum error about 0.00016946 and RMS about 0.00004361. The first and third
+also preserved all eight selected tokens and the top-64 token ordering after
+the 6399-token prompt. Saved-logit differences versus the original were:
+
+- Per-row softmax: maximum 0.0001040, RMS 0.00001999.
+- Unrolled blockwise softmax: maximum 0.0001297, RMS 0.00002958.
+
+The long-prompt comparisons checked finite saved logits with a separate JSON
+parser. They cover top-64 entries, not every vocabulary entry. The intermediate
+blockwise implementation was not long-prompt tested or promoted.
+
+Added `make test-metal-gqa-decode`, also included in `test-regression-full`.
+It forces F16 KV and checks 1023, 1024, 4097, and 16385 tokens sequentially,
+covering unsplit attention, the split threshold, uneven chunks and the
+256-split path. It checks the CPU reference and rejects missing/non-finite
+or excessive max/RMS metrics outside the engine's `-ffast-math` build.
+The parser was also tested with synthetic NaN, infinity, excessive error and
+an empty context list; all were rejected, while valid metrics passed.
+
+On the restored kernel, the new boundary suite and `make test-metal-logits`
+passed. The boundary comparisons stayed below 0.000170 maximum and 0.000044
+RMS difference. Do not repeat these block-four variants without a materially
+different work distribution: amortizing barriers alone did not improve this
+grouped-head implementation.
+
+The restored build also generated a coherent 128-token explanation from
+`prompt_perf.txt` without observed garbage (525.93 tok/s prefill, 32.07 tok/s
+generation). A live agent run selected `bash`, executed
+`printf 'qw3-sept6-tool-ok'` with exit status 0 and reported the marker correctly.
+No tool call was injected; a temporary conversation store was used.
