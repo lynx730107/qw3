@@ -1263,3 +1263,25 @@ Final validation:
 - `make test-prefill-bench` passed at 634.66 tok/s; the final full regression
   invocation measured 589.85 tok/s. Both clear the 450 tok/s guard and confirm
   that this decode change did not reduce the pp4096 path.
+
+### Rejected Q6_K logits RHS reuse
+
+After the attention change, a non-intrusive depth-4096 token profile attributed
+about 18.8 ms to the complete layer graph and 3.5 ms to final norm plus Q6_K
+vocabulary projection. A separate output-only Q6_K kernel was tested using the
+llama.cpp loop shape: it loaded the 16 RHS values once and reused them across
+the two output rows owned by each SIMD group. It passed the logits regression,
+but reduced the controlled depth-4096 result from 41.18 tok/s (SD 0.26) to
+39.76 tok/s (SD 1.95), three repetitions each. The kernel and its diagnostic
+flag were removed completely. Do not retry RHS reuse in this form; the existing
+explicit two-row code gives the Metal compiler a better schedule on the M5.
+
+### Rejected multi-layer command buffers
+
+Intermediate command-buffer cadences were tested after vector FlashAttention,
+instead of repeating the already rejected no-flush extreme. At depth 4096,
+three repetitions measured 41.18 tok/s (SD 0.26) with the production one-layer
+cadence, 41.15 tok/s (SD 0.44) with two layers per buffer, and 31.35 tok/s
+(SD 5.49) with four. The temporary environment control and scheduling code
+were removed. Two-layer grouping is neutral and four-layer grouping is both
+slower and less stable; per-layer flush remains the production behavior.
