@@ -1285,3 +1285,38 @@ cadence, 41.15 tok/s (SD 0.44) with two layers per buffer, and 31.35 tok/s
 (SD 5.49) with four. The temporary environment control and scheduling code
 were removed. Two-layer grouping is neutral and four-layer grouping is both
 slower and less stable; per-layer flush remains the production behavior.
+
+## 2026-09-08 Decode Gate/Up Arithmetic And Occupancy Probes
+
+Tested three IQ3_S fused gate/up alternatives on the M5 with F16 KV.
+Each candidate passed `make test-metal-logits` before benchmarking. Model
+processes ran sequentially under `caffeinate -disu`, using
+`--llama-style -p 0 -n 128 -d 4096 -r 3 --no-warmup`.
+
+| Implementation | Mean tok/s | Sample SD |
+| --- | ---: | ---: |
+| Production, before | 40.99 | 0.21 |
+| Apply block scale after accumulation | 41.29 | 0.10 |
+| Same scale change plus 2 KiB threadgroup lookup table | 40.89 | 0.21 |
+| Two rows per SIMD group, original arithmetic | 41.03 | 0.16 |
+| Production, restored | 40.75 | 0.25 |
+
+The scale change follows the local llama.cpp IQ3_S accumulation order. It
+passed the short logit checks but changed rounding (12-token maximum
+difference 0.002437592 versus the production 0.001584768). Its sub-1% gain
+against the initial baseline was insufficient to promote without further
+evidence. The shared-table candidate added cooperative loading and a barrier;
+it did not improve throughput. The two-row candidate reduced live accumulators
+and doubled workgroups, retaining the original short-test logit metrics but
+providing no useful throughput gain. All three candidates were removed and
+the production sources restored byte-for-byte. No new tuning flag remains.
+
+These results do not prove a bandwidth or thermal limit: neither GPU counters
+nor temperature were measured. Future work should isolate GPU execution from
+host waits before changing vocabulary projection or MoE scheduling again.
+
+The restored build generated a coherent 128-token response to the 6399-token
+`prompt_perf.txt` (512.14 tok/s prefill, 31.58 tok/s generation). A live agent
+with a temporary store executed `printf 'qw3-sept8-tool-ok'` via `bash`, exited
+successfully and reported the marker. These final checks exercised the
+restored production implementation, not the discarded candidates.
