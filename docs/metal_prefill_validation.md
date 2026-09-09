@@ -1352,3 +1352,40 @@ Validation on Apple M5, one model process at a time:
 
 `test-metal-sampling` is included in `test-regression-full`. Its standalone
 shader test needs no model weights. KV-cache quantization was not changed.
+
+### Sampled decode measurement and CPU merge pruning
+
+The CPU merge now skips the rest of a sorted GPU block when its current
+candidate cannot beat the global kth entry (including the token-ID tie rule).
+This avoids scanning candidates that cannot affect sampling. No new flag or
+change to repetition penalties is involved.
+
+`tests/bench_sampled_decode.c` measures 128 fixed decode steps with temperature
+0.6, top-k 20, top-p 0.95, repetition penalty 1.06 and seed 42. It times sampling
+and forward separately, excluding loading/prefill, and does not terminate at
+EOS. This is a short-context diagnostic, not a replacement for llama-bench or
+a long-context sustained test. Compile from the project root:
+
+```sh
+clang -O3 tests/bench_sampled_decode.c qw3_metal_core.o qw3_metal.o \
+  -framework Accelerate -framework Foundation -framework Metal -lm \
+  -o /tmp/qw3-sampled-bench
+caffeinate -disu /tmp/qw3-sampled-bench MODEL.gguf
+```
+
+Sequential M5 runs, same model and identical token hash `cd4642fa86bfceda`:
+
+| Implementation | Sampling ms/token | Forward ms/token | tok/s |
+| --- | ---: | ---: | ---: |
+| Original serial top-k, original merge | 2.232 | 24.099 | 37.979 |
+| Parallel top-k and pruned merge | 0.316 | 24.165 | 40.848 |
+| Parallel top-k and pruned merge, repeat | 0.313 | 24.149 | 40.880 |
+
+The approximately 7.6% observed improvement belongs to both sampling changes
+together, not to CPU pruning alone. This small sample is not a statistical or
+thermal characterization. Greedy generation is unchanged.
+
+After pruning, the 32-token sampled logit dump still matched the original
+byte-for-byte, as did the 128-token response to `prompt_perf.txt` at ctx 16000.
+The live agent executed `printf 'qw3-merge-tool-ok'` successfully and reported
+the marker. Only one model instance ran at a time.

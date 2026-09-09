@@ -8182,6 +8182,13 @@ int qw3_metal_session_topk_logits_repetition(qw3_metal_session *s,
         uint32_t idx = idxs[i];
         float val = vals[i];
         if (idx >= n) continue;
+        // GPU blocks are sorted by descending logit, then ascending token ID.
+        // Once their best remaining entry loses, the entire suffix loses too.
+        if (val < val_out[k - 1u] ||
+            (val == val_out[k - 1u] && idx >= idx_out[k - 1u])) {
+            i += k - 1u - i % k;
+            continue;
+        }
         for (uint32_t j = 0; j < k; j++) {
             if (val > val_out[j] || (val == val_out[j] && idx < idx_out[j])) {
                 for (uint32_t m = k - 1u; m > j; m--) {
