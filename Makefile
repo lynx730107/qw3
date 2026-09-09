@@ -150,7 +150,11 @@ test-prefill-bench: qw3-bench
 
 test-regression: test-agent-edit test-metal-logits test-runtime-regression
 
-test-regression-full: test-regression test-metal-smoke test-metal-gqa-decode
+.PHONY: test-metal-sampling
+test-metal-sampling:
+	sh tests/test_metal_sampling.sh
+
+test-regression-full: test-regression test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-metal qw3-agent qw3-agent-cpu \

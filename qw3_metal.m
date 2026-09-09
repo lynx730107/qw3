@@ -8162,7 +8162,7 @@ int qw3_metal_session_topk_logits_repetition(qw3_metal_session *s,
     [enc setBuffer:valsb offset:0 atIndex:3];
     [enc setBuffer:idxsb offset:0 atIndex:4];
     [enc dispatchThreadgroups:MTLSizeMake(n_blocks, 1, 1)
-        threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+        threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {

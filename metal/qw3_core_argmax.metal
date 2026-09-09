@@ -91,38 +91,36 @@ kernel void qw3_topk_penalty_blocks(constant qw3_topk_penalty_args &args,
                                     device uint *out_idxs,
                                     uint block [[threadgroup_position_in_grid]],
                                     ushort tid [[thread_index_in_threadgroup]]) {
-    if (tid != 0) return;
-    constexpr uint max_k = 64;
-    float vals[max_k];
-    uint idxs[max_k];
-    uint k = args.k > max_k ? max_k : args.k;
-    for (uint i = 0; i < max_k; i++) {
-        vals[i] = -FLT_MAX;
-        idxs[i] = 0xffffffffu;
-    }
-    uint start = block * 256u;
-    uint end = start + 256u;
-    if (end > args.n) end = args.n;
-    for (uint idx = start; idx < end; idx++) {
-        float v = x[idx];
-        if (args.apply_penalty && seen[idx] != 0) {
-            v = qw3_repeat_penalty_logit(v, args.repeat_penalty);
-        }
-        for (uint j = 0; j < k; j++) {
-            if (v > vals[j] || (v == vals[j] && idx < idxs[j])) {
-                for (uint m = k - 1u; m > j; m--) {
-                    vals[m] = vals[m - 1u];
-                    idxs[m] = idxs[m - 1u];
+    threadgroup float vals[256];
+    threadgroup uint idxs[256];
+    uint idx = block * 256u + uint(tid);
+    float v = idx < args.n ? x[idx] : -FLT_MAX;
+    if (idx < args.n && args.apply_penalty && seen[idx] != 0)
+        v = qw3_repeat_penalty_logit(v, args.repeat_penalty);
+    vals[tid] = v;
+    idxs[tid] = idx < args.n ? idx : 0xffffffffu;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Each comparator owns both entries, so one barrier per stage suffices.
+    for (uint size = 2u; size <= 256u; size <<= 1u) {
+        for (uint stride = size >> 1u; stride > 0u; stride >>= 1u) {
+            uint partner = uint(tid) ^ stride;
+            if (partner > uint(tid)) {
+                float a = vals[tid], b = vals[partner];
+                uint ai = idxs[tid], bi = idxs[partner];
+                bool b_first = b > a || (b == a && bi < ai);
+                bool descending = (uint(tid) & size) == 0u;
+                if (b_first == descending) {
+                    vals[tid] = b; idxs[tid] = bi;
+                    vals[partner] = a; idxs[partner] = ai;
                 }
-                vals[j] = v;
-                idxs[j] = idx;
-                break;
             }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
         }
     }
-    uint base = block * k;
-    for (uint i = 0; i < k; i++) {
-        out_vals[base + i] = vals[i];
-        out_idxs[base + i] = idxs[i];
+    uint k = min(args.k, 64u);
+    if (uint(tid) < k) {
+        out_vals[block * k + tid] = vals[tid];
+        out_idxs[block * k + tid] = idxs[tid];
     }
 }

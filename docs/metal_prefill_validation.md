@@ -1320,3 +1320,35 @@ The restored build generated a coherent 128-token response to the 6399-token
 with a temporary store executed `printf 'qw3-sept8-tool-ok'` via `bash`, exited
 successfully and reported the marker. These final checks exercised the
 restored production implementation, not the discarded candidates.
+
+## Parallel sampling top-k (September 9)
+
+The sampled decode path previously used one GPU thread per 256 vocabulary
+entries, with serial insertion into up to 64 candidates. It now uses a
+256-thread bitonic sort in threadgroup memory. Repetition-penalty arithmetic,
+the CPU candidate merge, sampling parameters and lower-token-ID tie breaking
+are unchanged. Greedy argmax does not use this kernel: this change must not be
+credited with improvements to the greedy llama-style benchmark.
+
+An isolated full-vocabulary (248320 entries), top-20 dispatch took 2.474 ms
+with the old kernel and 0.163 ms with the new one. A subsequent new-kernel run
+took 0.592 ms. These are individual GPU timings, not a sustained end-to-end
+throughput benchmark; no overall tokens/second improvement is claimed yet.
+
+Validation on Apple M5, one model process at a time:
+
+- `make test-metal-sampling`: 72 cases against CPU sorting, including ties,
+  signed values, repetition penalties, partial blocks and k=1/20/40/64.
+  The synthetic penalty is exactly representable (2.0), avoiding CPU/Metal
+  reciprocal-rounding ambiguity in near ties.
+- `make test-metal-logits`: all existing logit regression checks passed.
+- At temperature 0.6, top-k 20, seed 42 and default repetition penalty 1.06,
+  the 32-token hash-table prompt produced byte-identical saved top-64 logits
+  and selected tokens before and after the change.
+- The 6399-token `prompt_perf.txt`, ctx 16000, same sampling settings and
+  128 generated tokens produced byte-identical, coherent output in both builds.
+- A live agent with an isolated temporary store executed
+  `printf 'qw3-sampling-tool-ok'` through bash (exit 0) and reported the marker.
+
+`test-metal-sampling` is included in `test-regression-full`. Its standalone
+shader test needs no model weights. KV-cache quantization was not changed.
