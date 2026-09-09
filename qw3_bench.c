@@ -555,9 +555,9 @@ static int run_llama_style_case(qw3_engine *engine, const bench_config *cfg,
 
     if (!cfg->no_warmup) {
         qw3_session_invalidate(session);
-        /* Pure generation warms one token, as llama-bench does. Depth is
-         * prepared outside the timer in the measured repetition below. */
-        if (n_prompt > 0 && cfg->depth > 0 &&
+        /* Recreate the same depth used by the measured generation, then warm
+         * one token. Depth preparation remains outside the measured timer. */
+        if (cfg->depth > 0 &&
             qw3_session_sync(session, &depth_prefix, err, sizeof(err)) != 0) {
             fprintf(stderr, "qw3-bench: warmup depth failed: %s\n", err);
             rc = 1;
@@ -604,12 +604,26 @@ static int run_llama_style_case(qw3_engine *engine, const bench_config *cfg,
             rc = 1;
             break;
         }
+        const char *chunk_env = getenv("QW3_BENCH_PRINT_CHUNKS");
+        int chunk_tokens = chunk_env ? atoi(chunk_env) : 0;
+        double chunk_start = bench_now_sec();
         for (int i = 0; i < n_gen; i++) {
             int token = synthetic.v[cfg->depth + n_prompt + i];
             if (qw3_session_eval(session, token, err, sizeof(err)) != 0) {
                 fprintf(stderr, "qw3-bench: generation run failed: %s\n", err);
                 rc = 1;
                 break;
+            }
+            if (chunk_tokens > 0 &&
+                ((i + 1) % chunk_tokens == 0 || i + 1 == n_gen)) {
+                double chunk_end = bench_now_sec();
+                int count = (i + 1) % chunk_tokens;
+                if (count == 0) count = chunk_tokens;
+                fprintf(stderr,
+                        "qw3-bench: generation tokens %d..%d %.3f tok/s %.3f ms\n",
+                        i + 2 - count, i + 1, count / (chunk_end - chunk_start),
+                        (chunk_end - chunk_start) * 1000.0);
+                chunk_start = chunk_end;
             }
         }
         const double t1 = bench_now_sec();
@@ -618,6 +632,11 @@ static int run_llama_style_case(qw3_engine *engine, const bench_config *cfg,
         samples_sec[rep] = t1 - t0;
         samples_tps[rep] = samples_sec[rep] > 0.0 ?
             (double)timed_tokens / samples_sec[rep] : 0.0;
+        if (getenv("QW3_BENCH_PRINT_SAMPLES")) {
+            fprintf(stderr, "qw3-bench: sample %d/%d %.3f tok/s %.3f ms\n",
+                    rep + 1, cfg->repetitions, samples_tps[rep],
+                    samples_sec[rep] * 1000.0);
+        }
         session_bytes = qw3_session_payload_bytes(session);
     }
 

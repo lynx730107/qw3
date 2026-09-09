@@ -1389,3 +1389,36 @@ After pruning, the 32-token sampled logit dump still matched the original
 byte-for-byte, as did the 128-token response to `prompt_perf.txt` at ctx 16000.
 The live agent executed `printf 'qw3-merge-tool-ok'` successfully and reported
 the marker. Only one model instance ran at a time.
+
+### Sustained decode at 16k and benchmark diagnostics
+
+The benchmark accepts two optional diagnostic environment variables. They do
+not change engine execution or the normal CSV format:
+
+- `QW3_BENCH_PRINT_SAMPLES=1` prints every repetition separately.
+- `QW3_BENCH_PRINT_CHUNKS=N` prints each N-token generation segment.
+
+Pure-generation warmup now reconstructs the requested depth before evaluating
+its warmup token. Previously it warmed one token at an empty context even when
+the measured run used a nonzero depth.
+
+On the fanless M5 Air, three 128-token repetitions at depth 16384 produced
+30.231, 15.641 and 16.161 tok/s. This explains why the aggregate 20.68 tok/s
+is not representative of the initial decode rate. The repeated 16k prefill
+between samples creates substantial sustained load.
+
+A separate run used one 16k prefill, no warmup, and 384 continuous generation
+tokens. Successive 64-token segments measured 27.688, 26.710, 26.062, 25.397,
+24.404 and 22.795 tok/s. Context length grew by only 384 tokens (2.34%), while
+throughput fell by 17.7%. This is consistent with thermal or power-frequency
+scaling, although GPU frequency and temperature were not directly measured.
+`pmset -g therm` reported no recorded macOS warning level; that command does
+not establish that dynamic frequency scaling was absent.
+
+The Metal/engine diff from the vector-FlashAttention commit `b078d67` through
+the measurement commit contains only sampled top-k changes. `qw3-bench` uses
+greedy generation, so those changes are outside its execution path. Therefore
+these measurements do not demonstrate a greedy decode code regression. The
+previous 32.97 and 34.82 tok/s values remain valid individual observations,
+but should be described as cool/short-run samples rather than sustained M5 Air
+throughput.
