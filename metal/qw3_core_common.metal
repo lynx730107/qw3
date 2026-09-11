@@ -164,13 +164,29 @@ kernel void qw3_gqa_kv_quant_q8(constant qw3_kv_quant_q8_args &args,
     *((device char *)(kb + 2u + uint(tid))) = char(clamp(kq, -127.0f, 127.0f));
     *((device char *)(vb + 2u + uint(tid))) = char(clamp(vq, -127.0f, 127.0f));
 }
-kernel void qw3_gqa_store_token_cache_f16(constant qw3_kv_quant_q8_args &args,
+struct qw3_kv_store_f16_args {
+    uint n;
+    uint n_kv_heads;
+    uint head_dim;
+    uint tail_row;
+};
+kernel void qw3_gqa_store_token_cache_f16(constant qw3_kv_store_f16_args &args,
                                           device const float *k,
                                           device const float *v,
                                           device half *k_cache,
                                           device half *v_cache,
+                                          device half *tail,
                                           uint gid [[thread_position_in_grid]]) {
     if (gid >= args.n) return;
-    k_cache[gid] = half(k[gid]);
-    v_cache[gid] = half(v[gid]);
+    const half kv = half(k[gid]);
+    const half vv = half(v[gid]);
+    k_cache[gid] = kv;
+    v_cache[gid] = vv;
+    const uint kvh = gid / args.head_dim;
+    const uint d = gid - kvh * args.head_dim;
+    const uint kv_stride = args.n_kv_heads * args.head_dim;
+    const uint64_t plane = 32ull * args.n_kv_heads * kv_stride;
+    const uint64_t dst = (uint64_t(kvh) * 32ull + args.tail_row) * kv_stride + d;
+    tail[dst] = kv;
+    tail[plane + dst] = vv;
 }

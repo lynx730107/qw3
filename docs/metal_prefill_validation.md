@@ -1454,3 +1454,37 @@ Validation completed with `test-metal-gqa-decode` across 1023, 1024, 4097 and
 `prompt_perf.txt` output at ctx 16000 matched the saved reference byte-for-byte.
 A live agent called bash, received `QW3_TOOL_OK`, and reported it correctly.
 F16 KV was used throughout; Q8 KV behavior was not changed.
+
+## Persistent F16 FlashAttention tail (September 11)
+
+For a context not divisible by 32, the imported llama/DS4 vector decode path
+copies and zero-pads the final 32-row K/V block before every attention call.
+An isolated comparison at 16384 and 16385 cached tokens measured 1.2988 and
+1.3974 ms respectively, exposing about 0.10 ms of tail handling per GQA layer.
+
+QW3 now keeps a 32-row F16 tail buffer for each Metal GQA layer. The existing
+single-token and batch-prefill cache-write kernels update it without an extra
+dispatch. Batch writes restrict tail updates to the final 32 input tokens so
+more than 32 tokens cannot race while mapping positions modulo 32. The vector
+FlashAttention kernel reads this persistent tail directly and masks unwritten
+future rows through its existing partial-block mask. This removes the decode
+padding dispatch and repeated copy. The ten buffers add about 1.25 MiB to a
+full-Metal session; that memory is included in the Metal session accounting.
+
+The complete GQA boundary suite passed at 1023, 1024, 4097 and 16385 tokens.
+At 16385, the rolling-tail path measured 1.2213 ms versus 1.3985 ms in the
+preceding adaptive-split suite (12.7% lower), and versus 1.4163 ms in the direct
+32-way baseline. These are isolated 64-iteration attention measurements.
+
+A depth-16384 full-model run generated 128 tokens at 34.19 tok/s (33.57 and
+34.84 tok/s for its two 64-token segments). This is close to the best preceding
+runs, so the end-to-end benefit is still hidden by system variation. A later
+depth-4096 run measured 40.69, 40.24 and 37.57 tok/s over three repetitions.
+It was performed after the long-context validation workload and is retained as
+a stability observation, not an A/B speed claim.
+
+`test-metal-logits` passed. A 6399-token batch prefill followed by 128 sampled
+tokens produced output byte-identical to the saved pre-change reference,
+covering the important non-aligned prefill-to-decode transition. A live agent
+called bash, received `QW3_TAIL_OK`, and reported it correctly. Q8 KV is not
+routed through the persistent F16 tail.

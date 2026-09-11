@@ -650,6 +650,7 @@ kernel void qw3_gqa_prefill_write_cache(constant qw3_gqa_prefill_cache_args &arg
                                         device float *v_cache,
                                         device half *k_cache_f16,
                                         device half *v_cache_f16,
+                                        device half *tail,
                                         uint gid [[thread_position_in_grid]]) {
     uint kv_n = args.n_kv_heads * args.head_dim;
     uint total = args.n_tokens * kv_n;
@@ -665,6 +666,16 @@ kernel void qw3_gqa_prefill_write_cache(constant qw3_gqa_prefill_cache_args &arg
     if (args.kv_type == 1u) {
         k_cache_f16[dst] = half(kv);
         v_cache_f16[dst] = half(vv);
+        if (t + 32u >= args.n_tokens) {
+            uint kvh = i / args.head_dim;
+            uint d = i - kvh * args.head_dim;
+            uint tail_row = pos % 32u;
+            uint64_t plane = 32ull * args.n_kv_heads * kv_n;
+            uint64_t tail_dst =
+                (uint64_t(kvh) * 32ull + tail_row) * kv_n + d;
+            tail[tail_dst] = half(kv);
+            tail[plane + tail_dst] = half(vv);
+        }
     } else {
         k_cache[dst] = kv;
         v_cache[dst] = vv;
