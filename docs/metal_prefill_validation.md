@@ -1422,3 +1422,35 @@ these measurements do not demonstrate a greedy decode code regression. The
 previous 32.97 and 34.82 tok/s values remain valid individual observations,
 but should be described as cool/short-run samples rather than sustained M5 Air
 throughput.
+
+## Adaptive FlashAttention decode split count (September 11)
+
+The vector FlashAttention decode path now uses 32 split-K workgroups per head
+below 8192 cached tokens and 16 at or above that boundary. Long contexts retain
+256 attention workgroups across the 16 query heads, while producing half as
+many partial vectors for the reduction kernel. Separate pipeline caches cover
+both split counts so a session can cross the boundary safely. The reduction
+kernel masks inactive SIMD lanes for split counts below the 32-lane SIMD width.
+
+The 16-way candidate passed the cached-attention CPU comparison at 1024, 4097
+and 16385 tokens. An 8-way candidate also passed numerically but was rejected:
+at 16385 it took 1.5065 ms versus 1.4163 ms for the original 32-way split. A
+direct sequential 32/16 comparison at 16385 measured 1.4163 and 1.2829 ms. In
+the later complete boundary suite the adaptive path measured 0.5754 ms at
+1024, 0.6435 ms at 4097 and 1.3985 ms at 16385. The long-context improvement is
+therefore measurable but variable and should not be presented as 9.4% without
+the direct-A/B qualification.
+
+Full-model depth-16384, 128-token, no-warmup observations were 33.94 and 34.11
+tok/s for the fixed 16-way candidate, compared with 32.30 tok/s for the
+interleaved 32-way run. Much of that difference was in the first 64-token
+segment, which includes decode-pipeline initialization. A final adaptive run
+after the regression workload measured 31.43 tok/s (31.71 then 31.15 for the
+two 64-token segments), confirming that this change does not remove the M5
+Air's load-dependent throughput variation.
+
+Validation completed with `test-metal-gqa-decode` across 1023, 1024, 4097 and
+16385, followed by `test-metal-logits`. The sampled 128-token
+`prompt_perf.txt` output at ctx 16000 matched the saved reference byte-for-byte.
+A live agent called bash, received `QW3_TOOL_OK`, and reported it correctly.
+F16 KV was used throughout; Q8 KV behavior was not changed.

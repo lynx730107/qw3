@@ -116,10 +116,10 @@ static id<MTLComputePipelineState> g_gqa_flash_blk_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_attn_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_decode_pad_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_decode_gate_pipeline;
-static id<MTLComputePipelineState> g_gqa_flash_decode_pipelines[2][3];
-static uint32_t g_gqa_flash_decode_pipeline_strides[2][3];
-static uint8_t g_gqa_flash_decode_pipeline_unavailable[2][3];
-static id<MTLComputePipelineState> g_gqa_flash_decode_reduce_pipeline;
+static id<MTLComputePipelineState> g_gqa_flash_decode_pipelines[2][3][2];
+static uint32_t g_gqa_flash_decode_pipeline_strides[2][3][2];
+static uint8_t g_gqa_flash_decode_pipeline_unavailable[2][3][2];
+static id<MTLComputePipelineState> g_gqa_flash_decode_reduce_pipelines[2];
 static int g_gqa_flash_attn_external_enabled;
 static id<MTLComputePipelineState> g_gqa_store_token_cache_f16_pipeline;
 static id<MTLComputePipelineState> g_gqa_kv_quant_q8_pipeline;
@@ -2725,27 +2725,27 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv
 
 static id<MTLComputePipelineState>
 qw3_metal_gqa_flash_decode_pipeline(uint32_t kv_stride_elems,
-                                    int has_kvpad, int32_t nsg) {
+                                    int has_kvpad, int32_t nsg, int32_t nwg) {
     const int pad_index = has_kvpad ? 1 : 0;
     const int nsg_index = nsg == 1 ? 0 : nsg == 2 ? 1 : nsg == 4 ? 2 : -1;
-    if (nsg_index < 0 || !g_library || kv_stride_elems == 0) {
+    const int nwg_index = nwg == 16 ? 0 : nwg == 32 ? 1 : -1;
+    if (nsg_index < 0 || nwg_index < 0 || !g_library || kv_stride_elems == 0) {
         return nil;
     }
     id<MTLComputePipelineState> cached =
-        g_gqa_flash_decode_pipelines[pad_index][nsg_index];
+        g_gqa_flash_decode_pipelines[pad_index][nsg_index][nwg_index];
     if (cached &&
-        g_gqa_flash_decode_pipeline_strides[pad_index][nsg_index] ==
+        g_gqa_flash_decode_pipeline_strides[pad_index][nsg_index][nwg_index] ==
             kv_stride_elems) {
         return cached;
     }
-    g_gqa_flash_decode_pipelines[pad_index][nsg_index] = nil;
-    if (g_gqa_flash_decode_pipeline_unavailable[pad_index][nsg_index]) return nil;
+    g_gqa_flash_decode_pipelines[pad_index][nsg_index][nwg_index] = nil;
+    if (g_gqa_flash_decode_pipeline_unavailable[pad_index][nsg_index][nwg_index]) return nil;
 
     const bool disabled = false;
     const bool has_kvpad_bool = has_kvpad != 0;
     const int32_t ns10 = (int32_t)kv_stride_elems;
     const int32_t ns20 = (int32_t)kv_stride_elems;
-    const int32_t nwg = 32;
     MTLFunctionConstantValues *constants = [[MTLFunctionConstantValues alloc] init];
     [constants setConstantValue:&disabled type:MTLDataTypeBool atIndex:400];
     [constants setConstantValue:&disabled type:MTLDataTypeBool atIndex:401];
@@ -2762,7 +2762,7 @@ qw3_metal_gqa_flash_decode_pipeline(uint32_t kv_stride_elems,
         [g_library newFunctionWithName:@"qw3_kernel_flash_attn_ext_vec_f16_dk256_dv256"
                         constantValues:constants error:&error];
     if (!fn) {
-        g_gqa_flash_decode_pipeline_unavailable[pad_index][nsg_index] = 1;
+        g_gqa_flash_decode_pipeline_unavailable[pad_index][nsg_index][nwg_index] = 1;
         fprintf(stderr, "qw3: Metal decode FlashAttention function unavailable: %s\n",
                 error ? [[error localizedDescription] UTF8String] : "(unknown)");
         return nil;
@@ -2770,23 +2770,26 @@ qw3_metal_gqa_flash_decode_pipeline(uint32_t kv_stride_elems,
     id<MTLComputePipelineState> pipeline =
         [g_device newComputePipelineStateWithFunction:fn error:&error];
     if (!pipeline) {
-        g_gqa_flash_decode_pipeline_unavailable[pad_index][nsg_index] = 1;
+        g_gqa_flash_decode_pipeline_unavailable[pad_index][nsg_index][nwg_index] = 1;
         fprintf(stderr, "qw3: Metal decode FlashAttention pipeline failed: %s\n",
                 error ? [[error localizedDescription] UTF8String] : "(unknown)");
         return nil;
     }
-    g_gqa_flash_decode_pipelines[pad_index][nsg_index] = pipeline;
-    g_gqa_flash_decode_pipeline_strides[pad_index][nsg_index] = kv_stride_elems;
+    g_gqa_flash_decode_pipelines[pad_index][nsg_index][nwg_index] = pipeline;
+    g_gqa_flash_decode_pipeline_strides[pad_index][nsg_index][nwg_index] = kv_stride_elems;
     return pipeline;
 }
 
-static id<MTLComputePipelineState> qw3_metal_gqa_flash_decode_reduce_pipeline(void) {
-    static int unavailable;
-    if (g_gqa_flash_decode_reduce_pipeline) return g_gqa_flash_decode_reduce_pipeline;
-    if (unavailable || !g_library) return nil;
+static id<MTLComputePipelineState>
+qw3_metal_gqa_flash_decode_reduce_pipeline(int32_t nwg) {
+    static uint8_t unavailable[2];
+    const int nwg_index = nwg == 16 ? 0 : nwg == 32 ? 1 : -1;
+    if (nwg_index < 0 || !g_library) return nil;
+    if (g_gqa_flash_decode_reduce_pipelines[nwg_index])
+        return g_gqa_flash_decode_reduce_pipelines[nwg_index];
+    if (unavailable[nwg_index]) return nil;
 
     const int32_t dv = 256;
-    const int32_t nwg = 32;
     MTLFunctionConstantValues *constants = [[MTLFunctionConstantValues alloc] init];
     [constants setConstantValue:&dv type:MTLDataTypeInt atIndex:500];
     [constants setConstantValue:&nwg type:MTLDataTypeInt atIndex:501];
@@ -2795,13 +2798,14 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_decode_reduce_pipeline(vo
         [g_library newFunctionWithName:@"kernel_flash_attn_ext_vec_reduce"
                         constantValues:constants error:&error];
     if (!fn) {
-        unavailable = 1;
+        unavailable[nwg_index] = 1;
         return nil;
     }
-    g_gqa_flash_decode_reduce_pipeline =
+    g_gqa_flash_decode_reduce_pipelines[nwg_index] =
         [g_device newComputePipelineStateWithFunction:fn error:&error];
-    if (!g_gqa_flash_decode_reduce_pipeline) unavailable = 1;
-    return g_gqa_flash_decode_reduce_pipeline;
+    if (!g_gqa_flash_decode_reduce_pipelines[nwg_index])
+        unavailable[nwg_index] = 1;
+    return g_gqa_flash_decode_reduce_pipelines[nwg_index];
 }
 
 static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
@@ -9404,7 +9408,7 @@ static int qw3_metal_session_try_gqa_flash_decode(
     }
 
     const uint32_t ncpsg = 32u;
-    const uint32_t nwg = 32u;
+    const uint32_t nwg = n_ctx >= 8192u ? 16u : 32u;
     const uint32_t kv_stride = n_kv_heads * head_dim;
     const uint32_t inner_n = n_heads * head_dim;
     const int has_kvpad = (n_ctx % ncpsg) != 0u;
@@ -9412,9 +9416,9 @@ static int qw3_metal_session_try_gqa_flash_decode(
     while (2u * nwg * (uint32_t)nsg * ncpsg < n_ctx && nsg < 4) nsg *= 2;
 
     id<MTLComputePipelineState> attn =
-        qw3_metal_gqa_flash_decode_pipeline(kv_stride, has_kvpad, nsg);
+        qw3_metal_gqa_flash_decode_pipeline(kv_stride, has_kvpad, nsg, nwg);
     id<MTLComputePipelineState> reduce =
-        qw3_metal_gqa_flash_decode_reduce_pipeline();
+        qw3_metal_gqa_flash_decode_reduce_pipeline(nwg);
     if (!attn || !reduce || !g_gqa_flash_decode_pad_pipeline ||
         !g_gqa_flash_decode_gate_pipeline ||
         (NSUInteger)nsg * 32u > attn.maxTotalThreadsPerThreadgroup ||
@@ -9887,12 +9891,15 @@ void qw3_metal_cleanup(void) {
     g_gqa_flash_decode_gate_pipeline = nil;
     for (int pad = 0; pad < 2; pad++) {
         for (int nsg = 0; nsg < 3; nsg++) {
-            g_gqa_flash_decode_pipelines[pad][nsg] = nil;
-            g_gqa_flash_decode_pipeline_strides[pad][nsg] = 0;
-            g_gqa_flash_decode_pipeline_unavailable[pad][nsg] = 0;
+            for (int nwg = 0; nwg < 2; nwg++) {
+                g_gqa_flash_decode_pipelines[pad][nsg][nwg] = nil;
+                g_gqa_flash_decode_pipeline_strides[pad][nsg][nwg] = 0;
+                g_gqa_flash_decode_pipeline_unavailable[pad][nsg][nwg] = 0;
+            }
         }
     }
-    g_gqa_flash_decode_reduce_pipeline = nil;
+    g_gqa_flash_decode_reduce_pipelines[0] = nil;
+    g_gqa_flash_decode_reduce_pipelines[1] = nil;
     g_gqa_store_token_cache_f16_pipeline = nil;
     g_gqa_kv_quant_q8_pipeline = nil;
     g_gqa_attend_n_q8_inner_pipeline = nil;
