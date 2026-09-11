@@ -11,7 +11,7 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav \
-	test-vectors test-agent-edit test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
+	test-vectors test-agent-edit test-agent-repeat test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
 	test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
@@ -130,6 +130,9 @@ test-vectors: qw3-cpu
 test-agent-edit: qw3-agent
 	sh tests/test_agent_edit_tool.sh
 
+test-agent-repeat: qw3-agent
+	QW3_AGENT_REPEAT_GUARD_SELFTEST=1 ./qw3-agent
+
 test-metal-smoke: qw3-test
 	QW3_METAL_BIN=./qw3-test sh tests/test_metal_smoke.sh
 
@@ -148,7 +151,7 @@ test-runtime-regression: qw3-cli qw3-agent
 test-prefill-bench: qw3-bench
 	sh tests/test_prefill_bench_regression.sh
 
-test-regression: test-agent-edit test-metal-logits test-runtime-regression
+test-regression: test-agent-edit test-agent-repeat test-metal-logits test-runtime-regression
 
 .PHONY: test-metal-sampling
 test-metal-sampling:

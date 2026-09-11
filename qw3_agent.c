@@ -3308,7 +3308,41 @@ static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next) {
         }
         if (same) return true;
     }
+
+    /* Catch paragraph-sized loops after their second contiguous copy. */
+    const int min_long_n = 32;
+    const int max_long_n = total / 2 < 512 ? total / 2 : 512;
+    for (int n = min_long_n; n <= max_long_n; n++) {
+        const int previous = total - 2 * n;
+        const int last = total - n;
+        if (token_window_equal_with_next(tokens, next, previous, last, n)) {
+            return true;
+        }
+    }
     return false;
+}
+
+static int agent_repeat_guard_selftest(void) {
+    int storage[96];
+    qw3_tokens tokens = {.v = storage, .len = 0, .cap = 96};
+
+    for (int i = 0; i < 32; i++) storage[i] = 1000 + i;
+    tokens.len = 32;
+    if (agent_would_repeat_token_ngram(&tokens, 2000)) return 1;
+
+    for (int i = 0; i < 31; i++) storage[32 + i] = storage[i];
+    tokens.len = 63;
+    if (!agent_would_repeat_token_ngram(&tokens, storage[31])) return 2;
+
+    storage[32 + 15]++;
+    if (agent_would_repeat_token_ngram(&tokens, storage[31])) return 3;
+    storage[32 + 15]--;
+
+    for (int i = 0; i < 8; i++) storage[i] = 42;
+    tokens.len = 8;
+    if (!agent_would_repeat_token_ngram(&tokens, 42)) return 4;
+
+    return 0;
 }
 
 static bool text_slice_has_nonspace(const char *s, size_t n) {
@@ -5682,6 +5716,16 @@ static void agent_direct_progress_update(void *ud, const char *phase,
 }
 
 int main(int argc, char **argv) {
+    if (getenv("QW3_AGENT_REPEAT_GUARD_SELFTEST")) {
+        int rc = agent_repeat_guard_selftest();
+        if (rc != 0) {
+            fprintf(stderr, "test-agent-repeat-guard: FAIL case %d\n", rc);
+            return 1;
+        }
+        fprintf(stderr, "test-agent-repeat-guard: ok\n");
+        return 0;
+    }
+
     agent_state a;
     memset(&a, 0, sizeof(a));
     if (parse_args(&a.cfg, argc, argv) != 0) {
