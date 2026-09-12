@@ -261,6 +261,7 @@ void qw3_chat_append_message(qw3_engine *e, qw3_tokens *tokens,
                              const char *role, const char *content);
 void qw3_chat_append_assistant_prefix(qw3_engine *e, qw3_tokens *tokens,
                                       qw3_think_mode think_mode);
+void qw3_chat_append_assistant_end(qw3_engine *e, qw3_tokens *tokens);
 
 /* Token text. */
 char *qw3_token_text(qw3_engine *e, int token, size_t *len);

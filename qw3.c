@@ -3471,6 +3471,13 @@ void qw3_chat_append_assistant_prefix(qw3_engine *e, qw3_tokens *tokens,
     }
 }
 
+void qw3_chat_append_assistant_end(qw3_engine *e, qw3_tokens *tokens) {
+    if (!e || !tokens) return;
+    const qw3_vocab *v = &e->vocab;
+    emit_special_or_text(v, "<|im_end|>", v->im_end_id, tokens);
+    emit_text(v, "\n", tokens);
+}
+
 void qw3_engine_summary(qw3_engine *e) {
     if (!e) return;
     qw3_log(stderr, QW3_LOG_OK,

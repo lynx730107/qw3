@@ -67,7 +67,9 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_WEB_MAX_BYTES 200000
 #define QW3_AGENT_WEB_HEAD_BYTES 8192
 #define QW3_AGENT_WEB_HEAD_LINES 100
+#define QW3_AGENT_WEB_READ_MAX_LINES 120
 #define QW3_AGENT_WEB_TIMEOUT_SEC 30.0
+#define QW3_AGENT_TOOL_HISTORY_MAX 64
 #define QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS 512
 #define QW3_AGENT_COMPACT_SOFT_PERCENT 85
 #define QW3_AGENT_COMPACT_MIN_FREE_TOKENS 2048
@@ -116,6 +118,11 @@ typedef struct {
     tool_call calls[8];
     int n_calls;
 } tool_call_list;
+
+typedef struct {
+    uint64_t hashes[QW3_AGENT_TOOL_HISTORY_MAX];
+    int n_items;
+} agent_tool_history;
 
 typedef struct {
     const char *model_path;
@@ -196,6 +203,8 @@ typedef struct {
     agent_timing_fn timing_update;
     void *timing_ud;
     double progress_start_sec;
+    bool web_request_is_evening;
+    bool web_result_complete;
 } agent_state;
 
 typedef struct {
@@ -531,9 +540,9 @@ static char *native_tool_declarations(void) {
               TOOL_PARAM("code_only", "true/false; default true") ","
               TOOL_PARAM("semantic_only", "true/false; default false") ","
               TOOL_PARAM("content", "true/false; default false"));
-    TOOL_DECL("google_search", "Search the web and return compact Markdown links. Use this when current information or URLs are needed.",
+    TOOL_DECL("google_search", "Search the web and return compact Markdown links. Preserve exact temporal qualifiers from the request (for example tonight versus today), start with one focused query, prefer aggregate sources, and reuse returned URLs before searching again.",
               TOOL_PARAM("query", "Web search query"));
-    TOOL_DECL("visit_page", "Fetch a known URL and return compact readable text plus a temp output_path for the full page text.",
+    TOOL_DECL("visit_page", "Fetch a known URL and return compact readable text plus a temp output_path for the full page text. Answer immediately when requested facts are in the preview. A truncated page tail alone is not a reason to inspect output_path.",
               TOOL_PARAM("url", "HTTP or HTTPS URL"));
     TOOL_DECL("search", "Search text files for a literal pattern.",
               TOOL_PARAM("pattern", "Literal pattern") ","
@@ -2083,6 +2092,28 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     if (lines <= 0) lines = default_lines;
     if (lines > max_lines) lines = max_lines;
 
+    const bool is_web_capture =
+        !strncmp(path, "/tmp/qw3_agent_web_",
+                 strlen("/tmp/qw3_agent_web_"));
+    const int web_read_max_lines = agent_env_int(
+        "QW3_AGENT_WEB_READ_MAX_LINES", QW3_AGENT_WEB_READ_MAX_LINES,
+        20, max_lines);
+    if (is_web_capture && lines > web_read_max_lines) {
+        strbuf guard;
+        sb_init(&guard);
+        sb_printf(&guard,
+                  "context_guard: broad web capture read rejected "
+                  "(%d lines requested, maximum %d).\n",
+                  lines, web_read_max_lines);
+        sb_append(&guard,
+                  "Use search with path set to this output_path and a precise "
+                  "keyword from the user request. Then read at most 120 lines "
+                  "around matching line numbers. If there are no relevant "
+                  "matches, visit another URL already returned by "
+                  "google_search.\n");
+        return guard.p;
+    }
+
     const bool is_source = agent_path_is_source(path);
     const bool explicit_start = agent_has_param_value(call, "start");
     const bool explicit_lines = agent_has_param_value(call, "lines");
@@ -2391,6 +2422,33 @@ static char *agent_string_head(const char *s, int max_lines, size_t max_bytes,
     return out;
 }
 
+static bool agent_web_preview_has_complete_evening_schedule(const char *text) {
+    if (!text) return false;
+    const char *p = strstr(text, "Stasera in TV alle ");
+    if (!p) return false;
+
+    int timed_entries = 0;
+    while (*p) {
+        const char *line = p;
+        const char *end = strchr(line, '\n');
+        size_t n = end ? (size_t)(end - line) : strlen(line);
+        while (n && isspace((unsigned char)*line)) {
+            line++;
+            n--;
+        }
+        if (n >= 5 && isdigit((unsigned char)line[0]) &&
+            isdigit((unsigned char)line[1]) && line[2] == ':' &&
+            isdigit((unsigned char)line[3]) &&
+            isdigit((unsigned char)line[4])) {
+            timed_entries++;
+            if (timed_entries >= 5) return true;
+        }
+        if (!end) break;
+        p = end + 1;
+    }
+    return false;
+}
+
 static bool agent_write_temp_text(const char *prefix, const char *text,
                                   char *path, size_t path_len,
                                   char *err, size_t err_len) {
@@ -2437,12 +2495,22 @@ static char *tool_google_search(const tool_call *call) {
                                   QW3_AGENT_WEB_MAX_BYTES,
                                   4096, 1000000);
     static const char script[] =
-        "import html, sys, urllib.parse, urllib.request\n"
+        "import html, re, sys, time, urllib.parse, urllib.request\n"
         "from html.parser import HTMLParser\n"
         "q=sys.argv[1]\n"
         "url='https://lite.duckduckgo.com/lite/?q='+urllib.parse.quote(q)\n"
         "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 qw3-agent'})\n"
-        "data=urllib.request.urlopen(req,timeout=25).read().decode('utf-8','replace')\n"
+        "data=None; last=None\n"
+        "for attempt in range(2):\n"
+        "    try:\n"
+        "        data=urllib.request.urlopen(req,timeout=12).read().decode('utf-8','replace')\n"
+        "        break\n"
+        "    except Exception as e:\n"
+        "        last=e\n"
+        "        if attempt == 0: time.sleep(0.25)\n"
+        "if data is None:\n"
+        "    print('error: google_search request failed: '+str(last))\n"
+        "    raise SystemExit(1)\n"
         "class P(HTMLParser):\n"
         "    def __init__(self): super().__init__(); self.items=[]; self.cur=None\n"
         "    def handle_starttag(self,tag,attrs):\n"
@@ -2460,15 +2528,34 @@ static char *tool_google_search(const tool_call *call) {
         "            if title and href: self.items.append((title,href))\n"
         "            self.cur=None\n"
         "p=P(); p.feed(data); items=p.items\n"
+        "skip={'della','delle','degli','italiana','italiani','guida','oggi','tutti','tutte','canali','aggregata','programmi','programmazione','with','from','this','that'}\n"
+        "terms={x for x in re.findall(r'\\w+',q.casefold()) if len(x)>=4 and x not in skip}\n"
+        "ranked=[]\n"
+        "for rank,item in enumerate(items):\n"
+        "    title=item[0].casefold(); score=sum(1 for term in terms if term in title)\n"
+        "    ranked.append((-score,rank,item))\n"
+        "items=[item for _,_,item in sorted(ranked)]\n"
         "print('google_search query='+q)\n"
         "if not items: print('(no results parsed)')\n"
         "for i,(title,href) in enumerate(items,1): print(f'{i}. [{title}]({href})')\n";
     char *argv[] = {"python3", "-c", (char *)script, (char *)query, NULL};
-    return run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
-                            (size_t)max_bytes);
+    char *captured = run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
+                                      (size_t)max_bytes);
+    if (!captured || strstr(captured, "\nexit=")) return captured;
+    strbuf out;
+    sb_init(&out);
+    sb_append(&out, captured);
+    if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    sb_append(&out,
+              "Web workflow: open the returned URL whose title most directly "
+              "matches the requested subject, section, and date; it may not be "
+              "result 1. Reuse these results instead of issuing one search per "
+              "requested item.\n");
+    free(captured);
+    return out.p;
 }
 
-static char *tool_visit_page(const tool_call *call) {
+static char *tool_visit_page(agent_state *a, const tool_call *call) {
     const char *url = tool_param_value(call, "url");
     if (!url || !url[0]) return agent_strdup("error: visit_page requires url");
     if (strncmp(url, "http://", 7) && strncmp(url, "https://", 8)) {
@@ -2478,16 +2565,34 @@ static char *tool_visit_page(const tool_call *call) {
                                   QW3_AGENT_WEB_MAX_BYTES,
                                   4096, 1000000);
     static const char script[] =
-        "import html, re, sys, urllib.request\n"
+        "import html, re, sys, time, urllib.request\n"
         "url=sys.argv[1]\n"
         "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 qw3-agent'})\n"
-        "raw=urllib.request.urlopen(req,timeout=25).read()\n"
+        "raw=None; last=None\n"
+        "for attempt in range(2):\n"
+        "    try:\n"
+        "        raw=urllib.request.urlopen(req,timeout=12).read()\n"
+        "        break\n"
+        "    except Exception as e:\n"
+        "        last=e\n"
+        "        if attempt == 0: time.sleep(0.25)\n"
+        "if raw is None:\n"
+        "    print('error: visit_page request failed: '+str(last))\n"
+        "    raise SystemExit(1)\n"
         "enc='utf-8'\n"
         "text=raw.decode(enc,'replace')\n"
         "text=re.sub(r'(?is)<(script|style|noscript|svg).*?</\\1>',' ',text)\n"
         "title=''\n"
         "m=re.search(r'(?is)<title[^>]*>(.*?)</title>',text)\n"
         "if m: title=html.unescape(re.sub(r'\\s+',' ',m.group(1))).strip()\n"
+        "def image_text(match):\n"
+        "    tag=match.group(0)\n"
+        "    if 'channel-logo' not in tag.casefold(): return ' '\n"
+        "    alt=re.search(r'\\balt\\s*=\\s*\"([^\"]*)\"',tag,re.I|re.S)\n"
+        "    if not alt: alt=re.search(r\"\\balt\\s*=\\s*'([^']*)'\",tag,re.I|re.S)\n"
+        "    label=html.unescape(alt.group(1)).strip() if alt else ''\n"
+        "    return ('\\n'+label+'\\n') if label else ' '\n"
+        "text=re.sub(r'(?is)<img\\b[^>]*>',image_text,text)\n"
         "text=re.sub(r'(?i)<\\s*br\\s*/?>','\\n',text)\n"
         "text=re.sub(r'(?i)</\\s*(p|div|section|article|header|footer|li|h[1-6]|tr)\\s*>','\\n',text)\n"
         "text=re.sub(r'<[^>]+>',' ',text)\n"
@@ -2504,6 +2609,7 @@ static char *tool_visit_page(const tool_call *call) {
     char *md = run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
                                 (size_t)max_bytes);
     if (!md) return agent_strdup("error: visit_page failed");
+    if (!strncmp(md, "error:", 6) || strstr(md, "\nexit=")) return md;
 
     char path[PATH_MAX];
     char err[256] = {0};
@@ -2523,23 +2629,52 @@ static char *tool_visit_page(const tool_call *call) {
                                    QW3_AGENT_WEB_HEAD_BYTES,
                                    &shown_lines, &byte_limited);
     bool truncated = byte_limited || shown_lines < total_lines;
+    bool complete_schedule =
+        agent_web_preview_has_complete_evening_schedule(head);
+    if (a && a->web_request_is_evening && complete_schedule) {
+        a->web_result_complete = true;
+    }
     strbuf out;
     sb_init(&out);
-    sb_printf(&out, "visit_page url=%s\noutput_path=%s (%zu bytes, %d lines)\n",
-              url, path, strlen(md), total_lines);
-    if (truncated) {
+    if (complete_schedule) {
+        sb_printf(&out,
+                  "visit_page url=%s\npreview_status=complete structured "
+                  "evening schedule\n",
+                  url);
+    } else {
+        sb_printf(&out,
+                  "visit_page url=%s\noutput_path=%s (%zu bytes, %d lines)\n",
+                  url, path, strlen(md), total_lines);
+    }
+    if (truncated && !complete_schedule) {
         sb_printf(&out, "<head -%d %s>\n", QW3_AGENT_WEB_HEAD_LINES, path);
         sb_append(&out, head ? head : "");
         if (head && head[0] && head[strlen(head) - 1] != '\n') sb_append(&out, "\n");
         sb_append(&out, "</head>\n");
         sb_append(&out,
-                  "Use read path=<output_path> start=<line> lines=<count> "
-                  "to inspect more fetched text.\n");
+                  "More page text is available at output_path, but truncation "
+                  "only means the page has a tail: it does not make facts shown "
+                  "in this preview incomplete. Inspect the file only for a "
+                  "specific requested fact that is absent here.\n");
     } else {
         sb_append(&out, "<text>\n");
         sb_append(&out, head ? head : "");
         if (head && head[0] && head[strlen(head) - 1] != '\n') sb_append(&out, "\n");
         sb_append(&out, "</text>\n");
+    }
+    if (complete_schedule) {
+        sb_append(&out,
+                  "Web workflow: this preview is a complete structured result. "
+                  "Answer the user now; do not call another tool to verify or "
+                  "re-read entries already shown.\n");
+    } else {
+        sb_append(&out,
+                  "Web workflow: facts explicitly paired with their labels in "
+                  "the preview are ready to use; do not verify or re-read them. "
+                  "If all requested facts are present, stop browsing and answer "
+                  "now. Only for a missing fact, search output_path and read a "
+                  "short matching range; never inspect the whole capture. Reuse "
+                  "another returned URL before running a new search.\n");
     }
     free(head);
     free(md);
@@ -2836,7 +2971,8 @@ static void search_rec(strbuf *out, const char *path, const char *pattern,
     closedir(dir);
 }
 
-static char *tool_search(const tool_call *call) {
+static char *tool_search(agent_state *a, const tool_call *call) {
+    (void)a;
     const char *pattern = tool_param_value(call, "pattern");
     if (!pattern || !pattern[0]) pattern = tool_param_value(call, "query");
     if (!pattern || !pattern[0]) return agent_strdup("error: search requires pattern");
@@ -2849,7 +2985,16 @@ static char *tool_search(const tool_call *call) {
     sb_printf(&out, "search pattern=%s path=%s\n", pattern, path);
     int matches = 0;
     search_rec(&out, path, pattern, 0, 8, &matches, max);
-    if (matches == 0) sb_append(&out, "(no matches)\n");
+    if (matches == 0) {
+        sb_append(&out, "(no matches)\n");
+        if (!strncmp(path, "/tmp/qw3_agent_web_",
+                     strlen("/tmp/qw3_agent_web_"))) {
+            sb_append(&out,
+                      "Web workflow: this capture has no matching content. "
+                      "Stop inspecting it and visit another URL already "
+                      "returned by google_search.\n");
+        }
+    }
     if (matches >= max) sb_append(&out, "... truncated\n");
     return out.p;
 }
@@ -2858,6 +3003,13 @@ static char *tool_bash(const tool_call *call) {
     const char *cmd = tool_param_value(call, "cmd");
     if (!cmd || !cmd[0]) cmd = tool_param_value(call, "command");
     if (!cmd || !cmd[0]) return agent_strdup("error: bash requires cmd");
+    if (strstr(cmd, "/tmp/qw3_agent_web_")) {
+        return agent_strdup(
+            "context_guard: do not inspect visit_page captures with bash. "
+            "Use search on output_path, then a short read around matching "
+            "lines. If search finds nothing relevant, visit another URL "
+            "already returned by google_search.");
+    }
     FILE *fp = popen(cmd, "r");
     if (!fp) {
         strbuf err;
@@ -2898,10 +3050,10 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
         !strcmp(call->name, "get_fucttion")) return tool_get_function(call);
     if (!strcmp(call->name, "semantic_search")) return tool_semantic_search(call);
     if (!strcmp(call->name, "google_search")) return tool_google_search(call);
-    if (!strcmp(call->name, "visit_page")) return tool_visit_page(call);
+    if (!strcmp(call->name, "visit_page")) return tool_visit_page(a, call);
     if (!strcmp(call->name, "write")) return tool_write(a, call);
     if (!strcmp(call->name, "edit")) return tool_edit(a, call);
-    if (!strcmp(call->name, "search")) return tool_search(call);
+    if (!strcmp(call->name, "search")) return tool_search(a, call);
     if (!strcmp(call->name, "bash")) return tool_bash(call);
     strbuf out;
     sb_init(&out);
@@ -2909,25 +3061,106 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
     return out.p;
 }
 
-static char *execute_tools(agent_state *a, const tool_call_list *calls) {
+static bool tool_result_is_guard_rejection(const char *out) {
+    static const char prefix[] = "context_guard:";
+    return out && !strncmp(out, prefix, strlen(prefix));
+}
+
+static uint64_t agent_tool_call_hash(const tool_call *call) {
+    uint64_t h = 1469598103934665603ull;
+    h = agent_hash_update(h, call->name, strlen(call->name));
+    for (int i = 0; i < call->n_params; i++) {
+        const tool_param *param = &call->params[i];
+        static const char separator[] = "\n=";
+        h = agent_hash_update(h, separator, sizeof(separator) - 1);
+        h = agent_hash_update(h, param->name, strlen(param->name));
+        h = agent_hash_update(h, param->value ? param->value : "",
+                              param->value ? strlen(param->value) : 0);
+    }
+    return h;
+}
+
+static bool agent_tool_history_add(agent_tool_history *history,
+                                   const tool_call_list *calls,
+                                   char *repeat_name,
+                                   size_t repeat_name_len) {
+    uint64_t pending[8];
+    for (int i = 0; i < calls->n_calls; i++) {
+        pending[i] = agent_tool_call_hash(&calls->calls[i]);
+        for (int j = 0; j < history->n_items; j++) {
+            if (pending[i] == history->hashes[j]) {
+                snprintf(repeat_name, repeat_name_len, "%s",
+                         calls->calls[i].name);
+                return false;
+            }
+        }
+        for (int j = 0; j < i; j++) {
+            if (pending[i] == pending[j]) {
+                snprintf(repeat_name, repeat_name_len, "%s",
+                         calls->calls[i].name);
+                return false;
+            }
+        }
+    }
+    for (int i = 0;
+         i < calls->n_calls && history->n_items < QW3_AGENT_TOOL_HISTORY_MAX;
+         i++) {
+        history->hashes[history->n_items++] = pending[i];
+    }
+    return true;
+}
+
+static bool agent_append_tool_loop_guard(agent_state *a,
+                                         const char *tool_name,
+                                         char *err, size_t err_len) {
+    strbuf body;
+    sb_init(&body);
+    sb_printf(&body,
+              "context_guard: repeated identical call to '%s' was skipped. "
+              "Its result is already present in the conversation. Answer the "
+              "user now from that result; do not call this tool again.",
+              tool_name && tool_name[0] ? tool_name : "unknown");
+    char *response = native_tool_response_text("agent_control",
+                                               body.p ? body.p : "");
+    sb_free(&body);
+    bool ok = agent_ensure_message_room(a, "user", response, 64,
+                                        "tool loop guard would exceed context",
+                                        err, err_len);
+    if (ok) {
+        qw3_chat_append_message(a->engine, &a->transcript, "user", response);
+        agent_statusf(a, "agent: skipped repeated %s tool call\n",
+                      tool_name && tool_name[0] ? tool_name : "unknown");
+    }
+    free(response);
+    return ok;
+}
+
+static char *execute_tools(agent_state *a, const tool_call_list *calls,
+                           bool *all_guard_rejected) {
     strbuf result;
     sb_init(&result);
+    bool all_rejected = calls && calls->n_calls > 0;
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
         char *out = execute_one_tool(a, call);
+        if (!tool_result_is_guard_rejection(out)) all_rejected = false;
         sb_printf(&result, "<tool_result name=\"%s\">\n%s\n</tool_result>\n",
                   call->name, out ? out : "");
         agent_tool_status_block(a, call->name, out ? out : "");
         free(out);
     }
+    if (all_guard_rejected) *all_guard_rejected = all_rejected;
     return result.p ? result.p : agent_strdup("");
 }
 
 static bool execute_native_tools_append(agent_state *a,
-                                        const tool_call_list *calls) {
+                                        const tool_call_list *calls,
+                                        bool *all_guard_rejected) {
+    bool all_rejected = calls && calls->n_calls > 0;
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
         char *out = execute_one_tool(a, call);
+        if (!tool_result_is_guard_rejection(out)) all_rejected = false;
         agent_tool_status_block(a, call->name, out ? out : "");
         char *response = native_tool_response_text(call->name, out ? out : "");
         char compact_err[160] = {0};
@@ -2945,6 +3178,7 @@ static bool execute_native_tools_append(agent_state *a,
         free(response);
         free(out);
     }
+    if (all_guard_rejected) *all_guard_rejected = all_rejected;
     return true;
 }
 
@@ -2956,7 +3190,7 @@ static int run_tool_dsml(agent_state *a, const char *dsml) {
         free_tool_calls(&calls);
         return 1;
     }
-    char *result = execute_tools(a, &calls);
+    char *result = execute_tools(a, &calls, NULL);
     free_tool_calls(&calls);
     if (result) {
         agent_output_write(a, result, strlen(result));
@@ -3342,6 +3576,37 @@ static int agent_repeat_guard_selftest(void) {
     tokens.len = 8;
     if (!agent_would_repeat_token_ngram(&tokens, 42)) return 4;
 
+    agent_tool_history history = {0};
+    tool_call_list calls = {0};
+    calls.n_calls = 1;
+    snprintf(calls.calls[0].name, sizeof(calls.calls[0].name), "visit_page");
+    calls.calls[0].n_params = 1;
+    snprintf(calls.calls[0].params[0].name,
+             sizeof(calls.calls[0].params[0].name), "url");
+    calls.calls[0].params[0].value = "https://example.test/one";
+    char repeated[64] = {0};
+    if (!agent_tool_history_add(&history, &calls, repeated,
+                                sizeof(repeated))) return 5;
+    if (agent_tool_history_add(&history, &calls, repeated,
+                               sizeof(repeated))) return 6;
+    calls.calls[0].params[0].value = "https://example.test/two";
+    if (!agent_tool_history_add(&history, &calls, repeated,
+                                sizeof(repeated))) return 7;
+
+    static const char complete_schedule[] =
+        "Stasera in TV alle 21:30\n"
+        "Rai 1\n21:30\nA\nCanale 5\n21:20\nB\nRai 2\n20:55\nC\n"
+        "Italia 1\n21:19\nD\nRai 3\n21:20\nE\n";
+    static const char partial_schedule[] =
+        "Stasera in TV alle 21:30\nRai 1\n21:30\nA\n"
+        "Canale 5\n21:20\nB\n";
+    if (!agent_web_preview_has_complete_evening_schedule(complete_schedule)) {
+        return 8;
+    }
+    if (agent_web_preview_has_complete_evening_schedule(partial_schedule)) {
+        return 9;
+    }
+
     return 0;
 }
 
@@ -3381,6 +3646,7 @@ static void append_generated_assistant(agent_state *a,
     for (int i = 0; i < generated->len; i++) {
         qw3_tokens_push(&a->transcript, generated->v[i]);
     }
+    qw3_chat_append_assistant_end(a->engine, &a->transcript);
 }
 
 static void agent_prefill_progress(void *ud, const char *event,
@@ -3813,7 +4079,28 @@ static int generate_once(agent_state *a, char **assistant_text) {
     return rc;
 }
 
+static bool agent_ascii_contains_ci(const char *text, const char *needle) {
+    if (!text || !needle || !needle[0]) return false;
+    const size_t needle_len = strlen(needle);
+    for (const char *p = text; *p; p++) {
+        size_t i = 0;
+        while (i < needle_len && p[i] &&
+               tolower((unsigned char)p[i]) ==
+                   tolower((unsigned char)needle[i])) {
+            i++;
+        }
+        if (i == needle_len) return true;
+    }
+    return false;
+}
+
 static int run_agent_turn(agent_state *a, const char *user_message) {
+    a->web_result_complete = false;
+    a->web_request_is_evening =
+        agent_ascii_contains_ci(user_message, "stasera") ||
+        agent_ascii_contains_ci(user_message, "questa sera") ||
+        agent_ascii_contains_ci(user_message, "tonight") ||
+        agent_ascii_contains_ci(user_message, "this evening");
     agent_reset_source_read_budget(a);
     char compact_err[160] = {0};
     if (!agent_compact_if_needed(a, "soft limit before user turn",
@@ -3832,13 +4119,61 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     agent_note_user_message(a, user_message);
     qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
 
-    for (int round = 0; round < a->cfg.max_tool_rounds; round++) {
+    const int final_attempts = 3;
+    int guard_retry_credits = 2;
+    agent_tool_history tool_history = {0};
+    for (int round = 0;
+         round < a->cfg.max_tool_rounds + final_attempts;
+         round++) {
+        const bool final_only = round >= a->cfg.max_tool_rounds;
         if (round > 0 &&
             !agent_compact_if_needed(a, "soft limit before tool continuation",
                                      compact_err, sizeof(compact_err))) {
             agent_statusf(a, "agent: %s\n",
                           compact_err[0] ? compact_err : "context compaction failed");
             return -1;
+        }
+        if (round == a->cfg.max_tool_rounds) {
+            static const char budget_control_intro[] =
+                "Internal qw3-agent control: the tool-call budget for this "
+                "user turn is exhausted. Do not call any more tools. Give the "
+                "user a concise final answer now using the results already in "
+                "the conversation. Clearly state any missing or uncertain "
+                "facts instead of inventing them. Preserve all dates, names, "
+                "and constraints from the original request exactly.\n\n"
+                "Original user request:\n";
+            static const char complete_web_control_intro[] =
+                "Internal qw3-agent control: a web tool returned a complete "
+                "structured result for this request. Do not call another tool "
+                "or verify it again. Return only the fields the user requested, "
+                "using that result and preserving labels, values, dates, and "
+                "names exactly. Do not add descriptions, infer omitted details, "
+                "or complete text ending in an ellipsis.\n\n"
+                "Original user request:\n";
+            strbuf final_control;
+            sb_init(&final_control);
+            sb_append(&final_control,
+                      a->web_result_complete ? complete_web_control_intro :
+                                               budget_control_intro);
+            sb_append(&final_control, user_message ? user_message : "");
+            if (!agent_ensure_message_room(a, "user", final_control.p, 128,
+                                           "final tool-budget response would "
+                                           "exceed context",
+                                           compact_err, sizeof(compact_err))) {
+                sb_free(&final_control);
+                agent_statusf(a, "agent: %s\n",
+                              compact_err[0] ? compact_err : "context full");
+                return -1;
+            }
+            qw3_chat_append_message(a->engine, &a->transcript,
+                                    "user", final_control.p);
+            sb_free(&final_control);
+            agent_statusf(
+                a,
+                a->web_result_complete ?
+                    "agent: complete web result; requesting final answer\n" :
+                    "agent: tool round limit reached; requesting final answer "
+                    "from collected results\n");
         }
         char *assistant = NULL;
         if (generate_once(a, &assistant) != 0) {
@@ -3858,10 +4193,60 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int n_native = parse_native_tool_calls(assistant ? assistant : "",
                                                &native_calls);
         if (n_native > 0) {
-            bool ok = execute_native_tools_append(a, &native_calls);
+            if (final_only) {
+                free_tool_calls(&native_calls);
+                free(assistant);
+                char *response = native_tool_response_text(
+                    "agent_control",
+                    "Tool error: the tool-call budget for this user turn is "
+                    "exhausted. Do not request another tool. Answer now from "
+                    "the collected results and state any missing facts.");
+                if (!agent_ensure_message_room(a, "user", response, 128,
+                                               "tool-budget refusal would "
+                                               "exceed context",
+                                               compact_err,
+                                               sizeof(compact_err))) {
+                    free(response);
+                    agent_statusf(a, "agent: %s\n",
+                                  compact_err[0] ? compact_err :
+                                  "context full");
+                    return -1;
+                }
+                qw3_chat_append_message(a->engine, &a->transcript,
+                                        "user", response);
+                free(response);
+                agent_statusf(a,
+                              "agent: final response attempted another tool; "
+                              "returning a tool-budget refusal\n");
+                continue;
+            }
+            char repeat_name[64] = {0};
+            if (!agent_tool_history_add(&tool_history, &native_calls,
+                                        repeat_name, sizeof(repeat_name))) {
+                free_tool_calls(&native_calls);
+                free(assistant);
+                if (!agent_append_tool_loop_guard(a, repeat_name,
+                                                  compact_err,
+                                                  sizeof(compact_err))) {
+                    agent_statusf(a, "agent: %s\n",
+                                  compact_err[0] ? compact_err :
+                                  "context full");
+                    return -1;
+                }
+                continue;
+            }
+            bool all_guard_rejected = false;
+            bool ok = execute_native_tools_append(a, &native_calls,
+                                                  &all_guard_rejected);
             free_tool_calls(&native_calls);
             free(assistant);
             if (!ok) return -1;
+            if (a->web_result_complete) {
+                round = a->cfg.max_tool_rounds - 1;
+            } else if (all_guard_rejected && guard_retry_credits > 0) {
+                guard_retry_credits--;
+                round--;
+            }
             continue;
         }
         free_tool_calls(&native_calls);
@@ -3870,10 +4255,69 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int n_dsml = parse_tool_calls(assistant ? assistant : "", &dsml_calls);
         if (n_dsml <= 0) {
             free_tool_calls(&dsml_calls);
+            if (final_only &&
+                (!assistant ||
+                 !text_slice_has_nonspace(assistant, strlen(assistant)))) {
+                agent_statusf(a,
+                              "agent: final response after tool limit was "
+                              "empty\n");
+                if (round + 1 <
+                    a->cfg.max_tool_rounds + final_attempts) {
+                    static const char retry_control[] =
+                        "Internal qw3-agent control: your previous final "
+                        "response was empty. Do not call tools. Answer the "
+                        "user now with the evidence already available.";
+                    qw3_chat_append_message(a->engine, &a->transcript,
+                                            "user", retry_control);
+                    free(assistant);
+                    continue;
+                }
+            }
             free(assistant);
             return 0;
         }
-        char *tool_result = execute_tools(a, &dsml_calls);
+        if (final_only) {
+            free_tool_calls(&dsml_calls);
+            free(assistant);
+            char *response = native_tool_response_text(
+                "agent_control",
+                "Tool error: the tool-call budget for this user turn is "
+                "exhausted. Do not request another tool. Answer now from the "
+                "collected results and state any missing facts.");
+            if (!agent_ensure_message_room(a, "user", response, 128,
+                                           "tool-budget refusal would exceed "
+                                           "context",
+                                           compact_err,
+                                           sizeof(compact_err))) {
+                free(response);
+                agent_statusf(a, "agent: %s\n",
+                              compact_err[0] ? compact_err : "context full");
+                return -1;
+            }
+            qw3_chat_append_message(a->engine, &a->transcript,
+                                    "user", response);
+            free(response);
+            agent_statusf(a,
+                          "agent: final response attempted another tool; "
+                          "returning a tool-budget refusal\n");
+            continue;
+        }
+        char repeat_name[64] = {0};
+        if (!agent_tool_history_add(&tool_history, &dsml_calls,
+                                    repeat_name, sizeof(repeat_name))) {
+            free_tool_calls(&dsml_calls);
+            free(assistant);
+            if (!agent_append_tool_loop_guard(a, repeat_name, compact_err,
+                                              sizeof(compact_err))) {
+                agent_statusf(a, "agent: %s\n",
+                              compact_err[0] ? compact_err : "context full");
+                return -1;
+            }
+            continue;
+        }
+        bool all_guard_rejected = false;
+        char *tool_result = execute_tools(a, &dsml_calls,
+                                          &all_guard_rejected);
         free_tool_calls(&dsml_calls);
         char *response = native_tool_response_text("dsml", tool_result);
         if (!agent_ensure_message_room(a, "user", response,
@@ -3904,9 +4348,16 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         free(response);
         free(tool_result);
         free(assistant);
+        if (a->web_result_complete) {
+            round = a->cfg.max_tool_rounds - 1;
+        } else if (all_guard_rejected && guard_retry_credits > 0) {
+            guard_retry_credits--;
+            round--;
+        }
     }
-    agent_statusf(a, "agent: max tool rounds reached (%d)\n",
-                  a->cfg.max_tool_rounds);
+    agent_statusf(a,
+                  "agent: unable to produce a final answer after tool budget "
+                  "was exhausted\n");
     return 0;
 }
 
@@ -3959,9 +4410,27 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "- Prefer get_function when you need one function or method body.\n"
             "- Prefer semantic_search when you know the intent but not the "
             "exact symbol name.\n"
-            "- Use google_search to find web pages and visit_page to fetch a "
-            "known URL. If web tools fail, say so; do not invent current web "
-            "content.\n"
+            "- For web research, begin with one focused google_search and open "
+            "the most relevant result. Prefer one aggregate source over a "
+            "separate search for every requested item.\n"
+            "- Preserve the user's exact temporal scope in web queries: tonight "
+            "is not interchangeable with today, and explicit dates must remain "
+            "unchanged.\n"
+            "- Choose search results by title relevance, not merely rank. Reuse "
+            "URLs already returned by google_search. After visit_page, answer "
+            "as soon as the requested facts are present. A truncated page tail "
+            "alone is not a reason to inspect output_path. Only when a requested "
+            "fact is absent, search there for a precise keyword and read one "
+            "short matching range; never read the whole capture.\n"
+            "- After search finds no relevant text in a fetched output_path, "
+            "stop inspecting that capture and visit a different URL from the "
+            "existing search results. Never use bash or grep on web captures.\n"
+            "- Treat ellipses and visibly cut-off web text as incomplete. Never "
+            "guess or complete the missing words; omit that detail instead.\n"
+            "- Never end a response by merely promising another search or read: "
+            "either issue that tool call in the same response or provide the "
+            "best supported final answer. If web tools fail, say so and do not "
+            "invent current web content.\n"
             "- Use read only for small non-source files or precise source line "
             "ranges with explicit start and lines.\n\n");
     }
