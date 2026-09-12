@@ -91,6 +91,8 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
+#define AGENT_MESSAGES_MAGIC "QW3AMSG1"
+#define AGENT_MESSAGES_VERSION 1u
 
 typedef struct {
     float temperature;
@@ -183,10 +185,34 @@ typedef struct {
     int lines;
 } agent_source_read_budget;
 
+typedef enum {
+    AGENT_MESSAGE_SYSTEM,
+    AGENT_MESSAGE_USER,
+    AGENT_MESSAGE_ASSISTANT,
+    AGENT_MESSAGE_TOOL,
+    AGENT_MESSAGE_CONTROL,
+    AGENT_MESSAGE_LEGACY,
+} agent_message_kind;
+
+typedef struct {
+    agent_message_kind kind;
+    char *role;
+    char *content;
+    int token_start;
+    int token_end;
+} agent_message;
+
+typedef struct {
+    agent_message *items;
+    int len;
+    int cap;
+} agent_message_ledger;
+
 typedef struct {
     qw3_engine *engine;
     qw3_session *session;
     qw3_tokens transcript;
+    agent_message_ledger messages;
     agent_config cfg;
     char *last_read_path;
     int last_read_next;
@@ -229,6 +255,20 @@ typedef struct {
     uint32_t ctx_size;
     uint32_t token_len;
 } agent_store_header;
+
+typedef struct {
+    char magic[8];
+    uint32_t version;
+    uint32_t count;
+} agent_messages_header;
+
+typedef struct {
+    uint32_t kind;
+    uint32_t token_start;
+    uint32_t token_end;
+    uint32_t role_len;
+    uint32_t content_len;
+} agent_message_record;
 
 static void sb_init(strbuf *sb) {
     memset(sb, 0, sizeof(*sb));
@@ -587,6 +627,75 @@ static char *agent_strdup(const char *s) {
     return out;
 }
 
+static void agent_message_free(agent_message *message) {
+    if (!message) return;
+    free(message->role);
+    free(message->content);
+    memset(message, 0, sizeof(*message));
+}
+
+static void agent_message_ledger_clear(agent_message_ledger *ledger) {
+    if (!ledger) return;
+    for (int i = 0; i < ledger->len; i++) {
+        agent_message_free(&ledger->items[i]);
+    }
+    free(ledger->items);
+    memset(ledger, 0, sizeof(*ledger));
+}
+
+static bool agent_message_ledger_add(agent_message_ledger *ledger,
+                                     agent_message_kind kind,
+                                     const char *role, const char *content,
+                                     int token_start, int token_end) {
+    if (!ledger || token_start < 0 || token_end < token_start) return false;
+    if (ledger->len == ledger->cap) {
+        int next_cap = ledger->cap ? ledger->cap * 2 : 32;
+        agent_message *next = realloc(
+            ledger->items, (size_t)next_cap * sizeof(*next));
+        if (!next) return false;
+        ledger->items = next;
+        ledger->cap = next_cap;
+    }
+    agent_message *message = &ledger->items[ledger->len];
+    memset(message, 0, sizeof(*message));
+    message->role = agent_strdup(role ? role : "");
+    message->content = agent_strdup(content ? content : "");
+    if (!message->role || !message->content) {
+        agent_message_free(message);
+        return false;
+    }
+    message->kind = kind;
+    message->token_start = token_start;
+    message->token_end = token_end;
+    ledger->len++;
+    return true;
+}
+
+static void agent_message_ledger_truncate(agent_message_ledger *ledger,
+                                          int token_len) {
+    if (!ledger) return;
+    while (ledger->len > 0 &&
+           ledger->items[ledger->len - 1].token_start >= token_len) {
+        agent_message_free(&ledger->items[--ledger->len]);
+    }
+    if (ledger->len > 0 &&
+        ledger->items[ledger->len - 1].token_end > token_len) {
+        agent_message_free(&ledger->items[--ledger->len]);
+    }
+}
+
+static bool agent_append_message(agent_state *a, agent_message_kind kind,
+                                 const char *role, const char *content) {
+    int start = a->transcript.len;
+    qw3_chat_append_message(a->engine, &a->transcript, role, content);
+    if (agent_message_ledger_add(&a->messages, kind, role, content,
+                                 start, a->transcript.len)) {
+        return true;
+    }
+    a->transcript.len = start;
+    return false;
+}
+
 static char *read_file_text(const char *path, size_t *out_len) {
     FILE *fp = fopen(path, "rb");
     if (!fp) return NULL;
@@ -717,6 +826,10 @@ static char *store_meta_path(agent_state *a, const char *name) {
 
 static char *store_text_path(agent_state *a, const char *name) {
     return store_path_ext(a, name, ".txt");
+}
+
+static char *store_messages_path(agent_state *a, const char *name) {
+    return store_path_ext(a, name, ".msgs");
 }
 
 static uint64_t agent_hash_update(uint64_t h, const void *data, size_t n) {
@@ -940,6 +1053,99 @@ static int store_write_tokens_path(agent_state *a, const char *path) {
     return rc;
 }
 
+static int store_write_messages_path(const char *path,
+                                     const agent_message_ledger *ledger) {
+    if (!path || !ledger) return -1;
+    FILE *fp = fopen(path, "wb");
+    if (!fp) return -1;
+    agent_messages_header header = {0};
+    memcpy(header.magic, AGENT_MESSAGES_MAGIC, sizeof(header.magic));
+    header.version = AGENT_MESSAGES_VERSION;
+    header.count = (uint32_t)ledger->len;
+    int rc = fwrite(&header, 1, sizeof(header), fp) == sizeof(header) ? 0 : -1;
+    for (int i = 0; rc == 0 && i < ledger->len; i++) {
+        const agent_message *message = &ledger->items[i];
+        size_t role_len = strlen(message->role ? message->role : "");
+        size_t content_len = strlen(message->content ? message->content : "");
+        if (role_len > UINT32_MAX || content_len > UINT32_MAX ||
+            message->token_start < 0 || message->token_end < message->token_start) {
+            rc = -1;
+            break;
+        }
+        agent_message_record record = {
+            .kind = (uint32_t)message->kind,
+            .token_start = (uint32_t)message->token_start,
+            .token_end = (uint32_t)message->token_end,
+            .role_len = (uint32_t)role_len,
+            .content_len = (uint32_t)content_len,
+        };
+        if (fwrite(&record, 1, sizeof(record), fp) != sizeof(record) ||
+            fwrite(message->role, 1, role_len, fp) != role_len ||
+            fwrite(message->content, 1, content_len, fp) != content_len) {
+            rc = -1;
+        }
+    }
+    if (fclose(fp) != 0) rc = -1;
+    return rc;
+}
+
+static int store_read_messages_path(const char *path, int token_len,
+                                    agent_message_ledger *ledger) {
+    if (!path || !ledger || token_len < 0) return -1;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return -1;
+    agent_messages_header header = {0};
+    int rc = -1;
+    if (fread(&header, 1, sizeof(header), fp) == sizeof(header) &&
+        memcmp(header.magic, AGENT_MESSAGES_MAGIC, sizeof(header.magic)) == 0 &&
+        header.version == AGENT_MESSAGES_VERSION && header.count <= 100000) {
+        rc = 0;
+    }
+    agent_message_ledger next = {0};
+    int previous_end = 0;
+    for (uint32_t i = 0; rc == 0 && i < header.count; i++) {
+        agent_message_record record = {0};
+        if (fread(&record, 1, sizeof(record), fp) != sizeof(record) ||
+            record.kind > AGENT_MESSAGE_LEGACY || record.role_len > 64 ||
+            record.content_len > 16 * 1024 * 1024 ||
+            record.token_start < (uint32_t)previous_end ||
+            record.token_end < record.token_start ||
+            record.token_end > (uint32_t)token_len) {
+            rc = -1;
+            break;
+        }
+        char *role = malloc((size_t)record.role_len + 1);
+        char *content = malloc((size_t)record.content_len + 1);
+        if (!role || !content ||
+            fread(role, 1, record.role_len, fp) != record.role_len ||
+            fread(content, 1, record.content_len, fp) != record.content_len) {
+            free(role);
+            free(content);
+            rc = -1;
+            break;
+        }
+        role[record.role_len] = '\0';
+        content[record.content_len] = '\0';
+        if (!agent_message_ledger_add(&next, (agent_message_kind)record.kind,
+                                      role, content, (int)record.token_start,
+                                      (int)record.token_end)) {
+            rc = -1;
+        }
+        previous_end = (int)record.token_end;
+        free(role);
+        free(content);
+    }
+    if (rc == 0 && (header.count == 0 || previous_end != token_len)) rc = -1;
+    fclose(fp);
+    if (rc == 0) {
+        agent_message_ledger_clear(ledger);
+        *ledger = next;
+    } else {
+        agent_message_ledger_clear(&next);
+    }
+    return rc;
+}
+
 static int store_write_meta(agent_state *a, const char *id, bool stripped) {
     char *path = store_meta_path(a, id);
     if (!path) return -1;
@@ -966,9 +1172,11 @@ static int store_save(agent_state *a, const char *name) {
     const char *id = a->session_id;
     char *text_path = store_text_path(a, id);
     char *token_path = store_path(a, id);
-    if (!text_path || !token_path) {
+    char *messages_path = store_messages_path(a, id);
+    if (!text_path || !token_path || !messages_path) {
         free(text_path);
         free(token_path);
+        free(messages_path);
         return -1;
     }
 
@@ -982,6 +1190,7 @@ static int store_save(agent_state *a, const char *name) {
     if (rc == 0 && a->session_stripped) {
         (void)unlink(token_path);
     }
+    if (rc == 0) rc = store_write_messages_path(messages_path, &a->messages);
     if (rc == 0) rc = store_write_meta(a, id, a->session_stripped);
     if (rc == 0) {
         agent_statusf(a, "agent: saved %s (%d tokens%s)\n",
@@ -992,6 +1201,7 @@ static int store_save(agent_state *a, const char *name) {
     }
     free(text_path);
     free(token_path);
+    free(messages_path);
     return rc;
 }
 
@@ -999,10 +1209,12 @@ static int store_load(agent_state *a, const char *name) {
     char *token_path = store_path(a, name);
     char *meta_path = store_meta_path(a, name);
     char *text_path = store_text_path(a, name);
-    if (!token_path || !meta_path || !text_path) {
+    char *messages_path = store_messages_path(a, name);
+    if (!token_path || !meta_path || !text_path || !messages_path) {
         free(token_path);
         free(meta_path);
         free(text_path);
+        free(messages_path);
         return -1;
     }
     agent_session_meta meta = {0};
@@ -1031,6 +1243,15 @@ static int store_load(agent_state *a, const char *name) {
     if (rc == 0) {
         qw3_tokens_free(&a->transcript);
         a->transcript = next;
+        agent_message_ledger_clear(&a->messages);
+        if (store_read_messages_path(messages_path, a->transcript.len,
+                                     &a->messages) != 0) {
+            char *legacy_text = transcript_rendered_text(a, &a->transcript);
+            (void)agent_message_ledger_add(
+                &a->messages, AGENT_MESSAGE_LEGACY, "legacy",
+                legacy_text ? legacy_text : "", 0, a->transcript.len);
+            free(legacy_text);
+        }
         if (a->session) qw3_session_invalidate(a->session);
         agent_clear_session_meta(a);
         a->session_id = agent_strdup(have_meta && meta.id ? meta.id : name);
@@ -1047,6 +1268,7 @@ static int store_load(agent_state *a, const char *name) {
     free(token_path);
     free(meta_path);
     free(text_path);
+    free(messages_path);
     return rc;
 }
 
@@ -1161,19 +1383,23 @@ static int store_delete(agent_state *a, const char *name) {
     char *token_path = store_path(a, name);
     char *meta_path = store_meta_path(a, name);
     char *text_path = store_text_path(a, name);
-    if (!token_path || !meta_path || !text_path) {
+    char *messages_path = store_messages_path(a, name);
+    if (!token_path || !meta_path || !text_path || !messages_path) {
         free(token_path);
         free(meta_path);
         free(text_path);
+        free(messages_path);
         return -1;
     }
     int removed = 0;
     if (unlink(token_path) == 0) removed++;
     if (unlink(meta_path) == 0) removed++;
     if (unlink(text_path) == 0) removed++;
+    if (unlink(messages_path) == 0) removed++;
     free(token_path);
     free(meta_path);
     free(text_path);
+    free(messages_path);
     if (removed == 0) {
         agent_statusf(a, "agent: no session files for %s\n", name);
         return -1;
@@ -1195,10 +1421,12 @@ static int store_strip(agent_state *a, const char *name) {
     char *token_path = store_path(a, id);
     char *meta_path = store_meta_path(a, id);
     char *text_path = store_text_path(a, id);
-    if (!token_path || !meta_path || !text_path) {
+    char *messages_path = store_messages_path(a, id);
+    if (!token_path || !meta_path || !text_path || !messages_path) {
         free(token_path);
         free(meta_path);
         free(text_path);
+        free(messages_path);
         return -1;
     }
 
@@ -1210,6 +1438,9 @@ static int store_strip(agent_state *a, const char *name) {
         char *rendered = transcript_rendered_text(a, &a->transcript);
         rc = rendered ? write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
         free(rendered);
+        if (rc == 0) {
+            rc = store_write_messages_path(messages_path, &a->messages);
+        }
         if (!have_meta) {
             meta.id = agent_strdup(id);
             meta.title = agent_strdup(a->session_title ? a->session_title : id);
@@ -1266,6 +1497,7 @@ static int store_strip(agent_state *a, const char *name) {
     free(token_path);
     free(meta_path);
     free(text_path);
+    free(messages_path);
     return rc;
 }
 
@@ -3999,7 +4231,8 @@ static bool agent_append_tool_loop_guard(agent_state *a,
                                         "tool loop guard would exceed context",
                                         err, err_len);
     if (ok) {
-        qw3_chat_append_message(a->engine, &a->transcript, "user", response);
+        ok = agent_append_message(a, AGENT_MESSAGE_CONTROL,
+                                  "user", response);
         agent_statusf(a, "agent: skipped repeated %s tool call\n",
                       tool_name && tool_name[0] ? tool_name : "unknown");
     }
@@ -4046,7 +4279,12 @@ static bool execute_native_tools_append(agent_state *a,
             free(out);
             return false;
         }
-        qw3_chat_append_message(a->engine, &a->transcript, "user", response);
+        if (!agent_append_message(a, AGENT_MESSAGE_TOOL,
+                                  "user", response)) {
+            free(response);
+            free(out);
+            return false;
+        }
         free(response);
         free(out);
     }
@@ -4525,12 +4763,21 @@ static void agent_emit_done(void *ud) {
     }
 }
 
-static void append_generated_assistant(agent_state *a,
-                                       const qw3_tokens *generated) {
+static bool append_generated_assistant(agent_state *a,
+                                       const qw3_tokens *generated,
+                                       int token_start,
+                                       const char *content) {
     for (int i = 0; i < generated->len; i++) {
         qw3_tokens_push(&a->transcript, generated->v[i]);
     }
     qw3_chat_append_assistant_end(a->engine, &a->transcript);
+    if (!agent_message_ledger_add(&a->messages, AGENT_MESSAGE_ASSISTANT,
+                                  "assistant", content ? content : "",
+                                  token_start, a->transcript.len)) {
+        a->transcript.len = token_start;
+        return false;
+    }
+    return true;
 }
 
 static void agent_prefill_progress(void *ud, const char *event,
@@ -4572,14 +4819,77 @@ static int agent_single_rendered_token_id(qw3_engine *engine,
     return id;
 }
 
+static int agent_message_turn_start(agent_state *a, int target,
+                                    int bottom, int sys_len) {
+    if (target < sys_len) target = sys_len;
+    for (int i = 0; i < a->messages.len; i++) {
+        const agent_message *message = &a->messages.items[i];
+        if (message->kind == AGENT_MESSAGE_USER &&
+            message->token_start >= target &&
+            message->token_start >= sys_len &&
+            message->token_end <= bottom) {
+            return message->token_start;
+        }
+    }
+    return bottom;
+}
+
 static int agent_compact_tail_start(agent_state *a, int bottom, int sys_len) {
     int tail_budget = a->cfg.ctx_size / QW3_AGENT_COMPACT_TAIL_DIVISOR;
     if (tail_budget > QW3_AGENT_COMPACT_TAIL_CAP_TOKENS) {
         tail_budget = QW3_AGENT_COMPACT_TAIL_CAP_TOKENS;
     }
     if (tail_budget < 1) tail_budget = 1;
-    int target = bottom - tail_budget;
-    return target < sys_len ? sys_len : target;
+    return agent_message_turn_start(a, bottom - tail_budget,
+                                    bottom, sys_len);
+}
+
+static int agent_context_ledger_selftest(void) {
+    agent_state state = {0};
+    state.cfg.ctx_size = 800;
+    if (!agent_message_ledger_add(&state.messages, AGENT_MESSAGE_SYSTEM,
+                                  "system", "system", 0, 100) ||
+        !agent_message_ledger_add(&state.messages, AGENT_MESSAGE_USER,
+                                  "user", "question", 100, 200) ||
+        !agent_message_ledger_add(&state.messages, AGENT_MESSAGE_ASSISTANT,
+                                  "assistant", "tool call", 200, 300) ||
+        !agent_message_ledger_add(&state.messages, AGENT_MESSAGE_TOOL,
+                                  "user", "tool result", 300, 350) ||
+        !agent_message_ledger_add(&state.messages, AGENT_MESSAGE_USER,
+                                  "user", "next question", 350, 400) ||
+        !agent_message_ledger_add(&state.messages, AGENT_MESSAGE_ASSISTANT,
+                                  "assistant", "next answer", 400, 500)) {
+        agent_message_ledger_clear(&state.messages);
+        return 1;
+    }
+    if (agent_compact_tail_start(&state, 500, 100) != 350) {
+        agent_message_ledger_clear(&state.messages);
+        return 2;
+    }
+
+    char path[] = "/tmp/qw3-agent-messages-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        agent_message_ledger_clear(&state.messages);
+        return 3;
+    }
+    close(fd);
+    agent_message_ledger loaded = {0};
+    int rc = store_write_messages_path(path, &state.messages) == 0 ? 0 : 4;
+    if (rc == 0 && store_read_messages_path(path, 501, &loaded) == 0) rc = 4;
+    if (rc == 0 && store_read_messages_path(path, 500, &loaded) != 0) rc = 4;
+    (void)unlink(path);
+    if (rc == 0 &&
+        (loaded.len != 6 || loaded.items[3].kind != AGENT_MESSAGE_TOOL ||
+         loaded.items[4].token_start != 350 ||
+         strcmp(loaded.items[3].content, "tool result"))) {
+        rc = 5;
+    }
+    agent_message_ledger_truncate(&loaded, 350);
+    if (rc == 0 && loaded.len != 4) rc = 6;
+    agent_message_ledger_clear(&loaded);
+    agent_message_ledger_clear(&state.messages);
+    return rc;
 }
 
 static char *agent_compact_make_prompt(const char *reason) {
@@ -4730,6 +5040,17 @@ static bool agent_compact_context(agent_state *a, const char *reason,
 
     qw3_tokens compacted = {0};
     qw3_tokens_copy(&compacted, &sys);
+    agent_message_ledger compacted_messages = {0};
+    if (!agent_message_ledger_add(&compacted_messages, AGENT_MESSAGE_SYSTEM,
+                                  "system", a->cfg.system_prompt,
+                                  0, compacted.len)) {
+        snprintf(err, err_len, "out of memory recording compacted system");
+        qw3_session_invalidate(a->session);
+        qw3_tokens_free(&compacted);
+        qw3_tokens_free(&sys);
+        sb_free(&summary);
+        return false;
+    }
     strbuf summary_msg;
     sb_init(&summary_msg);
     sb_append(&summary_msg,
@@ -4740,7 +5061,20 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     }
     sb_append(&summary_msg,
               "[End compacted summary. Recent conversation continues verbatim below.]\n\n");
+    int summary_start = compacted.len;
     qw3_chat_append_message(a->engine, &compacted, "system", summary_msg.p);
+    if (!agent_message_ledger_add(&compacted_messages, AGENT_MESSAGE_CONTROL,
+                                  "system", summary_msg.p, summary_start,
+                                  compacted.len)) {
+        snprintf(err, err_len, "out of memory recording compacted summary");
+        agent_message_ledger_clear(&compacted_messages);
+        sb_free(&summary_msg);
+        sb_free(&summary);
+        qw3_session_invalidate(a->session);
+        qw3_tokens_free(&compacted);
+        qw3_tokens_free(&sys);
+        return false;
+    }
     sb_free(&summary_msg);
     sb_free(&summary);
 
@@ -4751,14 +5085,37 @@ static bool agent_compact_context(agent_state *a, const char *reason,
                  "compaction summary too large (base=%d ctx=%d)",
                  compacted.len, a->cfg.ctx_size);
         qw3_session_invalidate(a->session);
+        agent_message_ledger_clear(&compacted_messages);
         qw3_tokens_free(&compacted);
         qw3_tokens_free(&sys);
         return false;
     }
     int min_tail_start = bottom - tail_room;
-    if (tail_start < min_tail_start) tail_start = min_tail_start;
-    if (tail_start < sys.len) tail_start = sys.len;
+    if (tail_start < min_tail_start) {
+        tail_start = agent_message_turn_start(a, min_tail_start,
+                                              bottom, sys.len);
+    }
     agent_tokens_append_range(&compacted, &a->transcript, tail_start, bottom);
+    int tail_base = compacted.len - (bottom - tail_start);
+    for (int i = 0; i < a->messages.len; i++) {
+        const agent_message *message = &a->messages.items[i];
+        if (message->token_start < tail_start || message->token_end > bottom) {
+            continue;
+        }
+        int start = tail_base + message->token_start - tail_start;
+        int end = tail_base + message->token_end - tail_start;
+        if (!agent_message_ledger_add(&compacted_messages, message->kind,
+                                      message->role, message->content,
+                                      start, end)) {
+            snprintf(err, err_len,
+                     "out of memory recording compacted message tail");
+            agent_message_ledger_clear(&compacted_messages);
+            qw3_session_invalidate(a->session);
+            qw3_tokens_free(&compacted);
+            qw3_tokens_free(&sys);
+            return false;
+        }
+    }
 
     qw3_tokens old = {0};
     qw3_tokens_copy(&old, &a->transcript);
@@ -4771,11 +5128,14 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         qw3_session_invalidate(a->session);
         qw3_tokens_free(&a->transcript);
         a->transcript = old;
+        agent_message_ledger_clear(&compacted_messages);
         snprintf(err, err_len, "%s", sync_err);
         qw3_tokens_free(&sys);
         return false;
     }
     qw3_tokens_free(&old);
+    agent_message_ledger_clear(&a->messages);
+    a->messages = compacted_messages;
     qw3_tokens_free(&sys);
     agent_statusf(a, "agent: compacted context old=%d new=%d tail=%d\n",
                   bottom, a->transcript.len, bottom - tail_start);
@@ -4956,9 +5316,14 @@ static int generate_once(agent_state *a, char **assistant_text,
     }
 
     if (rc == 0) {
-        append_generated_assistant(a, &emit.generated);
-        *assistant_text = emit.text.p ? emit.text.p : agent_strdup("");
-        emit.text.p = NULL;
+        if (append_generated_assistant(a, &emit.generated, prefix_start,
+                                       emit.text.p ? emit.text.p : "")) {
+            *assistant_text = emit.text.p ? emit.text.p : agent_strdup("");
+            emit.text.p = NULL;
+        } else {
+            qw3_session_invalidate(a->session);
+            rc = -1;
+        }
     } else {
         a->transcript.len = prefix_start;
         qw3_session_invalidate(a->session);
@@ -5014,7 +5379,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         return -1;
     }
     agent_note_user_message(a, user_message);
-    qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
+    if (!agent_append_message(a, AGENT_MESSAGE_USER,
+                              "user", user_message)) return -1;
 
     const int final_attempts = 3;
     const int verification_attempts = 3;
@@ -5084,8 +5450,11 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                               compact_err[0] ? compact_err : "context full");
                 return -1;
             }
-            qw3_chat_append_message(a->engine, &a->transcript,
-                                    "user", final_control.p);
+            if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
+                                      "user", final_control.p)) {
+                sb_free(&final_control);
+                return -1;
+            }
             sb_free(&final_control);
             agent_statusf(
                 a,
@@ -5133,8 +5502,11 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                   "context full");
                     return -1;
                 }
-                qw3_chat_append_message(a->engine, &a->transcript,
-                                        "user", response);
+                if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
+                                          "user", response)) {
+                    free(response);
+                    return -1;
+                }
                 free(response);
                 agent_statusf(a,
                               "agent: final response attempted another tool; "
@@ -5178,6 +5550,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             free_tool_calls(&dsml_calls);
             if (a->edit_verification_pending) {
                 a->transcript.len = transcript_before_generation;
+                agent_message_ledger_truncate(&a->messages,
+                                              transcript_before_generation);
                 qw3_session_invalidate(a->session);
                 free(assistant);
                 if (verification_guard_credits-- <= 0) {
@@ -5201,8 +5575,10 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                   "context full");
                     return -1;
                 }
-                qw3_chat_append_message(a->engine, &a->transcript,
-                                        "user", verification_control);
+                if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
+                                          "user", verification_control)) {
+                    return -1;
+                }
                 agent_statusf(a,
                               "agent: file change pending verification; "
                               "requesting a check\n");
@@ -5220,8 +5596,11 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                         "Internal qw3-agent control: your previous final "
                         "response was empty. Do not call tools. Answer the "
                         "user now with the evidence already available.";
-                    qw3_chat_append_message(a->engine, &a->transcript,
-                                            "user", retry_control);
+                    if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
+                                              "user", retry_control)) {
+                        free(assistant);
+                        return -1;
+                    }
                     free(assistant);
                     continue;
                 }
@@ -5247,8 +5626,11 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                               compact_err[0] ? compact_err : "context full");
                 return -1;
             }
-            qw3_chat_append_message(a->engine, &a->transcript,
-                                    "user", response);
+            if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
+                                      "user", response)) {
+                free(response);
+                return -1;
+            }
             free(response);
             agent_statusf(a,
                           "agent: final response attempted another tool; "
@@ -5297,7 +5679,13 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 return -1;
             }
         }
-        qw3_chat_append_message(a->engine, &a->transcript, "user", response);
+        if (!agent_append_message(a, AGENT_MESSAGE_TOOL,
+                                  "user", response)) {
+            free(response);
+            free(tool_result);
+            free(assistant);
+            return -1;
+        }
         free(response);
         free(tool_result);
         free(assistant);
@@ -5675,8 +6063,9 @@ static void agent_init_transcript(agent_state *a) {
     agent_clear_session_meta(a);
     qw3_tokens_free(&a->transcript);
     memset(&a->transcript, 0, sizeof(a->transcript));
-    qw3_chat_append_message(a->engine, &a->transcript,
-                            "system", a->cfg.system_prompt);
+    agent_message_ledger_clear(&a->messages);
+    (void)agent_append_message(a, AGENT_MESSAGE_SYSTEM,
+                               "system", a->cfg.system_prompt);
     if (a->session) qw3_session_invalidate(a->session);
 }
 
@@ -7141,6 +7530,15 @@ static void agent_direct_progress_update(void *ud, const char *phase,
 }
 
 int main(int argc, char **argv) {
+    if (getenv("QW3_AGENT_CONTEXT_LEDGER_SELFTEST")) {
+        int rc = agent_context_ledger_selftest();
+        if (rc != 0) {
+            fprintf(stderr, "test-agent-context: FAIL case %d\n", rc);
+            return 1;
+        }
+        fprintf(stderr, "test-agent-context: ok\n");
+        return 0;
+    }
     if (getenv("QW3_AGENT_VERIFY_GUARD_SELFTEST")) {
         int rc = agent_verify_guard_selftest();
         if (rc != 0) {
@@ -7228,6 +7626,7 @@ int main(int argc, char **argv) {
         agent_reset_source_read_budget(&a);
         free(a.last_read_path);
         agent_clear_session_meta(&a);
+        agent_message_ledger_clear(&a.messages);
         qw3_tokens_free(&a.transcript);
         qw3_session_free(a.session);
         qw3_engine_close(a.engine);
@@ -7255,6 +7654,7 @@ int main(int argc, char **argv) {
     agent_reset_source_read_budget(&a);
     free(a.last_read_path);
     agent_clear_session_meta(&a);
+    agent_message_ledger_clear(&a.messages);
     qw3_tokens_free(&a.transcript);
     qw3_session_free(a.session);
     qw3_engine_close(a.engine);

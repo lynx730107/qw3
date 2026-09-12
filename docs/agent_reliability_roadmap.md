@@ -20,11 +20,12 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
 
 ## Phase 2: Context ownership
 
-- [pending] Keep a structured role/content/tool-call message ledger alongside
+- [completed] Keep a structured role/content/tool-call message ledger alongside
   the rendered token transcript.
-- [pending] Compact complete messages rather than arbitrary token tails: remove
-  stale thinking first, shorten old tool results, preserve the recent working
-  set, and make every removed body recoverable from a spill file.
+- [completed] Persist the message ledger and compact only at complete user-turn
+  boundaries, never in the middle of assistant output or a tool exchange.
+- [pending] Remove stale thinking first, shorten old tool results, preserve the
+  recent working set, and make every removed body recoverable from a spill file.
 - [pending] Prevent repeated low-yield compaction from forcing a full recurrent
   cache rebuild on consecutive steps.
 
