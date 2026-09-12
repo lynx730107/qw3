@@ -204,6 +204,7 @@ typedef struct {
     void *timing_ud;
     double progress_start_sec;
     bool web_request_is_evening;
+    bool web_request_is_bibliography;
     bool web_result_complete;
 } agent_state;
 
@@ -2449,6 +2450,19 @@ static bool agent_web_preview_has_complete_evening_schedule(const char *text) {
     return false;
 }
 
+static bool agent_web_preview_has_complete_bibliography(const char *text) {
+    if (!text) return false;
+    const bool italian = strstr(text, "\nOpere\n") &&
+                         strstr(text, "\nRomanzi e racconti\n") &&
+                         strstr(text, "\nPoesia\n") &&
+                         strstr(text, "\nMiscellanea\n");
+    const bool english = strstr(text, "\nWorks\n") &&
+                         (strstr(text, "\nNovels\n") ||
+                          strstr(text, "\nNovels and short stories\n")) &&
+                         strstr(text, "\nPoetry\n");
+    return italian || english;
+}
+
 static bool agent_write_temp_text(const char *prefix, const char *text,
                                   char *path, size_t path_len,
                                   char *err, size_t err_len) {
@@ -2585,6 +2599,8 @@ static char *tool_visit_page(agent_state *a, const tool_call *call) {
         "title=''\n"
         "m=re.search(r'(?is)<title[^>]*>(.*?)</title>',text)\n"
         "if m: title=html.unescape(re.sub(r'\\s+',' ',m.group(1))).strip()\n"
+        "main=re.search(r'(?is)<main\\b[^>]*>(.*?)</main\\s*>',text)\n"
+        "if main: text=main.group(1)\n"
         "def image_text(match):\n"
         "    tag=match.group(0)\n"
         "    if 'channel-logo' not in tag.casefold(): return ' '\n"
@@ -2600,6 +2616,7 @@ static char *tool_visit_page(agent_state *a, const tool_call *call) {
         "lines=[]\n"
         "for line in text.splitlines():\n"
         "    line=re.sub(r'\\s+',' ',line).strip()\n"
+        "    if len(line)<80 and 'modifica wikitesto' in line.casefold(): continue\n"
         "    if line: lines.append(line)\n"
         "print('visit_page url='+url)\n"
         "if title: print('title: '+title)\n"
@@ -2631,25 +2648,48 @@ static char *tool_visit_page(agent_state *a, const tool_call *call) {
     bool truncated = byte_limited || shown_lines < total_lines;
     bool complete_schedule =
         agent_web_preview_has_complete_evening_schedule(head);
-    if (a && a->web_request_is_evening && complete_schedule) {
-        a->web_result_complete = true;
+    bool complete_bibliography =
+        agent_web_preview_has_complete_bibliography(head);
+    bool complete_result = a &&
+        ((a->web_request_is_evening && complete_schedule) ||
+         (a->web_request_is_bibliography && complete_bibliography));
+    if (complete_result) a->web_result_complete = true;
+    const char *complete_kind = complete_bibliography ? "bibliography" :
+                                                       "evening schedule";
+    char *focused_preview = NULL;
+    const char *preview = head ? head : "";
+    if (complete_result && a->web_request_is_bibliography) {
+        const char *start = strstr(preview, "\nOpere\n");
+        if (start) {
+            start++;
+            const char *end = strstr(start, "\nDiscografia\n");
+            size_t n = end ? (size_t)(end - start) : strlen(start);
+            focused_preview = malloc(n + 1);
+            if (focused_preview) {
+                memcpy(focused_preview, start, n);
+                focused_preview[n] = '\0';
+                preview = focused_preview;
+            }
+        }
     }
     strbuf out;
     sb_init(&out);
-    if (complete_schedule) {
+    if (complete_result) {
         sb_printf(&out,
                   "visit_page url=%s\npreview_status=complete structured "
-                  "evening schedule\n",
-                  url);
+                  "%s\n",
+                  url, complete_kind);
     } else {
         sb_printf(&out,
                   "visit_page url=%s\noutput_path=%s (%zu bytes, %d lines)\n",
                   url, path, strlen(md), total_lines);
     }
-    if (truncated && !complete_schedule) {
+    if (truncated && !complete_result) {
         sb_printf(&out, "<head -%d %s>\n", QW3_AGENT_WEB_HEAD_LINES, path);
-        sb_append(&out, head ? head : "");
-        if (head && head[0] && head[strlen(head) - 1] != '\n') sb_append(&out, "\n");
+        sb_append(&out, preview);
+        if (preview[0] && preview[strlen(preview) - 1] != '\n') {
+            sb_append(&out, "\n");
+        }
         sb_append(&out, "</head>\n");
         sb_append(&out,
                   "More page text is available at output_path, but truncation "
@@ -2658,11 +2698,13 @@ static char *tool_visit_page(agent_state *a, const tool_call *call) {
                   "specific requested fact that is absent here.\n");
     } else {
         sb_append(&out, "<text>\n");
-        sb_append(&out, head ? head : "");
-        if (head && head[0] && head[strlen(head) - 1] != '\n') sb_append(&out, "\n");
+        sb_append(&out, preview);
+        if (preview[0] && preview[strlen(preview) - 1] != '\n') {
+            sb_append(&out, "\n");
+        }
         sb_append(&out, "</text>\n");
     }
-    if (complete_schedule) {
+    if (complete_result) {
         sb_append(&out,
                   "Web workflow: this preview is a complete structured result. "
                   "Answer the user now; do not call another tool to verify or "
@@ -2676,6 +2718,7 @@ static char *tool_visit_page(agent_state *a, const tool_call *call) {
                   "short matching range; never inspect the whole capture. Reuse "
                   "another returned URL before running a new search.\n");
     }
+    free(focused_preview);
     free(head);
     free(md);
     return out.p;
@@ -3607,6 +3650,18 @@ static int agent_repeat_guard_selftest(void) {
         return 9;
     }
 
+    static const char complete_bibliography[] =
+        "\nOpere\n\nRomanzi e racconti\nTitolo A, 2000\n"
+        "\nPoesia\nTitolo B, 2001\n\nMiscellanea\nTitolo C, 2002\n";
+    static const char partial_bibliography[] =
+        "\nOpere\n\nRomanzi e racconti\nTitolo A, 2000\n";
+    if (!agent_web_preview_has_complete_bibliography(complete_bibliography)) {
+        return 10;
+    }
+    if (agent_web_preview_has_complete_bibliography(partial_bibliography)) {
+        return 11;
+    }
+
     return 0;
 }
 
@@ -4101,6 +4156,14 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         agent_ascii_contains_ci(user_message, "questa sera") ||
         agent_ascii_contains_ci(user_message, "tonight") ||
         agent_ascii_contains_ci(user_message, "this evening");
+    a->web_request_is_bibliography =
+        agent_ascii_contains_ci(user_message, "bibliograf") ||
+        agent_ascii_contains_ci(user_message, "libri") ||
+        agent_ascii_contains_ci(user_message, "opere") ||
+        agent_ascii_contains_ci(user_message, "books") ||
+        agent_ascii_contains_ci(user_message, "works") ||
+        agent_ascii_contains_ci(user_message, "wrote") ||
+        agent_ascii_contains_ci(user_message, "written");
     agent_reset_source_read_budget(a);
     char compact_err[160] = {0};
     if (!agent_compact_if_needed(a, "soft limit before user turn",
@@ -4150,11 +4213,25 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 "names exactly. Do not add descriptions, infer omitted details, "
                 "or complete text ending in an ellipsis.\n\n"
                 "Original user request:\n";
+            static const char complete_bibliography_control_intro[] =
+                "Internal qw3-agent control: the web tool returned a complete "
+                "bibliography grouped by category. Do not call another tool. "
+                "List every title from the provided Opere section exactly once, "
+                "under its existing category, with its stated year. Use one "
+                "compact bullet per work. Unless the original request explicitly "
+                "asks for them, omit publishers, cities, descriptions, and other "
+                "metadata. Do not use titles from the biography, invent entries, "
+                "duplicate entries, or add commentary.\n\n"
+                "Original user request:\n";
             strbuf final_control;
             sb_init(&final_control);
-            sb_append(&final_control,
-                      a->web_result_complete ? complete_web_control_intro :
-                                               budget_control_intro);
+            const char *control_intro = budget_control_intro;
+            if (a->web_result_complete && a->web_request_is_bibliography) {
+                control_intro = complete_bibliography_control_intro;
+            } else if (a->web_result_complete) {
+                control_intro = complete_web_control_intro;
+            }
+            sb_append(&final_control, control_intro);
             sb_append(&final_control, user_message ? user_message : "");
             if (!agent_ensure_message_room(a, "user", final_control.p, 128,
                                            "final tool-budget response would "
