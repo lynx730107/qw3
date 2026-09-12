@@ -13,9 +13,9 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
 - [completed] Require unique exact matches for replacements and insertion
   anchors, reject no-op edits, and recover literal newline/tab escapes only
   when the recovered target is valid and unambiguous.
-- [pending] Add safe whitespace-flexible edit recovery and exact mismatch
+- [completed] Add safe whitespace-flexible edit recovery and exact mismatch
   diagnostics while preserving the unique-target invariant.
-- [pending] Track edits and require a build or test before a coding turn can
+- [completed] Track edits and require a build or test before a coding turn can
   finish.
 
 ## Phase 2: Context ownership

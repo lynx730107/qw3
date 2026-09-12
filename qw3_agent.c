@@ -211,6 +211,7 @@ typedef struct {
     bool web_request_is_evening;
     bool web_request_is_bibliography;
     bool web_result_complete;
+    bool edit_verification_pending;
 } agent_state;
 
 typedef struct {
@@ -361,6 +362,12 @@ static void agent_direct_write(void *ud, const char *s, size_t n) {
     if (!s || n == 0) return;
     agent_write_with_crlf(fp, s, n);
     fflush(fp);
+}
+
+static void agent_discard_write(void *ud, const char *s, size_t n) {
+    (void)ud;
+    (void)s;
+    (void)n;
 }
 
 static void agent_output_write(agent_state *a, const char *s, size_t n) {
@@ -2754,8 +2761,8 @@ static char *tool_write(agent_state *a, const tool_call *call) {
     sb_init(&out);
     sb_printf(&out,
               "ok: wrote %s (%zu bytes)\n"
-              "verification_hint: read a small explicit line range around the "
-              "change if you need to verify formatting; do not walk the file.",
+              "verification_required: run one narrow build, test, syntax "
+              "check, or git diff --check before the final answer.",
               path, strlen(content));
     return out.p;
 }
@@ -2862,6 +2869,224 @@ static char *edit_unescape_whitespace(const char *text, bool *changed) {
     return out.p ? out.p : agent_strdup("");
 }
 
+typedef struct {
+    size_t start;
+    size_t end;
+    size_t trim_start;
+    size_t trim_end;
+} edit_line;
+
+static int edit_split_lines(const char *text, size_t len,
+                            edit_line **lines_out, size_t *count_out) {
+    *lines_out = NULL;
+    *count_out = 0;
+    if (!text || len == 0) return 0;
+
+    size_t cap = 16;
+    edit_line *lines = malloc(cap * sizeof(*lines));
+    if (!lines) return -1;
+    size_t count = 0;
+    size_t pos = 0;
+    while (pos < len) {
+        size_t end = pos;
+        while (end < len && text[end] != '\n') end++;
+        if (count == cap) {
+            cap *= 2;
+            edit_line *next = realloc(lines, cap * sizeof(*next));
+            if (!next) {
+                free(lines);
+                return -1;
+            }
+            lines = next;
+        }
+        size_t trim_start = pos;
+        while (trim_start < end &&
+               (text[trim_start] == ' ' || text[trim_start] == '\t')) {
+            trim_start++;
+        }
+        size_t trim_end = end;
+        while (trim_end > trim_start &&
+               (text[trim_end - 1] == ' ' || text[trim_end - 1] == '\t' ||
+                text[trim_end - 1] == '\r')) {
+            trim_end--;
+        }
+        lines[count++] = (edit_line){
+            .start = pos,
+            .end = end,
+            .trim_start = trim_start,
+            .trim_end = trim_end,
+        };
+        pos = end < len ? end + 1 : end;
+    }
+    *lines_out = lines;
+    *count_out = count;
+    return 0;
+}
+
+static bool edit_line_equal_trimmed(const char *lhs, const edit_line *a,
+                                    const char *rhs, const edit_line *b) {
+    size_t an = a->trim_end - a->trim_start;
+    size_t bn = b->trim_end - b->trim_start;
+    return an == bn && !memcmp(lhs + a->trim_start, rhs + b->trim_start, an);
+}
+
+static int edit_find_whitespace_span(const char *file, size_t file_len,
+                                     const char *old, size_t old_len,
+                                     size_t *start_out, size_t *end_out) {
+    edit_line *file_lines = NULL;
+    edit_line *old_lines = NULL;
+    size_t file_count = 0;
+    size_t old_count = 0;
+    if (edit_split_lines(file, file_len, &file_lines, &file_count) != 0 ||
+        edit_split_lines(old, old_len, &old_lines, &old_count) != 0) {
+        free(file_lines);
+        free(old_lines);
+        return -1;
+    }
+
+    bool has_content = false;
+    for (size_t i = 0; i < old_count; i++) {
+        if (old_lines[i].trim_end > old_lines[i].trim_start) {
+            has_content = true;
+            break;
+        }
+    }
+    int matches = 0;
+    if (has_content && old_count <= file_count) {
+        for (size_t i = 0; i + old_count <= file_count; i++) {
+            size_t j = 0;
+            while (j < old_count &&
+                   edit_line_equal_trimmed(file, &file_lines[i + j],
+                                           old, &old_lines[j])) {
+                j++;
+            }
+            if (j != old_count) continue;
+            matches++;
+            if (matches == 1) {
+                *start_out = file_lines[i].start;
+                *end_out = file_lines[i + old_count - 1].end;
+                if (old_len > 0 && old[old_len - 1] == '\n' &&
+                    *end_out < file_len && file[*end_out] == '\n') {
+                    (*end_out)++;
+                }
+            }
+        }
+    }
+    free(file_lines);
+    free(old_lines);
+    return matches;
+}
+
+static size_t edit_common_indent(const char *text, const edit_line *lines,
+                                 size_t count, const char **prefix_out) {
+    size_t common = SIZE_MAX;
+    const char *prefix = "";
+    for (size_t i = 0; i < count; i++) {
+        if (lines[i].trim_end == lines[i].trim_start) continue;
+        size_t indent = lines[i].trim_start - lines[i].start;
+        if (common == SIZE_MAX) prefix = text + lines[i].start;
+        if (indent < common) common = indent;
+    }
+    if (common == SIZE_MAX) common = 0;
+    if (prefix_out) *prefix_out = prefix;
+    return common;
+}
+
+static char *edit_reindent_replacement(const char *replacement,
+                                       const char *target, size_t target_len) {
+    edit_line *target_lines = NULL;
+    edit_line *new_lines = NULL;
+    size_t target_count = 0;
+    size_t new_count = 0;
+    size_t new_len = strlen(replacement);
+    if (edit_split_lines(target, target_len,
+                         &target_lines, &target_count) != 0 ||
+        edit_split_lines(replacement, new_len,
+                         &new_lines, &new_count) != 0) {
+        free(target_lines);
+        free(new_lines);
+        return NULL;
+    }
+
+    const char *target_prefix = "";
+    size_t target_indent = edit_common_indent(target, target_lines,
+                                              target_count, &target_prefix);
+    size_t source_indent = edit_common_indent(replacement, new_lines,
+                                              new_count, NULL);
+    bool linewise_indent = target_count == new_count;
+    strbuf out;
+    sb_init(&out);
+    for (size_t i = 0; i < new_count; i++) {
+        bool nonblank = new_lines[i].trim_end > new_lines[i].trim_start;
+        if (nonblank) {
+            size_t replacement_indent = source_indent;
+            const char *line_prefix = target_prefix;
+            size_t line_indent = target_indent;
+            if (linewise_indent &&
+                target_lines[i].trim_end > target_lines[i].trim_start) {
+                line_prefix = target + target_lines[i].start;
+                line_indent = target_lines[i].trim_start - target_lines[i].start;
+                replacement_indent =
+                    new_lines[i].trim_start - new_lines[i].start;
+            }
+            sb_append_n(&out, line_prefix, line_indent);
+            size_t start = new_lines[i].start + replacement_indent;
+            if (start > new_lines[i].end) start = new_lines[i].end;
+            sb_append_n(&out, replacement + start, new_lines[i].end - start);
+        } else {
+            sb_append_n(&out, replacement + new_lines[i].start,
+                        new_lines[i].end - new_lines[i].start);
+        }
+        if (new_lines[i].end < new_len && replacement[new_lines[i].end] == '\n') {
+            sb_append(&out, "\n");
+        }
+    }
+    free(target_lines);
+    free(new_lines);
+    return out.p ? out.p : agent_strdup("");
+}
+
+static void edit_append_mismatch_hint(strbuf *out, const char *file,
+                                      size_t file_len, const char *old,
+                                      size_t old_len) {
+    edit_line *file_lines = NULL;
+    edit_line *old_lines = NULL;
+    size_t file_count = 0;
+    size_t old_count = 0;
+    if (edit_split_lines(file, file_len, &file_lines, &file_count) != 0 ||
+        edit_split_lines(old, old_len, &old_lines, &old_count) != 0) {
+        free(file_lines);
+        free(old_lines);
+        return;
+    }
+    size_t first = 0;
+    while (first < old_count &&
+           old_lines[first].trim_start == old_lines[first].trim_end) {
+        first++;
+    }
+    if (first < old_count) {
+        for (size_t i = 0; i < file_count; i++) {
+            if (!edit_line_equal_trimmed(file, &file_lines[i],
+                                         old, &old_lines[first])) {
+                continue;
+            }
+            size_t compared = 1;
+            while (first + compared < old_count && i + compared < file_count &&
+                   edit_line_equal_trimmed(file, &file_lines[i + compared],
+                                           old, &old_lines[first + compared])) {
+                compared++;
+            }
+            sb_printf(out,
+                      "\nclosest block starts at file line %zu; first "
+                      "different line is block line %zu",
+                      i + 1, first + compared + 1);
+            break;
+        }
+    }
+    free(file_lines);
+    free(old_lines);
+}
+
 static char *tool_edit(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     const char *old = tool_param_value(call, "old");
@@ -2885,6 +3110,7 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
     sb_init(&out_file);
     int replacements = 0;
     bool recovered_whitespace_escapes = false;
+    bool recovered_flexible_whitespace = false;
 
     if ((!strcmp(mode, "append") || !strcmp(mode, "prepend") ||
          !strcmp(mode, "insert_before") || !strcmp(mode, "insert_after")) &&
@@ -2995,10 +3221,66 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
                 }
             }
         }
+        if (matches == 0 && strcmp(mode, "replace_all") != 0) {
+            const char *flex_old = unescaped_old ? unescaped_old : old;
+            size_t flex_start = 0;
+            size_t flex_end = 0;
+            int flex_matches = edit_find_whitespace_span(
+                file, n, flex_old, strlen(flex_old), &flex_start, &flex_end);
+            if (flex_matches < 0) {
+                free(unescaped_new);
+                free(unescaped_old);
+                sb_free(&out_file);
+                free(file);
+                return agent_strdup("error: out of memory matching edit text");
+            }
+            if (flex_matches > 1) {
+                strbuf err;
+                sb_init(&err);
+                sb_printf(&err,
+                          "error: whitespace-flexible old text appears %d "
+                          "times; include more surrounding lines",
+                          flex_matches);
+                free(unescaped_new);
+                free(unescaped_old);
+                sb_free(&out_file);
+                free(file);
+                return err.p;
+            }
+            if (flex_matches == 1) {
+                const char *flex_new = new_text;
+                if (unescaped_old && !strchr(new_text, '\n') &&
+                    !strchr(new_text, '\r')) {
+                    bool new_changed = false;
+                    unescaped_new = edit_unescape_whitespace(new_text,
+                                                              &new_changed);
+                    if (new_changed) flex_new = unescaped_new;
+                }
+                char *reindented = edit_reindent_replacement(
+                    flex_new, file + flex_start, flex_end - flex_start);
+                if (!reindented) {
+                    free(unescaped_new);
+                    free(unescaped_old);
+                    sb_free(&out_file);
+                    free(file);
+                    return agent_strdup("error: out of memory reindenting edit");
+                }
+                sb_append_n(&out_file, file, flex_start);
+                sb_append(&out_file, reindented);
+                sb_append_n(&out_file, file + flex_end, n - flex_end);
+                free(reindented);
+                replacements = 1;
+                recovered_flexible_whitespace = true;
+                matches = 1;
+            }
+        }
         if (matches == 0) {
             strbuf err;
             sb_init(&err);
             sb_append(&err, "error: old text not found");
+            const char *diagnostic_old = unescaped_old ? unescaped_old : old;
+            edit_append_mismatch_hint(&err, file, n, diagnostic_old,
+                                      strlen(diagnostic_old));
             edit_append_match_hint(&err, file, old);
             free(unescaped_new);
             free(unescaped_old);
@@ -3021,22 +3303,24 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             return err.p;
         }
 
-        size_t old_n = strlen(effective_old);
-        size_t new_n = strlen(effective_new);
-        char *cursor = file;
-        while (1) {
-            char *hit = strstr(cursor, effective_old);
-            if (!hit) {
-                sb_append(&out_file, cursor);
-                break;
-            }
-            sb_append_n(&out_file, cursor, (size_t)(hit - cursor));
-            sb_append_n(&out_file, effective_new, new_n);
-            replacements++;
-            cursor = hit + old_n;
-            if (strcmp(mode, "replace_all") != 0) {
-                sb_append(&out_file, cursor);
-                break;
+        if (!recovered_flexible_whitespace) {
+            size_t old_n = strlen(effective_old);
+            size_t new_n = strlen(effective_new);
+            char *cursor = file;
+            while (1) {
+                char *hit = strstr(cursor, effective_old);
+                if (!hit) {
+                    sb_append(&out_file, cursor);
+                    break;
+                }
+                sb_append_n(&out_file, cursor, (size_t)(hit - cursor));
+                sb_append_n(&out_file, effective_new, new_n);
+                replacements++;
+                cursor = hit + old_n;
+                if (strcmp(mode, "replace_all") != 0) {
+                    sb_append(&out_file, cursor);
+                    break;
+                }
             }
         }
         free(unescaped_new);
@@ -3068,12 +3352,14 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
     strbuf ok;
     sb_init(&ok);
     sb_printf(&ok,
-              "ok: edited %s (%d change%s%s)\n"
-              "verification_hint: read a small explicit line range around the "
-              "change if you need to verify formatting; do not walk the file.",
+              "ok: edited %s (%d change%s%s%s)\n"
+              "verification_required: run one narrow build, test, syntax "
+              "check, or git diff --check before the final answer.",
               path, replacements, replacements == 1 ? "" : "s",
               recovered_whitespace_escapes ?
-                  ", recovered literal whitespace escapes" : "");
+                  ", recovered literal whitespace escapes" : "",
+              recovered_flexible_whitespace ?
+                  ", recovered unique whitespace-only drift" : "");
     return ok.p ? ok.p : agent_strdup("ok: edited");
 }
 
@@ -3530,7 +3816,7 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
     return out.p;
 }
 
-static char *execute_one_tool(agent_state *a, const tool_call *call) {
+static char *execute_one_tool_raw(agent_state *a, const tool_call *call) {
     if (!a->cfg.tools_enabled) return agent_strdup("error: tools are disabled");
     if (!strcmp(call->name, "read")) return tool_read(a, call);
     if (!strcmp(call->name, "more")) return tool_more(a, call);
@@ -3549,6 +3835,102 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
     sb_init(&out);
     sb_printf(&out, "error: unknown tool '%s'", call->name);
     return out.p;
+}
+
+static bool agent_shell_has_command(const char *cmd, const char *command) {
+    size_t command_len = strlen(command);
+    const char *p = cmd;
+    while (p && (p = strstr(p, command)) != NULL) {
+        const char *before = p;
+        while (before > cmd && isspace((unsigned char)before[-1])) before--;
+        bool left = before == cmd || strchr(";&|(\n", before[-1]) != NULL;
+        char after = p[command_len];
+        bool right = after == '\0' || isspace((unsigned char)after) ||
+                     strchr(";&|)", after) != NULL;
+        if (left && right) return true;
+        p += command_len;
+    }
+    return false;
+}
+
+static bool agent_shell_command_is_verification(const char *cmd) {
+    if (!cmd) return false;
+    static const char *patterns[] = {
+        "make", "ninja", "ctest", "pytest", "cargo test", "cargo check",
+        "go test", "npm test", "npm run test", "npm run build",
+        "pnpm test", "yarn test", "meson test", "xcodebuild", "swift test",
+        "git diff --check", "shellcheck", "gcc", "clang", "cc",
+        "sh tests/", "./tests/", NULL
+    };
+    for (int i = 0; patterns[i]; i++) {
+        if (agent_shell_has_command(cmd, patterns[i])) return true;
+    }
+    return false;
+}
+
+static bool agent_tool_output_succeeded(const char *out) {
+    const char *p = out;
+    while (p && (p = strstr(p, "exit=0")) != NULL) {
+        bool left = p == out || p[-1] == '\n' || p[-1] == '\r';
+        bool right = p[6] == '\0' || p[6] == '\n' || p[6] == '\r';
+        if (left && right) return true;
+        p += 6;
+    }
+    return false;
+}
+
+static void agent_note_tool_result(agent_state *a, const tool_call *call,
+                                   const char *out) {
+    if (!a || !call || !out) return;
+    bool changed = (!strcmp(call->name, "write") ||
+                    !strcmp(call->name, "edit")) &&
+                   !strncmp(out, "ok: ", 4);
+    if (changed) {
+        a->edit_verification_pending = true;
+        return;
+    }
+    if (!strcmp(call->name, "bash") && a->edit_verification_pending &&
+        agent_shell_command_is_verification(tool_param_value(call, "cmd") ?
+            tool_param_value(call, "cmd") : tool_param_value(call, "command")) &&
+        agent_tool_output_succeeded(out)) {
+        a->edit_verification_pending = false;
+    }
+}
+
+static char *execute_one_tool(agent_state *a, const tool_call *call) {
+    char *out = execute_one_tool_raw(a, call);
+    agent_note_tool_result(a, call, out);
+    return out;
+}
+
+static int agent_verify_guard_selftest(void) {
+    agent_state state = {0};
+    tool_call call = {0};
+
+    snprintf(call.name, sizeof(call.name), "edit");
+    agent_note_tool_result(&state, &call, "error: old text not found");
+    if (state.edit_verification_pending) return 1;
+    agent_note_tool_result(&state, &call, "ok: edited example.c (1 change)");
+    if (!state.edit_verification_pending) return 2;
+
+    memset(&call, 0, sizeof(call));
+    snprintf(call.name, sizeof(call.name), "bash");
+    call.params[0].value = "ls";
+    snprintf(call.params[0].name, sizeof(call.params[0].name), "cmd");
+    call.n_params = 1;
+    agent_note_tool_result(&state, &call, "$ ls\n\nexit=0\n");
+    if (!state.edit_verification_pending) return 3;
+    call.params[0].value = "echo make";
+    agent_note_tool_result(&state, &call, "$ echo make\nmake\n\nexit=0\n");
+    if (!state.edit_verification_pending) return 4;
+    call.params[0].value = "make test-agent-edit";
+    agent_note_tool_result(&state, &call,
+                           "$ make test-agent-edit\n\nexit=1\n");
+    if (!state.edit_verification_pending) return 5;
+    agent_note_tool_result(&state, &call,
+                           "$ make test-agent-edit\n\nexit=0\n");
+    if (state.edit_verification_pending) return 6;
+    return 0;
 }
 
 static bool tool_result_is_guard_rejection(const char *out) {
@@ -4424,7 +4806,8 @@ static bool agent_ensure_message_room(agent_state *a, const char *role,
     return false;
 }
 
-static int generate_once(agent_state *a, char **assistant_text) {
+static int generate_once(agent_state *a, char **assistant_text,
+                         bool suppress_output) {
     *assistant_text = NULL;
     int prefix_start = a->transcript.len;
     qw3_chat_append_assistant_prefix(a->engine, &a->transcript,
@@ -4434,9 +4817,13 @@ static int generate_once(agent_state *a, char **assistant_text) {
     memset(&emit, 0, sizeof(emit));
     emit.engine = a->engine;
     agent_renderer_init(&emit.renderer,
-                        a->output_write ? a->output_write : agent_direct_write,
-                        a->output_write ? a->output_ud : stdout,
-                        a->output_color && isatty(STDOUT_FILENO),
+                        suppress_output ? agent_discard_write :
+                            (a->output_write ? a->output_write :
+                                               agent_direct_write),
+                        suppress_output ? NULL :
+                            (a->output_write ? a->output_ud : stdout),
+                        !suppress_output && a->output_color &&
+                            isatty(STDOUT_FILENO),
                         qw3_think_mode_enabled(a->cfg.think_mode));
 
     int rc = -1;
@@ -4630,12 +5017,19 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     qw3_chat_append_message(a->engine, &a->transcript, "user", user_message);
 
     const int final_attempts = 3;
+    const int verification_attempts = 3;
     int guard_retry_credits = 2;
+    int verification_guard_credits = verification_attempts;
     agent_tool_history tool_history = {0};
     for (int round = 0;
-         round < a->cfg.max_tool_rounds + final_attempts;
+         round < a->cfg.max_tool_rounds + final_attempts +
+                     verification_attempts;
          round++) {
-        const bool final_only = round >= a->cfg.max_tool_rounds;
+        const bool verification_extension =
+            a->edit_verification_pending &&
+            round >= a->cfg.max_tool_rounds;
+        const bool final_only = round >= a->cfg.max_tool_rounds &&
+                                !verification_extension;
         if (round > 0 &&
             !agent_compact_if_needed(a, "soft limit before tool continuation",
                                      compact_err, sizeof(compact_err))) {
@@ -4643,7 +5037,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                           compact_err[0] ? compact_err : "context compaction failed");
             return -1;
         }
-        if (round == a->cfg.max_tool_rounds) {
+        if (round == a->cfg.max_tool_rounds &&
+            !a->edit_verification_pending) {
             static const char budget_control_intro[] =
                 "Internal qw3-agent control: the tool-call budget for this "
                 "user turn is exhausted. Do not call any more tools. Give the "
@@ -4699,8 +5094,10 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                     "agent: tool round limit reached; requesting final answer "
                     "from collected results\n");
         }
+        int transcript_before_generation = a->transcript.len;
+        bool suppress_output = a->edit_verification_pending;
         char *assistant = NULL;
-        if (generate_once(a, &assistant) != 0) {
+        if (generate_once(a, &assistant, suppress_output) != 0) {
             free(assistant);
             return -1;
         }
@@ -4779,6 +5176,38 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int n_dsml = parse_tool_calls(assistant ? assistant : "", &dsml_calls);
         if (n_dsml <= 0) {
             free_tool_calls(&dsml_calls);
+            if (a->edit_verification_pending) {
+                a->transcript.len = transcript_before_generation;
+                qw3_session_invalidate(a->session);
+                free(assistant);
+                if (verification_guard_credits-- <= 0) {
+                    agent_statusf(a,
+                                  "agent: refusing to finish with unverified "
+                                  "file changes\n");
+                    return -1;
+                }
+                static const char verification_control[] =
+                    "Internal qw3-agent control: a write or edit succeeded, "
+                    "but no verification command has completed successfully. "
+                    "Before answering the user, call bash once with the "
+                    "narrowest relevant build, test, syntax check, or "
+                    "git diff --check. Do not claim completion yet.";
+                if (!agent_ensure_message_room(
+                        a, "user", verification_control, 128,
+                        "verification control would exceed context",
+                        compact_err, sizeof(compact_err))) {
+                    agent_statusf(a, "agent: %s\n",
+                                  compact_err[0] ? compact_err :
+                                  "context full");
+                    return -1;
+                }
+                qw3_chat_append_message(a->engine, &a->transcript,
+                                        "user", verification_control);
+                agent_statusf(a,
+                              "agent: file change pending verification; "
+                              "requesting a check\n");
+                continue;
+            }
             if (final_only &&
                 (!assistant ||
                  !text_slice_has_nonspace(assistant, strlen(assistant)))) {
@@ -4956,7 +5385,10 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "best supported final answer. If web tools fail, say so and do not "
             "invent current web content.\n"
             "- Use read only for small non-source files or precise source line "
-            "ranges with explicit start and lines.\n\n");
+            "ranges with explicit start and lines.\n"
+            "- After write or edit succeeds, run the narrowest relevant build, "
+            "test, syntax check, or git diff --check with bash before giving the "
+            "final answer. A read-back alone is not verification.\n\n");
     }
     char now_text[96] = {0};
     time_t now = time(NULL);
@@ -6709,6 +7141,15 @@ static void agent_direct_progress_update(void *ud, const char *phase,
 }
 
 int main(int argc, char **argv) {
+    if (getenv("QW3_AGENT_VERIFY_GUARD_SELFTEST")) {
+        int rc = agent_verify_guard_selftest();
+        if (rc != 0) {
+            fprintf(stderr, "test-agent-verify: FAIL case %d\n", rc);
+            return 1;
+        }
+        fprintf(stderr, "test-agent-verify: ok\n");
+        return 0;
+    }
     if (getenv("QW3_AGENT_REPEAT_GUARD_SELFTEST")) {
         int rc = agent_repeat_guard_selftest();
         if (rc != 0) {

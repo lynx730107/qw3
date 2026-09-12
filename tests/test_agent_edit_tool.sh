@@ -211,6 +211,95 @@ echo "$out" | grep -q 'recovered literal whitespace escapes' ||
 sed -n '2p' "$target" | grep -q '^gamma$' ||
     fail "literal whitespace escape recovery did not edit the file"
 
+cat > "$target" <<'EOF'
+static void outer(void) {
+    if (ready) {
+        do_work();
+        finish();
+    }
+}
+EOF
+
+cat > "$tool_file" <<EOF
+<tool_call>
+<function=edit>
+<parameter=path>$target</parameter>
+<parameter=old>if (ready) {
+  do_work();
+  finish();
+}</parameter>
+<parameter=new>if (ready) {
+  do_work_fast();
+  finish();
+}</parameter>
+</function>
+</tool_call>
+EOF
+out=$(run_tool)
+echo "$out" | grep -q 'recovered unique whitespace-only drift' ||
+    fail "unique whitespace recovery was not reported"
+grep -q '^    if (ready) {$' "$target" ||
+    fail "whitespace recovery lost target indentation"
+grep -q '^        do_work_fast();$' "$target" ||
+    fail "whitespace recovery lost relative indentation"
+
+cat > "$target" <<'EOF'
+if (ready) {
+    run();
+}
+between
+if (ready) {
+    run();
+}
+EOF
+
+cat > "$tool_file" <<EOF
+<tool_call>
+<function=edit>
+<parameter=path>$target</parameter>
+<parameter=old>if (ready) {
+  run();
+}</parameter>
+<parameter=new>if (ready) {
+  changed();
+}</parameter>
+</function>
+</tool_call>
+EOF
+before=$(cat "$target")
+out=$(run_tool)
+echo "$out" | grep -q 'whitespace-flexible old text appears 2 times' ||
+    fail "ambiguous whitespace recovery was not rejected"
+[ "$(cat "$target")" = "$before" ] ||
+    fail "ambiguous whitespace recovery changed the file"
+
+cat > "$target" <<'EOF'
+static int example(void) {
+    prepare();
+    execute_actual();
+    return 0;
+}
+EOF
+
+cat > "$tool_file" <<EOF
+<tool_call>
+<function=edit>
+<parameter=path>$target</parameter>
+<parameter=old>prepare();
+execute_expected();
+return 0;</parameter>
+<parameter=new>prepare();
+execute_new();
+return 0;</parameter>
+</function>
+</tool_call>
+EOF
+out=$(run_tool)
+echo "$out" | grep -q 'closest block starts at file line 2' ||
+    fail "missing multiline mismatch location"
+echo "$out" | grep -q 'first different line is block line 2' ||
+    fail "missing multiline mismatch detail"
+
 cat > "$tool_file" <<EOF
 <tool_call>
 <function=edit>
