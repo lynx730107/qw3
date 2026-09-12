@@ -69,6 +69,11 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_WEB_HEAD_LINES 100
 #define QW3_AGENT_WEB_READ_MAX_LINES 120
 #define QW3_AGENT_WEB_TIMEOUT_SEC 30.0
+#define QW3_AGENT_BASH_TIMEOUT_SEC 120
+#define QW3_AGENT_BASH_MAX_BYTES 32768
+#define QW3_AGENT_BASH_HEAD_BYTES 12288
+#define QW3_AGENT_BASH_TAIL_BYTES 20480
+#define QW3_AGENT_BASH_SPILL_KEEP 8
 #define QW3_AGENT_TOOL_HISTORY_MAX 64
 #define QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS 512
 #define QW3_AGENT_COMPACT_SOFT_PERCENT 85
@@ -308,17 +313,18 @@ static void agent_write_with_crlf(FILE *fp, const char *s, size_t n) {
     }
 }
 
-static void agent_write_all(int fd, const char *p, size_t n) {
+static bool agent_write_all(int fd, const char *p, size_t n) {
     while (n > 0) {
         ssize_t w = write(fd, p, n);
         if (w < 0) {
             if (errno == EINTR) continue;
-            return;
+            return false;
         }
-        if (w == 0) return;
+        if (w == 0) return false;
         p += w;
         n -= (size_t)w;
     }
+    return true;
 }
 
 static void agent_write_fd_crlf(int fd, const char *s, size_t n) {
@@ -558,7 +564,7 @@ static char *native_tool_declarations(void) {
               TOOL_PARAM("anchor", "Exact anchor text for insert_before/insert_after") ","
               TOOL_PARAM("new", "Replacement or inserted text") ","
               TOOL_PARAM("mode", "replace, replace_all, insert_before, insert_after, append, or prepend"));
-    TOOL_DECL("bash", "Run a shell command and return captured output.",
+    TOOL_DECL("bash", "Run a time-bounded shell command with combined stdout/stderr. Large results retain their head and tail and provide a path to the complete output.",
               TOOL_PARAM("cmd", "Shell command"));
 #undef TOOL_PARAM
 #undef TOOL_DECL
@@ -627,6 +633,14 @@ static int ensure_dir(const char *path) {
     if (!path || !path[0]) return -1;
     if (mkdir(path, 0755) == 0 || errno == EEXIST) return 0;
     return -1;
+}
+
+static int ensure_private_dir(const char *path) {
+    if (!path || !path[0]) return -1;
+    if (mkdir(path, 0700) != 0 && errno != EEXIST) return -1;
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) return -1;
+    return chmod(path, 0700);
 }
 
 static char *path_join(const char *a, const char *b) {
@@ -2806,6 +2820,48 @@ static void edit_append_match_hint(strbuf *out, const char *file,
     }
 }
 
+static int edit_occurrence_count(const char *text, const char *needle) {
+    if (!text || !needle || !needle[0]) return 0;
+    int count = 0;
+    size_t n = strlen(needle);
+    const char *p = text;
+    while ((p = strstr(p, needle)) != NULL) {
+        count++;
+        p += n;
+    }
+    return count;
+}
+
+static char *edit_unescape_whitespace(const char *text, bool *changed) {
+    if (changed) *changed = false;
+    strbuf out;
+    sb_init(&out);
+    for (size_t i = 0; text && text[i];) {
+        if (text[i] == '\\' && text[i + 1] == 'r' &&
+            text[i + 2] == '\\' && text[i + 3] == 'n') {
+            sb_append(&out, "\n");
+            i += 4;
+            if (changed) *changed = true;
+        } else if (text[i] == '\\' && text[i + 1] == 'n') {
+            sb_append(&out, "\n");
+            i += 2;
+            if (changed) *changed = true;
+        } else if (text[i] == '\\' && text[i + 1] == 't') {
+            sb_append(&out, "\t");
+            i += 2;
+            if (changed) *changed = true;
+        } else if (text[i] == '\\' && text[i + 1] == 'r') {
+            sb_append(&out, "\r");
+            i += 2;
+            if (changed) *changed = true;
+        } else {
+            sb_append_n(&out, text + i, 1);
+            i++;
+        }
+    }
+    return out.p ? out.p : agent_strdup("");
+}
+
 static char *tool_edit(agent_state *a, const tool_call *call) {
     const char *path = tool_param_value(call, "path");
     const char *old = tool_param_value(call, "old");
@@ -2828,6 +2884,14 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
     strbuf out_file;
     sb_init(&out_file);
     int replacements = 0;
+    bool recovered_whitespace_escapes = false;
+
+    if ((!strcmp(mode, "append") || !strcmp(mode, "prepend") ||
+         !strcmp(mode, "insert_before") || !strcmp(mode, "insert_after")) &&
+        !new_text[0]) {
+        free(file);
+        return agent_strdup("error: no-op edit; inserted text is empty");
+    }
 
     if (!strcmp(mode, "append")) {
         sb_append_n(&out_file, file, n);
@@ -2850,8 +2914,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             return agent_strdup(
                 "error: edit insert mode requires anchor or old text");
         }
-        char *hit = strstr(file, needle);
-        if (!hit) {
+        int matches = edit_occurrence_count(file, needle);
+        if (matches == 0) {
             strbuf err;
             sb_init(&err);
             sb_append(&err, "error: anchor text not found");
@@ -2860,6 +2924,18 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             free(file);
             return err.p;
         }
+        if (matches > 1) {
+            strbuf err;
+            sb_init(&err);
+            sb_printf(&err,
+                      "error: anchor text appears %d times; include more "
+                      "surrounding text to make it unique",
+                      matches);
+            sb_free(&out_file);
+            free(file);
+            return err.p;
+        }
+        char *hit = strstr(file, needle);
         size_t needle_n = strlen(needle);
         if (!strcmp(mode, "insert_before")) {
             sb_append_n(&out_file, file, (size_t)(hit - file));
@@ -2888,17 +2964,74 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             free(file);
             return agent_strdup("error: edit replace mode requires old text");
         }
-        size_t old_n = strlen(old);
-        size_t new_n = strlen(new_text);
+        if (!strcmp(old, new_text)) {
+            sb_free(&out_file);
+            free(file);
+            return agent_strdup(
+                "error: no-op edit; old and new text are identical");
+        }
+
+        const char *effective_old = old;
+        const char *effective_new = new_text;
+        char *unescaped_old = NULL;
+        char *unescaped_new = NULL;
+        int matches = edit_occurrence_count(file, effective_old);
+        if (matches == 0) {
+            bool old_changed = false;
+            unescaped_old = edit_unescape_whitespace(old, &old_changed);
+            if (old_changed) {
+                int recovered_matches =
+                    edit_occurrence_count(file, unescaped_old);
+                if (recovered_matches > 0) {
+                    effective_old = unescaped_old;
+                    matches = recovered_matches;
+                    recovered_whitespace_escapes = true;
+                    if (!strchr(new_text, '\n') && !strchr(new_text, '\r')) {
+                        bool new_changed = false;
+                        unescaped_new =
+                            edit_unescape_whitespace(new_text, &new_changed);
+                        if (new_changed) effective_new = unescaped_new;
+                    }
+                }
+            }
+        }
+        if (matches == 0) {
+            strbuf err;
+            sb_init(&err);
+            sb_append(&err, "error: old text not found");
+            edit_append_match_hint(&err, file, old);
+            free(unescaped_new);
+            free(unescaped_old);
+            sb_free(&out_file);
+            free(file);
+            return err.p;
+        }
+        if (strcmp(mode, "replace_all") != 0 && matches > 1) {
+            strbuf err;
+            sb_init(&err);
+            sb_printf(&err,
+                      "error: old text appears %d times; include more "
+                      "surrounding text to make it unique, or request "
+                      "replace_all explicitly",
+                      matches);
+            free(unescaped_new);
+            free(unescaped_old);
+            sb_free(&out_file);
+            free(file);
+            return err.p;
+        }
+
+        size_t old_n = strlen(effective_old);
+        size_t new_n = strlen(effective_new);
         char *cursor = file;
         while (1) {
-            char *hit = strstr(cursor, old);
+            char *hit = strstr(cursor, effective_old);
             if (!hit) {
                 sb_append(&out_file, cursor);
                 break;
             }
             sb_append_n(&out_file, cursor, (size_t)(hit - cursor));
-            sb_append_n(&out_file, new_text, new_n);
+            sb_append_n(&out_file, effective_new, new_n);
             replacements++;
             cursor = hit + old_n;
             if (strcmp(mode, "replace_all") != 0) {
@@ -2906,15 +3039,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
                 break;
             }
         }
-        if (replacements == 0) {
-            strbuf err;
-            sb_init(&err);
-            sb_append(&err, "error: old text not found");
-            edit_append_match_hint(&err, file, old);
-            sb_free(&out_file);
-            free(file);
-            return err.p;
-        }
+        free(unescaped_new);
+        free(unescaped_old);
     } else {
         sb_free(&out_file);
         free(file);
@@ -2923,6 +3049,12 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             "insert_before, insert_after, append, or prepend");
     }
 
+    if (out_file.len == n &&
+        !memcmp(out_file.p ? out_file.p : "", file, n)) {
+        sb_free(&out_file);
+        free(file);
+        return agent_strdup("error: no-op edit; file would be unchanged");
+    }
     int rc = write_file_text(path, out_file.p ? out_file.p : "");
     sb_free(&out_file);
     free(file);
@@ -2936,10 +3068,12 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
     strbuf ok;
     sb_init(&ok);
     sb_printf(&ok,
-              "ok: edited %s (%d change%s)\n"
+              "ok: edited %s (%d change%s%s)\n"
               "verification_hint: read a small explicit line range around the "
               "change if you need to verify formatting; do not walk the file.",
-              path, replacements, replacements == 1 ? "" : "s");
+              path, replacements, replacements == 1 ? "" : "s",
+              recovered_whitespace_escapes ?
+                  ", recovered literal whitespace escapes" : "");
     return ok.p ? ok.p : agent_strdup("ok: edited");
 }
 
@@ -3042,7 +3176,132 @@ static char *tool_search(agent_state *a, const tool_call *call) {
     return out.p;
 }
 
-static char *tool_bash(const tool_call *call) {
+typedef struct {
+    char *path;
+    time_t mtime;
+    bool protected;
+} agent_bash_spill_entry;
+
+static int agent_bash_spill_cmp(const void *lhs, const void *rhs) {
+    const agent_bash_spill_entry *a = lhs;
+    const agent_bash_spill_entry *b = rhs;
+    if (a->protected != b->protected) return a->protected ? -1 : 1;
+    if (a->mtime > b->mtime) return -1;
+    if (a->mtime < b->mtime) return 1;
+    return strcmp(a->path, b->path);
+}
+
+static void agent_prune_bash_spills(const char *dir,
+                                    const char *protected_path) {
+    DIR *dp = opendir(dir);
+    if (!dp) return;
+    agent_bash_spill_entry *items = NULL;
+    size_t len = 0;
+    size_t cap = 0;
+    struct dirent *de;
+    while ((de = readdir(dp)) != NULL) {
+        if (strncmp(de->d_name, "bash-", 5) != 0) continue;
+        char *path = path_join(dir, de->d_name);
+        struct stat st;
+        if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+            free(path);
+            continue;
+        }
+        if (len == cap) {
+            size_t next_cap = cap ? cap * 2 : 16;
+            agent_bash_spill_entry *next =
+                realloc(items, next_cap * sizeof(*items));
+            if (!next) {
+                free(path);
+                break;
+            }
+            items = next;
+            cap = next_cap;
+        }
+        items[len].path = path;
+        items[len].mtime = st.st_mtime;
+        items[len].protected =
+            protected_path && !strcmp(path, protected_path);
+        len++;
+    }
+    closedir(dp);
+    qsort(items, len, sizeof(*items), agent_bash_spill_cmp);
+    for (size_t i = 0; i < len; i++) {
+        if (i >= QW3_AGENT_BASH_SPILL_KEEP) (void)unlink(items[i].path);
+        free(items[i].path);
+    }
+    free(items);
+}
+
+static int agent_create_bash_spill(agent_state *a, char **path_out,
+                                   char **dir_out) {
+    *path_out = NULL;
+    *dir_out = NULL;
+    if (!a || !a->cfg.store_dir) return -1;
+    char *dir = path_join(a->cfg.store_dir, "spills");
+    if (!dir || ensure_private_dir(dir) != 0) {
+        free(dir);
+        return -1;
+    }
+    char *tmpl = path_join(dir, "bash-XXXXXX");
+    if (!tmpl) {
+        free(dir);
+        return -1;
+    }
+    int fd = mkstemp(tmpl);
+    if (fd < 0 || fchmod(fd, 0600) != 0) {
+        if (fd >= 0) close(fd);
+        (void)unlink(tmpl);
+        free(tmpl);
+        free(dir);
+        return -1;
+    }
+    *path_out = tmpl;
+    *dir_out = dir;
+    return fd;
+}
+
+static void agent_tail_append(char *tail, size_t cap, size_t *len,
+                              size_t *pos, const char *buf, size_t n) {
+    if (!tail || cap == 0 || !len || !pos || !buf || n == 0) return;
+    if (n >= cap) {
+        memcpy(tail, buf + n - cap, cap);
+        *len = cap;
+        *pos = 0;
+        return;
+    }
+    size_t room = cap - *len;
+    size_t initial = n < room ? n : room;
+    if (initial) {
+        memcpy(tail + *len, buf, initial);
+        *len += initial;
+        buf += initial;
+        n -= initial;
+    }
+    if (n == 0) return;
+    size_t first = n < cap - *pos ? n : cap - *pos;
+    memcpy(tail + *pos, buf, first);
+    if (n > first) memcpy(tail, buf + first, n - first);
+    *pos = (*pos + n) % cap;
+}
+
+static void agent_append_sanitized(strbuf *out, const char *buf, size_t n) {
+    size_t start = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (buf[i] != '\0') continue;
+        if (i > start) sb_append_n(out, buf + start, i - start);
+        sb_append(out, "?");
+        start = i + 1;
+    }
+    if (n > start) sb_append_n(out, buf + start, n - start);
+}
+
+static void agent_kill_process_group(pid_t pid, int sig) {
+    if (pid <= 0) return;
+    if (kill(-pid, sig) != 0) (void)kill(pid, sig);
+}
+
+static char *tool_bash(agent_state *a, const tool_call *call) {
     const char *cmd = tool_param_value(call, "cmd");
     if (!cmd || !cmd[0]) cmd = tool_param_value(call, "command");
     if (!cmd || !cmd[0]) return agent_strdup("error: bash requires cmd");
@@ -3053,33 +3312,221 @@ static char *tool_bash(const tool_call *call) {
             "lines. If search finds nothing relevant, visit another URL "
             "already returned by google_search.");
     }
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
         strbuf err;
         sb_init(&err);
-        sb_printf(&err, "error: popen failed: %s", strerror(errno));
+        sb_printf(&err, "error: pipe failed: %s", strerror(errno));
         return err.p;
     }
+
+    char *spill_path = NULL;
+    char *spill_dir = NULL;
+    int spill_fd = -1;
+    bool spill_ok = false;
+    bool spill_attempted = false;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        if (spill_fd >= 0) close(spill_fd);
+        if (spill_path) (void)unlink(spill_path);
+        free(spill_path);
+        free(spill_dir);
+        strbuf err;
+        sb_init(&err);
+        sb_printf(&err, "error: fork failed: %s", strerror(errno));
+        return err.p;
+    }
+    if (pid == 0) {
+        (void)setpgid(0, 0);
+        close(pipefd[0]);
+        (void)dup2(pipefd[1], STDOUT_FILENO);
+        (void)dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+        dprintf(STDERR_FILENO, "error: exec shell failed: %s\n", strerror(errno));
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    (void)setpgid(pid, pid);
+    (void)agent_set_nonblock(pipefd[0]);
+
+    const size_t max_bytes = (size_t)agent_env_int(
+        "QW3_AGENT_BASH_MAX_BYTES", QW3_AGENT_BASH_MAX_BYTES, 4096,
+        1024 * 1024);
+    size_t head_bytes = QW3_AGENT_BASH_HEAD_BYTES;
+    if (head_bytes > max_bytes / 2) head_bytes = max_bytes / 2;
+    size_t tail_bytes = max_bytes - head_bytes;
+    if (tail_bytes > QW3_AGENT_BASH_TAIL_BYTES) {
+        tail_bytes = QW3_AGENT_BASH_TAIL_BYTES;
+    }
+    const int timeout_sec = agent_env_int(
+        "QW3_AGENT_BASH_TIMEOUT_SEC", QW3_AGENT_BASH_TIMEOUT_SEC, 1, 3600);
+    strbuf first;
+    sb_init(&first);
+    char *tail = malloc(tail_bytes);
+    size_t tail_len = 0;
+    size_t tail_pos = 0;
+    uint64_t total = 0;
+    int status = 0;
+    bool exited = false;
+    bool pipe_open = true;
+    bool timed_out = false;
+    bool interrupted = false;
+    bool sent_term = false;
+    bool sent_kill = false;
+    double term_at = 0.0;
+    double kill_at = 0.0;
+    const double started = agent_now_sec();
+
+    while (pipe_open || !exited) {
+        if (!exited) {
+            pid_t wr = waitpid(pid, &status, WNOHANG);
+            if (wr == pid) exited = true;
+            else if (wr < 0 && errno != EINTR) exited = true;
+        }
+
+        const double now = agent_now_sec();
+        if (!sent_term && agent_should_interrupt(a)) {
+            interrupted = true;
+            sent_term = true;
+            term_at = now;
+            agent_kill_process_group(pid, SIGTERM);
+        } else if (!sent_term && now - started > (double)timeout_sec) {
+            timed_out = true;
+            sent_term = true;
+            term_at = now;
+            agent_kill_process_group(pid, SIGTERM);
+        }
+        if (sent_term && !sent_kill && now - term_at > 1.0) {
+            sent_kill = true;
+            kill_at = now;
+            agent_kill_process_group(pid, SIGKILL);
+        }
+        if (sent_kill && pipe_open && now - kill_at > 1.0) {
+            close(pipefd[0]);
+            pipe_open = false;
+        }
+
+        if (pipe_open) {
+            struct pollfd pfd = {
+                .fd = pipefd[0],
+                .events = POLLIN | POLLHUP,
+                .revents = 0,
+            };
+            int pr = poll(&pfd, 1, 100);
+            if (pr > 0 && (pfd.revents & (POLLIN | POLLHUP))) {
+                for (;;) {
+                    char buf[4096];
+                    ssize_t n = read(pipefd[0], buf, sizeof(buf));
+                    if (n > 0) {
+                        size_t got = (size_t)n;
+                        if (!spill_attempted && total + got > max_bytes) {
+                            spill_attempted = true;
+                            spill_fd = agent_create_bash_spill(
+                                a, &spill_path, &spill_dir);
+                            spill_ok = spill_fd >= 0;
+                            if (spill_ok && first.len &&
+                                !agent_write_all(spill_fd, first.p, first.len)) {
+                                spill_ok = false;
+                            }
+                        }
+                        if (spill_ok && !agent_write_all(spill_fd, buf, got)) {
+                            spill_ok = false;
+                        }
+                        if (first.len < max_bytes) {
+                            size_t room = max_bytes - first.len;
+                            size_t take = got < room ? got : room;
+                            sb_append_n(&first, buf, take);
+                        }
+                        agent_tail_append(tail, tail_bytes,
+                                          &tail_len, &tail_pos, buf, got);
+                        total += got;
+                    } else if (n == 0) {
+                        close(pipefd[0]);
+                        pipe_open = false;
+                        break;
+                    } else {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK &&
+                            errno != EINTR) {
+                            close(pipefd[0]);
+                            pipe_open = false;
+                        }
+                        break;
+                    }
+                }
+            } else if (pr < 0 && errno != EINTR) {
+                close(pipefd[0]);
+                pipe_open = false;
+            }
+        } else if (!exited) {
+            struct timespec pause = {0, 100000000};
+            nanosleep(&pause, NULL);
+        }
+    }
+
+    if (pipe_open) close(pipefd[0]);
+    if (!exited) (void)waitpid(pid, &status, 0);
+    if (spill_fd >= 0) close(spill_fd);
+
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "$ %s\n", cmd);
-    char buf[1024];
-    size_t total = 0;
-    while (fgets(buf, sizeof(buf), fp)) {
-        size_t n = strlen(buf);
-        if (total + n > 32768) {
-            sb_append(&out, "\n... truncated\n");
-            break;
+    if (total == 0) {
+        sb_append(&out, "[no output]\n");
+    } else if (total <= max_bytes) {
+        agent_append_sanitized(&out, first.p ? first.p : "", first.len);
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    } else {
+        size_t head_len = first.len < head_bytes ? first.len : head_bytes;
+        agent_append_sanitized(&out, first.p, head_len);
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        uint64_t kept = (uint64_t)head_len + (uint64_t)tail_len;
+        uint64_t omitted = total > kept ? total - kept : 0;
+        if (spill_ok && spill_path) {
+            sb_printf(&out,
+                      "[... %llu bytes omitted; full output saved to %s. "
+                      "Use rg/sed on that file instead of rerunning the command ...]\n",
+                      (unsigned long long)omitted, spill_path);
+        } else {
+            sb_printf(&out,
+                      "[... %llu bytes omitted; full output could not be saved ...]\n",
+                      (unsigned long long)omitted);
         }
-        sb_append_n(&out, buf, n);
-        total += n;
+        if (tail && tail_len) {
+            if (tail_len < tail_bytes || tail_pos == 0) {
+                agent_append_sanitized(&out, tail, tail_len);
+            } else {
+                agent_append_sanitized(&out, tail + tail_pos,
+                                       tail_len - tail_pos);
+                agent_append_sanitized(&out, tail, tail_pos);
+            }
+        }
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
     }
-    int status = pclose(fp);
+
+    if (interrupted) sb_append(&out, "interrupted=1\n");
+    if (timed_out) sb_printf(&out, "timed_out=%ds\n", timeout_sec);
     if (WIFEXITED(status)) {
         sb_printf(&out, "\nexit=%d\n", WEXITSTATUS(status));
+    } else if (WIFSIGNALED(status)) {
+        sb_printf(&out, "\nsignal=%d\n", WTERMSIG(status));
     } else {
         sb_append(&out, "\nexit=unknown\n");
     }
+
+    if (total <= max_bytes || !spill_ok) {
+        if (spill_path) (void)unlink(spill_path);
+    } else if (spill_dir) {
+        agent_prune_bash_spills(spill_dir, spill_path);
+    }
+    free(tail);
+    sb_free(&first);
+    free(spill_path);
+    free(spill_dir);
     return out.p;
 }
 
@@ -3097,7 +3544,7 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
     if (!strcmp(call->name, "write")) return tool_write(a, call);
     if (!strcmp(call->name, "edit")) return tool_edit(a, call);
     if (!strcmp(call->name, "search")) return tool_search(a, call);
-    if (!strcmp(call->name, "bash")) return tool_bash(call);
+    if (!strcmp(call->name, "bash")) return tool_bash(a, call);
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "error: unknown tool '%s'", call->name);

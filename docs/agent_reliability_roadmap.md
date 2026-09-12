@@ -1,0 +1,55 @@
+# Agent reliability roadmap
+
+This document tracks the agent and session improvements inspired by measured
+behavior in other local, in-process coding agents. Each phase must land with
+model-free unit or integration coverage. Changes that affect inference must
+also pass the Metal logit, no-garbage, and native tool-call checks.
+
+## Phase 1: Tool execution and editing
+
+- [completed] Make `bash` interruptible and time-bounded, merge stderr, drain
+  large outputs without deadlocking, retain head and tail, and spill the full
+  output to a bounded private directory.
+- [completed] Require unique exact matches for replacements and insertion
+  anchors, reject no-op edits, and recover literal newline/tab escapes only
+  when the recovered target is valid and unambiguous.
+- [pending] Add safe whitespace-flexible edit recovery and exact mismatch
+  diagnostics while preserving the unique-target invariant.
+- [pending] Track edits and require a build or test before a coding turn can
+  finish.
+
+## Phase 2: Context ownership
+
+- [pending] Keep a structured role/content/tool-call message ledger alongside
+  the rendered token transcript.
+- [pending] Compact complete messages rather than arbitrary token tails: remove
+  stale thinking first, shorten old tool results, preserve the recent working
+  set, and make every removed body recoverable from a spill file.
+- [pending] Prevent repeated low-yield compaction from forcing a full recurrent
+  cache rebuild on consecutive steps.
+
+## Phase 3: Persistent inference state
+
+- [pending] Add Metal export/import for occupied F16 KV rows, GatedDeltaNet
+  state, convolution state, token ids, and logits.
+- [pending] Store full session checkpoints atomically with model/backend/cache
+  compatibility metadata.
+- [pending] Add two warm-prefix checkpoint tiers: stable model/tool behavior and
+  the project-specific environment tail.
+
+## Phase 4: Measurement and safety
+
+- [pending] Record per-step append, rebuild, compaction, prefill, decode, and
+  tool-result metrics in a machine-readable trace.
+- [pending] Add reproducible agent coding smoke tasks and feature A/B switches.
+- [pending] Add permission modes, pre-edit workspace checkpoints, session forks,
+  atomic private session files, and optional `--ctx auto` memory governance.
+
+## Phase 5: Decode fast path
+
+- [pending] Profile a fused Q8 GDN input projection for
+  `linear_qkv_proj` + `linear_gate_proj`.
+- [pending] Explore a pre-encoded single-token Metal layer pipeline while
+  keeping the validated prefill path unchanged.
+- [deferred] Consider model-specific speculative decoding only after exact GDN
+  rollback and batched verification are available.
