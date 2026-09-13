@@ -133,6 +133,9 @@ test-agent-edit: qw3-agent
 test-agent-bash: qw3-agent
 	sh tests/test_agent_bash_tool.sh
 
+test-agent-color: qw3-agent
+	QW3_AGENT_COLOR_SELFTEST=1 ./qw3-agent
+
 test-agent-context: qw3-agent
 	QW3_AGENT_CONTEXT_LEDGER_SELFTEST=1 ./qw3-agent
 
@@ -163,7 +166,7 @@ test-runtime-regression: qw3-cli qw3-agent
 test-prefill-bench: qw3-bench
 	sh tests/test_prefill_bench_regression.sh
 
-test-regression: test-agent-bash test-agent-context test-agent-edit test-agent-repeat test-agent-trace test-agent-verify test-metal-logits test-runtime-regression
+test-regression: test-agent-bash test-agent-color test-agent-context test-agent-edit test-agent-repeat test-agent-trace test-agent-verify test-metal-logits test-runtime-regression
 
 .PHONY: test-metal-sampling
 test-metal-sampling:

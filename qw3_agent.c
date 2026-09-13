@@ -4563,7 +4563,7 @@ static void agent_renderer_init(agent_renderer *r, agent_output_fn write,
     r->ud = write ? ud : stdout;
     r->color = color;
     r->in_think = initial_think;
-    if (initial_think) agent_renderer_apply(r);
+    agent_renderer_apply(r);
 }
 
 static void agent_renderer_emit_byte(agent_renderer *r, char c) {
@@ -4660,6 +4660,54 @@ static void agent_renderer_finish(agent_renderer *r) {
         r->in_code = false;
         agent_renderer_apply(r);
     }
+}
+
+static void agent_renderer_selftest_write(void *ud, const char *s, size_t n) {
+    sb_append_n((strbuf *)ud, s, n);
+}
+
+static int agent_renderer_color_selftest(void) {
+    agent_renderer renderer;
+    strbuf out;
+    sb_init(&out);
+
+    sb_append(&out, AGENT_COLOR_TOOL "tool output\n");
+    agent_renderer_init(&renderer, agent_renderer_selftest_write, &out,
+                        true, false);
+    agent_renderer_feed(&renderer, "assistant answer", 16);
+    agent_renderer_finish(&renderer);
+    const char *answer = strstr(out.p ? out.p : "", "assistant answer");
+    size_t reset_len = strlen(AGENT_COLOR_RESET);
+    if (!answer || (size_t)(answer - out.p) < reset_len ||
+        memcmp(answer - reset_len, AGENT_COLOR_RESET, reset_len) != 0) {
+        sb_free(&out);
+        return 1;
+    }
+    sb_free(&out);
+
+    sb_init(&out);
+    agent_renderer_init(&renderer, agent_renderer_selftest_write, &out,
+                        true, true);
+    agent_renderer_feed(&renderer, "thinking", 8);
+    agent_renderer_finish(&renderer);
+    if (!out.p || strncmp(out.p, AGENT_COLOR_DIM,
+                          strlen(AGENT_COLOR_DIM)) != 0) {
+        sb_free(&out);
+        return 2;
+    }
+    sb_free(&out);
+
+    sb_init(&out);
+    agent_renderer_init(&renderer, agent_renderer_selftest_write, &out,
+                        false, false);
+    agent_renderer_feed(&renderer, "plain", 5);
+    agent_renderer_finish(&renderer);
+    if (!out.p || strcmp(out.p, "plain") != 0) {
+        sb_free(&out);
+        return 3;
+    }
+    sb_free(&out);
+    return 0;
 }
 
 static bool range_is_space(const char *p, size_t len) {
@@ -8086,6 +8134,15 @@ static void agent_direct_progress_update(void *ud, const char *phase,
 }
 
 int main(int argc, char **argv) {
+    if (getenv("QW3_AGENT_COLOR_SELFTEST")) {
+        int rc = agent_renderer_color_selftest();
+        if (rc != 0) {
+            fprintf(stderr, "test-agent-color: FAIL case %d\n", rc);
+            return 1;
+        }
+        fprintf(stderr, "test-agent-color: ok\n");
+        return 0;
+    }
     if (getenv("QW3_AGENT_CONTEXT_LEDGER_SELFTEST")) {
         int rc = agent_context_ledger_selftest();
         if (rc != 0) {
