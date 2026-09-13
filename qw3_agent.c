@@ -164,6 +164,8 @@ typedef void (*agent_output_fn)(void *ud, const char *s, size_t n);
 typedef bool (*agent_interrupt_fn)(void *ud);
 typedef void (*agent_progress_fn)(void *ud, const char *phase,
                                   int current, int total, double tps);
+typedef void (*agent_activity_fn)(void *ud, const char *phase,
+                                  const char *detail);
 typedef void (*agent_timing_fn)(void *ud, const char *backend,
                                 int cached, int prompt,
                                 int prefill_tokens, double prefill_ms,
@@ -175,6 +177,7 @@ typedef struct {
     agent_output_fn write;
     void *ud;
     bool color;
+    bool style_started;
     bool in_think;
     bool in_code;
     char pending[32];
@@ -236,6 +239,8 @@ typedef struct {
     void *interrupt_ud;
     agent_progress_fn progress_update;
     void *progress_ud;
+    agent_activity_fn activity_update;
+    void *activity_ud;
     agent_timing_fn timing_update;
     void *timing_ud;
     double progress_start_sec;
@@ -500,6 +505,13 @@ static void agent_tool_status_block(agent_state *a, const char *name,
 
 static bool agent_should_interrupt(agent_state *a) {
     return a && a->should_interrupt && a->should_interrupt(a->interrupt_ud);
+}
+
+static void agent_set_activity(agent_state *a, const char *phase,
+                               const char *detail) {
+    if (a && a->activity_update) {
+        a->activity_update(a->activity_ud, phase, detail);
+    }
 }
 
 static bool tool_result_is_guard_rejection(const char *out);
@@ -1974,6 +1986,11 @@ static int parse_native_shorthand_tool_calls(const char *text,
         const char *body_end = strstr(body, QWEN_XML_TOOL_CALL_END);
         const char *tag_end = strstr(body, close_tag);
         if (tag_end && (!body_end || tag_end < body_end)) body_end = tag_end;
+        bool recovered_at_eos = false;
+        if (!body_end && strstr(body, QWEN_XML_PARAMETER_END)) {
+            body_end = text + strlen(text);
+            recovered_at_eos = true;
+        }
         if (!body_end) break;
 
         tool_call *call = &out->calls[out->n_calls];
@@ -1986,6 +2003,7 @@ static int parse_native_shorthand_tool_calls(const char *text,
         } else {
             clear_tool_call(call);
         }
+        if (recovered_at_eos) break;
         p = body_end + 1;
     }
     return out->n_calls;
@@ -4311,8 +4329,10 @@ static void agent_note_tool_result(agent_state *a, const tool_call *call,
 }
 
 static char *execute_one_tool(agent_state *a, const tool_call *call) {
+    agent_set_activity(a, "tool", call ? call->name : NULL);
     char *out = execute_one_tool_raw(a, call);
     agent_note_tool_result(a, call, out);
+    agent_set_activity(a, "processing", NULL);
     return out;
 }
 
@@ -4547,6 +4567,7 @@ static size_t agent_utf8_expected_len(unsigned char c) {
 
 static void agent_renderer_apply(agent_renderer *r) {
     if (!r || !r->color) return;
+    r->style_started = true;
     if (r->in_think) {
         agent_renderer_raw(r, AGENT_COLOR_DIM, strlen(AGENT_COLOR_DIM));
     } else if (r->in_code) {
@@ -4556,6 +4577,10 @@ static void agent_renderer_apply(agent_renderer *r) {
     }
 }
 
+static void agent_renderer_ensure_style(agent_renderer *r) {
+    if (r && r->color && !r->style_started) agent_renderer_apply(r);
+}
+
 static void agent_renderer_init(agent_renderer *r, agent_output_fn write,
                                 void *ud, bool color, bool initial_think) {
     memset(r, 0, sizeof(*r));
@@ -4563,7 +4588,6 @@ static void agent_renderer_init(agent_renderer *r, agent_output_fn write,
     r->ud = write ? ud : stdout;
     r->color = color;
     r->in_think = initial_think;
-    agent_renderer_apply(r);
 }
 
 static void agent_renderer_emit_byte(agent_renderer *r, char c) {
@@ -4572,6 +4596,7 @@ static void agent_renderer_emit_byte(agent_renderer *r, char c) {
         agent_renderer_apply(r);
         return;
     }
+    agent_renderer_ensure_style(r);
     agent_renderer_raw(r, &c, 1);
 }
 
@@ -4582,12 +4607,14 @@ static void agent_renderer_emit_utf8_byte(agent_renderer *r, char c) {
             r->utf8_pending_len < sizeof(r->utf8_pending)) {
             r->utf8_pending[r->utf8_pending_len++] = c;
             if (r->utf8_pending_len == r->utf8_pending_need) {
+                agent_renderer_ensure_style(r);
                 agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
                 r->utf8_pending_len = 0;
                 r->utf8_pending_need = 0;
             }
             return;
         }
+        agent_renderer_ensure_style(r);
         agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
         r->utf8_pending_len = 0;
         r->utf8_pending_need = 0;
@@ -4651,11 +4678,12 @@ static void agent_renderer_finish(agent_renderer *r) {
     if (!r) return;
     agent_renderer_flush_pending(r);
     if (r->utf8_pending_len > 0) {
+        agent_renderer_ensure_style(r);
         agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
         r->utf8_pending_len = 0;
         r->utf8_pending_need = 0;
     }
-    if (r->color && (r->in_think || r->in_code)) {
+    if (r->color && r->style_started && (r->in_think || r->in_code)) {
         r->in_think = false;
         r->in_code = false;
         agent_renderer_apply(r);
@@ -4682,6 +4710,16 @@ static int agent_renderer_color_selftest(void) {
         memcmp(answer - reset_len, AGENT_COLOR_RESET, reset_len) != 0) {
         sb_free(&out);
         return 1;
+    }
+    sb_free(&out);
+
+    sb_init(&out);
+    agent_renderer_init(&renderer, agent_renderer_selftest_write, &out,
+                        true, false);
+    agent_renderer_finish(&renderer);
+    if (out.len != 0) {
+        sb_free(&out);
+        return 4;
     }
     sb_free(&out);
 
@@ -4779,12 +4817,69 @@ static bool should_suppress_jsonish_tool_call(const char *text, size_t len) {
 
 static bool generated_has_complete_tool_call(const char *text) {
     if (!text) return false;
+    if (strstr(text, DSML_END) ||
+        strstr(text, QWEN_XML_TOOL_CALL_END) ||
+        strstr(text, QWEN_XML_FUNCTION_END) ||
+        text_has_jsonish_tool_call(text)) {
+        return true;
+    }
+    for (size_t i = 0;
+         i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]);
+         i++) {
+        char open_tag[64];
+        char close_tag[72];
+        snprintf(open_tag, sizeof(open_tag), "<%s>",
+                 native_shorthand_tools[i]);
+        snprintf(close_tag, sizeof(close_tag), "</%s>",
+                 native_shorthand_tools[i]);
+        const char *open = strstr(text, open_tag);
+        if (open && strstr(open + strlen(open_tag), close_tag)) return true;
+    }
+    return false;
+}
+
+static bool agent_response_has_visible_text(const char *text) {
+    if (!text || range_is_space(text, strlen(text))) return false;
+    const char *dsml = strstr(text, DSML_BEGIN);
+    const char *native = strstr(text, QWEN_XML_TOOL_CALL_BEGIN);
     const char *native_short = native_shorthand_tool_marker(text);
-    return strstr(text, DSML_END) ||
-           strstr(text, QWEN_XML_TOOL_CALL_END) ||
-           strstr(text, QWEN_XML_FUNCTION_END) ||
-           (native_short && strstr(native_short, QWEN_XML_PARAMETER_END)) ||
-           text_has_jsonish_tool_call(text);
+    const char *hidden = NULL;
+    if (dsml && native) hidden = dsml < native ? dsml : native;
+    else hidden = dsml ? dsml : native;
+    if (native_short && (!hidden || native_short < hidden)) hidden = native_short;
+    return !hidden || !range_is_space(text, (size_t)(hidden - text));
+}
+
+static int agent_tool_parse_selftest(void) {
+    static const char complete[] =
+        "<tool_call>\n<bash>\n<parameter=cmd>\nprintf OK\n</parameter>\n"
+        "</bash>\n</tool_call>";
+    static const char eos_after_parameter[] =
+        "<tool_call>\n<bash>\n<parameter=cmd>\nprintf OK\n</parameter>";
+    static const char incomplete_parameter[] =
+        "<tool_call>\n<bash>\n<parameter=cmd>\nprintf OK";
+    tool_call_list calls;
+
+    if (!generated_has_complete_tool_call(complete)) return 1;
+    if (generated_has_complete_tool_call(eos_after_parameter)) return 2;
+    if (parse_native_tool_calls(complete, &calls) != 1) return 3;
+    if (strcmp(calls.calls[0].name, "bash") ||
+        strcmp(tool_param_value(&calls.calls[0], "cmd"), "printf OK")) {
+        free_tool_calls(&calls);
+        return 4;
+    }
+    free_tool_calls(&calls);
+
+    if (parse_native_tool_calls(eos_after_parameter, &calls) != 1) return 5;
+    free_tool_calls(&calls);
+    if (parse_native_tool_calls(incomplete_parameter, &calls) != 0) {
+        free_tool_calls(&calls);
+        return 6;
+    }
+    free_tool_calls(&calls);
+    if (agent_response_has_visible_text(eos_after_parameter)) return 7;
+    if (!agent_response_has_visible_text("normal answer")) return 8;
+    return 0;
 }
 
 static size_t marker_suffix_hold_len(const char *text, size_t len,
@@ -5774,6 +5869,7 @@ static int generate_once(agent_state *a, char **assistant_text,
                  common : 0;
     const double t_prefill0 = agent_now_sec();
     a->progress_start_sec = t_prefill0;
+    agent_set_activity(a, "prefill", NULL);
     qw3_session_set_progress(a->session, agent_prefill_progress, a);
     if (qw3_session_sync(a->session, &a->transcript, err, sizeof(err)) != 0) {
         qw3_session_set_progress(a->session, NULL, NULL);
@@ -5797,6 +5893,7 @@ static int generate_once(agent_state *a, char **assistant_text,
                                tps_done);
         }
         rc = 0;
+        agent_set_activity(a, "generating", NULL);
         const int eos = qw3_token_eos(a->engine);
         int n_generated = 0;
         const double t_gen0 = agent_now_sec();
@@ -5903,11 +6000,15 @@ static int generate_once(agent_state *a, char **assistant_text,
                         prefill_s > 0.0 ?
                             (double)prefill_tokens / prefill_s : 0.0);
         agent_trace_i64(a, "generation_tokens", n_generated);
+        agent_trace_i64(a, "assistant_bytes", (int64_t)emit.text.len);
+        agent_trace_bool(a, "assistant_nonempty",
+                         text_slice_has_nonspace(emit.text.p, emit.text.len));
         agent_trace_f64(a, "generation_ms", gen_s * 1000.0);
         agent_trace_f64(a, "generation_tps",
                         gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
         agent_trace_bool(a, "ok", rc == 0);
         agent_trace_end(a);
+        agent_set_activity(a, "processing", NULL);
     }
 
     if (rc == 0) {
@@ -5985,6 +6086,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     const int final_attempts = 3;
     const int verification_attempts = 3;
     int guard_retry_credits = 2;
+    int empty_retry_credits = 2;
     int verification_guard_credits = verification_attempts;
     agent_tool_history tool_history = {0};
     for (int round = 0;
@@ -6184,26 +6286,55 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                               "requesting a check\n");
                 continue;
             }
-            if (final_only &&
-                (!assistant ||
-                 !text_slice_has_nonspace(assistant, strlen(assistant)))) {
-                agent_statusf(a,
-                              "agent: final response after tool limit was "
-                              "empty\n");
-                if (round + 1 <
-                    a->cfg.max_tool_rounds + final_attempts) {
-                    static const char retry_control[] =
+            if (!agent_response_has_visible_text(assistant)) {
+                const bool malformed_tool = assistant &&
+                    text_slice_has_nonspace(assistant, strlen(assistant));
+                a->transcript.len = transcript_before_generation;
+                agent_message_ledger_truncate(&a->messages,
+                                              transcript_before_generation);
+                qw3_session_invalidate(a->session);
+                free(assistant);
+
+                agent_trace_begin(a, "empty_response");
+                agent_trace_i64(a, "round", round);
+                agent_trace_i64(a, "retries_left", empty_retry_credits);
+                agent_trace_bool(a, "final_only", final_only);
+                agent_trace_end(a);
+                if (empty_retry_credits-- > 0) {
+                    const char *retry_control = final_only ?
                         "Internal qw3-agent control: your previous final "
                         "response was empty. Do not call tools. Answer the "
-                        "user now with the evidence already available.";
-                    if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
+                        "user now with the evidence already available." :
+                        malformed_tool ?
+                        "Internal qw3-agent control: your previous output "
+                        "contained incomplete tool markup and was not shown. "
+                        "Retry the tool call using the complete native XML "
+                        "format, including all closing tags." :
+                        "Internal qw3-agent control: your previous response "
+                        "was empty. Continue the current task now: call a "
+                        "tool if the request requires one, otherwise answer "
+                        "the user directly. Do not return an empty response.";
+                    if (!agent_ensure_message_room(
+                            a, "user", retry_control, 128,
+                            "empty-response retry would exceed context",
+                            compact_err, sizeof(compact_err)) ||
+                        !agent_append_message(a, AGENT_MESSAGE_CONTROL,
                                               "user", retry_control)) {
-                        free(assistant);
+                        agent_statusf(a, "agent: %s\n",
+                                      compact_err[0] ? compact_err :
+                                      "cannot append empty-response retry");
                         return -1;
                     }
-                    free(assistant);
+                    agent_statusf(a,
+                                  "agent: empty response; retrying (%d left)\n",
+                                  empty_retry_credits);
+                    round--;
                     continue;
                 }
+                agent_statusf(a,
+                              "agent: failed to produce a non-empty response "
+                              "after retries\n");
+                return -1;
             }
             free(assistant);
             return 0;
@@ -6864,6 +6995,7 @@ typedef struct {
     char *job;
     strbuf out;
     bool progress_active;
+    char activity[64];
     int progress_current;
     int progress_total;
     double progress_tps;
@@ -6932,14 +7064,36 @@ static bool agent_worker_is_busy(agent_worker *w) {
 
 static void agent_worker_progress_snapshot(agent_worker *w, bool *busy,
                                            bool *active, int *current,
-                                           int *total, double *tps) {
+                                           int *total, double *tps,
+                                           char *activity,
+                                           size_t activity_len) {
     pthread_mutex_lock(&w->mu);
     if (busy) *busy = w->busy || w->has_job;
     if (active) *active = w->progress_active;
     if (current) *current = w->progress_current;
     if (total) *total = w->progress_total;
     if (tps) *tps = w->progress_tps;
+    if (activity && activity_len > 0) {
+        snprintf(activity, activity_len, "%s",
+                 w->activity[0] ? w->activity : "working");
+    }
     pthread_mutex_unlock(&w->mu);
+}
+
+static void agent_worker_activity_update(void *ud, const char *phase,
+                                         const char *detail) {
+    agent_worker *w = (agent_worker *)ud;
+    if (!w) return;
+    pthread_mutex_lock(&w->mu);
+    if (detail && detail[0]) {
+        snprintf(w->activity, sizeof(w->activity), "%s:%s",
+                 phase && phase[0] ? phase : "tool", detail);
+    } else {
+        snprintf(w->activity, sizeof(w->activity), "%s",
+                 phase && phase[0] ? phase : "working");
+    }
+    pthread_mutex_unlock(&w->mu);
+    agent_worker_wake(w);
 }
 
 static void agent_worker_timing_snapshot(agent_worker *w, bool *has,
@@ -7080,6 +7234,7 @@ static void *agent_worker_main(void *ud) {
         w->has_job = false;
         w->busy = true;
         w->interrupt = false;
+        snprintf(w->activity, sizeof(w->activity), "starting");
         pthread_mutex_unlock(&w->mu);
 
         int rc = run_agent_turn(w->agent, job);
@@ -7090,6 +7245,7 @@ static void *agent_worker_main(void *ud) {
 
         pthread_mutex_lock(&w->mu);
         w->busy = false;
+        snprintf(w->activity, sizeof(w->activity), "ready");
         w->turn_done = true;
         w->turn_rc = rc;
         pthread_mutex_unlock(&w->mu);
@@ -7103,6 +7259,7 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     w->agent = a;
     w->wake_rd = -1;
     w->wake_wr = -1;
+    snprintf(w->activity, sizeof(w->activity), "ready");
     pthread_mutex_init(&w->mu, NULL);
     pthread_cond_init(&w->cond, NULL);
     sb_init(&w->out);
@@ -7121,6 +7278,8 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     a->interrupt_ud = w;
     a->progress_update = agent_worker_progress_update;
     a->progress_ud = w;
+    a->activity_update = agent_worker_activity_update;
+    a->activity_ud = w;
     a->timing_update = agent_worker_timing_update;
     a->timing_ud = w;
     if (pthread_create(&w->thread, NULL, agent_worker_main, w) != 0) {
@@ -7725,9 +7884,11 @@ static void agent_build_editor_status(agent_worker *w,
     int progress_current = 0;
     int progress_total = 0;
     double progress_tps = 0.0;
+    char activity[64] = "working";
     agent_worker_progress_snapshot(w, &busy, &progress_active,
                                    &progress_current, &progress_total,
-                                   &progress_tps);
+                                   &progress_tps, activity,
+                                   sizeof(activity));
     bool has_timing = false;
     int timing_prefill_tokens = 0;
     double timing_prefill_tps = 0.0;
@@ -7757,25 +7918,64 @@ static void agent_build_editor_status(agent_worker *w,
         for (int i = 0; i < 18; i++) bar[i] = i < fill ? '=' : '.';
         bar[18] = '\0';
         snprintf(status, status_len,
-                 "prefill [%s] %d/%d %d%% %.0f/s  q=%d%s",
+                 "state=prefill [%s] %d/%d %d%% %.0f/s queued=%d%s",
                  bar, progress_current, progress_total, pct, progress_tps,
                  q ? q->len : 0, timing);
     } else if (busy) {
         snprintf(status, status_len,
-                 "run q=%d ctx=busy tools=%s think=%s%s",
-                 q ? q->len : 0,
+                 "state=%s queued=%d ctx=%d/%d tools=%s think=%s%s",
+                 activity, q ? q->len : 0,
+                 w->agent->transcript.len, w->agent->cfg.ctx_size,
                  w->agent->cfg.tools_enabled ? "on" : "off",
                  qw3_think_mode_name(w->agent->cfg.think_mode),
                  timing);
     } else {
         snprintf(status, status_len,
-                 "ready q=%d ctx=%d/%d tools=%s think=%s%s",
+                 "state=ready queued=%d ctx=%d/%d tools=%s think=%s%s",
                  q ? q->len : 0, w->agent->transcript.len,
                  w->agent->cfg.ctx_size,
                  w->agent->cfg.tools_enabled ? "on" : "off",
                  qw3_think_mode_name(w->agent->cfg.think_mode),
                  timing);
     }
+}
+
+static int agent_status_line_selftest(void) {
+    agent_state state = {0};
+    state.cfg.ctx_size = 32000;
+    state.cfg.tools_enabled = true;
+    state.cfg.think_mode = QW3_THINK_NONE;
+    state.transcript.len = 4096;
+    agent_worker worker = {0};
+    worker.agent = &state;
+    pthread_mutex_init(&worker.mu, NULL);
+    worker.busy = true;
+    snprintf(worker.activity, sizeof(worker.activity), "tool:visit_page");
+    agent_input_queue queue = {.len = 2};
+    char status[240];
+    agent_build_editor_status(&worker, &queue, status, sizeof(status));
+    if (!strstr(status, "state=tool:visit_page") ||
+        !strstr(status, "queued=2")) {
+        pthread_mutex_destroy(&worker.mu);
+        return 1;
+    }
+
+    worker.progress_active = true;
+    worker.progress_current = 256;
+    worker.progress_total = 1024;
+    worker.progress_tps = 300.0;
+    agent_build_editor_status(&worker, &queue, status, sizeof(status));
+    if (!strstr(status, "state=prefill") ||
+        !strstr(status, "256/1024")) {
+        pthread_mutex_destroy(&worker.mu);
+        return 2;
+    }
+
+    worker.busy = false;
+    worker.progress_active = false;
+    agent_build_editor_status(&worker, &queue, status, sizeof(status));
+    pthread_mutex_destroy(&worker.mu);
+    return strstr(status, "state=ready") ? 0 : 3;
 }
 
 static void agent_redraw_editor(agent_editor *edit,
@@ -8134,6 +8334,24 @@ static void agent_direct_progress_update(void *ud, const char *phase,
 }
 
 int main(int argc, char **argv) {
+    if (getenv("QW3_AGENT_TOOL_PARSE_SELFTEST")) {
+        int rc = agent_tool_parse_selftest();
+        if (rc != 0) {
+            fprintf(stderr, "test-agent-tool-parse: FAIL case %d\n", rc);
+            return 1;
+        }
+        fprintf(stderr, "test-agent-tool-parse: ok\n");
+        return 0;
+    }
+    if (getenv("QW3_AGENT_STATUS_SELFTEST")) {
+        int rc = agent_status_line_selftest();
+        if (rc != 0) {
+            fprintf(stderr, "test-agent-status: FAIL case %d\n", rc);
+            return 1;
+        }
+        fprintf(stderr, "test-agent-status: ok\n");
+        return 0;
+    }
     if (getenv("QW3_AGENT_COLOR_SELFTEST")) {
         int rc = agent_renderer_color_selftest();
         if (rc != 0) {

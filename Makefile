@@ -142,8 +142,14 @@ test-agent-context: qw3-agent
 test-agent-repeat: qw3-agent
 	QW3_AGENT_REPEAT_GUARD_SELFTEST=1 ./qw3-agent
 
+test-agent-status: qw3-agent
+	QW3_AGENT_STATUS_SELFTEST=1 ./qw3-agent
+
 test-agent-trace: qw3-agent
 	sh tests/test_agent_trace.sh
+
+test-agent-tool-parse: qw3-agent
+	QW3_AGENT_TOOL_PARSE_SELFTEST=1 ./qw3-agent
 
 test-agent-verify: qw3-agent
 	QW3_AGENT_VERIFY_GUARD_SELFTEST=1 ./qw3-agent
@@ -166,7 +172,7 @@ test-runtime-regression: qw3-cli qw3-agent
 test-prefill-bench: qw3-bench
 	sh tests/test_prefill_bench_regression.sh
 
-test-regression: test-agent-bash test-agent-color test-agent-context test-agent-edit test-agent-repeat test-agent-trace test-agent-verify test-metal-logits test-runtime-regression
+test-regression: test-agent-bash test-agent-color test-agent-context test-agent-edit test-agent-repeat test-agent-status test-agent-tool-parse test-agent-trace test-agent-verify test-metal-logits test-runtime-regression
 
 .PHONY: test-metal-sampling
 test-metal-sampling:
