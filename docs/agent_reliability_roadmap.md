@@ -24,8 +24,10 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
   the rendered token transcript.
 - [completed] Persist the message ledger and compact only at complete user-turn
   boundaries, never in the middle of assistant output or a tool exchange.
-- [pending] Remove stale thinking first, shorten old tool results, preserve the
-  recent working set, and make every removed body recoverable from a spill file.
+- [completed] Archive the complete pre-compaction message ledger in a bounded,
+  private spill directory and retain its exact reload path in the summary.
+- [pending] Remove stale thinking first, shorten old tool results, and preserve
+  the recent working set before invoking model-generated compaction.
 - [pending] Prevent repeated low-yield compaction from forcing a full recurrent
   cache rebuild on consecutive steps.
 

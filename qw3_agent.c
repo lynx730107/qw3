@@ -74,6 +74,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_BASH_HEAD_BYTES 12288
 #define QW3_AGENT_BASH_TAIL_BYTES 20480
 #define QW3_AGENT_BASH_SPILL_KEEP 8
+#define QW3_AGENT_CONTEXT_ARCHIVE_KEEP 8
 #define QW3_AGENT_TOOL_HISTORY_MAX 64
 #define QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS 512
 #define QW3_AGENT_COMPACT_SOFT_PERCENT 85
@@ -3709,16 +3710,19 @@ static int agent_bash_spill_cmp(const void *lhs, const void *rhs) {
     return strcmp(a->path, b->path);
 }
 
-static void agent_prune_bash_spills(const char *dir,
-                                    const char *protected_path) {
+static void agent_prune_spills(const char *dir, const char *prefix,
+                               const char *protected_path, size_t keep) {
     DIR *dp = opendir(dir);
     if (!dp) return;
     agent_bash_spill_entry *items = NULL;
     size_t len = 0;
     size_t cap = 0;
+    size_t prefix_len = strlen(prefix ? prefix : "");
     struct dirent *de;
     while ((de = readdir(dp)) != NULL) {
-        if (strncmp(de->d_name, "bash-", 5) != 0) continue;
+        if (strncmp(de->d_name, prefix ? prefix : "", prefix_len) != 0) {
+            continue;
+        }
         char *path = path_join(dir, de->d_name);
         struct stat st;
         if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
@@ -3745,14 +3749,14 @@ static void agent_prune_bash_spills(const char *dir,
     closedir(dp);
     qsort(items, len, sizeof(*items), agent_bash_spill_cmp);
     for (size_t i = 0; i < len; i++) {
-        if (i >= QW3_AGENT_BASH_SPILL_KEEP) (void)unlink(items[i].path);
+        if (i >= keep) (void)unlink(items[i].path);
         free(items[i].path);
     }
     free(items);
 }
 
-static int agent_create_bash_spill(agent_state *a, char **path_out,
-                                   char **dir_out) {
+static int agent_create_spill(agent_state *a, const char *prefix,
+                              char **path_out, char **dir_out) {
     *path_out = NULL;
     *dir_out = NULL;
     if (!a || !a->cfg.store_dir) return -1;
@@ -3761,7 +3765,12 @@ static int agent_create_bash_spill(agent_state *a, char **path_out,
         free(dir);
         return -1;
     }
-    char *tmpl = path_join(dir, "bash-XXXXXX");
+    strbuf name;
+    sb_init(&name);
+    sb_append(&name, prefix ? prefix : "spill-");
+    sb_append(&name, "XXXXXX");
+    char *tmpl = path_join(dir, name.p ? name.p : "spill-XXXXXX");
+    sb_free(&name);
     if (!tmpl) {
         free(dir);
         return -1;
@@ -3777,6 +3786,67 @@ static int agent_create_bash_spill(agent_state *a, char **path_out,
     *path_out = tmpl;
     *dir_out = dir;
     return fd;
+}
+
+static const char *agent_message_kind_name(agent_message_kind kind) {
+    switch (kind) {
+        case AGENT_MESSAGE_SYSTEM: return "system";
+        case AGENT_MESSAGE_USER: return "user";
+        case AGENT_MESSAGE_ASSISTANT: return "assistant";
+        case AGENT_MESSAGE_TOOL: return "tool";
+        case AGENT_MESSAGE_CONTROL: return "control";
+        case AGENT_MESSAGE_LEGACY: return "legacy";
+    }
+    return "unknown";
+}
+
+static char *agent_archive_context(agent_state *a) {
+    char *path = NULL;
+    char *dir = NULL;
+    int fd = agent_create_spill(a, "context-", &path, &dir);
+    if (fd < 0) {
+        free(path);
+        free(dir);
+        return NULL;
+    }
+    FILE *fp = fdopen(fd, "wb");
+    if (!fp) {
+        close(fd);
+        (void)unlink(path);
+        free(path);
+        free(dir);
+        return NULL;
+    }
+    int rc = fprintf(fp,
+                     "# qw3-agent pre-compaction message archive\n"
+                     "# messages=%d tokens=%d\n",
+                     a->messages.len, a->transcript.len) < 0 ? -1 : 0;
+    for (int i = 0; rc == 0 && i < a->messages.len; i++) {
+        const agent_message *message = &a->messages.items[i];
+        if (message->kind == AGENT_MESSAGE_SYSTEM) continue;
+        if (fprintf(fp,
+                    "\n--- message %d kind=%s role=%s tokens=%d..%d ---\n",
+                    i, agent_message_kind_name(message->kind),
+                    message->role ? message->role : "",
+                    message->token_start, message->token_end) < 0 ||
+            fputs(message->content ? message->content : "", fp) == EOF ||
+            fputs("\n--- end message ---\n", fp) == EOF) {
+            rc = -1;
+        }
+    }
+    if (fflush(fp) != 0) rc = -1;
+    if (fsync(fd) != 0) rc = -1;
+    if (fclose(fp) != 0) rc = -1;
+    if (rc != 0) {
+        (void)unlink(path);
+        free(path);
+        free(dir);
+        return NULL;
+    }
+    agent_prune_spills(dir, "context-", path,
+                       QW3_AGENT_CONTEXT_ARCHIVE_KEEP);
+    free(dir);
+    return path;
 }
 
 static void agent_tail_append(char *tail, size_t cap, size_t *len,
@@ -3944,8 +4014,8 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
                         size_t got = (size_t)n;
                         if (!spill_attempted && total + got > max_bytes) {
                             spill_attempted = true;
-                            spill_fd = agent_create_bash_spill(
-                                a, &spill_path, &spill_dir);
+                            spill_fd = agent_create_spill(
+                                a, "bash-", &spill_path, &spill_dir);
                             spill_ok = spill_fd >= 0;
                             if (spill_ok && first.len &&
                                 !agent_write_all(spill_fd, first.p, first.len)) {
@@ -4039,7 +4109,8 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
     if (total <= max_bytes || !spill_ok) {
         if (spill_path) (void)unlink(spill_path);
     } else if (spill_dir) {
-        agent_prune_bash_spills(spill_dir, spill_path);
+        agent_prune_spills(spill_dir, "bash-", spill_path,
+                           QW3_AGENT_BASH_SPILL_KEEP);
     }
     free(tail);
     sb_free(&first);
@@ -4888,11 +4959,62 @@ static int agent_context_ledger_selftest(void) {
     agent_message_ledger_truncate(&loaded, 350);
     if (rc == 0 && loaded.len != 4) rc = 6;
     agent_message_ledger_clear(&loaded);
+
+    char store_dir[] = "/tmp/qw3-agent-context-store-XXXXXX";
+    char *last_archive = NULL;
+    if (rc == 0 && !mkdtemp(store_dir)) rc = 7;
+    if (rc == 0) {
+        state.cfg.store_dir = store_dir;
+        state.transcript.len = 500;
+        for (int i = 0; i < 10; i++) {
+            char *archive = agent_archive_context(&state);
+            if (!archive) {
+                rc = 8;
+                break;
+            }
+            free(last_archive);
+            last_archive = archive;
+        }
+    }
+    if (rc == 0) {
+        struct stat st;
+        size_t archive_len = 0;
+        char *archive_text = read_file_text(last_archive, &archive_len);
+        if (stat(last_archive, &st) != 0 || (st.st_mode & 0777) != 0600 ||
+            !archive_text || !strstr(archive_text, "tool result")) {
+            rc = 9;
+        }
+        free(archive_text);
+    }
+    char *spills_dir = rc == 7 ? NULL : path_join(store_dir, "spills");
+    if (spills_dir) {
+        DIR *dir = opendir(spills_dir);
+        int count = 0;
+        struct dirent *entry;
+        while (dir && (entry = readdir(dir)) != NULL) {
+            if (!strncmp(entry->d_name, "context-", 8)) count++;
+        }
+        if (dir) closedir(dir);
+        if (rc == 0 && count > QW3_AGENT_CONTEXT_ARCHIVE_KEEP) rc = 10;
+        dir = opendir(spills_dir);
+        while (dir && (entry = readdir(dir)) != NULL) {
+            if (entry->d_name[0] == '.') continue;
+            char *entry_path = path_join(spills_dir, entry->d_name);
+            if (entry_path) (void)unlink(entry_path);
+            free(entry_path);
+        }
+        if (dir) closedir(dir);
+        (void)rmdir(spills_dir);
+    }
+    free(spills_dir);
+    free(last_archive);
+    if (rc != 7) (void)rmdir(store_dir);
     agent_message_ledger_clear(&state.messages);
     return rc;
 }
 
-static char *agent_compact_make_prompt(const char *reason) {
+static char *agent_compact_make_prompt(const char *reason,
+                                       const char *archive_path) {
     strbuf sb;
     sb_init(&sb);
     sb_append(&sb,
@@ -4910,6 +5032,14 @@ static char *agent_compact_make_prompt(const char *reason) {
         sb_append(&sb, "\nCompaction reason: ");
         sb_append(&sb, reason);
         sb_append(&sb, "\n");
+    }
+    if (archive_path && archive_path[0]) {
+        sb_append(&sb,
+                  "Full pre-compaction messages are recoverable at: ");
+        sb_append(&sb, archive_path);
+        sb_append(&sb,
+                  "\nPreserve this exact path in the summary; do not read the "
+                  "archive now.\n");
     }
     return sb.p ? sb.p : agent_strdup("");
 }
@@ -4960,7 +5090,14 @@ static bool agent_compact_context(agent_state *a, const char *reason,
                   reason && reason[0] ? reason : "soft limit",
                   bottom, a->cfg.ctx_size);
 
-    char *prompt_text = agent_compact_make_prompt(reason);
+    char *archive_path = agent_archive_context(a);
+    if (!archive_path) {
+        snprintf(err, err_len,
+                 "cannot archive messages; context left unchanged");
+        qw3_tokens_free(&sys);
+        return false;
+    }
+    char *prompt_text = agent_compact_make_prompt(reason, archive_path);
     qw3_tokens prompt = {0};
     qw3_tokens_copy(&prompt, &a->transcript);
     qw3_chat_append_message(a->engine, &prompt, "user", prompt_text);
@@ -4975,6 +5112,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
                  prompt.len, a->cfg.ctx_size);
         qw3_tokens_free(&prompt);
         qw3_tokens_free(&sys);
+        free(archive_path);
         return false;
     }
     int summary_max = summary_room < QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS ?
@@ -4989,6 +5127,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         snprintf(err, err_len, "%s", sync_err);
         qw3_tokens_free(&prompt);
         qw3_tokens_free(&sys);
+        free(archive_path);
         return false;
     }
     qw3_session_set_progress(a->session, NULL, NULL);
@@ -5005,6 +5144,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
             qw3_tokens_free(&prompt);
             qw3_tokens_free(&sys);
             sb_free(&summary);
+            free(archive_path);
             return false;
         }
         int token = qw3_session_argmax(a->session);
@@ -5023,6 +5163,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
             qw3_tokens_free(&sys);
             free(text);
             sb_free(&summary);
+            free(archive_path);
             return false;
         }
         if (text && text_len) sb_append_n(&summary, text, text_len);
@@ -5035,6 +5176,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         qw3_session_invalidate(a->session);
         qw3_tokens_free(&sys);
         sb_free(&summary);
+        free(archive_path);
         return false;
     }
 
@@ -5049,6 +5191,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         qw3_tokens_free(&compacted);
         qw3_tokens_free(&sys);
         sb_free(&summary);
+        free(archive_path);
         return false;
     }
     strbuf summary_msg;
@@ -5056,6 +5199,9 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     sb_append(&summary_msg,
               "\n\n[qw3-agent compacted earlier conversation. Durable task-state summary follows.]\n");
     sb_append(&summary_msg, summary.p);
+    sb_append(&summary_msg, "\nReloadable pre-compaction archive: ");
+    sb_append(&summary_msg, archive_path);
+    sb_append(&summary_msg, "\n");
     if (summary_msg.len && summary_msg.p[summary_msg.len - 1] != '\n') {
         sb_append(&summary_msg, "\n");
     }
@@ -5073,8 +5219,10 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         qw3_session_invalidate(a->session);
         qw3_tokens_free(&compacted);
         qw3_tokens_free(&sys);
+        free(archive_path);
         return false;
     }
+    free(archive_path);
     sb_free(&summary_msg);
     sb_free(&summary);
 
