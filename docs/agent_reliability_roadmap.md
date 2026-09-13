@@ -42,8 +42,10 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
 
 ## Phase 4: Measurement and safety
 
-- [pending] Record per-step append, rebuild, compaction, prefill, decode, and
-  tool-result metrics in a machine-readable trace.
+- [completed] Add an opt-in private JSONL trace for session configuration, user
+  turns, tool results, compaction decisions, prefill, and decode metrics.
+- [pending] Extend the trace with explicit incremental-append and full-rebuild
+  cache decisions once persistent backend checkpoints are available.
 - [pending] Add reproducible agent coding smoke tasks and feature A/B switches.
 - [pending] Add permission modes, pre-edit workspace checkpoints, session forks,
   atomic private session files, and optional `--ctx auto` memory governance.

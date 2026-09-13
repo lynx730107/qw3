@@ -115,6 +115,10 @@ To avoid filling the context by reading large source files, the agent is
 instructed to prefer `get_skeleton`, `get_function`, and `semantic_search`
 before sequential file reads.
 
+For performance or tool-loop diagnostics, `--trace PATH` appends private JSONL
+events with prefill/decode timing, cache reuse, tool-result sizes, and context
+compaction decisions. The regular terminal output is unchanged.
+
 Useful interactive commands:
 
 ```text

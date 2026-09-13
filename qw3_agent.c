@@ -145,6 +145,7 @@ typedef struct {
     char *store_dir;
     char *conversation;
     char *chdir_path;
+    const char *trace_path;
     const char *tool_dsml;
     char *tool_dsml_owned;
     const char *tool_native;
@@ -243,6 +244,8 @@ typedef struct {
     bool web_result_complete;
     bool edit_verification_pending;
     int compact_retry_after_tokens;
+    FILE *trace_fp;
+    uint64_t trace_seq;
 } agent_state;
 
 typedef struct {
@@ -499,10 +502,112 @@ static bool agent_should_interrupt(agent_state *a) {
     return a && a->should_interrupt && a->should_interrupt(a->interrupt_ud);
 }
 
+static bool tool_result_is_guard_rejection(const char *out);
+
 static double agent_now_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1.0e-9;
+}
+
+static void agent_trace_json_string(FILE *fp, const char *text) {
+    fputc('"', fp);
+    for (const unsigned char *p = (const unsigned char *)(text ? text : "");
+         *p; p++) {
+        switch (*p) {
+            case '"': fputs("\\\"", fp); break;
+            case '\\': fputs("\\\\", fp); break;
+            case '\b': fputs("\\b", fp); break;
+            case '\f': fputs("\\f", fp); break;
+            case '\n': fputs("\\n", fp); break;
+            case '\r': fputs("\\r", fp); break;
+            case '\t': fputs("\\t", fp); break;
+            default:
+                if (*p < 0x20) fprintf(fp, "\\u%04x", (unsigned)*p);
+                else fputc(*p, fp);
+                break;
+        }
+    }
+    fputc('"', fp);
+}
+
+static void agent_trace_begin(agent_state *a, const char *event) {
+    if (!a || !a->trace_fp) return;
+    fprintf(a->trace_fp, "{\"seq\":%llu,\"time\":%lld,\"event\":",
+            (unsigned long long)++a->trace_seq, (long long)time(NULL));
+    agent_trace_json_string(a->trace_fp, event);
+}
+
+static void agent_trace_string(agent_state *a, const char *name,
+                               const char *value) {
+    if (!a || !a->trace_fp) return;
+    fputc(',', a->trace_fp);
+    agent_trace_json_string(a->trace_fp, name);
+    fputc(':', a->trace_fp);
+    agent_trace_json_string(a->trace_fp, value);
+}
+
+static void agent_trace_i64(agent_state *a, const char *name, int64_t value) {
+    if (!a || !a->trace_fp) return;
+    fprintf(a->trace_fp, ",\"%s\":%lld", name, (long long)value);
+}
+
+static void agent_trace_f64(agent_state *a, const char *name, double value) {
+    if (!a || !a->trace_fp) return;
+    fprintf(a->trace_fp, ",\"%s\":%.6f", name, value);
+}
+
+static void agent_trace_bool(agent_state *a, const char *name, bool value) {
+    if (!a || !a->trace_fp) return;
+    fprintf(a->trace_fp, ",\"%s\":%s", name, value ? "true" : "false");
+}
+
+static void agent_trace_end(agent_state *a) {
+    if (!a || !a->trace_fp) return;
+    fputs("}\n", a->trace_fp);
+    fflush(a->trace_fp);
+}
+
+static bool agent_trace_open(agent_state *a) {
+    if (!a || !a->cfg.trace_path || !a->cfg.trace_path[0]) return true;
+    a->trace_fp = fopen(a->cfg.trace_path, "ab");
+    if (!a->trace_fp) return false;
+    int fd = fileno(a->trace_fp);
+    if (fd < 0 || fchmod(fd, 0600) != 0) {
+        fclose(a->trace_fp);
+        a->trace_fp = NULL;
+        return false;
+    }
+    setvbuf(a->trace_fp, NULL, _IOLBF, 0);
+    return true;
+}
+
+static void agent_trace_close(agent_state *a) {
+    if (!a || !a->trace_fp) return;
+    fclose(a->trace_fp);
+    a->trace_fp = NULL;
+}
+
+static void agent_trace_compaction(agent_state *a, const char *result,
+                                   const char *reason, int old_tokens,
+                                   int new_tokens, int tail_tokens) {
+    agent_trace_begin(a, "compaction");
+    agent_trace_string(a, "result", result);
+    agent_trace_string(a, "reason", reason ? reason : "");
+    agent_trace_i64(a, "old_tokens", old_tokens);
+    agent_trace_i64(a, "new_tokens", new_tokens);
+    agent_trace_i64(a, "tail_tokens", tail_tokens);
+    agent_trace_end(a);
+}
+
+static void agent_trace_tool_result(agent_state *a, const char *name,
+                                    const char *out) {
+    agent_trace_begin(a, "tool");
+    agent_trace_string(a, "name", name ? name : "");
+    agent_trace_i64(a, "output_bytes", out ? (int64_t)strlen(out) : 0);
+    agent_trace_bool(a, "guard_rejected",
+                     tool_result_is_guard_rejection(out));
+    agent_trace_end(a);
 }
 
 static char *native_tool_response_text(const char *tool_name, const char *value) {
@@ -4324,6 +4429,7 @@ static char *execute_tools(agent_state *a, const tool_call_list *calls,
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
         char *out = execute_one_tool(a, call);
+        agent_trace_tool_result(a, call->name, out);
         if (!tool_result_is_guard_rejection(out)) all_rejected = false;
         sb_printf(&result, "<tool_result name=\"%s\">\n%s\n</tool_result>\n",
                   call->name, out ? out : "");
@@ -4341,6 +4447,7 @@ static bool execute_native_tools_append(agent_state *a,
     for (int i = 0; i < calls->n_calls; i++) {
         const tool_call *call = &calls->calls[i];
         char *out = execute_one_tool(a, call);
+        agent_trace_tool_result(a, call->name, out);
         if (!tool_result_is_guard_rejection(out)) all_rejected = false;
         agent_tool_status_block(a, call->name, out ? out : "");
         char *response = native_tool_response_text(call->name, out ? out : "");
@@ -4401,6 +4508,7 @@ static int run_tool_native(agent_state *a, const char *text) {
     for (int i = 0; i < calls.n_calls; i++) {
         const tool_call *call = &calls.calls[i];
         char *out = execute_one_tool(a, call);
+        agent_trace_tool_result(a, call->name, out);
         agent_tool_status_block(a, call->name, out ? out : "");
         char *response = native_tool_response_text(call->name, out ? out : "");
         sb_append(&result, response ? response : "");
@@ -5310,6 +5418,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     agent_statusf(a, "agent: compacting context (%s), old=%d ctx=%d\n",
                   reason && reason[0] ? reason : "soft limit",
                   bottom, a->cfg.ctx_size);
+    agent_trace_compaction(a, "attempt", reason, bottom, -1, -1);
 
     bool complete_ledger = agent_message_ledger_is_complete(a, bottom);
     int transcript_sys_len = complete_ledger ?
@@ -5325,6 +5434,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         agent_statusf(a,
                       "agent: compaction skipped; context contains only the "
                       "recent working set\n");
+        agent_trace_compaction(a, "skipped_recent", reason, bottom,
+                               bottom, bottom - transcript_sys_len);
         qw3_tokens_free(&sys);
         return true;
     }
@@ -5526,6 +5637,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
                       "agent: compaction skipped; low yield old=%d candidate=%d "
                       "required_savings=%d\n",
                       bottom, compacted.len, min_savings);
+        agent_trace_compaction(a, "skipped_low_yield", reason, bottom,
+                               compacted.len, bottom - tail_start);
         qw3_session_invalidate(a->session);
         agent_message_ledger_clear(&compacted_messages);
         qw3_tokens_free(&compacted);
@@ -5556,6 +5669,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     qw3_tokens_free(&sys);
     agent_statusf(a, "agent: compacted context old=%d new=%d tail=%d\n",
                   bottom, a->transcript.len, bottom - tail_start);
+    agent_trace_compaction(a, "completed", reason, bottom,
+                           a->transcript.len, bottom - tail_start);
     return true;
 }
 
@@ -5730,6 +5845,21 @@ static int generate_once(agent_state *a, char **assistant_text,
                              n_generated, gen_s * 1000.0,
                              gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
         }
+        agent_trace_begin(a, "inference");
+        agent_trace_string(a, "backend", qw3_backend_name(a->cfg.backend));
+        agent_trace_i64(a, "cached_tokens", cached);
+        agent_trace_i64(a, "prompt_tokens", a->transcript.len);
+        agent_trace_i64(a, "prefill_tokens", prefill_tokens);
+        agent_trace_f64(a, "prefill_ms", prefill_s * 1000.0);
+        agent_trace_f64(a, "prefill_tps",
+                        prefill_s > 0.0 ?
+                            (double)prefill_tokens / prefill_s : 0.0);
+        agent_trace_i64(a, "generation_tokens", n_generated);
+        agent_trace_f64(a, "generation_ms", gen_s * 1000.0);
+        agent_trace_f64(a, "generation_tps",
+                        gen_s > 0.0 ? (double)n_generated / gen_s : 0.0);
+        agent_trace_bool(a, "ok", rc == 0);
+        agent_trace_end(a);
     }
 
     if (rc == 0) {
@@ -5766,6 +5896,11 @@ static bool agent_ascii_contains_ci(const char *text, const char *needle) {
 }
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
+    agent_trace_begin(a, "user_turn");
+    agent_trace_i64(a, "context_tokens", a ? a->transcript.len : 0);
+    agent_trace_i64(a, "input_bytes",
+                    user_message ? (int64_t)strlen(user_message) : 0);
+    agent_trace_end(a);
     a->web_result_complete = false;
     a->web_request_is_evening =
         agent_ascii_contains_ci(user_message, "stasera") ||
@@ -6251,6 +6386,7 @@ static void print_help(void) {
         "  --store-dir PATH     Conversation store directory\n"
         "  --conversation NAME  Load/save a named conversation\n"
         "  --chdir PATH         Change working directory before loading/running\n"
+        "  --trace PATH         Append machine-readable JSONL agent events\n"
         "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
@@ -6373,6 +6509,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->conversation = agent_strdup(argv[++i]);
         } else if (!strcmp(argv[i], "--chdir") && i + 1 < argc) {
             cfg->chdir_path = agent_strdup(argv[++i]);
+        } else if (!strcmp(argv[i], "--trace") && i + 1 < argc) {
+            cfg->trace_path = argv[++i];
         } else if (!strcmp(argv[i], "--max-tool-rounds") && i + 1 < argc) {
             cfg->max_tool_rounds = atoi(argv[++i]);
             if (cfg->max_tool_rounds < 1) cfg->max_tool_rounds = 1;
@@ -7989,11 +8127,25 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
+    if (!agent_trace_open(&a)) {
+        fprintf(stderr, "agent: cannot open trace %s: %s\n",
+                a.cfg.trace_path ? a.cfg.trace_path : "", strerror(errno));
+        free_config(&a.cfg);
+        return 1;
+    }
+    agent_trace_begin(&a, "session_start");
+    agent_trace_string(&a, "model", a.cfg.model_path);
+    agent_trace_string(&a, "backend", qw3_backend_name(a.cfg.backend));
+    agent_trace_i64(&a, "ctx", a.cfg.ctx_size);
+    agent_trace_bool(&a, "tools", a.cfg.tools_enabled);
+    agent_trace_string(&a, "think", qw3_think_mode_name(a.cfg.think_mode));
+    agent_trace_end(&a);
 
     if (a.cfg.tool_dsml) {
         int rc = run_tool_dsml(&a, a.cfg.tool_dsml);
         agent_reset_source_read_budget(&a);
         free(a.last_read_path);
+        agent_trace_close(&a);
         free_config(&a.cfg);
         return rc;
     }
@@ -8001,6 +8153,7 @@ int main(int argc, char **argv) {
         int rc = run_tool_native(&a, a.cfg.tool_native);
         agent_reset_source_read_budget(&a);
         free(a.last_read_path);
+        agent_trace_close(&a);
         free_config(&a.cfg);
         return rc;
     }
@@ -8024,6 +8177,7 @@ int main(int argc, char **argv) {
     };
     if (qw3_engine_open(&a.engine, &opt) != 0) {
         fprintf(stderr, "agent: engine open failed\n");
+        agent_trace_close(&a);
         free_config(&a.cfg);
         return 1;
     }
@@ -8031,6 +8185,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "agent: cannot create %s session\n",
                 qw3_backend_name(a.cfg.backend));
         qw3_engine_close(a.engine);
+        agent_trace_close(&a);
         free_config(&a.cfg);
         return 1;
     }
@@ -8048,6 +8203,7 @@ int main(int argc, char **argv) {
         qw3_tokens_free(&a.transcript);
         qw3_session_free(a.session);
         qw3_engine_close(a.engine);
+        agent_trace_close(&a);
         free_config(&a.cfg);
         return dump_rc;
     }
@@ -8076,6 +8232,10 @@ int main(int argc, char **argv) {
     qw3_tokens_free(&a.transcript);
     qw3_session_free(a.session);
     qw3_engine_close(a.engine);
+    agent_trace_begin(&a, "session_end");
+    agent_trace_i64(&a, "status", rc);
+    agent_trace_end(&a);
+    agent_trace_close(&a);
     free_config(&a.cfg);
     return rc;
 }
