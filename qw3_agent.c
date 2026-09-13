@@ -82,6 +82,9 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_COMPACT_TAIL_DIVISOR 4
 #define QW3_AGENT_COMPACT_TAIL_CAP_TOKENS 4096
 #define QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS 768
+#define QW3_AGENT_COMPACT_TOOL_BODY_MAX_BYTES 4096
+#define QW3_AGENT_COMPACT_TOOL_HEAD_BYTES 2560
+#define QW3_AGENT_COMPACT_TOOL_TAIL_BYTES 1024
 #define QW3_AGENT_REPEAT_PENALTY_DEFAULT 1.06f
 #define QW3_AGENT_REPEAT_LAST_N_DEFAULT 1024
 #define QW3_AGENT_INPUT_INITIAL_BUFLEN 4096
@@ -239,6 +242,7 @@ typedef struct {
     bool web_request_is_bibliography;
     bool web_result_complete;
     bool edit_verification_pending;
+    int compact_retry_after_tokens;
 } agent_state;
 
 typedef struct {
@@ -1244,6 +1248,7 @@ static int store_load(agent_state *a, const char *name) {
     if (rc == 0) {
         qw3_tokens_free(&a->transcript);
         a->transcript = next;
+        a->compact_retry_after_tokens = 0;
         agent_message_ledger_clear(&a->messages);
         if (store_read_messages_path(messages_path, a->transcript.len,
                                      &a->messages) != 0) {
@@ -4866,6 +4871,7 @@ static bool agent_should_compact_context(agent_state *a) {
     if (!a || a->cfg.ctx_size <= 0 || a->transcript.len <= 0) return false;
     int used = a->transcript.len;
     int ctx = a->cfg.ctx_size;
+    if (a->compact_retry_after_tokens > used) return false;
     if (used >= (ctx * QW3_AGENT_COMPACT_SOFT_PERCENT) / 100) return true;
     int free_threshold = QW3_AGENT_COMPACT_MIN_FREE_TOKENS;
     int proportional = ctx / 8;
@@ -4913,6 +4919,183 @@ static int agent_compact_tail_start(agent_state *a, int bottom, int sys_len) {
     if (tail_budget < 1) tail_budget = 1;
     return agent_message_turn_start(a, bottom - tail_budget,
                                     bottom, sys_len);
+}
+
+typedef struct {
+    int thinking_removed;
+    int tool_results_shortened;
+} agent_compact_source_stats;
+
+static char *agent_compact_without_thinking(const char *content,
+                                            bool *changed) {
+    if (changed) *changed = false;
+    if (!content) return agent_strdup("");
+    const char *end = strstr(content, "</think>");
+    if (!end) return agent_strdup(content);
+
+    const char *after = end + strlen("</think>");
+    while (*after && isspace((unsigned char)*after)) after++;
+    const char *begin = strstr(content, "<think>");
+    if (begin && begin < end) {
+        strbuf out;
+        sb_init(&out);
+        sb_append_n(&out, content, (size_t)(begin - content));
+        if (*after) {
+            if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+            sb_append(&out, after);
+        }
+        if (!out.p || !out.p[0]) {
+            sb_append(&out, "[Earlier assistant thinking omitted.]");
+        }
+        if (changed) *changed = true;
+        return out.p;
+    }
+
+    if (*after) {
+        if (changed) *changed = true;
+        return agent_strdup(after);
+    }
+    if (changed) *changed = true;
+    return agent_strdup("[Earlier assistant thinking omitted; no final answer.]");
+}
+
+static size_t agent_utf8_head_boundary(const char *text, size_t cut) {
+    while (cut > 0 &&
+           (((unsigned char)text[cut] & 0xc0u) == 0x80u)) {
+        cut--;
+    }
+    return cut;
+}
+
+static size_t agent_utf8_tail_boundary(const char *text, size_t len,
+                                       size_t cut) {
+    while (cut < len &&
+           (((unsigned char)text[cut] & 0xc0u) == 0x80u)) {
+        cut++;
+    }
+    return cut;
+}
+
+static char *agent_compact_shorten_tool_result(const char *content,
+                                               const char *archive_path,
+                                               bool *changed) {
+    if (changed) *changed = false;
+    if (!content) return agent_strdup("");
+
+    const char *body = content;
+    const char *suffix = content + strlen(content);
+    const size_t open_len = strlen(QWEN_XML_TOOL_RESPONSE_BEGIN);
+    if (!strncmp(content, QWEN_XML_TOOL_RESPONSE_BEGIN, open_len)) {
+        body = content + open_len;
+        if (*body == '\n') body++;
+        const char *close = strstr(body, QWEN_XML_TOOL_RESPONSE_END);
+        if (close) suffix = close;
+    }
+    size_t body_len = (size_t)(suffix - body);
+    while (body_len > 0 &&
+           isspace((unsigned char)body[body_len - 1])) {
+        body_len--;
+    }
+    if (body_len <= QW3_AGENT_COMPACT_TOOL_BODY_MAX_BYTES) {
+        return agent_strdup(content);
+    }
+
+    size_t head = QW3_AGENT_COMPACT_TOOL_HEAD_BYTES;
+    size_t tail = QW3_AGENT_COMPACT_TOOL_TAIL_BYTES;
+    if (head > body_len) head = body_len;
+    if (tail > body_len - head) tail = body_len - head;
+    head = agent_utf8_head_boundary(body, head);
+    size_t tail_start = agent_utf8_tail_boundary(
+        body, body_len, body_len - tail);
+    size_t omitted = tail_start > head ? tail_start - head : 0;
+
+    strbuf out;
+    sb_init(&out);
+    if (body != content) {
+        sb_append(&out, QWEN_XML_TOOL_RESPONSE_BEGIN "\n");
+    }
+    sb_append_n(&out, body, head);
+    if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    sb_printf(&out,
+              "[... %zu bytes omitted from old tool result; full message: %s ...]\n",
+              omitted, archive_path && archive_path[0] ? archive_path :
+                                                        "pre-compaction archive");
+    sb_append_n(&out, body + tail_start, body_len - tail_start);
+    if (body != content) {
+        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        sb_append(&out, QWEN_XML_TOOL_RESPONSE_END);
+    }
+    if (changed) *changed = true;
+    return out.p ? out.p : agent_strdup("");
+}
+
+static bool agent_message_ledger_is_complete(const agent_state *a,
+                                             int bottom) {
+    if (!a || a->messages.len < 1 ||
+        a->messages.items[0].kind != AGENT_MESSAGE_SYSTEM) {
+        return false;
+    }
+    int cursor = 0;
+    for (int i = 0; i < a->messages.len; i++) {
+        const agent_message *message = &a->messages.items[i];
+        if (message->token_start != cursor ||
+            message->token_end < message->token_start ||
+            message->token_end > bottom) {
+            return false;
+        }
+        cursor = message->token_end;
+    }
+    return cursor == bottom;
+}
+
+static void agent_compact_build_source(agent_state *a,
+                                       const qw3_tokens *sys,
+                                       int bottom, int tail_start,
+                                       const char *archive_path,
+                                       qw3_tokens *out,
+                                       agent_compact_source_stats *stats) {
+    memset(stats, 0, sizeof(*stats));
+    if (!agent_message_ledger_is_complete(a, bottom)) {
+        qw3_tokens_copy(out, &a->transcript);
+        return;
+    }
+
+    qw3_tokens staged = {0};
+    qw3_tokens_copy(&staged, sys);
+    for (int i = 1; i < a->messages.len; i++) {
+        const agent_message *message = &a->messages.items[i];
+        bool is_old = message->token_end <= tail_start;
+        bool changed = false;
+        char *content = NULL;
+        if (is_old && message->kind == AGENT_MESSAGE_ASSISTANT) {
+            content = agent_compact_without_thinking(message->content,
+                                                     &changed);
+            if (changed && content) stats->thinking_removed++;
+        } else if (is_old && message->kind == AGENT_MESSAGE_TOOL) {
+            content = agent_compact_shorten_tool_result(
+                message->content, archive_path, &changed);
+            if (changed && content) stats->tool_results_shortened++;
+        }
+
+        if (changed && content) {
+            qw3_chat_append_message(a->engine, &staged, message->role,
+                                    content);
+        } else {
+            agent_tokens_append_range(&staged, &a->transcript,
+                                      message->token_start,
+                                      message->token_end);
+        }
+        free(content);
+    }
+
+    if (staged.len >= bottom) {
+        stats->thinking_removed = 0;
+        stats->tool_results_shortened = 0;
+        qw3_tokens_free(&staged);
+        qw3_tokens_copy(out, &a->transcript);
+        return;
+    }
+    *out = staged;
 }
 
 static int agent_context_ledger_selftest(void) {
@@ -4985,6 +5168,44 @@ static int agent_context_ledger_selftest(void) {
             rc = 9;
         }
         free(archive_text);
+    }
+    if (rc == 0) {
+        bool changed = false;
+        char *without_thinking = agent_compact_without_thinking(
+            "private reasoning</think>\n\nfinal answer", &changed);
+        if (!changed || !without_thinking ||
+            strcmp(without_thinking, "final answer")) {
+            rc = 11;
+        }
+        free(without_thinking);
+    }
+    if (rc == 0) {
+        strbuf large_tool;
+        sb_init(&large_tool);
+        sb_append(&large_tool, QWEN_XML_TOOL_RESPONSE_BEGIN "\n");
+        for (int i = 0; i < 9000; i++) sb_append_n(&large_tool, "x", 1);
+        sb_append(&large_tool, "\n" QWEN_XML_TOOL_RESPONSE_END);
+        bool changed = false;
+        char *short_tool = agent_compact_shorten_tool_result(
+            large_tool.p, "/tmp/context-test", &changed);
+        if (!changed || !short_tool ||
+            strlen(short_tool) >= large_tool.len ||
+            !strstr(short_tool, "/tmp/context-test") ||
+            strncmp(short_tool, QWEN_XML_TOOL_RESPONSE_BEGIN,
+                    strlen(QWEN_XML_TOOL_RESPONSE_BEGIN)) ||
+            !strstr(short_tool, QWEN_XML_TOOL_RESPONSE_END)) {
+            rc = 12;
+        }
+        free(short_tool);
+        sb_free(&large_tool);
+    }
+    if (rc == 0) {
+        state.transcript.len = 700;
+        state.compact_retry_after_tokens = 750;
+        if (agent_should_compact_context(&state)) rc = 13;
+        state.compact_retry_after_tokens = 0;
+        if (rc == 0 && !agent_should_compact_context(&state)) rc = 13;
+        state.transcript.len = 500;
     }
     char *spills_dir = rc == 7 ? NULL : path_join(store_dir, "spills");
     if (spills_dir) {
@@ -5090,6 +5311,24 @@ static bool agent_compact_context(agent_state *a, const char *reason,
                   reason && reason[0] ? reason : "soft limit",
                   bottom, a->cfg.ctx_size);
 
+    bool complete_ledger = agent_message_ledger_is_complete(a, bottom);
+    int transcript_sys_len = complete_ledger ?
+        a->messages.items[0].token_end : sys.len;
+    int source_tail_start = agent_compact_tail_start(
+        a, bottom, transcript_sys_len);
+    if (complete_ledger &&
+        a->messages.len > 1 &&
+        source_tail_start <= a->messages.items[1].token_start) {
+        int retry = a->cfg.ctx_size / 16;
+        if (retry < 128) retry = 128;
+        a->compact_retry_after_tokens = bottom + retry;
+        agent_statusf(a,
+                      "agent: compaction skipped; context contains only the "
+                      "recent working set\n");
+        qw3_tokens_free(&sys);
+        return true;
+    }
+
     char *archive_path = agent_archive_context(a);
     if (!archive_path) {
         snprintf(err, err_len,
@@ -5099,7 +5338,17 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     }
     char *prompt_text = agent_compact_make_prompt(reason, archive_path);
     qw3_tokens prompt = {0};
-    qw3_tokens_copy(&prompt, &a->transcript);
+    agent_compact_source_stats source_stats;
+    agent_compact_build_source(a, &sys, bottom, source_tail_start,
+                               archive_path, &prompt, &source_stats);
+    if (source_stats.thinking_removed ||
+        source_stats.tool_results_shortened) {
+        agent_statusf(a,
+                      "agent: compact source old=%d staged=%d "
+                      "thinking=%d tool_results=%d\n",
+                      bottom, prompt.len, source_stats.thinking_removed,
+                      source_stats.tool_results_shortened);
+    }
     qw3_chat_append_message(a->engine, &prompt, "user", prompt_text);
     free(prompt_text);
     qw3_chat_append_assistant_prefix(a->engine, &prompt, QW3_THINK_NONE);
@@ -5226,7 +5475,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     sb_free(&summary_msg);
     sb_free(&summary);
 
-    int tail_start = agent_compact_tail_start(a, bottom, sys.len);
+    int tail_start = agent_compact_tail_start(a, bottom,
+                                              transcript_sys_len);
     int tail_room = a->cfg.ctx_size - compacted.len - 128;
     if (tail_room < 0) {
         snprintf(err, err_len,
@@ -5241,7 +5491,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     int min_tail_start = bottom - tail_room;
     if (tail_start < min_tail_start) {
         tail_start = agent_message_turn_start(a, min_tail_start,
-                                              bottom, sys.len);
+                                              bottom, transcript_sys_len);
     }
     agent_tokens_append_range(&compacted, &a->transcript, tail_start, bottom);
     int tail_base = compacted.len - (bottom - tail_start);
@@ -5265,6 +5515,24 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         }
     }
 
+    int min_savings = a->cfg.ctx_size / 32;
+    if (min_savings < 128) min_savings = 128;
+    if (min_savings > 512) min_savings = 512;
+    if (compacted.len > bottom - min_savings) {
+        int retry = a->cfg.ctx_size / 16;
+        if (retry < min_savings) retry = min_savings;
+        a->compact_retry_after_tokens = bottom + retry;
+        agent_statusf(a,
+                      "agent: compaction skipped; low yield old=%d candidate=%d "
+                      "required_savings=%d\n",
+                      bottom, compacted.len, min_savings);
+        qw3_session_invalidate(a->session);
+        agent_message_ledger_clear(&compacted_messages);
+        qw3_tokens_free(&compacted);
+        qw3_tokens_free(&sys);
+        return true;
+    }
+
     qw3_tokens old = {0};
     qw3_tokens_copy(&old, &a->transcript);
     qw3_tokens_free(&a->transcript);
@@ -5284,6 +5552,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     qw3_tokens_free(&old);
     agent_message_ledger_clear(&a->messages);
     a->messages = compacted_messages;
+    a->compact_retry_after_tokens = 0;
     qw3_tokens_free(&sys);
     agent_statusf(a, "agent: compacted context old=%d new=%d tail=%d\n",
                   bottom, a->transcript.len, bottom - tail_start);
@@ -6209,6 +6478,7 @@ static void free_config(agent_config *cfg) {
 
 static void agent_init_transcript(agent_state *a) {
     agent_clear_session_meta(a);
+    a->compact_retry_after_tokens = 0;
     qw3_tokens_free(&a->transcript);
     memset(&a->transcript, 0, sizeof(a->transcript));
     agent_message_ledger_clear(&a->messages);

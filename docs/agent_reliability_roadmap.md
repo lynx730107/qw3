@@ -26,10 +26,10 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
   boundaries, never in the middle of assistant output or a tool exchange.
 - [completed] Archive the complete pre-compaction message ledger in a bounded,
   private spill directory and retain its exact reload path in the summary.
-- [pending] Remove stale thinking first, shorten old tool results, and preserve
-  the recent working set before invoking model-generated compaction.
-- [pending] Prevent repeated low-yield compaction from forcing a full recurrent
-  cache rebuild on consecutive steps.
+- [completed] Remove stale thinking first, shorten old tool results, and
+  preserve the recent working set before invoking model-generated compaction.
+- [completed] Reject low-yield compaction and defer automatic retries so it
+  cannot force recurrent-cache rebuilds on consecutive steps.
 
 ## Phase 3: Persistent inference state
 
