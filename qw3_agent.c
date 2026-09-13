@@ -954,6 +954,10 @@ static char *store_messages_path(agent_state *a, const char *name) {
     return store_path_ext(a, name, ".msgs");
 }
 
+static char *store_checkpoint_path(agent_state *a, const char *name) {
+    return store_path_ext(a, name, ".kvc");
+}
+
 static uint64_t agent_hash_update(uint64_t h, const void *data, size_t n) {
     const unsigned char *p = (const unsigned char *)data;
     for (size_t i = 0; i < n; i++) {
@@ -1175,6 +1179,78 @@ static int store_write_tokens_path(agent_state *a, const char *path) {
     return rc;
 }
 
+/* Return 0 when a durable checkpoint was written, 1 when this backend/layout
+ * does not expose a payload, and -1 on an actual save failure. */
+static int store_write_checkpoint_path(agent_state *a, const char *path,
+                                       char *err, size_t err_len) {
+    if (!a || !a->session || !path || a->cfg.backend != QW3_BACKEND_METAL) {
+        return 1;
+    }
+    if (qw3_session_sync(a->session, &a->transcript, err, err_len) != 0) {
+        return -1;
+    }
+    const uint64_t bytes = qw3_session_payload_bytes(a->session);
+    if (bytes == 0) return 1;
+
+    const size_t tmp_len = strlen(path) + 48;
+    char *tmp = malloc(tmp_len);
+    if (!tmp) return -1;
+    snprintf(tmp, tmp_len, "%s.tmp.%ld", path, (long)getpid());
+    FILE *fp = fopen(tmp, "wb");
+    int rc = 0;
+    if (!fp) {
+        if (err && err_len) snprintf(err, err_len,
+                                     "cannot create checkpoint: %s",
+                                     strerror(errno));
+        free(tmp);
+        return -1;
+    }
+    if (fchmod(fileno(fp), 0600) != 0 ||
+        qw3_session_save_payload(a->session, fp, err, err_len) != 0 ||
+        fflush(fp) != 0 || fsync(fileno(fp)) != 0) {
+        rc = -1;
+    }
+    if (fclose(fp) != 0) rc = -1;
+    if (rc == 0 && rename(tmp, path) != 0) {
+        if (err && err_len) snprintf(err, err_len,
+                                     "cannot publish checkpoint: %s",
+                                     strerror(errno));
+        rc = -1;
+    }
+    if (rc != 0) (void)unlink(tmp);
+    free(tmp);
+    return rc;
+}
+
+static bool store_tokens_equal(const qw3_tokens *a, const qw3_tokens *b) {
+    return a && b && a->len == b->len &&
+           (a->len == 0 || !memcmp(a->v, b->v,
+                                   (size_t)a->len * sizeof(a->v[0])));
+}
+
+static int store_read_checkpoint_path(agent_state *a, const char *path,
+                                      const qw3_tokens *expected,
+                                      char *err, size_t err_len) {
+    if (!a || !a->session || !path || !expected) return -1;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return errno == ENOENT ? 1 : -1;
+    struct stat st;
+    int rc = -1;
+    if (fstat(fileno(fp), &st) == 0 && st.st_size > 0 &&
+        qw3_session_load_payload(a->session, fp, (uint64_t)st.st_size,
+                                 err, err_len) == 0) {
+        const qw3_tokens *loaded = qw3_session_tokens(a->session);
+        if (store_tokens_equal(loaded, expected)) {
+            rc = 0;
+        } else if (err && err_len) {
+            snprintf(err, err_len, "checkpoint token sequence mismatch");
+        }
+    }
+    fclose(fp);
+    if (rc != 0) qw3_session_invalidate(a->session);
+    return rc;
+}
+
 static int store_write_messages_path(const char *path,
                                      const agent_message_ledger *ledger) {
     if (!path || !ledger) return -1;
@@ -1295,10 +1371,12 @@ static int store_save(agent_state *a, const char *name) {
     char *text_path = store_text_path(a, id);
     char *token_path = store_path(a, id);
     char *messages_path = store_messages_path(a, id);
-    if (!text_path || !token_path || !messages_path) {
+    char *checkpoint_path = store_checkpoint_path(a, id);
+    if (!text_path || !token_path || !messages_path || !checkpoint_path) {
         free(text_path);
         free(token_path);
         free(messages_path);
+        free(checkpoint_path);
         return -1;
     }
 
@@ -1311,19 +1389,45 @@ static int store_save(agent_state *a, const char *name) {
     }
     if (rc == 0 && a->session_stripped) {
         (void)unlink(token_path);
+        (void)unlink(checkpoint_path);
     }
     if (rc == 0) rc = store_write_messages_path(messages_path, &a->messages);
+    int checkpoint_rc = 1;
+    char checkpoint_err[256] = {0};
+    if (rc == 0 && !a->session_stripped) {
+        checkpoint_rc = store_write_checkpoint_path(
+            a, checkpoint_path, checkpoint_err, sizeof(checkpoint_err));
+        if (checkpoint_rc != 0) {
+            (void)unlink(checkpoint_path);
+            if (checkpoint_rc < 0) {
+                agent_statusf(a,
+                              "agent: KV checkpoint unavailable (%s); "
+                              "saved transcript fallback\n",
+                              checkpoint_err[0] ? checkpoint_err :
+                              "state export failed");
+            }
+        }
+    }
+    agent_trace_begin(a, "checkpoint_save");
+    agent_trace_string(a, "session", id);
+    agent_trace_string(a, "result",
+                       checkpoint_rc == 0 ? "saved" :
+                       (a->session_stripped ? "stripped" : "fallback"));
+    agent_trace_i64(a, "tokens", a->transcript.len);
+    agent_trace_end(a);
     if (rc == 0) rc = store_write_meta(a, id, a->session_stripped);
     if (rc == 0) {
-        agent_statusf(a, "agent: saved %s (%d tokens%s)\n",
+        agent_statusf(a, "agent: saved %s (%d tokens%s%s)\n",
                       id, a->transcript.len,
-                      a->session_stripped ? ", stripped" : "");
+                      a->session_stripped ? ", stripped" : "",
+                      checkpoint_rc == 0 ? ", KV ready" : "");
     } else {
         agent_statusf(a, "agent: failed while saving %s\n", id);
     }
     free(text_path);
     free(token_path);
     free(messages_path);
+    free(checkpoint_path);
     return rc;
 }
 
@@ -1332,11 +1436,14 @@ static int store_load(agent_state *a, const char *name) {
     char *meta_path = store_meta_path(a, name);
     char *text_path = store_text_path(a, name);
     char *messages_path = store_messages_path(a, name);
-    if (!token_path || !meta_path || !text_path || !messages_path) {
+    char *checkpoint_path = store_checkpoint_path(a, name);
+    if (!token_path || !meta_path || !text_path || !messages_path ||
+        !checkpoint_path) {
         free(token_path);
         free(meta_path);
         free(text_path);
         free(messages_path);
+        free(checkpoint_path);
         return -1;
     }
     agent_session_meta meta = {0};
@@ -1375,16 +1482,43 @@ static int store_load(agent_state *a, const char *name) {
                 legacy_text ? legacy_text : "", 0, a->transcript.len);
             free(legacy_text);
         }
-        if (a->session) qw3_session_invalidate(a->session);
+        bool checkpoint_ready = false;
+        int checkpoint_load_rc = 1;
+        if (a->session) {
+            qw3_session_invalidate(a->session);
+            if (!(have_meta && meta.stripped)) {
+                char checkpoint_err[256] = {0};
+                checkpoint_load_rc = store_read_checkpoint_path(
+                    a, checkpoint_path, &a->transcript,
+                    checkpoint_err, sizeof(checkpoint_err));
+                checkpoint_ready = checkpoint_load_rc == 0;
+                if (checkpoint_load_rc < 0) {
+                    agent_statusf(a,
+                                  "agent: ignoring incompatible KV checkpoint "
+                                  "(%s); transcript will rebuild\n",
+                                  checkpoint_err[0] ? checkpoint_err :
+                                  "state import failed");
+                }
+            }
+        }
+        agent_trace_begin(a, "checkpoint_load");
+        agent_trace_string(a, "session", name);
+        agent_trace_string(a, "result",
+                           checkpoint_ready ? "resumed" :
+                           (checkpoint_load_rc < 0 ? "rejected" : "missing"));
+        agent_trace_i64(a, "tokens", a->transcript.len);
+        agent_trace_end(a);
         agent_clear_session_meta(a);
         a->session_id = agent_strdup(have_meta && meta.id ? meta.id : name);
         a->session_title = agent_strdup(have_meta && meta.title ? meta.title : name);
         a->session_created = have_meta && meta.created ? meta.created : time(NULL);
         a->session_updated = have_meta && meta.updated ? meta.updated : time(NULL);
         a->session_stripped = have_meta ? meta.stripped : false;
-        agent_statusf(a, "agent: switched to %s (%d tokens%s)\n",
+        agent_statusf(a, "agent: switched to %s (%d tokens%s%s)\n",
                       a->session_id ? a->session_id : name, a->transcript.len,
-                      a->session_stripped ? ", stripped/rebuilt" : "");
+                      a->session_stripped ? ", stripped/rebuilt" : "",
+                      checkpoint_ready ? ", KV resumed" :
+                                         ", rebuild pending");
     }
     (void)saved_ctx;
     session_meta_free(&meta);
@@ -1392,6 +1526,7 @@ static int store_load(agent_state *a, const char *name) {
     free(meta_path);
     free(text_path);
     free(messages_path);
+    free(checkpoint_path);
     return rc;
 }
 
@@ -1507,11 +1642,14 @@ static int store_delete(agent_state *a, const char *name) {
     char *meta_path = store_meta_path(a, name);
     char *text_path = store_text_path(a, name);
     char *messages_path = store_messages_path(a, name);
-    if (!token_path || !meta_path || !text_path || !messages_path) {
+    char *checkpoint_path = store_checkpoint_path(a, name);
+    if (!token_path || !meta_path || !text_path || !messages_path ||
+        !checkpoint_path) {
         free(token_path);
         free(meta_path);
         free(text_path);
         free(messages_path);
+        free(checkpoint_path);
         return -1;
     }
     int removed = 0;
@@ -1519,10 +1657,12 @@ static int store_delete(agent_state *a, const char *name) {
     if (unlink(meta_path) == 0) removed++;
     if (unlink(text_path) == 0) removed++;
     if (unlink(messages_path) == 0) removed++;
+    if (unlink(checkpoint_path) == 0) removed++;
     free(token_path);
     free(meta_path);
     free(text_path);
     free(messages_path);
+    free(checkpoint_path);
     if (removed == 0) {
         agent_statusf(a, "agent: no session files for %s\n", name);
         return -1;
@@ -1545,11 +1685,14 @@ static int store_strip(agent_state *a, const char *name) {
     char *meta_path = store_meta_path(a, id);
     char *text_path = store_text_path(a, id);
     char *messages_path = store_messages_path(a, id);
-    if (!token_path || !meta_path || !text_path || !messages_path) {
+    char *checkpoint_path = store_checkpoint_path(a, id);
+    if (!token_path || !meta_path || !text_path || !messages_path ||
+        !checkpoint_path) {
         free(token_path);
         free(meta_path);
         free(text_path);
         free(messages_path);
+        free(checkpoint_path);
         return -1;
     }
 
@@ -1595,6 +1738,7 @@ static int store_strip(agent_state *a, const char *name) {
 
     if (rc == 0) {
         (void)unlink(token_path);
+        (void)unlink(checkpoint_path);
         if (!meta.id) meta.id = agent_strdup(id);
         if (!meta.title) meta.title = agent_strdup(id);
         if (!meta.created) meta.created = time(NULL);
@@ -1621,6 +1765,7 @@ static int store_strip(agent_state *a, const char *name) {
     free(meta_path);
     free(text_path);
     free(messages_path);
+    free(checkpoint_path);
     return rc;
 }
 

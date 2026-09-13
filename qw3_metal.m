@@ -3327,6 +3327,163 @@ qw3_metal_session_info qw3_metal_session_get_info(qw3_metal_session *s) {
     return obj.info;
 }
 
+int qw3_metal_session_get_state_info(qw3_metal_session *s,
+                                     qw3_metal_state_info *info) {
+    if (!s || !s->obj || !info) return 0;
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t kv_row_bytes = obj.gqaKvQ8 ?
+        (uint64_t)QW3_METAL_N_HEAD_KV * (QW3_METAL_N_HEAD_DIM / 32u) * 34ull :
+        (uint64_t)QW3_METAL_N_HEAD_KV * QW3_METAL_N_HEAD_DIM *
+            (obj.gqaKvF16 ? sizeof(uint16_t) : sizeof(float));
+    *info = (qw3_metal_state_info){
+        .ctx_size = obj.ctxSize,
+        .vocab_size = obj.vocabSize,
+        .kv_type = obj.gqaKvQ8 ? 2u : (obj.gqaKvF16 ? 1u : 0u),
+        .n_full_layers = obj.metalFullLayers,
+        .n_linear_layers = obj.metalLinearLayers,
+        .reserved = 0,
+        .kv_row_bytes = kv_row_bytes,
+        .flash_tail_layer_bytes = obj.gqaKvF16 ?
+            2ull * 32ull * QW3_METAL_N_HEAD_KV * kv_row_bytes : 0ull,
+        .deltanet_bytes = (uint64_t)obj.metalLinearLayers *
+            QW3_METAL_N_LINEAR_V_HEADS * QW3_METAL_N_LINEAR_HEAD_DIM *
+            QW3_METAL_N_LINEAR_HEAD_DIM * sizeof(float),
+        .conv_bytes = (uint64_t)obj.metalLinearLayers * QW3_METAL_LINEAR_QKV *
+            (QW3_METAL_LINEAR_CONV_K - 1u) * sizeof(float),
+        .logits_bytes = (uint64_t)obj.vocabSize * sizeof(float),
+    };
+    return 1;
+}
+
+static int qw3_metal_session_state_span(
+        QW3MetalSessionObj *obj, qw3_metal_state_buffer kind,
+        uint32_t layer_slot, id<MTLBuffer> *buffer,
+        uint64_t *base, uint64_t *length) {
+    if (!obj || !buffer || !base || !length) return 0;
+    qw3_metal_state_info info;
+    qw3_metal_session wrapper = { .obj = (__bridge void *)obj };
+    if (!qw3_metal_session_get_state_info(&wrapper, &info)) return 0;
+
+    *buffer = nil;
+    *base = 0;
+    *length = 0;
+    if (kind == QW3_METAL_STATE_GQA_K ||
+        kind == QW3_METAL_STATE_GQA_V) {
+        const uint64_t layer_bytes = (uint64_t)obj.ctxSize * info.kv_row_bytes;
+        id<MTLBuffer> kb = nil;
+        id<MTLBuffer> vb = nil;
+        NSUInteger layer_offset = 0;
+        if (!qw3_metal_gqa_layer_buffers(obj, layer_slot, layer_bytes,
+                                         &kb, &vb, &layer_offset)) {
+            return 0;
+        }
+        *buffer = kind == QW3_METAL_STATE_GQA_K ? kb : vb;
+        *base = (uint64_t)layer_offset;
+        *length = layer_bytes;
+        return 1;
+    }
+    if (kind == QW3_METAL_STATE_GQA_FLASH_TAIL) {
+        id<MTLBuffer> tail = qw3_metal_gqa_flash_tail_buffer(obj, layer_slot);
+        if (!tail || info.flash_tail_layer_bytes == 0) return 0;
+        *buffer = tail;
+        *length = info.flash_tail_layer_bytes;
+        return tail.length >= *length;
+    }
+    if (layer_slot != 0) return 0;
+    switch (kind) {
+        case QW3_METAL_STATE_DELTANET:
+            *buffer = obj.deltanetState;
+            *length = info.deltanet_bytes;
+            break;
+        case QW3_METAL_STATE_CONV:
+            *buffer = obj.convState;
+            *length = info.conv_bytes;
+            break;
+        case QW3_METAL_STATE_LOGITS:
+            *buffer = obj.logits;
+            *length = info.logits_bytes;
+            break;
+        default:
+            return 0;
+    }
+    return *buffer && (*buffer).length >= *length;
+}
+
+int qw3_metal_session_read_state(qw3_metal_session *s,
+                                 qw3_metal_state_buffer kind,
+                                 uint32_t layer_slot, uint64_t offset,
+                                 void *out, uint64_t bytes) {
+    if (!s || !s->obj || (!out && bytes != 0) || bytes > NSUIntegerMax) return 0;
+    if (bytes == 0) return 1;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_synchronize()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    id<MTLBuffer> source = nil;
+    uint64_t base = 0;
+    uint64_t length = 0;
+    if (!qw3_metal_session_state_span(obj, kind, layer_slot,
+                                      &source, &base, &length) ||
+        offset > length || bytes > length - offset ||
+        base > NSUIntegerMax || offset > NSUIntegerMax - base) {
+        return 0;
+    }
+
+    id<MTLBuffer> staging =
+        [g_device newBufferWithLength:(NSUInteger)bytes
+                              options:MTLResourceStorageModeShared];
+    if (!staging) return 0;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    if (!blit) return 0;
+    [blit copyFromBuffer:source sourceOffset:(NSUInteger)(base + offset)
+                toBuffer:staging destinationOffset:0 size:(NSUInteger)bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "state read")) return 0;
+    memcpy(out, staging.contents, (size_t)bytes);
+    return 1;
+}
+
+int qw3_metal_session_write_state(qw3_metal_session *s,
+                                  qw3_metal_state_buffer kind,
+                                  uint32_t layer_slot, uint64_t offset,
+                                  const void *src, uint64_t bytes) {
+    if (!s || !s->obj || (!src && bytes != 0) || bytes > NSUIntegerMax) return 0;
+    if (bytes == 0) return 1;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_synchronize()) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    id<MTLBuffer> destination = nil;
+    uint64_t base = 0;
+    uint64_t length = 0;
+    if (!qw3_metal_session_state_span(obj, kind, layer_slot,
+                                      &destination, &base, &length) ||
+        offset > length || bytes > length - offset ||
+        base > NSUIntegerMax || offset > NSUIntegerMax - base) {
+        return 0;
+    }
+
+    id<MTLBuffer> staging =
+        [g_device newBufferWithLength:(NSUInteger)bytes
+                              options:MTLResourceStorageModeShared];
+    if (!staging) return 0;
+    memcpy(staging.contents, src, (size_t)bytes);
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    if (!blit) return 0;
+    [blit copyFromBuffer:staging sourceOffset:0 toBuffer:destination
+       destinationOffset:(NSUInteger)(base + offset) size:(NSUInteger)bytes];
+    [blit endEncoding];
+    return qw3_metal_finish_command_buffer(cb, owned, "state write");
+}
+
 int qw3_metal_session_embed_q8_0(qw3_metal_session *s, uint64_t tensor_offset,
                                  uint32_t token, uint32_t n_embd,
                                  float *out) {

@@ -30,11 +30,44 @@ typedef struct {
   uint64_t scratch_bytes;
 } qw3_metal_session_info;
 
+typedef enum {
+  QW3_METAL_STATE_GQA_K = 1,
+  QW3_METAL_STATE_GQA_V = 2,
+  QW3_METAL_STATE_GQA_FLASH_TAIL = 3,
+  QW3_METAL_STATE_DELTANET = 4,
+  QW3_METAL_STATE_CONV = 5,
+  QW3_METAL_STATE_LOGITS = 6,
+} qw3_metal_state_buffer;
+
+typedef struct {
+  uint32_t ctx_size;
+  uint32_t vocab_size;
+  uint32_t kv_type; /* 0=f32, 1=f16, 2=q8_0 */
+  uint32_t n_full_layers;
+  uint32_t n_linear_layers;
+  uint32_t reserved;
+  uint64_t kv_row_bytes;
+  uint64_t flash_tail_layer_bytes;
+  uint64_t deltanet_bytes;
+  uint64_t conv_bytes;
+  uint64_t logits_bytes;
+} qw3_metal_state_info;
+
 qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
                                             uint32_t vocab_size);
 void qw3_metal_session_free(qw3_metal_session *s);
 int qw3_metal_session_clear(qw3_metal_session *s);
 qw3_metal_session_info qw3_metal_session_get_info(qw3_metal_session *s);
+int qw3_metal_session_get_state_info(qw3_metal_session *s,
+                                     qw3_metal_state_info *info);
+int qw3_metal_session_read_state(qw3_metal_session *s,
+                                 qw3_metal_state_buffer kind,
+                                 uint32_t layer_slot, uint64_t offset,
+                                 void *out, uint64_t bytes);
+int qw3_metal_session_write_state(qw3_metal_session *s,
+                                  qw3_metal_state_buffer kind,
+                                  uint32_t layer_slot, uint64_t offset,
+                                  const void *src, uint64_t bytes);
 int qw3_metal_session_embed_q8_0(qw3_metal_session *s, uint64_t tensor_offset,
                                  uint32_t token, uint32_t n_embd, float *out);
 int qw3_metal_session_batch_embed_q8_0(qw3_metal_session *s,

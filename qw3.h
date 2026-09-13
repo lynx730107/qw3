@@ -289,6 +289,7 @@ int qw3_session_sample_repetition(qw3_session *s, float temperature, int top_k,
                                   int n_recent_tokens,
                                   float repeat_penalty);
 int qw3_session_top_logprobs(qw3_session *s, qw3_token_score *out, int k);
+int qw3_session_copy_logits(qw3_session *s, float *out, int cap);
 
 /* Single-token eval. */
 int qw3_session_eval(qw3_session *s, int token, char *err, size_t errlen);

@@ -98,8 +98,14 @@ make test-metal-logits
 
 ## Agent
 
-`qw3-agent` uses Qwen-native tool calling and keeps the session local. The main
-tools are:
+`qw3-agent` uses Qwen-native tool calling and keeps the session local. On a
+full-Metal F16 run, saved conversations include an atomic inference checkpoint:
+occupied KV rows, recurrent DeltaNet and convolution state, tokens, and logits.
+`/switch` and `--conversation` can therefore resume without replaying the saved
+prefix. A missing, stripped, incompatible, or damaged checkpoint is ignored and
+rebuilt from the persisted transcript.
+
+The main tools are:
 
 - `read`, `more`, `list`: file reading and navigation.
 - `write`, `edit`: file creation and modification.
@@ -130,8 +136,19 @@ Useful interactive commands:
 /nothink
 /chdir PATH
 /compact
+/save [name]
+/list
+/switch ID
+/del ID
+/strip [ID]
 /quit
 ```
+
+Checkpoint compatibility is deliberately strict: the model fingerprint,
+backend layout, context allocation, KV type, and token sequence must match, and
+a payload checksum rejects damaged inference state before it can be resumed.
+Partial `--ngl` sessions and experimental q8 KV currently keep the transcript
+fallback but do not write a resumable Metal checkpoint.
 
 ## External Agent Tools
 

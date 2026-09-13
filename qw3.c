@@ -15342,8 +15342,25 @@ int qw3_session_top_logprobs(qw3_session *s, qw3_token_score *out, int k) {
     return k;
 }
 
+int qw3_session_copy_logits(qw3_session *s, float *out, int cap) {
+    if (!s || !out || cap < QW3_N_VOCAB) return -1;
+#ifndef QW3_NO_METAL
+    if (qw3_session_argmax_uses_metal_logits(s)) {
+        if (!qw3_metal_session_read_state(
+                s->metal, QW3_METAL_STATE_LOGITS, 0, 0, out,
+                (uint64_t)QW3_N_VOCAB * sizeof(float))) {
+            return -1;
+        }
+        return QW3_N_VOCAB;
+    }
+#endif
+    memcpy(out, s->logits, (size_t)QW3_N_VOCAB * sizeof(float));
+    return QW3_N_VOCAB;
+}
+
 enum {
     QW3_SESSION_PAYLOAD_VERSION = 1,
+    QW3_SESSION_METAL_PAYLOAD_VERSION = 2,
 };
 
 #define QW3_SESSION_PAYLOAD_MAGIC 0x3357515345535349ull /* "ISSESQW3" */
@@ -15362,6 +15379,60 @@ typedef struct {
     uint64_t conv_floats;
     uint64_t logits_floats;
 } qw3_session_payload_header;
+
+typedef struct {
+    uint32_t backend;
+    uint32_t kv_type;
+    uint32_t n_full_layers;
+    uint32_t n_linear_layers;
+    uint64_t kv_row_bytes;
+    uint64_t flash_tail_layer_bytes;
+    uint64_t deltanet_bytes;
+    uint64_t conv_bytes;
+    uint64_t logits_bytes;
+    uint64_t model_fingerprint;
+} qw3_session_metal_payload_ext;
+
+enum {
+    QW3_SESSION_PAYLOAD_BACKEND_METAL = 1,
+};
+
+#define QW3_SESSION_IO_CHUNK (8u * 1024u * 1024u)
+
+#ifndef QW3_NO_METAL
+static uint64_t session_payload_hash_update(uint64_t h, const void *data,
+                                            size_t bytes) {
+    const unsigned char *p = data;
+    for (size_t i = 0; i < bytes; i++) {
+        h ^= p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+static uint64_t session_model_fingerprint(const qw3_model *m) {
+    uint64_t h = 1469598103934665603ull;
+    const uint64_t metadata_bytes =
+        m->tensor_data_offset < m->map_size ? m->tensor_data_offset : m->map_size;
+    for (uint64_t i = 0; i < metadata_bytes; i++) {
+        h ^= m->map[i];
+        h *= 1099511628211ull;
+    }
+    for (uint64_t i = 0; i < m->n_tensors; i++) {
+        const qw3_tensor *t = &m->tensors[i];
+        const uint64_t available = t->offset < m->map_size ?
+            m->map_size - t->offset : 0;
+        const uint64_t sample = available < 64u ? available : 64u;
+        for (uint64_t j = 0; j < sample; j++) {
+            h ^= m->map[t->offset + j];
+            h *= 1099511628211ull;
+        }
+    }
+    h ^= m->map_size;
+    h *= 1099511628211ull;
+    return h;
+}
+#endif
 
 static uint64_t session_kv_floats(const qw3_session *s) {
     return (uint64_t)QW3_N_FULL_ATTN_LAYERS * (uint64_t)s->ctx_size *
@@ -15398,8 +15469,86 @@ static int payload_read(FILE *fp, void *p, uint64_t n,
     return 0;
 }
 
+#ifndef QW3_NO_METAL
+static int session_full_metal_state_info(qw3_session *s,
+                                         qw3_metal_state_info *info) {
+    if (!s || !s->engine || s->engine->backend != QW3_BACKEND_METAL ||
+        !s->metal || qw3_session_uses_partial_metal(s) ||
+        !qw3_metal_session_get_state_info(s->metal, info)) {
+        return 0;
+    }
+    return info->ctx_size == (uint32_t)s->ctx_size &&
+           info->vocab_size == QW3_N_VOCAB &&
+           info->n_full_layers == QW3_N_FULL_ATTN_LAYERS &&
+           info->n_linear_layers == QW3_N_LINEAR_LAYERS &&
+           info->kv_type != 2u;
+}
+
+static uint64_t session_metal_payload_bytes_for(
+        int kv_pos, int token_len, const qw3_metal_state_info *info) {
+    const uint64_t live_kv_bytes = (uint64_t)kv_pos * info->kv_row_bytes;
+    return sizeof(qw3_session_payload_header) +
+           sizeof(qw3_session_metal_payload_ext) +
+           (uint64_t)token_len * sizeof(int32_t) +
+           2ull * info->n_full_layers * live_kv_bytes +
+           (uint64_t)info->n_full_layers * info->flash_tail_layer_bytes +
+           info->deltanet_bytes + info->conv_bytes + info->logits_bytes +
+           sizeof(uint64_t);
+}
+
+static int payload_write_metal_span(
+        FILE *fp, qw3_session *s, qw3_metal_state_buffer kind,
+        uint32_t layer_slot, uint64_t bytes, unsigned char *buf,
+        size_t cap, uint64_t *checksum, char *err, size_t errlen) {
+    uint64_t offset = 0;
+    while (offset < bytes) {
+        const size_t n = bytes - offset > cap ? cap : (size_t)(bytes - offset);
+        if (!qw3_metal_session_read_state(s->metal, kind, layer_slot,
+                                          offset, buf, n)) {
+            if (err && errlen) snprintf(err, errlen,
+                                        "Metal session state read failed");
+            return -1;
+        }
+        if (checksum) *checksum = session_payload_hash_update(*checksum, buf, n);
+        if (payload_write(fp, buf, n, err, errlen) != 0) return -1;
+        offset += n;
+    }
+    return 0;
+}
+
+static int payload_read_metal_span(
+        FILE *fp, qw3_session *s, qw3_metal_state_buffer kind,
+        uint32_t layer_slot, uint64_t bytes, unsigned char *buf,
+        size_t cap, void *mirror, uint64_t *checksum,
+        char *err, size_t errlen) {
+    uint64_t offset = 0;
+    while (offset < bytes) {
+        const size_t n = bytes - offset > cap ? cap : (size_t)(bytes - offset);
+        if (payload_read(fp, buf, n, err, errlen) != 0) return -1;
+        if (checksum) *checksum = session_payload_hash_update(*checksum, buf, n);
+        if (mirror) memcpy((unsigned char *)mirror + offset, buf, n);
+        if (!qw3_metal_session_write_state(s->metal, kind, layer_slot,
+                                           offset, buf, n)) {
+            if (err && errlen) snprintf(err, errlen,
+                                        "Metal session state write failed");
+            return -1;
+        }
+        offset += n;
+    }
+    return 0;
+}
+#endif
+
 uint64_t qw3_session_payload_bytes(qw3_session *s) {
     if (!s) return 0;
+#ifndef QW3_NO_METAL
+    qw3_metal_state_info metal_info;
+    if (s->engine && s->engine->backend == QW3_BACKEND_METAL) {
+        if (!session_full_metal_state_info(s, &metal_info)) return 0;
+        return session_metal_payload_bytes_for(s->kv.pos, s->tokens.len,
+                                               &metal_info);
+    }
+#endif
     return sizeof(qw3_session_payload_header) +
            (uint64_t)s->tokens.len * sizeof(int32_t) +
            2 * session_kv_floats(s) * sizeof(float) +
@@ -15411,6 +15560,92 @@ uint64_t qw3_session_payload_bytes(qw3_session *s) {
 int qw3_session_save_payload(qw3_session *s, FILE *fp,
                              char *err, size_t errlen) {
     if (!s || !fp) return -1;
+#ifndef QW3_NO_METAL
+    if (s->engine && s->engine->backend == QW3_BACKEND_METAL) {
+        qw3_metal_state_info info;
+        if (!session_full_metal_state_info(s, &info)) {
+            if (err && errlen) snprintf(
+                err, errlen,
+                "Metal session payload requires full offload and f16/f32 KV");
+            return -1;
+        }
+        if (s->kv.pos < 0 || s->kv.pos != s->tokens.len) {
+            if (err && errlen) snprintf(err, errlen,
+                                        "Metal session token/state position mismatch");
+            return -1;
+        }
+        const uint64_t total_bytes = session_metal_payload_bytes_for(
+            s->kv.pos, s->tokens.len, &info);
+        qw3_session_payload_header h = {
+            .magic = QW3_SESSION_PAYLOAD_MAGIC,
+            .version = QW3_SESSION_METAL_PAYLOAD_VERSION,
+            .header_size = sizeof(qw3_session_payload_header) +
+                           sizeof(qw3_session_metal_payload_ext),
+            .total_bytes = total_bytes,
+            .ctx_size = s->ctx_size,
+            .kv_pos = s->kv.pos,
+            .token_len = s->tokens.len,
+        };
+        qw3_session_metal_payload_ext ext = {
+            .backend = QW3_SESSION_PAYLOAD_BACKEND_METAL,
+            .kv_type = info.kv_type,
+            .n_full_layers = info.n_full_layers,
+            .n_linear_layers = info.n_linear_layers,
+            .kv_row_bytes = info.kv_row_bytes,
+            .flash_tail_layer_bytes = info.flash_tail_layer_bytes,
+            .deltanet_bytes = info.deltanet_bytes,
+            .conv_bytes = info.conv_bytes,
+            .logits_bytes = info.logits_bytes,
+            .model_fingerprint = session_model_fingerprint(&s->engine->model),
+        };
+        if (!qw3_metal_synchronize() ||
+            payload_write(fp, &h, sizeof(h), err, errlen) != 0 ||
+            payload_write(fp, &ext, sizeof(ext), err, errlen) != 0) {
+            if (err && errlen && !err[0]) snprintf(err, errlen,
+                                                   "Metal session synchronize failed");
+            return -1;
+        }
+        uint64_t checksum = 1469598103934665603ull;
+        for (int i = 0; i < s->tokens.len; i++) {
+            int32_t tok = s->tokens.v[i];
+            checksum = session_payload_hash_update(checksum, &tok, sizeof(tok));
+            if (payload_write(fp, &tok, sizeof(tok), err, errlen) != 0) return -1;
+        }
+
+        unsigned char *buf = qw3_xmalloc(QW3_SESSION_IO_CHUNK);
+        const uint64_t live_kv_bytes =
+            (uint64_t)s->kv.pos * info.kv_row_bytes;
+        int rc = 0;
+        for (uint32_t kind = QW3_METAL_STATE_GQA_K;
+             rc == 0 && kind <= QW3_METAL_STATE_GQA_V; kind++) {
+            for (uint32_t il = 0; rc == 0 && il < info.n_full_layers; il++) {
+                rc = payload_write_metal_span(
+                    fp, s, (qw3_metal_state_buffer)kind, il, live_kv_bytes,
+                    buf, QW3_SESSION_IO_CHUNK, &checksum, err, errlen);
+            }
+        }
+        for (uint32_t il = 0; rc == 0 && il < info.n_full_layers &&
+                                  info.flash_tail_layer_bytes != 0; il++) {
+            rc = payload_write_metal_span(
+                fp, s, QW3_METAL_STATE_GQA_FLASH_TAIL, il,
+                info.flash_tail_layer_bytes, buf, QW3_SESSION_IO_CHUNK,
+                &checksum, err, errlen);
+        }
+        if (rc == 0) rc = payload_write_metal_span(
+            fp, s, QW3_METAL_STATE_DELTANET, 0, info.deltanet_bytes,
+            buf, QW3_SESSION_IO_CHUNK, &checksum, err, errlen);
+        if (rc == 0) rc = payload_write_metal_span(
+            fp, s, QW3_METAL_STATE_CONV, 0, info.conv_bytes,
+            buf, QW3_SESSION_IO_CHUNK, &checksum, err, errlen);
+        if (rc == 0) rc = payload_write_metal_span(
+            fp, s, QW3_METAL_STATE_LOGITS, 0, info.logits_bytes,
+            buf, QW3_SESSION_IO_CHUNK, &checksum, err, errlen);
+        if (rc == 0) rc = payload_write(
+            fp, &checksum, sizeof(checksum), err, errlen);
+        free(buf);
+        return rc;
+    }
+#endif
     qw3_session_payload_header h = {
         .magic = QW3_SESSION_PAYLOAD_MAGIC,
         .version = QW3_SESSION_PAYLOAD_VERSION,
@@ -15446,9 +15681,7 @@ int qw3_session_load_payload(qw3_session *s, FILE *fp,
     qw3_session_payload_header h;
     if (payload_read(fp, &h, sizeof(h), err, errlen) != 0) return -1;
 
-    if (h.magic != QW3_SESSION_PAYLOAD_MAGIC ||
-        h.version != QW3_SESSION_PAYLOAD_VERSION ||
-        h.header_size != sizeof(qw3_session_payload_header)) {
+    if (h.magic != QW3_SESSION_PAYLOAD_MAGIC) {
         if (err && errlen) snprintf(err, errlen, "unsupported session payload");
         return -1;
     }
@@ -15456,6 +15689,114 @@ int qw3_session_load_payload(qw3_session *s, FILE *fp,
         if (err && errlen) snprintf(err, errlen, "session payload size mismatch");
         return -1;
     }
+
+#ifndef QW3_NO_METAL
+    if (h.version == QW3_SESSION_METAL_PAYLOAD_VERSION) {
+        qw3_metal_state_info info;
+        qw3_session_metal_payload_ext ext;
+        if (h.header_size != sizeof(qw3_session_payload_header) + sizeof(ext) ||
+            payload_read(fp, &ext, sizeof(ext), err, errlen) != 0 ||
+            !session_full_metal_state_info(s, &info) ||
+            ext.backend != QW3_SESSION_PAYLOAD_BACKEND_METAL ||
+            ext.kv_type != info.kv_type ||
+            ext.n_full_layers != info.n_full_layers ||
+            ext.n_linear_layers != info.n_linear_layers ||
+            ext.kv_row_bytes != info.kv_row_bytes ||
+            ext.flash_tail_layer_bytes != info.flash_tail_layer_bytes ||
+            ext.deltanet_bytes != info.deltanet_bytes ||
+            ext.conv_bytes != info.conv_bytes ||
+            ext.logits_bytes != info.logits_bytes ||
+            ext.model_fingerprint != session_model_fingerprint(&s->engine->model) ||
+            h.ctx_size != s->ctx_size || h.kv_pos < 0 ||
+            h.kv_pos > s->ctx_size || h.token_len != h.kv_pos ||
+            h.total_bytes != session_metal_payload_bytes_for(
+                h.kv_pos, h.token_len, &info)) {
+            if (err && errlen) snprintf(err, errlen,
+                                        "Metal session payload shape mismatch");
+            return -1;
+        }
+
+        qw3_tokens new_tokens = {0};
+        new_tokens.cap = h.token_len;
+        new_tokens.len = h.token_len;
+        new_tokens.v = h.token_len ?
+            qw3_xmalloc((size_t)h.token_len * sizeof(int)) : NULL;
+        uint64_t checksum = 1469598103934665603ull;
+        for (int i = 0; i < h.token_len; i++) {
+            int32_t tok = 0;
+            if (payload_read(fp, &tok, sizeof(tok), err, errlen) != 0 ||
+                tok < 0 || tok >= QW3_N_VOCAB) {
+                qw3_tokens_free(&new_tokens);
+                if (err && errlen && !err[0]) snprintf(err, errlen,
+                                                       "invalid token in Metal payload");
+                return -1;
+            }
+            new_tokens.v[i] = tok;
+            checksum = session_payload_hash_update(checksum, &tok, sizeof(tok));
+        }
+
+        qw3_session_invalidate(s);
+        unsigned char *buf = qw3_xmalloc(QW3_SESSION_IO_CHUNK);
+        const uint64_t live_kv_bytes =
+            (uint64_t)h.kv_pos * info.kv_row_bytes;
+        int rc = 0;
+        for (uint32_t kind = QW3_METAL_STATE_GQA_K;
+             rc == 0 && kind <= QW3_METAL_STATE_GQA_V; kind++) {
+            for (uint32_t il = 0; rc == 0 && il < info.n_full_layers; il++) {
+                rc = payload_read_metal_span(
+                    fp, s, (qw3_metal_state_buffer)kind, il, live_kv_bytes,
+                    buf, QW3_SESSION_IO_CHUNK, NULL, &checksum, err, errlen);
+            }
+        }
+        for (uint32_t il = 0; rc == 0 && il < info.n_full_layers &&
+                                  info.flash_tail_layer_bytes != 0; il++) {
+            rc = payload_read_metal_span(
+                fp, s, QW3_METAL_STATE_GQA_FLASH_TAIL, il,
+                info.flash_tail_layer_bytes, buf, QW3_SESSION_IO_CHUNK,
+                NULL, &checksum, err, errlen);
+        }
+        if (rc == 0) rc = payload_read_metal_span(
+            fp, s, QW3_METAL_STATE_DELTANET, 0, info.deltanet_bytes,
+            buf, QW3_SESSION_IO_CHUNK, NULL, &checksum, err, errlen);
+        if (rc == 0) rc = payload_read_metal_span(
+            fp, s, QW3_METAL_STATE_CONV, 0, info.conv_bytes,
+            buf, QW3_SESSION_IO_CHUNK, NULL, &checksum, err, errlen);
+        if (rc == 0) rc = payload_read_metal_span(
+            fp, s, QW3_METAL_STATE_LOGITS, 0, info.logits_bytes,
+            buf, QW3_SESSION_IO_CHUNK, s->logits, &checksum, err, errlen);
+        uint64_t stored_checksum = 0;
+        if (rc == 0 &&
+            (payload_read(fp, &stored_checksum, sizeof(stored_checksum),
+                          err, errlen) != 0 || stored_checksum != checksum)) {
+            if (err && errlen) snprintf(err, errlen,
+                                        "Metal session payload checksum mismatch");
+            rc = -1;
+        }
+        free(buf);
+        if (rc != 0) {
+            qw3_tokens_free(&new_tokens);
+            qw3_session_invalidate(s);
+            return -1;
+        }
+        s->tokens = new_tokens;
+        s->kv.pos = h.kv_pos;
+        s->valid = true;
+        return 0;
+    }
+#endif
+
+    if (h.version != QW3_SESSION_PAYLOAD_VERSION ||
+        h.header_size != sizeof(qw3_session_payload_header)) {
+        if (err && errlen) snprintf(err, errlen, "unsupported session payload");
+        return -1;
+    }
+#ifndef QW3_NO_METAL
+    if (s->engine && s->engine->backend == QW3_BACKEND_METAL) {
+        if (err && errlen) snprintf(err, errlen,
+                                    "CPU session payload cannot restore Metal state");
+        return -1;
+    }
+#endif
     if (h.ctx_size != s->ctx_size ||
         h.kv_floats != session_kv_floats(s) ||
         h.dn_floats != session_dn_floats() ||

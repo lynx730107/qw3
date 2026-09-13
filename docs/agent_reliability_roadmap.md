@@ -33,10 +33,13 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
 
 ## Phase 3: Persistent inference state
 
-- [pending] Add Metal export/import for occupied F16 KV rows, GatedDeltaNet
-  state, convolution state, token ids, and logits.
-- [pending] Store full session checkpoints atomically with model/backend/cache
-  compatibility metadata.
+- [completed] Add Metal export/import for occupied F16 KV rows, the F16 flash
+  tail, GatedDeltaNet state, convolution state, token ids, and logits, with a
+  bit-exact multi-step logit round-trip test.
+- [completed] Store full session checkpoints atomically with model, backend,
+  context, cache-type, layout, token-sequence, and payload-checksum validation.
+  Keep transcript replay as the fallback for missing, stripped, damaged, or
+  otherwise rejected state.
 - [pending] Add two warm-prefix checkpoint tiers: stable model/tool behavior and
   the project-specific environment tail.
 
@@ -44,8 +47,9 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
 
 - [completed] Add an opt-in private JSONL trace for session configuration, user
   turns, tool results, compaction decisions, prefill, and decode metrics.
-- [pending] Extend the trace with explicit incremental-append and full-rebuild
-  cache decisions once persistent backend checkpoints are available.
+- [completed] Extend the trace with checkpoint save/load outcomes and retain
+  per-inference cached-token versus appended-prefill metrics, making resume,
+  incremental extension, rejection, and rebuild decisions observable.
 - [pending] Add reproducible agent coding smoke tasks and feature A/B switches.
 - [pending] Add permission modes, pre-edit workspace checkpoints, session forks,
   atomic private session files, and optional `--ctx auto` memory governance.

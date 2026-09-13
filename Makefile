@@ -11,8 +11,8 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav \
-	test-vectors test-agent-bash test-agent-context test-agent-edit test-agent-repeat test-agent-trace test-agent-verify test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
-	test-runtime-regression test-prefill-bench test-regression test-regression-full \
+	test-vectors test-agent-bash test-agent-checkpoint test-agent-context test-agent-edit test-agent-repeat test-agent-trace test-agent-verify test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
+	test-metal-session-roundtrip test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 all: qw3-cli qw3-agent qw3-eval qw3-bench
@@ -133,6 +133,9 @@ test-agent-edit: qw3-agent
 test-agent-bash: qw3-agent
 	sh tests/test_agent_bash_tool.sh
 
+test-agent-checkpoint: qw3-agent
+	sh tests/test_agent_checkpoint.sh
+
 test-agent-color: qw3-agent
 	QW3_AGENT_COLOR_SELFTEST=1 ./qw3-agent
 
@@ -166,13 +169,16 @@ test-metal-gqa-decode: qw3-test
 test-metal-logits-concurrent: qw3-test
 	QW3_METAL_BIN=./qw3-test QW3_METAL_PREFILL_CONCURRENT=1 sh tests/test_metal_logits_regression.sh
 
+test-metal-session-roundtrip: qw3-test
+	QW3_METAL_BIN=./qw3-test sh tests/test_metal_session_roundtrip.sh
+
 test-runtime-regression: qw3-cli qw3-agent
 	sh tests/test_runtime_regression.sh
 
 test-prefill-bench: qw3-bench
 	sh tests/test_prefill_bench_regression.sh
 
-test-regression: test-agent-bash test-agent-color test-agent-context test-agent-edit test-agent-repeat test-agent-status test-agent-tool-parse test-agent-trace test-agent-verify test-metal-logits test-runtime-regression
+test-regression: test-agent-bash test-agent-checkpoint test-agent-color test-agent-context test-agent-edit test-agent-repeat test-agent-status test-agent-tool-parse test-agent-trace test-agent-verify test-metal-logits test-metal-session-roundtrip test-runtime-regression
 
 .PHONY: test-metal-sampling
 test-metal-sampling:

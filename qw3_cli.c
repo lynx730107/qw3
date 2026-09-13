@@ -1770,16 +1770,6 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-#if QW3_CLI_ENABLE_INTERNAL_TESTS
-    if (backend == QW3_BACKEND_METAL &&
-        (save_session_path || load_session_path || session_roundtrip))
-    {
-        fprintf(stderr,
-                "qw3: session save/load/roundtrip currently use CPU session state; pass --cpu for these commands\n");
-        return 1;
-    }
-#endif
-
     /* Print model shape summary. */
     qw3_log(stderr, QW3_LOG_OK,
             "qw3: Qwen3.6-35B-A3B engine (Phase 3 CPU reference)\n");
@@ -2716,22 +2706,71 @@ int main(int argc, char **argv)
             qw3_engine_close(engine);
             return 1;
         }
-        qw3_token_score sa[5], sb[5];
-        int na = qw3_session_top_logprobs(a, sa, 5);
-        int nb = qw3_session_top_logprobs(b, sb, 5);
+        const int n_vocab = qw3_vocab_size(engine);
+        float *la = malloc((size_t)n_vocab * sizeof(float));
+        float *lb = malloc((size_t)n_vocab * sizeof(float));
         float maxdiff = 0.0f;
-        int ok = (na == nb);
-        for (int i = 0; i < na && i < nb; i++)
+        double sumsq = 0.0;
+        int compared = 0;
+        int decode_steps = 0;
+        int ok = la && lb && qw3_session_pos(a) == qw3_session_pos(b);
+        for (int step = 0; ok && step <= 4; step++)
         {
-            float d = fabsf(sa[i].logit - sb[i].logit);
-            if (d > maxdiff)
-                maxdiff = d;
-            if (sa[i].id != sb[i].id || d != 0.0f)
+            if (qw3_session_copy_logits(a, la, n_vocab) != n_vocab ||
+                qw3_session_copy_logits(b, lb, n_vocab) != n_vocab)
+            {
                 ok = 0;
+                break;
+            }
+            for (int i = 0; i < n_vocab; i++)
+            {
+                float d = fabsf(la[i] - lb[i]);
+                if (d > maxdiff)
+                    maxdiff = d;
+                sumsq += (double)d * d;
+                compared++;
+                if (d != 0.0f)
+                    ok = 0;
+            }
+            if (!ok || step == 4)
+                break;
+            int ta = qw3_session_argmax(a);
+            int tb = qw3_session_argmax(b);
+            if (ta < 0 || ta != tb ||
+                qw3_session_eval(a, ta, err, sizeof(err)) != 0 ||
+                qw3_session_eval(b, tb, err, sizeof(err)) != 0)
+            {
+                ok = 0;
+                break;
+            }
+            decode_steps++;
         }
-        printf("session roundtrip: bytes=%llu pos=%d top5=%s maxdiff=%.7g\n",
-               (unsigned long long)bytes, qw3_session_pos(b),
-               ok ? "ok" : "mismatch", maxdiff);
+        const int roundtrip_pos = qw3_session_pos(b);
+        int corrupt_rejected = 0;
+        if (ok && fseek(fp, -1, SEEK_END) == 0)
+        {
+            int byte = fgetc(fp);
+            if (byte != EOF && fseek(fp, -1, SEEK_END) == 0 &&
+                fputc(byte ^ 1, fp) != EOF && fflush(fp) == 0 &&
+                fseek(fp, 0, SEEK_SET) == 0)
+            {
+                char corrupt_err[256] = {0};
+                corrupt_rejected =
+                    qw3_session_load_payload(b, fp, bytes,
+                                             corrupt_err,
+                                             sizeof(corrupt_err)) != 0;
+            }
+        }
+        if (!corrupt_rejected)
+            ok = 0;
+        const double rmsdiff = compared > 0 ? sqrt(sumsq / compared) : 0.0;
+        printf("session roundtrip: bytes=%llu pos=%d logits=%s "
+               "decode_steps=%d maxdiff=%.7g rmsdiff=%.7g corrupt=%s\n",
+               (unsigned long long)bytes, roundtrip_pos,
+               ok ? "exact" : "mismatch", decode_steps, maxdiff, rmsdiff,
+               corrupt_rejected ? "rejected" : "accepted");
+        free(lb);
+        free(la);
         fclose(fp);
         qw3_session_free(a);
         qw3_session_free(b);
