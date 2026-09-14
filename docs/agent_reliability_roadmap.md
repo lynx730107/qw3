@@ -53,7 +53,10 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
 - [completed] Extend the trace with checkpoint save/load outcomes and retain
   per-inference cached-token versus appended-prefill metrics, making resume,
   incremental extension, rejection, and rebuild decisions observable.
-- [pending] Add reproducible agent coding smoke tasks and feature A/B switches.
+- [completed] Add a reproducible model-driven coding smoke task that requires
+  native `write`, native `bash`, compilation, execution, and exact source
+  verification in an isolated workspace.
+- [pending] Add broader feature A/B switches for agent behavior experiments.
 - [pending] Add permission modes, pre-edit workspace checkpoints, session forks,
   atomic private session files, and optional `--ctx auto` memory governance.
 
