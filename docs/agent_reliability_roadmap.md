@@ -40,8 +40,11 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
   context, cache-type, layout, token-sequence, and payload-checksum validation.
   Keep transcript replay as the fallback for missing, stripped, damaged, or
   otherwise rejected state.
-- [pending] Add two warm-prefix checkpoint tiers: stable model/tool behavior and
-  the project-specific environment tail.
+- [completed] Add a bounded, private system/tool-prefix checkpoint keyed by its
+  exact tokens, model path, context, and backend configuration, with an A/B
+  switch and full-conversation checkpoint precedence.
+- [pending] Add the second warm-prefix tier for a project-specific environment
+  tail.
 
 ## Phase 4: Measurement and safety
 

@@ -92,6 +92,8 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_STATUS_REDRAW_INTERVAL_SEC 0.200
 #define QW3_AGENT_STATUS_STYLE_START "\033[7m"
 #define QW3_AGENT_STATUS_STYLE_END "\033[0m"
+#define QW3_AGENT_PREFIX_CACHE_KEEP 4
+#define QW3_AGENT_PREFIX_CACHE_VERSION 1u
 
 #define AGENT_STORE_MAGIC "QW3AGKV1"
 #define AGENT_STORE_VERSION 1u
@@ -155,6 +157,7 @@ typedef struct {
     int max_tool_rounds;
     bool tools_enabled;
     bool dump_prompt;
+    bool prefix_cache;
     qw3_backend backend;
     qw3_think_mode think_mode;
     sample_opts sample;
@@ -230,6 +233,7 @@ typedef struct {
     time_t session_created;
     time_t session_updated;
     bool session_stripped;
+    bool session_checkpoint_ready;
     agent_output_fn output_write;
     void *output_ud;
     agent_output_fn status_write;
@@ -653,6 +657,8 @@ static bool agent_ensure_message_room(agent_state *a, const char *role,
                                       const char *text, int reserve,
                                       const char *reason,
                                       char *err, size_t err_len);
+static void agent_prune_spills(const char *dir, const char *prefix,
+                               const char *protected_path, size_t keep);
 
 static char *native_tool_call_text(const tool_call_list *calls)
     __attribute__((unused));
@@ -1018,6 +1024,7 @@ static void agent_clear_session_meta(agent_state *a) {
     a->session_created = 0;
     a->session_updated = 0;
     a->session_stripped = false;
+    a->session_checkpoint_ready = false;
 }
 
 static void agent_note_user_message(agent_state *a, const char *msg) {
@@ -1182,11 +1189,13 @@ static int store_write_tokens_path(agent_state *a, const char *path) {
 /* Return 0 when a durable checkpoint was written, 1 when this backend/layout
  * does not expose a payload, and -1 on an actual save failure. */
 static int store_write_checkpoint_path(agent_state *a, const char *path,
+                                       const qw3_tokens *tokens,
                                        char *err, size_t err_len) {
-    if (!a || !a->session || !path || a->cfg.backend != QW3_BACKEND_METAL) {
+    if (!a || !a->session || !path || !tokens ||
+        a->cfg.backend != QW3_BACKEND_METAL) {
         return 1;
     }
-    if (qw3_session_sync(a->session, &a->transcript, err, err_len) != 0) {
+    if (qw3_session_sync(a->session, tokens, err, err_len) != 0) {
         return -1;
     }
     const uint64_t bytes = qw3_session_payload_bytes(a->session);
@@ -1248,6 +1257,107 @@ static int store_read_checkpoint_path(agent_state *a, const char *path,
     }
     fclose(fp);
     if (rc != 0) qw3_session_invalidate(a->session);
+    return rc;
+}
+
+static char *store_prefix_cache_path(agent_state *a,
+                                     const qw3_tokens *prefix) {
+    if (!a || !prefix || !a->cfg.store_dir) return NULL;
+    uint64_t hash = 1469598103934665603ull;
+    const uint32_t version = QW3_AGENT_PREFIX_CACHE_VERSION;
+    hash = agent_hash_update(hash, &version, sizeof(version));
+    hash = agent_hash_update(hash, &a->cfg.backend, sizeof(a->cfg.backend));
+    hash = agent_hash_update(hash, &a->cfg.ctx_size, sizeof(a->cfg.ctx_size));
+    hash = agent_hash_update(hash, a->cfg.model_path,
+                             strlen(a->cfg.model_path));
+    const char *metal_env[] = {
+        getenv("QW3_METAL_NGL"),
+        getenv("QW3_METAL_KV_F16"),
+        getenv("QW3_METAL_KV_Q8_0"),
+    };
+    for (size_t i = 0; i < sizeof(metal_env) / sizeof(metal_env[0]); i++) {
+        const char *value = metal_env[i] ? metal_env[i] : "";
+        hash = agent_hash_update(hash, value, strlen(value) + 1);
+    }
+    hash = agent_hash_update(hash, &prefix->len, sizeof(prefix->len));
+    if (prefix->len > 0) {
+        hash = agent_hash_update(hash, prefix->v,
+                                 (size_t)prefix->len * sizeof(prefix->v[0]));
+    }
+    char name[64];
+    snprintf(name, sizeof(name), ".prefix-v%u-%016llx.kvc",
+             QW3_AGENT_PREFIX_CACHE_VERSION, (unsigned long long)hash);
+    return path_join(a->cfg.store_dir, name);
+}
+
+static bool agent_transcript_has_prefix(const agent_state *a,
+                                        const qw3_tokens *prefix) {
+    return a && prefix && a->transcript.len >= prefix->len &&
+           (prefix->len == 0 ||
+            !memcmp(a->transcript.v, prefix->v,
+                    (size_t)prefix->len * sizeof(prefix->v[0])));
+}
+
+/* Restore or create the reusable system-prompt state. A complete conversation
+ * checkpoint always wins; this path is only the fallback for a fresh session
+ * or a transcript-only conversation. */
+static int agent_prepare_prefix_cache(agent_state *a) {
+    if (!a || !a->session || !a->engine || !a->cfg.prefix_cache ||
+        a->cfg.backend != QW3_BACKEND_METAL ||
+        a->session_checkpoint_ready) {
+        return 1;
+    }
+
+    qw3_tokens prefix = {0};
+    qw3_chat_append_message(a->engine, &prefix, "system",
+                            a->cfg.system_prompt);
+    if (!agent_transcript_has_prefix(a, &prefix) ||
+        qw3_session_payload_bytes(a->session) == 0) {
+        agent_trace_begin(a, "prefix_cache");
+        agent_trace_string(a, "result", "unavailable");
+        agent_trace_i64(a, "tokens", prefix.len);
+        agent_trace_end(a);
+        qw3_tokens_free(&prefix);
+        return 1;
+    }
+
+    char *path = store_prefix_cache_path(a, &prefix);
+    if (!path) {
+        qw3_tokens_free(&prefix);
+        return -1;
+    }
+    char err[256] = {0};
+    int rc = store_read_checkpoint_path(a, path, &prefix, err, sizeof(err));
+    const char *result = "hit";
+    if (rc == 0) {
+        agent_statusf(a, "agent: prefix cache resumed (%d tokens)\n",
+                      prefix.len);
+    } else {
+        if (rc < 0) (void)unlink(path);
+        err[0] = '\0';
+        rc = store_write_checkpoint_path(a, path, &prefix, err, sizeof(err));
+        if (rc == 0) {
+            result = "written";
+            agent_statusf(a, "agent: prefix cache created (%d tokens)\n",
+                          prefix.len);
+        } else {
+            result = "fallback";
+            agent_statusf(a,
+                          "agent: prefix cache unavailable (%s); "
+                          "continuing normally\n",
+                          err[0] ? err : "state export failed");
+        }
+    }
+    agent_trace_begin(a, "prefix_cache");
+    agent_trace_string(a, "result", result);
+    agent_trace_i64(a, "tokens", prefix.len);
+    agent_trace_end(a);
+    if (rc == 0) {
+        agent_prune_spills(a->cfg.store_dir, ".prefix-v", path,
+                           QW3_AGENT_PREFIX_CACHE_KEEP);
+    }
+    free(path);
+    qw3_tokens_free(&prefix);
     return rc;
 }
 
@@ -1396,7 +1506,8 @@ static int store_save(agent_state *a, const char *name) {
     char checkpoint_err[256] = {0};
     if (rc == 0 && !a->session_stripped) {
         checkpoint_rc = store_write_checkpoint_path(
-            a, checkpoint_path, checkpoint_err, sizeof(checkpoint_err));
+            a, checkpoint_path, &a->transcript,
+            checkpoint_err, sizeof(checkpoint_err));
         if (checkpoint_rc != 0) {
             (void)unlink(checkpoint_path);
             if (checkpoint_rc < 0) {
@@ -1432,6 +1543,7 @@ static int store_save(agent_state *a, const char *name) {
 }
 
 static int store_load(agent_state *a, const char *name) {
+    a->session_checkpoint_ready = false;
     char *token_path = store_path(a, name);
     char *meta_path = store_meta_path(a, name);
     char *text_path = store_text_path(a, name);
@@ -1509,6 +1621,7 @@ static int store_load(agent_state *a, const char *name) {
         agent_trace_i64(a, "tokens", a->transcript.len);
         agent_trace_end(a);
         agent_clear_session_meta(a);
+        a->session_checkpoint_ready = checkpoint_ready;
         a->session_id = agent_strdup(have_meta && meta.id ? meta.id : name);
         a->session_title = agent_strdup(have_meta && meta.title ? meta.title : name);
         a->session_created = have_meta && meta.created ? meta.created : time(NULL);
@@ -1670,6 +1783,7 @@ static int store_delete(agent_state *a, const char *name) {
     if (store_current_id_matches(a, name)) {
         agent_init_transcript(a);
         agent_clear_session_meta(a);
+        (void)agent_prepare_prefix_cache(a);
     }
     agent_statusf(a, "agent: deleted %s\n", name);
     return 0;
@@ -6658,9 +6772,9 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
     time_t now = time(NULL);
     struct tm local_now;
     if (now != (time_t)-1 && localtime_r(&now, &local_now) &&
-        strftime(now_text, sizeof(now_text), "%A %Y-%m-%d %H:%M:%S %Z",
+        strftime(now_text, sizeof(now_text), "%A %Y-%m-%d %Z",
                  &local_now) > 0) {
-        sb_append(&sb, "Current local date/time: ");
+        sb_append(&sb, "Current local date: ");
         sb_append(&sb, now_text);
         sb_append(&sb,
                   ". For date questions, use the weekday and date from this "
@@ -6711,6 +6825,7 @@ static void print_help(void) {
         "  --conversation NAME  Load/save a named conversation\n"
         "  --chdir PATH         Change working directory before loading/running\n"
         "  --trace PATH         Append machine-readable JSONL agent events\n"
+        "  --no-prefix-cache   Disable the reusable Metal system-prompt cache\n"
         "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
@@ -6735,6 +6850,7 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     cfg->ctx_size = 32768;
     cfg->max_tool_rounds = QW3_AGENT_MAX_TOOL_ROUNDS;
     cfg->tools_enabled = true;
+    cfg->prefix_cache = true;
     cfg->think_mode = QW3_THINK_ON;
     cfg->sample.temperature = 0.6f;
     cfg->sample.sample_top_k = 20;
@@ -6835,6 +6951,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             cfg->chdir_path = agent_strdup(argv[++i]);
         } else if (!strcmp(argv[i], "--trace") && i + 1 < argc) {
             cfg->trace_path = argv[++i];
+        } else if (!strcmp(argv[i], "--no-prefix-cache")) {
+            cfg->prefix_cache = false;
         } else if (!strcmp(argv[i], "--max-tool-rounds") && i + 1 < argc) {
             cfg->max_tool_rounds = atoi(argv[++i]);
             if (cfg->max_tool_rounds < 1) cfg->max_tool_rounds = 1;
@@ -7053,6 +7171,7 @@ static int handle_command(agent_state *a, char *line, char **message_out) {
         return -1;
     } else if (!strcmp(line, "/new")) {
         agent_init_transcript(a);
+        (void)agent_prepare_prefix_cache(a);
         agent_statusf(a, "agent: new conversation\n");
     } else if (!strcmp(line, "/ctx")) {
         agent_statusf(a, "tokens=%d ctx=%d tools=%s think=%s\n",
@@ -7079,11 +7198,15 @@ static int handle_command(agent_state *a, char *line, char **message_out) {
         if (a->session_id || a->session_title) (void)store_save(a, NULL);
         if (store_load(a, line + 8) != 0) {
             agent_statusf(a, "agent: cannot switch to %s\n", line + 8);
+        } else {
+            (void)agent_prepare_prefix_cache(a);
         }
     } else if (!strncmp(line, "/load ", 6)) {
         if (a->session_id || a->session_title) (void)store_save(a, NULL);
         if (store_load(a, line + 6) != 0) {
             agent_statusf(a, "agent: cannot load %s\n", line + 6);
+        } else {
+            (void)agent_prepare_prefix_cache(a);
         }
     } else if (!strncmp(line, "/del ", 5)) {
         (void)store_delete(a, line + 5);
@@ -8614,6 +8737,7 @@ int main(int argc, char **argv) {
     if (a.cfg.conversation) {
         (void)store_load(&a, a.cfg.conversation);
     }
+    (void)agent_prepare_prefix_cache(&a);
     if (a.cfg.dump_prompt) {
         int dump_rc = agent_dump_rendered_prompt(&a, a.cfg.prompt);
         agent_reset_source_read_budget(&a);

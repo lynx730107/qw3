@@ -130,6 +130,13 @@ occupied KV rows, recurrent DeltaNet and convolution state, tokens, and logits.
 prefix. A missing, stripped, incompatible, or damaged checkpoint is ignored and
 rebuilt from the persisted transcript.
 
+Fresh sessions also keep a private reusable Metal checkpoint for the system and
+tool prefix. The first launch creates it; later launches on the same model,
+context, configuration, and local date restore it instead of prefilling that
+prefix again. At most four variants are retained. Use `--no-prefix-cache` for a
+direct A/B comparison or troubleshooting. Full conversation checkpoints always
+take precedence over the prefix cache.
+
 The main tools are:
 
 - `read`, `more`, `list`: file reading and navigation.
