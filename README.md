@@ -23,9 +23,8 @@ discipline.
 - The only supported GGUF quantization is currently Unsloth's `IQ4_XS`
   release from Hugging Face.
 - Metal generation: stable.
-- Metal prefill: still being optimized; the local `pp4096` benchmark is around
-  600 tok/s on the tested Apple M5 setup under the conditions documented in
-  `docs/metal_prefill_validation.md`.
+- Metal prefill: about 633 tok/s in the warmed local `pp4096` benchmark on the
+  tested Apple M5 setup.
 - Agent: usable, with local tools, context compaction, and code-navigation
   helpers.
 
@@ -95,6 +94,32 @@ Metal logits regression:
 ```sh
 make test-metal-logits
 ```
+
+## Performance
+
+Measurements below were taken on September 14, 2026, on a MacBook Air M5 with
+24 GB unified memory. They use the supported
+`Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, full Metal offload, F16 KV cache, and
+`caffeinate -disu`. Results are local observations, not hardware-independent
+guarantees.
+
+| Test | Context allocation | Repetitions | Result |
+| --- | ---: | ---: | ---: |
+| Prefill `pp4096`, warmed | 16,000 | 3 | 633.49 tok/s (SD 2.02) |
+| Decode `tg128`, depth 4,096, warmed | 16,000 | 3 | 39.08 tok/s (SD 0.88) |
+| Decode `tg128`, depth 16,384, no warmup | 17,000 | 1 | 32.84 tok/s |
+
+The warmed prefill command was:
+
+```sh
+caffeinate -disu ./qw3-bench -m MODEL.gguf --ctx-alloc 16000 \
+  --llama-style -p 4096 -n 0 -r 3
+```
+
+The M5 Air is fanless. Long repeated runs can reduce sustained decode speed;
+the depth-16,384 row is deliberately reported as a single observation rather
+than a stable average. Full benchmark history, rejected experiments, and
+validation details are recorded in `docs/metal_prefill_validation.md`.
 
 ## Agent
 

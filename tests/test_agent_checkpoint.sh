@@ -32,12 +32,14 @@ grep -q 'KV ready' "$first" || fail "checkpoint was not saved"
 
 "$AGENT" -m "$MODEL" --ctx "$CTX" --nothink --temp 0 -n 256 \
     --store-dir "$tmpdir" --conversation checkpoint-test \
-    -p "Usa il tool bash per eseguire esattamente: printf QW3_KV_RESUME_TOOL_OK. Poi riferisci il risultato." \
+    -p "Devi chiamare realmente il tool bash adesso. Non simulare, non descrivere e non inventare il risultato. Usa bash per eseguire esattamente: uuidgen. Solo dopo la risposta del tool, riferisci l'UUID ottenuto." \
     >"$second" 2>&1 || fail "resumed conversation failed"
 
 cat "$second"
 grep -q 'KV resumed' "$second" || fail "checkpoint was not restored"
 grep -q '\[tool\] bash' "$second" || fail "resumed agent did not call bash"
-grep -q 'QW3_KV_RESUME_TOOL_OK' "$second" || fail "resumed tool output is missing"
+grep -q '\$ uuidgen' "$second" || fail "resumed agent called the wrong command"
+grep -Eq '[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}' "$second" ||
+    fail "resumed tool output is missing"
 
 echo "test-agent-checkpoint: ok"
