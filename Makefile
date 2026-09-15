@@ -11,8 +11,8 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav \
-	test-vectors test-agent-bash test-agent-checkpoint test-agent-coding-smoke test-agent-context test-agent-edit test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
-	test-metal-session-roundtrip test-runtime-regression test-prefill-bench test-regression test-regression-full \
+	test-vectors test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-context test-agent-edit test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
+	test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 all: qw3-cli qw3-agent qw3-eval qw3-bench
@@ -58,7 +58,13 @@ qw3-eval-cpu: qw3_eval_cpu.o qw3_cpu_core.o
 ifeq ($(UNAME_S),Darwin)
 metal: qw3-cli qw3-agent qw3-eval qw3-bench
 
-qw3_metal_core.o: qw3.c qw3.h qw3_metal.h
+.PHONY: FORCE
+FORCE:
+
+qw3_runtime_fingerprint.h: FORCE
+	python3 tools/runtime_fingerprint.py $@ '$(CC)' '$(CFLAGS)' '$(OBJCFLAGS)' '$(METAL_LDLIBS)'
+
+qw3_metal_core.o: qw3.c qw3.h qw3_metal.h qw3_runtime_fingerprint.h
 	$(CC) $(CFLAGS) -c -o $@ qw3.c
 
 qw3_metal_cli.o: qw3_cli.c qw3.h
@@ -73,7 +79,7 @@ qw3_metal_agent.o: qw3_agent.c qw3.h linenoise.h
 qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_eval.c
 
-qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS)
+qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -c -o $@ qw3_metal.m
 
 qw3-cli: qw3_metal_cli.o qw3_metal_core.o qw3_metal.o
@@ -178,13 +184,19 @@ test-metal-logits-concurrent: qw3-test
 test-metal-session-roundtrip: qw3-test
 	QW3_METAL_BIN=./qw3-test sh tests/test_metal_session_roundtrip.sh
 
+test-agent-checkpoint-compatibility: qw3-agent
+	sh tests/test_agent_checkpoint_compatibility.sh
+
+test-runtime-fingerprint:
+	python3 tests/test_runtime_fingerprint.py
+
 test-runtime-regression: qw3-cli qw3-agent
 	sh tests/test_runtime_regression.sh
 
 test-prefill-bench: qw3-bench
 	sh tests/test_prefill_bench_regression.sh
 
-test-regression: test-agent-bash test-agent-checkpoint test-agent-color test-agent-context test-agent-edit test-agent-prefix-cache test-agent-repeat test-agent-status test-agent-tool-parse test-agent-trace test-agent-verify test-metal-logits test-metal-session-roundtrip test-runtime-regression
+test-regression: test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-color test-agent-context test-agent-edit test-agent-prefix-cache test-agent-repeat test-agent-status test-agent-tool-parse test-agent-trace test-agent-verify test-metal-logits test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression
 
 .PHONY: test-metal-sampling
 test-metal-sampling:
@@ -193,6 +205,7 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3_runtime_fingerprint.h
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

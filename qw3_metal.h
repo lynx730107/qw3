@@ -10,6 +10,8 @@
  */
 
 int qw3_metal_init(void);
+/* Identity of compiled kernels and execution configuration. */
+void qw3_metal_kernel_fingerprint(unsigned char out[32]);
 void qw3_metal_cleanup(void);
 int qw3_metal_begin_commands(void);
 int qw3_metal_begin_commands_concurrent(void);

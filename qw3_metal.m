@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#include <CommonCrypto/CommonDigest.h>
 
 #include <stdint.h>
 #include <float.h>
@@ -10,6 +11,7 @@
 #include <math.h>
 
 #include "qw3_metal.h"
+#include "qw3_runtime_fingerprint.h"
 
 /*
  * Minimal Metal bridge for qw3.
@@ -20,6 +22,20 @@
  */
 
 static id<MTLDevice> g_device;
+static unsigned char g_kernel_fingerprint[CC_SHA256_DIGEST_LENGTH];
+
+void qw3_metal_kernel_fingerprint(unsigned char out[32]) {
+    static const char *names[] = QW3_RUNTIME_ENV_NAMES;
+    NSMutableData *identity = [NSMutableData dataWithBytes:g_kernel_fingerprint length:32];
+    for (size_t i = 0; names[i]; i++) {
+        const char *value = getenv(names[i]);
+        const unsigned char present = value != NULL;
+        [identity appendBytes:names[i] length:strlen(names[i]) + 1];
+        [identity appendBytes:&present length:1];
+        if (value) [identity appendBytes:value length:strlen(value) + 1];
+    }
+    CC_SHA256([identity bytes], (CC_LONG)[identity length], out);
+}
 static id<MTLCommandQueue> g_queue;
 static id<MTLCommandBuffer> g_batch_cb;
 static id<MTLComputeCommandEncoder> g_batch_enc;
@@ -730,7 +746,7 @@ static NSString *qw3_metal_full_kernel_source(void) {
          "#ifndef FOR_UNROLL\n"
          "#define FOR_UNROLL(x) _Pragma(\"clang loop unroll(full)\") for (x)\n"
          "#endif\n"];
-    [source appendFormat:@"\n// appended %@\n%@\n", path, flash_source];
+    [source appendFormat:@"\n// appended flash attention\n%@\n", flash_source];
     [source appendString:
         @"\n// QW3 Qwen3 full-attention prefill instantiation, head_dim = 256.\n"
          "#define QW3_FA_NONVEC_TYPES \\\n"
@@ -871,6 +887,30 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    /* Capture the exact assembled source and effective tensor compile option. */
+    NSData *source_bytes = [kernel_source dataUsingEncoding:NSUTF8StringEncoding];
+    NSMutableData *identity = [source_bytes mutableCopy];
+    const unsigned char tensor_enabled = g_metal4_tensor_api_enabled != 0;
+    [identity appendBytes:&tensor_enabled length:1];
+    NSString *math_config;
+#if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+    if (@available(macOS 15.0, *)) {
+        math_config = [NSString stringWithFormat:@"%lu:%lu",
+            (unsigned long)options.mathMode,
+            (unsigned long)options.mathFloatingPointFunctions];
+    } else
+#endif
+    {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        math_config = [NSString stringWithFormat:@"legacy:%d", options.fastMathEnabled];
+#pragma clang diagnostic pop
+    }
+    NSString *compile_config = [NSString stringWithFormat:@"%@:%lu:%@:%@",
+        math_config, (unsigned long)options.languageVersion,
+        [[NSProcessInfo processInfo] operatingSystemVersionString], g_device.name];
+    [identity appendData:[compile_config dataUsingEncoding:NSUTF8StringEncoding]];
+    CC_SHA256([identity bytes], (CC_LONG)[identity length], g_kernel_fingerprint);
     id<MTLFunction> fn = [g_library newFunctionWithName:@"qw3_rmsnorm_plain"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_rmsnorm_plain not found\n");

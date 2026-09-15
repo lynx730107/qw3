@@ -2732,6 +2732,8 @@ int main(int argc, char **argv)
                 if (d != 0.0f)
                     ok = 0;
             }
+            if (memcmp(la, lb, (size_t)n_vocab * sizeof(float)) != 0)
+                ok = 0;
             if (!ok || step == 4)
                 break;
             int ta = qw3_session_argmax(a);
@@ -2746,6 +2748,43 @@ int main(int argc, char **argv)
             decode_steps++;
         }
         const int roundtrip_pos = qw3_session_pos(b);
+        int incompatible_rejected = 0;
+        if (ok && backend == QW3_BACKEND_METAL)
+        {
+            uint32_t header_size = 0;
+            if (fseek(fp, 12, SEEK_SET) != 0 ||
+                fread(&header_size, sizeof(header_size), 1, fp) != 1 ||
+                header_size < 64)
+                ok = 0;
+            /* v3 ends its header with two SHA-256 digests. Mutate each
+             * separately, then the version, without touching state/checksum. */
+            for (int which = 0; ok && which < 3; which++)
+            {
+                long offset = which == 2 ? 8 : (long)header_size - 64 + which * 32;
+                char reject_err[256] = {0};
+                if (fseek(fp, offset, SEEK_SET) != 0) { ok = 0; break; }
+                int byte = fgetc(fp);
+                if (byte == EOF || fseek(fp, offset, SEEK_SET) != 0 ||
+                    fputc(which == 2 ? 2 : byte ^ 1, fp) == EOF ||
+                    fflush(fp) != 0 || fseek(fp, 0, SEEK_SET) != 0 ||
+                    qw3_session_load_payload(b, fp, bytes, reject_err,
+                                             sizeof(reject_err)) == 0 ||
+                    strcmp(reject_err, which == 2 ? "unsupported session payload" :
+                           "Metal session runtime/kernel fingerprint mismatch") != 0 ||
+                    qw3_session_pos(b) != roundtrip_pos ||
+                    qw3_session_copy_logits(b, lb, n_vocab) != n_vocab ||
+                    memcmp(la, lb, (size_t)n_vocab * sizeof(float)) != 0)
+                { ok = 0; break; }
+                incompatible_rejected++;
+                if (fseek(fp, offset, SEEK_SET) != 0 || fputc(byte, fp) == EOF ||
+                    fflush(fp) != 0)
+                    ok = 0;
+            }
+            /* A rejected load must still permit an ordinary compatible restore. */
+            if (ok && (fseek(fp, 0, SEEK_SET) != 0 ||
+                       qw3_session_load_payload(b, fp, bytes, err, sizeof(err)) != 0))
+                ok = 0;
+        }
         int corrupt_rejected = 0;
         if (ok && fseek(fp, -1, SEEK_END) == 0)
         {
@@ -2765,10 +2804,10 @@ int main(int argc, char **argv)
             ok = 0;
         const double rmsdiff = compared > 0 ? sqrt(sumsq / compared) : 0.0;
         printf("session roundtrip: bytes=%llu pos=%d logits=%s "
-               "decode_steps=%d maxdiff=%.7g rmsdiff=%.7g corrupt=%s\n",
+               "decode_steps=%d maxdiff=%.7g rmsdiff=%.7g corrupt=%s incompatible=%d\n",
                (unsigned long long)bytes, roundtrip_pos,
                ok ? "exact" : "mismatch", decode_steps, maxdiff, rmsdiff,
-               corrupt_rejected ? "rejected" : "accepted");
+               corrupt_rejected ? "rejected" : "accepted", incompatible_rejected);
         free(lb);
         free(la);
         fclose(fp);

@@ -37,9 +37,9 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
   tail, GatedDeltaNet state, convolution state, token ids, and logits, with a
   bit-exact multi-step logit round-trip test.
 - [completed] Store full session checkpoints atomically with model, backend,
-  context, cache-type, layout, token-sequence, and payload-checksum validation.
-  Keep transcript replay as the fallback for missing, stripped, damaged, or
-  otherwise rejected state.
+  context, cache-type, layout, token-sequence, payload-checksum, built-runtime,
+  and loaded-kernel validation. Keep transcript replay as the fallback for
+  missing, stripped, damaged, or otherwise rejected state.
 - [completed] Add a bounded, private system/tool-prefix checkpoint keyed by its
   exact tokens, model path, context, and backend configuration, with an A/B
   switch and full-conversation checkpoint precedence.

@@ -26,7 +26,7 @@ if ! "$BIN" -m "$MODEL" --ctx "$CTX" --nothink \
 fi
 
 cat "$tmp"
-grep -Eq 'session roundtrip: .* logits=exact decode_steps=4 maxdiff=0 rmsdiff=0 corrupt=rejected$' "$tmp" ||
+grep -Eq 'session roundtrip: .* logits=exact decode_steps=4 maxdiff=0 rmsdiff=0 corrupt=rejected incompatible=3$' "$tmp" ||
     fail "restored logits were not bit-identical"
 
 echo "test-metal-session-roundtrip: ok"

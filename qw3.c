@@ -41,6 +41,7 @@
 
 #ifndef QW3_NO_METAL
 #include "qw3_metal.h"
+#include "qw3_runtime_fingerprint.h"
 #endif
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
@@ -15360,7 +15361,7 @@ int qw3_session_copy_logits(qw3_session *s, float *out, int cap) {
 
 enum {
     QW3_SESSION_PAYLOAD_VERSION = 1,
-    QW3_SESSION_METAL_PAYLOAD_VERSION = 2,
+    QW3_SESSION_METAL_PAYLOAD_VERSION = 3,
 };
 
 #define QW3_SESSION_PAYLOAD_MAGIC 0x3357515345535349ull /* "ISSESQW3" */
@@ -15391,6 +15392,8 @@ typedef struct {
     uint64_t conv_bytes;
     uint64_t logits_bytes;
     uint64_t model_fingerprint;
+    unsigned char runtime_fingerprint[32];
+    unsigned char kernel_fingerprint[32];
 } qw3_session_metal_payload_ext;
 
 enum {
@@ -15400,6 +15403,8 @@ enum {
 #define QW3_SESSION_IO_CHUNK (8u * 1024u * 1024u)
 
 #ifndef QW3_NO_METAL
+static const unsigned char session_runtime_fingerprint[32] = QW3_RUNTIME_FINGERPRINT;
+
 static uint64_t session_payload_hash_update(uint64_t h, const void *data,
                                             size_t bytes) {
     const unsigned char *p = data;
@@ -15598,6 +15603,8 @@ int qw3_session_save_payload(qw3_session *s, FILE *fp,
             .logits_bytes = info.logits_bytes,
             .model_fingerprint = session_model_fingerprint(&s->engine->model),
         };
+        memcpy(ext.runtime_fingerprint, session_runtime_fingerprint, 32);
+        qw3_metal_kernel_fingerprint(ext.kernel_fingerprint);
         if (!qw3_metal_synchronize() ||
             payload_write(fp, &h, sizeof(h), err, errlen) != 0 ||
             payload_write(fp, &ext, sizeof(ext), err, errlen) != 0) {
@@ -15713,6 +15720,15 @@ int qw3_session_load_payload(qw3_session *s, FILE *fp,
                 h.kv_pos, h.token_len, &info)) {
             if (err && errlen) snprintf(err, errlen,
                                         "Metal session payload shape mismatch");
+            return -1;
+        }
+
+        unsigned char kernel_fingerprint[32];
+        qw3_metal_kernel_fingerprint(kernel_fingerprint);
+        if (memcmp(ext.runtime_fingerprint, session_runtime_fingerprint, 32) ||
+            memcmp(ext.kernel_fingerprint, kernel_fingerprint, 32)) {
+            if (err && errlen) snprintf(err, errlen,
+                "Metal session runtime/kernel fingerprint mismatch");
             return -1;
         }
 
