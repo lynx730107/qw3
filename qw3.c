@@ -691,6 +691,7 @@ struct qw3_session {
     float *logits;      /* [QW3_N_VOCAB] */
     int ctx_size;
     bool valid;
+    bool cpu_logits_valid;
     qw3_session_progress_fn progress_fn;
     void *progress_ud;
 };
@@ -4122,6 +4123,7 @@ int qw3_session_create(qw3_session **out, qw3_engine *e, int ctx_size) {
     s->engine = e;
     s->ctx_size = ctx_size;
     s->valid = true;
+    s->cpu_logits_valid = false;
 
     s->kv.ctx_size = ctx_size;
     s->kv.pos = 0;
@@ -4213,6 +4215,7 @@ int qw3_session_common_prefix(qw3_session *s, const qw3_tokens *prompt) {
 void qw3_session_invalidate(qw3_session *s) {
     if (!s) return;
     s->valid = false;
+    s->cpu_logits_valid = false;
     s->kv.pos = 0;
     qw3_tokens_free(&s->tokens);
     memset(s->logits, 0, (size_t)QW3_N_VOCAB * sizeof(float));
@@ -4250,6 +4253,7 @@ void qw3_session_rewind(qw3_session *s, int pos) {
     s->tokens.len = pos;
     s->kv.pos = pos;
     s->valid = false;
+    s->cpu_logits_valid = false;
 }
 
 int qw3_session_pos(qw3_session *s) {
@@ -4385,6 +4389,7 @@ static int qw3_session_eval_inner(qw3_session *s, int token,
     token_vec_push(&s->tokens, token);
     s->kv.pos++;
     s->valid = true;
+    s->cpu_logits_valid = true;
     if (s->progress_fn) s->progress_fn(s->progress_ud, "layer", QW3_N_LAYER, QW3_N_LAYER);
 
 done:
@@ -4401,6 +4406,17 @@ int qw3_session_eval(qw3_session *s, int token, char *err, size_t errlen) {
     }
 #endif
     return qw3_session_eval_inner(s, token, err, errlen, NULL, false, NULL);
+}
+
+int qw3_session_eval_gpu_logits(qw3_session *s, int token,
+                                char *err, size_t errlen) {
+#ifndef QW3_NO_METAL
+    if (qw3_session_argmax_uses_metal_logits(s)) {
+        return qw3_metal_session_eval_token_slow_ex(
+            s, token, err, errlen, 0);
+    }
+#endif
+    return qw3_session_eval(s, token, err, errlen);
 }
 
 int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
@@ -12590,6 +12606,7 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
         for (int i = 0; i < n_tokens; i++) token_vec_push(&s->tokens, tokens[i]);
         s->kv.pos += n_tokens;
         s->valid = true;
+        s->cpu_logits_valid = logits_mode == QW3_METAL_LOGITS_READ;
     } else if (err && errlen) {
         snprintf(err, errlen, "Metal session batch prefill failed");
     }
@@ -12669,6 +12686,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
     float *cpu_tail_in = NULL;
     float *cpu_prefix_in = NULL;
     int batch_open = 0;
+    int cpu_logits_written = 0;
     int ok = 1;
     if (llama_split && metal_start > 0) {
         cpu_prefix_in = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
@@ -13147,6 +13165,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
             const int profile_tail = getenv("QW3_METAL_PROFILE_CPU_TAIL") != NULL;
             const double logits_t0 = profile_tail ? qw3_now_sec() : 0.0;
             ok = qw3_cpu_output_logits(s, cpu_tail_out, err, errlen);
+            if (ok) cpu_logits_written = 1;
             if (profile_tail) {
                 fprintf(stderr,
                         "qw3 metal cpu-tail profile pos=%llu logits=cpu ms=%.3f ok=%d\n",
@@ -13202,6 +13221,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
         } else {
             ok = 0;
         }
+        if (ok && logits_out) cpu_logits_written = 1;
         if (ok && graph_token_profile) t_graph_encoded = qw3_now_sec();
         if (ok && !logits_out) ok = qw3_metal_synchronize();
         if (ok && graph_token_profile) t_graph_done = qw3_now_sec();
@@ -13232,6 +13252,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
         } else {
             ok = 0;
         }
+        if (ok) cpu_logits_written = 1;
         if (profile) t_logits += qw3_now_sec() - t0;
     }
     if (!ok && batch_open) (void)qw3_metal_synchronize();
@@ -13239,6 +13260,7 @@ qw3_metal_session_eval_token_mode(qw3_session *s, int token,
         token_vec_push(&s->tokens, token);
         s->kv.pos++;
         s->valid = true;
+        s->cpu_logits_valid = cpu_logits_written != 0;
     } else if (err && errlen && !err[0]) {
         snprintf(err, errlen, "Metal session slow eval failed");
     }
@@ -15156,6 +15178,21 @@ static int qw3_session_sample_topk_metal(qw3_session *s, float temperature,
 #endif
 }
 
+static int qw3_session_ensure_cpu_logits(qw3_session *s) {
+    if (!s) return 0;
+    if (s->cpu_logits_valid) return 1;
+#ifndef QW3_NO_METAL
+    if (qw3_session_argmax_uses_metal_logits(s) &&
+        qw3_metal_session_read_state(
+            s->metal, QW3_METAL_STATE_LOGITS, 0, 0, s->logits,
+            (uint64_t)QW3_N_VOCAB * sizeof(float))) {
+        s->cpu_logits_valid = true;
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 static unsigned char *sample_recent_token_map(const int *recent_tokens,
                                               int n_recent_tokens,
                                               float repeat_penalty) {
@@ -15267,6 +15304,7 @@ int qw3_session_sample(qw3_session *s, float temperature, int top_k,
     int metal_id = qw3_session_sample_topk_metal(
         s, temperature, top_k, top_p, min_p, rng, NULL, 1.0f);
     if (metal_id >= 0) return metal_id;
+    if (!qw3_session_ensure_cpu_logits(s)) return -1;
 
     qw3_sample_item *items = qw3_xmalloc((size_t)QW3_N_VOCAB * sizeof(*items));
     for (int i = 0; i < QW3_N_VOCAB; i++) {
@@ -15309,6 +15347,10 @@ int qw3_session_sample_repetition(qw3_session *s, float temperature, int top_k,
         free(seen);
         return metal_id;
     }
+    if (!qw3_session_ensure_cpu_logits(s)) {
+        free(seen);
+        return -1;
+    }
 
     qw3_sample_item *items = qw3_xmalloc((size_t)QW3_N_VOCAB * sizeof(*items));
     for (int i = 0; i < QW3_N_VOCAB; i++) {
@@ -15330,6 +15372,7 @@ int qw3_session_sample_repetition(qw3_session *s, float temperature, int top_k,
 
 int qw3_session_top_logprobs(qw3_session *s, qw3_token_score *out, int k) {
     if (!s || !out || k <= 0) return 0;
+    if (!qw3_session_ensure_cpu_logits(s)) return 0;
     int *ids = qw3_xmalloc((size_t)k * sizeof(int));
     float *vals = qw3_xmalloc((size_t)k * sizeof(float));
     topk_desc(s->logits, QW3_N_VOCAB, k, ids, vals);
@@ -15797,6 +15840,7 @@ int qw3_session_load_payload(qw3_session *s, FILE *fp,
         s->tokens = new_tokens;
         s->kv.pos = h.kv_pos;
         s->valid = true;
+        s->cpu_logits_valid = true;
         return 0;
     }
 #endif
@@ -15840,6 +15884,7 @@ int qw3_session_load_payload(qw3_session *s, FILE *fp,
     if (payload_read(fp, s->logits, h.logits_floats * sizeof(float), err, errlen) != 0) return -1;
     s->kv.pos = h.kv_pos;
     s->valid = true;
+    s->cpu_logits_valid = true;
     return 0;
 }
 
@@ -15873,7 +15918,7 @@ int qw3_engine_generate_argmax(qw3_engine *e, const qw3_tokens *prompt,
         }
         if (token == eos) break;
         if (emit) emit(emit_ud, token);
-        rc = qw3_session_eval(s, token, err, sizeof(err));
+        rc = qw3_session_eval_gpu_logits(s, token, err, sizeof(err));
         if (rc != 0) {
             fprintf(stderr, "qw3: generation step failed: %s\n", err);
             break;

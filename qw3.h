@@ -293,6 +293,9 @@ int qw3_session_copy_logits(qw3_session *s, float *out, int cap);
 
 /* Single-token eval. */
 int qw3_session_eval(qw3_session *s, int token, char *err, size_t errlen);
+/* Keep output logits on Metal when the session can sample there directly. */
+int qw3_session_eval_gpu_logits(qw3_session *s, int token,
+                                char *err, size_t errlen);
 
 /* State management. */
 void qw3_session_invalidate(qw3_session *s);

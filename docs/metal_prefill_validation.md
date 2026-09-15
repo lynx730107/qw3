@@ -1488,3 +1488,47 @@ tokens produced output byte-identical to the saved pre-change reference,
 covering the important non-aligned prefill-to-decode transition. A live agent
 called bash, received `QW3_TAIL_OK`, and reported it correctly. Q8 KV is not
 routed through the persistent F16 tail.
+
+## Decode logits kept on Metal (September 15)
+
+Normal CLI and agent generation now leave the output logits on Metal between
+the forward pass and the next Metal argmax/top-k sampling operation. Previously
+each token also copied all 248320 logits to the CPU even though the default
+sampler immediately consumed the Metal buffer. CPU logits are tracked as a
+cache and fetched on demand, so diagnostic logit dumps, top-k values above 64,
+and `QW3_METAL_TOPK_SAMPLING=0` retain their previous behavior.
+
+The fixed 128-token sampled benchmark used temperature 0.6, top-k 20, top-p
+0.95, repetition penalty 1.06 and seed 42. Every A/B run produced the same
+token hash `cd4642fa86bfceda`. In the warm interleaved samples, omitting the
+readback reduced forward time from about 23.88 to 23.81 ms/token. Total sampled
+throughput remained effectively neutral at roughly 41.3 tok/s because Metal
+sampling and synchronization still dominate this small saving on unified
+memory. This is groundwork for a larger GPU-only token pipeline, not a material
+speed claim by itself.
+
+The existing graph-token profiler also bounded the next possible scheduler
+optimization. After pipeline initialization, encoding and submitting all 40
+layer command buffers took 0.45-0.67 ms/token, while the final GPU wait took
+22.12-22.50 ms/token. A reusable or parallel pre-encoded command stream could
+therefore recover at most about 2-3% before its own overhead, and would not
+address the dominant GPU work. Together with the previously rejected two- and
+four-layer command-buffer experiments, this is not a current implementation
+priority.
+
+Validation included `test-metal-logits`, the complete `test-regression` suite,
+a coherent 6399-token `prompt_perf.txt` run at ctx 16000, and the model-driven
+agent coding smoke test requiring native `write` and `bash`. The explicit CPU
+sampling fallback also retained the same 128-token hash. F16 KV was used; cache
+quantization was not changed.
+
+## Rejected fused Q8 GDN input projection (September 15)
+
+Two implementations combining each linear-attention layer's Q8
+`linear_qkv_proj` and `linear_gate_proj` dispatch were evaluated. The simple
+one-row form was neutral. A llama-style variant using four SIMD groups and
+eight output rows per workgroup passed `test-metal-logits` but reduced the
+depth-zero 128-token sampled result from about 41.1-41.7 tok/s to
+40.8 tok/s, a repeatable 1-2% regression. Both implementations were removed.
+Do not retry this exact fusion without a different data layout or dispatch
+strategy.

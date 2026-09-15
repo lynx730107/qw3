@@ -421,7 +421,8 @@ static int dump_logprobs(qw3_engine *engine, const qw3_tokens *prompt,
         if (selected == eos)
             break;
         qw3_tokens_push(&generated, selected);
-        if (qw3_session_eval(session, selected, err, sizeof(err)) != 0)
+        if (qw3_session_eval_gpu_logits(session, selected,
+                                        err, sizeof(err)) != 0)
         {
             fprintf(stderr, "qw3: dump-logprobs eval failed: %s\n", err);
             free(repeat_buf);
@@ -471,7 +472,8 @@ static int generate_from_session(qw3_engine *engine, qw3_session *session,
         emit_token(emit, token);
         if (!emit || !emit->capture)
             qw3_tokens_push(&local_generated, token);
-        if (qw3_session_eval(session, token, err, sizeof(err)) != 0)
+        if (qw3_session_eval_gpu_logits(session, token,
+                                        err, sizeof(err)) != 0)
         {
             fprintf(stderr, "qw3: generation step failed: %s\n", err);
             free(repeat_buf);

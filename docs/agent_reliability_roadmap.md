@@ -62,9 +62,13 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
 
 ## Phase 5: Decode fast path
 
-- [pending] Profile a fused Q8 GDN input projection for
-  `linear_qkv_proj` + `linear_gate_proj`.
-- [pending] Explore a pre-encoded single-token Metal layer pipeline while
-  keeping the validated prefill path unchanged.
+- [completed, rejected] Profiled two fused Q8 GDN input projections for
+  `linear_qkv_proj` + `linear_gate_proj`; the best candidate was neutral and
+  the llama-style multi-row candidate regressed decode by 1-2% on M5.
+- [completed] Keep decode logits on Metal through default argmax/top-k
+  sampling, with lazy CPU readback for diagnostics and unsupported samplers.
+- [deferred] A pre-encoded single-token Metal layer pipeline has a measured
+  0.45-0.67 ms/token CPU-submit ceiling versus 22.1-22.5 ms of GPU wait;
+  revisit only after the dominant GPU kernels improve substantially.
 - [deferred] Consider model-specific speculative decoding only after exact GDN
   rollback and batched verification are available.

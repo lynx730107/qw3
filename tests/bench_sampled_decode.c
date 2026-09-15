@@ -38,7 +38,12 @@ int main(int argc, char **argv) {
         if (token < 0) goto done;
         hash = (hash ^ (uint32_t)token) * 1099511628211ULL;
         t = now();
+#ifdef QW3_BENCH_CPU_LOGITS
         if (qw3_session_eval(session, token, error, sizeof(error)) != 0) goto done;
+#else
+        if (qw3_session_eval_gpu_logits(session, token,
+                                        error, sizeof(error)) != 0) goto done;
+#endif
         forward += now() - t;
     }
     printf("tokens=128 sample_ms=%.3f forward_ms=%.3f tok_s=%.3f hash=%" PRIx64 "\n",

@@ -5918,7 +5918,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
             free(text);
             break;
         }
-        if (qw3_session_eval(a->session, token, eval_err, sizeof(eval_err)) != 0) {
+        if (qw3_session_eval_gpu_logits(a->session, token,
+                                        eval_err, sizeof(eval_err)) != 0) {
             snprintf(err, err_len, "%s", eval_err);
             qw3_session_invalidate(a->session);
             qw3_tokens_free(&prompt);
@@ -6225,7 +6226,8 @@ static int generate_once(agent_state *a, char **assistant_text,
                 agent_statusf(a, "agent: stopped repeated text loop\n");
                 break;
             }
-            if (qw3_session_eval(a->session, token, err, sizeof(err)) != 0) {
+            if (qw3_session_eval_gpu_logits(a->session, token,
+                                            err, sizeof(err)) != 0) {
                 agent_statusf(a, "agent: decode failed: %s\n", err);
                 rc = -1;
                 break;
