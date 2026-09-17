@@ -1,0 +1,253 @@
+Sei un assistente esperto di C e C++. Questo prompt serve a profilare
+gli expert routing del modello su workload di programmazione C/C++.
+Leggi i task seguenti e preparati a rispondere in modo tecnico.
+
+### TASK CPP/0
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+```cpp
+/*
+Check if in given vector of numbers, are any two numbers closer to each other than
+given threshold.
+>>> has_close_elements({1.0, 2.0, 3.0}, 0.5)
+false
+>>> has_close_elements({1.0, 2.8, 3.0, 4.0, 5.0, 2.0}, 0.3)
+true
+*/
+#include<stdio.h>
+#include<vector>
+#include<math.h>
+using namespace std;
+bool has_close_elements(vector<float> numbers, float threshold){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (has_close_elements({1.0, 2.0, 3.0}, 0.5) == false && "failure 1");
+    assert (has_close_elements({1.0, 2.8, 3.0, 4.0, 5.0, 2.0}, 0.3) && "failure 2") ;
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    vector<float> a={1.0, 2.0, 3.9, 4.0, 5.0, 2.2};
+    assert (has_close_elements(a, 0.3)==true);
+    assert (has_close_elements(a, 0.05) == false);
+
+    assert (has_close_elements({1.0, 2.0, 5.9, 4.0, 5.0}, 0.95) == true);
+    assert (has_close_elements({1.0, 2.0, 5.9, 4.0, 5.0}, 0.8) ==false);
+    assert (has_close_elements({1.0, 2.0, 3.0, 4.0, 5.0}, 2.0) == true);
+    assert (has_close_elements({1.1, 2.2, 3.1, 4.1, 5.1}, 1.0) == true);
+    assert (has_close_elements({1.1, 2.2, 3.1, 4.1, 5.1}, 0.5) == false);
+    
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/1
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+```cpp
+/*
+Input to this function is a string containing multiple groups of nested parentheses. Your goal is to
+separate those group into separate strings and return the vector of those.
+Separate groups are balanced (each open brace is properly closed) and not nested within each other
+Ignore any spaces in the input string.
+>>> separate_paren_groups("( ) (( )) (( )( ))")
+{"()", "(())", "(()())"}
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+using namespace std;
+vector<string> separate_paren_groups(string paren_string){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){  
+    assert (issame(separate_paren_groups("( ) (( )) (( )( ))") ,{"()", "(())", "(()())"}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){  
+    assert (issame(separate_paren_groups("(()()) ((())) () ((())()())"),{"(()())", "((()))", "()", "((())()())"}));
+    assert (issame(separate_paren_groups("() (()) ((())) (((())))"), {"()", "(())", "((()))", "(((())))" }));
+    assert (issame(separate_paren_groups("(()(())((())))") ,{ "(()(())((())))" }));
+    assert (issame(separate_paren_groups("( ) (( )) (( )( ))") ,{"()", "(())", "(()())"}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/2
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+```cpp
+/*
+Given a positive floating point number, it can be decomposed into
+and integer part (largest integer smaller than given number) and decimals
+(leftover part always smaller than 1).
+
+Return the decimal part of the number.
+>>> truncate_number(3.5)
+0.5
+*/
+#include<stdio.h>
+#include<math.h>
+using namespace std;
+float truncate_number(float number){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+ assert (truncate_number(3.5) == 0.5); 
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+ assert (truncate_number(3.5) == 0.5); 
+ assert (abs(truncate_number(1.33) - 0.33) < 1e-4);
+  assert (abs(truncate_number(123.456) - 0.456) < 1e-4);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/3
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+```cpp
+/*
+You"re given a vector of deposit and withdrawal operations on a bank account that starts with
+zero balance. Your task is to detect if at any point the balance of account falls below zero, and
+at that point function should return true. Otherwise it should return false.
+>>> below_zero({1, 2, 3})
+false
+>>> below_zero({1, 2, -4, 5})
+true
+*/
+#include<stdio.h>
+#include<vector>
+using namespace std;
+bool below_zero(vector<int> operations){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (below_zero({1, 2, 3}) == false);
+    assert (below_zero({1, 2, -4, 5}) == true);
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (below_zero({}) == false);
+    assert (below_zero({1, 2, -3, 1, 2, -3}) == false);
+    assert (below_zero({1, 2, -4, 5, 6}) == true);
+    assert (below_zero({1, -1, 2, -2, 5, -5, 4, -4}) == false);
+    assert (below_zero({1, -1, 2, -2, 5, -5, 4, -5}) == true);
+    assert (below_zero({1, -2, 2, -2, 5, -5, 4, -4}) == true);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/4
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+```cpp
+/*
+For a given vector of input numbers, calculate Mean Absolute Deviation
+around the mean of this dataset.
+Mean Absolute Deviation is the average absolute difference between each
+element and a centerpoint (mean in this case):
+MAD = average | x - x_mean |
+>>> mean_absolute_deviation({1.0, 2.0, 3.0, 4.0})
+1.0
+*/
+#include<stdio.h>
+#include<math.h>
+#include<vector>
+using namespace std;
+float mean_absolute_deviation(vector<float> numbers){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0, 4.0}) - 1.0) < 1e-4);
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0}) - 2.0/3.0) < 1e-4);
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0, 4.0}) - 1.0) < 1e-4);
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0, 4.0, 5.0}) - 6.0/5.0) < 1e-4);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.

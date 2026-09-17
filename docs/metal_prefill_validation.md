@@ -1532,3 +1532,33 @@ depth-zero 128-token sampled result from about 41.1-41.7 tok/s to
 40.8 tok/s, a repeatable 1-2% regression. Both implementations were removed.
 Do not retry this exact fusion without a different data layout or dispatch
 strategy.
+
+## Grouped GQA FlashAttention decode (September 17)
+
+The F16 long-context decode path now exploits Qwen's 8:1 grouped-query
+attention directly. Each Metal threadgroup evaluates the eight query heads
+that share one KV head, so a 512-token cache segment is loaded once for the
+whole group instead of being scanned independently by eight vector-attention
+workgroups. The existing 64-key llama.cpp FlashAttention tile is retained.
+Full 512-token segments emit unnormalized output plus online-softmax state;
+the existing grouped GQA kernel handles the final shorter segment, and a new
+reducer merges both layouts and applies the Qwen attention gate.
+
+The optimization is enabled by default for F16 KV, the model's 16/2-head
+layout, and contexts of at least 1024 tokens. Unsupported shapes or temporary
+buffer sizes fall back to the previous vector FlashAttention path.
+`QW3_METAL_GQA_FLASH_DECODE_GROUPED=0` explicitly selects that fallback for
+diagnostic A/B runs. Q8 KV is unchanged.
+
+CPU/Metal comparisons passed at 1024, 4097 and 16385 cached tokens with
+maximum differences around `1.70e-4` and RMS differences around `4.36e-5`.
+At 16385 tokens the isolated full-attention operation measured 1.1549 ms for
+the grouped path versus 1.2412 ms for the vector path in sequential runs. A
+full depth-16384, 128-token greedy run improved from 33.65 to 34.79 tok/s
+(3.4%). These are single-run M5 Air observations and remain sensitive to
+thermal state.
+
+Validation also included `test-metal-logits`, coherent generation after the
+6399-token `prompt_perf.txt` input, and the model-driven agent coding smoke
+test requiring native `write` and `bash` calls. The generated text remained
+coherent and the tool workflow completed successfully.

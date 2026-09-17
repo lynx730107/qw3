@@ -1,0 +1,9 @@
+{
+  "dataset": "humaneval-x-cpp",
+  "source_url": "https://raw.githubusercontent.com/zai-org/CodeGeeX/main/codegeex/benchmark/humaneval-x/cpp/data/humaneval_cpp.jsonl.gz",
+  "mode": "mixed",
+  "tasks_total": 164,
+  "tasks_rendered": 3,
+  "prompt_file": "datasets/humaneval-x-cpp-profile3/mixed_profile_prompt.txt",
+  "jsonl_file": "datasets/humaneval-x-cpp-profile3/mixed_profile_prompts.jsonl"
+}

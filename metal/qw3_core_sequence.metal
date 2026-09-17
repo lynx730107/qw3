@@ -732,6 +732,57 @@ kernel void qw3_gqa_flash_decode_gate(
         uint i [[thread_position_in_grid]]) {
     if (i < args.n) attn[i] /= 1.0f + exp(-gate[i]);
 }
+struct qw3_gqa_flash_group_reduce_args {
+    uint n_heads;
+    uint n_kv_heads;
+    uint head_dim;
+    uint n_partials;
+    uint n_bulk;
+};
+kernel void qw3_gqa_flash_group_reduce(
+        constant qw3_gqa_flash_group_reduce_args &args,
+        device const float *partial,
+        device const float *gate,
+        device float *out,
+        uint qh [[threadgroup_position_in_grid]],
+        ushort i [[thread_index_in_threadgroup]]) {
+    if (qh >= args.n_heads || uint(i) >= args.head_dim) return;
+    const uint group_heads = args.n_heads / args.n_kv_heads;
+    const uint kvh = qh / group_heads;
+    const uint gh = qh - kvh * group_heads;
+    const uint row = gh * args.n_kv_heads + kvh;
+    const uint nrows = args.n_heads;
+    float acc = 0.0f;
+    float denom = 0.0f;
+    float max_score = -FLT_MAX;
+    for (uint split = 0; split < args.n_partials; split++) {
+        uint out_index;
+        uint stat_index;
+        if (split < args.n_bulk) {
+            out_index = (split * nrows + row) * args.head_dim + uint(i);
+            stat_index = args.n_bulk * nrows * args.head_dim +
+                         2u * (split * nrows + row);
+        } else {
+            const uint tail_base =
+                args.n_bulk * nrows * (args.head_dim + 2u);
+            const uint tail_stride = args.head_dim + 2u;
+            out_index = tail_base + qh * tail_stride + uint(i);
+            stat_index = tail_base + qh * tail_stride + args.head_dim;
+        }
+        const float local_denom = partial[stat_index + 0u];
+        const float local_max = partial[stat_index + 1u];
+        const float next_max = max(max_score, local_max);
+        const float prev_scale = exp(max_score - next_max);
+        const float cur_scale = exp(local_max - next_max);
+        acc = acc * prev_scale +
+              partial[out_index] * cur_scale;
+        denom = denom * prev_scale + local_denom * cur_scale;
+        max_score = next_max;
+    }
+    const uint dst = qh * args.head_dim + uint(i);
+    const float sig = 1.0f / (1.0f + exp(-gate[dst]));
+    out[dst] = (acc / denom) * sig;
+}
 struct qw3_gqa_flash_causal_mask_args { uint n_tokens; uint n_keys; uint pos0; uint n_q_blocks; uint n_k_blocks; };
 kernel void qw3_gqa_flash_causal_mask_block(constant qw3_gqa_flash_causal_mask_args &args,
                                           device half *mask,

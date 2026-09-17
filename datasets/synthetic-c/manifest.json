@@ -1,0 +1,9 @@
+{
+  "dataset": "synthetic-c",
+  "source_url": "local",
+  "mode": "mixed",
+  "tasks_total": 12,
+  "tasks_rendered": 12,
+  "prompt_file": "datasets/synthetic-c/mixed_profile_prompt.txt",
+  "jsonl_file": "datasets/synthetic-c/mixed_profile_prompts.jsonl"
+}

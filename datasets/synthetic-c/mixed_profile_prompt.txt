@@ -1,0 +1,267 @@
+Sei un assistente esperto di C e C++. Questo prompt serve a profilare
+gli expert routing del modello su workload di programmazione C/C++.
+Leggi i task seguenti e preparati a rispondere in modo tecnico.
+
+### TASK c_parse_u32
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Scrivi int parse_u32(const char *s, uint32_t *out) che accetta solo cifre decimali, rifiuta overflow e lascia *out invariato su errore.
+```
+
+Test di riferimento:
+```c
+assert(parse_u32("4294967295", &v)); assert(!parse_u32("4294967296", &v));
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_arena_alloc
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Implementa un arena allocator C con allineamento power-of-two, controllo overflow su offset+size e funzione reset.
+```
+
+Test di riferimento:
+```c
+arena_init(&a, buf, sizeof buf); p = arena_alloc(&a, 24, 8); assert(((uintptr_t)p & 7) == 0);
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_ring_buffer
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Completa un ring buffer byte-oriented con push/pop bulk, wrap-around e distinzione pieno/vuoto senza allocazioni dinamiche.
+```
+
+Test di riferimento:
+```c
+assert(rb_write(&rb, data, 7) == 7); assert(rb_read(&rb, out, 3) == 3);
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_utf8_scan
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Scrivi una funzione C che valida UTF-8, conta codepoint e rifiuta sequenze overlong o surrogate.
+```
+
+Test di riferimento:
+```c
+assert(utf8_count("ciao", &n) && n == 4); assert(!utf8_count("\xff", &n));
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_path_join
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Implementa path_join(char *dst, size_t cap, const char *a, const char *b) evitando doppio slash, overflow e buffer non terminati.
+```
+
+Test di riferimento:
+```c
+assert(path_join(buf, sizeof buf, "/tmp/", "x") == 0); assert(strcmp(buf, "/tmp/x") == 0);
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_hash_table
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Completa una hash table open-addressing per stringhe non owning, con tombstone, resize esplicito e lookup stabile.
+```
+
+Test di riferimento:
+```c
+assert(ht_put(&h, "alpha", 1) == 0); assert(ht_get(&h, "alpha", &v) && v == 1);
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_iovec_builder
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Scrivi un builder di iovec che concatena segmenti costanti, controlla il numero massimo di segmenti e calcola la lunghezza totale con overflow check.
+```
+
+Test di riferimento:
+```c
+assert(iov_add(&b, p, n) == 0); assert(b.total >= n);
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_tokenizer
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Implementa un tokenizer C per config key=value: ignora spazi, supporta commenti #, rifiuta chiavi duplicate e quote non chiuse.
+```
+
+Test di riferimento:
+```c
+assert(parse_config("a=1\n#x\nb=two", &cfg) == 0);
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_sort_stable
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Scrivi merge sort stabile per array di struct item { uint32_t key; uint32_t original; } usando un buffer temporaneo fornito dal chiamante.
+```
+
+Test di riferimento:
+```c
+items ordinati per key devono mantenere ordine relativo di original a parita' di key.
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_bitset
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Implementa un bitset dinamico su memoria fornita: set, clear, test, find_first_zero, con controlli bounds e nessuna malloc.
+```
+
+Test di riferimento:
+```c
+assert(bitset_set(&bs, 63) == 0); assert(bitset_test(&bs, 63));
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_binary_protocol
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Completa parser C per header binario little-endian: magic, version, length, crc32; rifiuta pacchetti tronchi e length eccessivo.
+```
+
+Test di riferimento:
+```c
+assert(parse_packet(buf, len, &pkt) == 0 || parse_packet(buf, len, &pkt) == -1);
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK c_lru_cache
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```c
+Implementa una piccola cache LRU a capacita' fissa con array di nodi, lista doppiamente collegata e mappa key->slot fornita.
+```
+
+Test di riferimento:
+```c
+get deve promuovere il nodo a MRU; put deve evincere LRU quando piena.
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.

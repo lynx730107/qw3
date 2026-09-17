@@ -132,6 +132,10 @@ static id<MTLComputePipelineState> g_gqa_flash_blk_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_attn_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_decode_pad_pipeline;
 static id<MTLComputePipelineState> g_gqa_flash_decode_gate_pipeline;
+static id<MTLComputePipelineState> g_gqa_flash_group_reduce_pipeline;
+static id<MTLComputePipelineState> g_gqa_flash_group_pipelines[2];
+static uint32_t g_gqa_flash_group_pipeline_strides[2];
+static uint8_t g_gqa_flash_group_pipeline_unavailable[2];
 static id<MTLComputePipelineState> g_gqa_flash_decode_pipelines[2][3][2];
 static uint32_t g_gqa_flash_decode_pipeline_strides[2][3][2];
 static uint8_t g_gqa_flash_decode_pipeline_unavailable[2][3][2];
@@ -834,6 +838,7 @@ static int qw3_metal_compile_kernels(void) {
         g_gqa_flash_gate_pipeline &&
         g_gqa_flash_decode_pad_pipeline &&
         g_gqa_flash_decode_gate_pipeline &&
+        g_gqa_flash_group_reduce_pipeline &&
         g_gqa_flash_causal_mask_pipeline &&
         g_gqa_store_token_cache_f16_pipeline &&
         g_gqa_kv_quant_q8_pipeline &&
@@ -1869,6 +1874,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_gqa_flash_group_reduce"];
+    if (!fn) {
+        fprintf(stderr, "qw3: Metal function qw3_gqa_flash_group_reduce not found\n");
+        return 0;
+    }
+    g_gqa_flash_group_reduce_pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!g_gqa_flash_group_reduce_pipeline) {
+        fprintf(stderr, "qw3: Metal pipeline qw3_gqa_flash_group_reduce failed: %s\n",
+                [[error localizedDescription] UTF8String]);
+        return 0;
+    }
     fn = [g_library newFunctionWithName:@"qw3_gqa_flash_causal_mask_block"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_gqa_flash_causal_mask_block not found\n");
@@ -2731,6 +2748,7 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv
     const bool has_bias = false;
     const bool has_scap = false;
     const bool has_kvpad_bool = has_kvpad != 0;
+    const bool partial = false;
     const bool bc_mask_bool = bc_mask != 0;
     const int32_t ns10 = (int32_t)kv_stride_elems;
     const int32_t ns20 = (int32_t)kv_stride_elems;
@@ -2742,6 +2760,7 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv
     [constants setConstantValue:&has_bias  type:MTLDataTypeBool atIndex:302];
     [constants setConstantValue:&has_scap  type:MTLDataTypeBool atIndex:303];
     [constants setConstantValue:&has_kvpad_bool type:MTLDataTypeBool atIndex:304];
+    [constants setConstantValue:&partial type:MTLDataTypeBool atIndex:305];
     [constants setConstantValue:&bc_mask_bool   type:MTLDataTypeBool atIndex:310];
     [constants setConstantValue:&ns10 type:MTLDataTypeInt atIndex:320];
     [constants setConstantValue:&ns20 type:MTLDataTypeInt atIndex:321];
@@ -2771,6 +2790,60 @@ static id<MTLComputePipelineState> qw3_metal_gqa_flash_attn_pipeline(uint32_t kv
     cached_has_kvpad = has_kvpad;
     cached_bc_mask = bc_mask;
     return g_gqa_flash_attn_pipeline;
+}
+
+static id<MTLComputePipelineState>
+qw3_metal_gqa_flash_group_pipeline(uint32_t kv_stride_elems, int has_kvpad) {
+    const int pad_index = has_kvpad ? 1 : 0;
+    if (!g_library || kv_stride_elems == 0) return nil;
+    id<MTLComputePipelineState> cached =
+        g_gqa_flash_group_pipelines[pad_index];
+    if (cached &&
+        g_gqa_flash_group_pipeline_strides[pad_index] == kv_stride_elems) {
+        return cached;
+    }
+    g_gqa_flash_group_pipelines[pad_index] = nil;
+    if (g_gqa_flash_group_pipeline_unavailable[pad_index]) return nil;
+
+    const bool disabled = false;
+    const bool has_kvpad_bool = has_kvpad != 0;
+    const bool partial = true;
+    const int32_t ns10 = (int32_t)kv_stride_elems;
+    const int32_t ns20 = (int32_t)kv_stride_elems;
+    const int32_t nsg = 4;
+    MTLFunctionConstantValues *constants = [[MTLFunctionConstantValues alloc] init];
+    [constants setConstantValue:&disabled type:MTLDataTypeBool atIndex:300];
+    [constants setConstantValue:&disabled type:MTLDataTypeBool atIndex:301];
+    [constants setConstantValue:&disabled type:MTLDataTypeBool atIndex:302];
+    [constants setConstantValue:&disabled type:MTLDataTypeBool atIndex:303];
+    [constants setConstantValue:&has_kvpad_bool type:MTLDataTypeBool atIndex:304];
+    [constants setConstantValue:&partial type:MTLDataTypeBool atIndex:305];
+    [constants setConstantValue:&disabled type:MTLDataTypeBool atIndex:310];
+    [constants setConstantValue:&ns10 type:MTLDataTypeInt atIndex:320];
+    [constants setConstantValue:&ns20 type:MTLDataTypeInt atIndex:321];
+    [constants setConstantValue:&nsg type:MTLDataTypeInt atIndex:322];
+
+    NSError *error = nil;
+    id<MTLFunction> fn =
+        [g_library newFunctionWithName:@"qw3_kernel_flash_attn_ext_f16_dk256_dv256"
+                        constantValues:constants error:&error];
+    if (!fn) {
+        g_gqa_flash_group_pipeline_unavailable[pad_index] = 1;
+        fprintf(stderr, "qw3: Metal grouped FlashAttention function unavailable: %s\n",
+                error ? [[error localizedDescription] UTF8String] : "(unknown)");
+        return nil;
+    }
+    id<MTLComputePipelineState> pipeline =
+        [g_device newComputePipelineStateWithFunction:fn error:&error];
+    if (!pipeline) {
+        g_gqa_flash_group_pipeline_unavailable[pad_index] = 1;
+        fprintf(stderr, "qw3: Metal grouped FlashAttention pipeline failed: %s\n",
+                error ? [[error localizedDescription] UTF8String] : "(unknown)");
+        return nil;
+    }
+    g_gqa_flash_group_pipelines[pad_index] = pipeline;
+    g_gqa_flash_group_pipeline_strides[pad_index] = kv_stride_elems;
+    return pipeline;
 }
 
 static id<MTLComputePipelineState>
@@ -9622,6 +9695,164 @@ int qw3_metal_session_gqa_single_attn_out(qw3_metal_session *s,
         s, out_weight_offset, inner_n, n_embd, out);
 }
 
+static int qw3_metal_session_try_gqa_grouped_flash_decode(
+        QW3MetalSessionObj *obj, id<MTLBuffer> cache_k,
+        id<MTLBuffer> cache_v, NSUInteger cache_offset,
+        uint32_t n_ctx, uint32_t n_heads, uint32_t n_kv_heads,
+        uint32_t head_dim) {
+    const char *enabled = getenv("QW3_METAL_GQA_FLASH_DECODE_GROUPED");
+    if (enabled && enabled[0] && strcmp(enabled, "0") == 0) return -1;
+    if (!obj || !obj.gqaKvF16 || obj.gqaKvQ8 ||
+        !g_gqa_flash_attn_external_enabled || n_ctx < 1024u ||
+        head_dim != 256u || n_kv_heads == 0 ||
+        n_heads != 8u * n_kv_heads || !g_gqa_flash_group_reduce_pipeline) {
+        return -1;
+    }
+
+    const uint32_t chunk = 512u;
+    const uint32_t n_bulk = n_ctx / chunk;
+    const uint32_t tail_count = n_ctx - n_bulk * chunk;
+    const uint32_t n_partials = n_bulk + (tail_count != 0u);
+    const uint32_t kv_stride = n_kv_heads * head_dim;
+    const uint32_t inner_n = n_heads * head_dim;
+    const uint64_t partial_bytes =
+        (uint64_t)n_partials * n_heads * (head_dim + 2u) * sizeof(float);
+    if (n_bulk == 0 || n_partials > 256u ||
+        !obj.gqaAttnPartial || obj.gqaAttnPartial.length < partial_bytes ||
+        !obj.gqaTokenQ || !obj.gqaTokenGate || !obj.inner ||
+        obj.gqaTokenQ.length < (uint64_t)inner_n * sizeof(float) ||
+        obj.gqaTokenGate.length < (uint64_t)inner_n * sizeof(float) ||
+        obj.inner.length < (uint64_t)inner_n * sizeof(float)) {
+        return -1;
+    }
+
+    id<MTLComputePipelineState> bulk_pipeline =
+        qw3_metal_gqa_flash_group_pipeline(kv_stride, 0);
+    if (!bulk_pipeline || 128u > bulk_pipeline.maxTotalThreadsPerThreadgroup ||
+        (tail_count != 0u &&
+         256u > g_gqa_attend_n_split_partial_pipeline.maxTotalThreadsPerThreadgroup)) {
+        return -1;
+    }
+
+    const NSUInteger padded_v = ((NSUInteger)head_dim + 63u) & ~(NSUInteger)63u;
+    const NSUInteger shared_elems = 8u *
+        ((NSUInteger)head_dim + 2u * padded_v + 2u * (2u * 64u));
+    const NSUInteger shared_bytes =
+        ((shared_elems * sizeof(uint16_t)) + 15u) & ~(NSUInteger)15u;
+
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+
+    qw3_metal_flash_attn_args args = {
+        .ne01 = 8,
+        .ne02 = (int32_t)n_kv_heads,
+        .ne03 = (int32_t)n_bulk,
+        .nb01 = (uint64_t)head_dim * sizeof(float),
+        .nb02 = (uint64_t)8u * head_dim * sizeof(float),
+        .nb03 = 0,
+        .ne11 = (int32_t)chunk,
+        .ne_12_2 = (int32_t)n_kv_heads,
+        .ne_12_3 = (int32_t)n_bulk,
+        .ns10 = (int32_t)kv_stride,
+        .nb11 = (uint64_t)kv_stride * sizeof(uint16_t),
+        .nb12 = (uint64_t)head_dim * sizeof(uint16_t),
+        .nb13 = (uint64_t)chunk * kv_stride * sizeof(uint16_t),
+        .ns20 = (int32_t)kv_stride,
+        .nb21 = (uint64_t)kv_stride * sizeof(uint16_t),
+        .nb22 = (uint64_t)head_dim * sizeof(uint16_t),
+        .nb23 = (uint64_t)chunk * kv_stride * sizeof(uint16_t),
+        .ne31 = 8, .ne32 = 1, .ne33 = 1,
+        .nb31 = sizeof(uint16_t),
+        .nb32 = sizeof(uint16_t),
+        .nb33 = sizeof(uint16_t),
+        .ne1 = (int32_t)n_kv_heads,
+        .ne2 = 8,
+        .ne3 = (int32_t)n_bulk,
+        .scale = 1.0f / sqrtf((float)head_dim),
+        .max_bias = 0.0f, .m0 = 0.0f, .m1 = 0.0f,
+        .n_head_log2 = 0, .logit_softcap = 0.0f,
+    };
+
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:bulk_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:1];
+    [enc setBuffer:cache_k offset:cache_offset atIndex:2];
+    [enc setBuffer:cache_v offset:cache_offset atIndex:3];
+    [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:4];
+    [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:5];
+    [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:6];
+    [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:7];
+    [enc setBuffer:obj.gqaAttnPartial offset:0 atIndex:8];
+    [enc setThreadgroupMemoryLength:shared_bytes atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake(1, n_kv_heads, n_bulk)
+         threadsPerThreadgroup:MTLSizeMake(32, 4, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (tail_count != 0u) {
+        const uint64_t tail_cache_offset =
+            (uint64_t)cache_offset +
+            (uint64_t)n_bulk * chunk * kv_stride * sizeof(uint16_t);
+        const uint64_t tail_output_offset =
+            (uint64_t)n_bulk * n_heads * (head_dim + 2u) * sizeof(float);
+        if (tail_cache_offset > (uint64_t)NSUIntegerMax ||
+            tail_output_offset > (uint64_t)NSUIntegerMax) {
+            return 0;
+        }
+        struct {
+            uint32_t n_ctx;
+            uint32_t n_heads;
+            uint32_t n_kv_heads;
+            uint32_t head_dim;
+            uint32_t n_splits;
+            uint32_t kv_type;
+        } tail_args = {
+            tail_count, n_heads, n_kv_heads, head_dim, 1u, 1u
+        };
+
+        enc = qw3_metal_compute_encoder(cb);
+        if (!enc) return 0;
+        [enc setComputePipelineState:g_gqa_attend_n_split_partial_pipeline];
+        [enc setBytes:&tail_args length:sizeof(tail_args) atIndex:0];
+        [enc setBuffer:obj.gqaTokenQ offset:0 atIndex:1];
+        [enc setBuffer:cache_k offset:(NSUInteger)tail_cache_offset atIndex:2];
+        [enc setBuffer:cache_v offset:(NSUInteger)tail_cache_offset atIndex:3];
+        [enc setBuffer:obj.gqaAttnPartial
+                 offset:(NSUInteger)tail_output_offset atIndex:4];
+        [enc setBuffer:cache_k offset:(NSUInteger)tail_cache_offset atIndex:5];
+        [enc setBuffer:cache_v offset:(NSUInteger)tail_cache_offset atIndex:6];
+        [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
+        [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads, 1, 1)
+             threadsPerThreadgroup:MTLSizeMake(head_dim, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    }
+
+    struct {
+        uint32_t n_heads;
+        uint32_t n_kv_heads;
+        uint32_t head_dim;
+        uint32_t n_partials;
+        uint32_t n_bulk;
+    } reduce_args = {
+        n_heads, n_kv_heads, head_dim, n_partials, n_bulk
+    };
+    enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_gqa_flash_group_reduce_pipeline];
+    [enc setBytes:&reduce_args length:sizeof(reduce_args) atIndex:0];
+    [enc setBuffer:obj.gqaAttnPartial offset:0 atIndex:1];
+    [enc setBuffer:obj.gqaTokenGate offset:0 atIndex:2];
+    [enc setBuffer:obj.inner offset:0 atIndex:3];
+    [enc dispatchThreadgroups:MTLSizeMake(n_heads, 1, 1)
+         threadsPerThreadgroup:MTLSizeMake(head_dim, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+
+    if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+    return 1;
+}
+
 static int qw3_metal_session_try_gqa_flash_decode(
         QW3MetalSessionObj *obj, id<MTLBuffer> cache_k,
         id<MTLBuffer> cache_v, id<MTLBuffer> flash_tail,
@@ -9784,9 +10015,14 @@ int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
 
     id<MTLBuffer> flash_tail =
         qw3_metal_gqa_flash_tail_buffer(obj, layer_slot);
-    const int flash_decode = qw3_metal_session_try_gqa_flash_decode(
-        obj, cache_k, cache_v, flash_tail, cache_offset, n_ctx, n_heads,
+    int flash_decode = qw3_metal_session_try_gqa_grouped_flash_decode(
+        obj, cache_k, cache_v, cache_offset, n_ctx, n_heads,
         n_kv_heads, head_dim);
+    if (flash_decode < 0) {
+        flash_decode = qw3_metal_session_try_gqa_flash_decode(
+            obj, cache_k, cache_v, flash_tail, cache_offset, n_ctx, n_heads,
+            n_kv_heads, head_dim);
+    }
     if (flash_decode == 0) return 0;
 
     struct {
@@ -10097,6 +10333,12 @@ void qw3_metal_cleanup(void) {
     g_gqa_flash_attn_pipeline = nil;
     g_gqa_flash_decode_pad_pipeline = nil;
     g_gqa_flash_decode_gate_pipeline = nil;
+    g_gqa_flash_group_reduce_pipeline = nil;
+    for (int pad = 0; pad < 2; pad++) {
+        g_gqa_flash_group_pipelines[pad] = nil;
+        g_gqa_flash_group_pipeline_strides[pad] = 0;
+        g_gqa_flash_group_pipeline_unavailable[pad] = 0;
+    }
     for (int pad = 0; pad < 2; pad++) {
         for (int nsg = 0; nsg < 3; nsg++) {
             for (int nwg = 0; nwg < 2; nwg++) {

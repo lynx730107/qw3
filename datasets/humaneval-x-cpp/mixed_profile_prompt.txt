@@ -1,0 +1,1148 @@
+Sei un assistente esperto di C e C++. Questo prompt serve a profilare
+gli expert routing del modello su workload di programmazione C/C++.
+Leggi i task seguenti e preparati a rispondere in modo tecnico.
+
+### TASK CPP/0
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Check if in given vector of numbers, are any two numbers closer to each other than
+given threshold.
+>>> has_close_elements({1.0, 2.0, 3.0}, 0.5)
+false
+>>> has_close_elements({1.0, 2.8, 3.0, 4.0, 5.0, 2.0}, 0.3)
+true
+*/
+#include<stdio.h>
+#include<vector>
+#include<math.h>
+using namespace std;
+bool has_close_elements(vector<float> numbers, float threshold){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (has_close_elements({1.0, 2.0, 3.0}, 0.5) == false && "failure 1");
+    assert (has_close_elements({1.0, 2.8, 3.0, 4.0, 5.0, 2.0}, 0.3) && "failure 2") ;
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    vector<float> a={1.0, 2.0, 3.9, 4.0, 5.0, 2.2};
+    assert (has_close_elements(a, 0.3)==true);
+    assert (has_close_elements(a, 0.05) == false);
+
+    assert (has_close_elements({1.0, 2.0, 5.9, 4.0, 5.0}, 0.95) == true);
+    assert (has_close_elements({1.0, 2.0, 5.9, 4.0, 5.0}, 0.8) ==false);
+    assert (has_close_elements({1.0, 2.0, 3.0, 4.0, 5.0}, 2.0) == true);
+    assert (has_close_elements({1.1, 2.2, 3.1, 4.1, 5.1}, 1.0) == true);
+    assert (has_close_elements({1.1, 2.2, 3.1, 4.1, 5.1}, 0.5) == false);
+    
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/1
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Input to this function is a string containing multiple groups of nested parentheses. Your goal is to
+separate those group into separate strings and return the vector of those.
+Separate groups are balanced (each open brace is properly closed) and not nested within each other
+Ignore any spaces in the input string.
+>>> separate_paren_groups("( ) (( )) (( )( ))")
+{"()", "(())", "(()())"}
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+using namespace std;
+vector<string> separate_paren_groups(string paren_string){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){  
+    assert (issame(separate_paren_groups("( ) (( )) (( )( ))") ,{"()", "(())", "(()())"}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){  
+    assert (issame(separate_paren_groups("(()()) ((())) () ((())()())"),{"(()())", "((()))", "()", "((())()())"}));
+    assert (issame(separate_paren_groups("() (()) ((())) (((())))"), {"()", "(())", "((()))", "(((())))" }));
+    assert (issame(separate_paren_groups("(()(())((())))") ,{ "(()(())((())))" }));
+    assert (issame(separate_paren_groups("( ) (( )) (( )( ))") ,{"()", "(())", "(()())"}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/2
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Given a positive floating point number, it can be decomposed into
+and integer part (largest integer smaller than given number) and decimals
+(leftover part always smaller than 1).
+
+Return the decimal part of the number.
+>>> truncate_number(3.5)
+0.5
+*/
+#include<stdio.h>
+#include<math.h>
+using namespace std;
+float truncate_number(float number){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+ assert (truncate_number(3.5) == 0.5); 
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+ assert (truncate_number(3.5) == 0.5); 
+ assert (abs(truncate_number(1.33) - 0.33) < 1e-4);
+  assert (abs(truncate_number(123.456) - 0.456) < 1e-4);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/3
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+You"re given a vector of deposit and withdrawal operations on a bank account that starts with
+zero balance. Your task is to detect if at any point the balance of account falls below zero, and
+at that point function should return true. Otherwise it should return false.
+>>> below_zero({1, 2, 3})
+false
+>>> below_zero({1, 2, -4, 5})
+true
+*/
+#include<stdio.h>
+#include<vector>
+using namespace std;
+bool below_zero(vector<int> operations){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (below_zero({1, 2, 3}) == false);
+    assert (below_zero({1, 2, -4, 5}) == true);
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (below_zero({}) == false);
+    assert (below_zero({1, 2, -3, 1, 2, -3}) == false);
+    assert (below_zero({1, 2, -4, 5, 6}) == true);
+    assert (below_zero({1, -1, 2, -2, 5, -5, 4, -4}) == false);
+    assert (below_zero({1, -1, 2, -2, 5, -5, 4, -5}) == true);
+    assert (below_zero({1, -2, 2, -2, 5, -5, 4, -4}) == true);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/4
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+For a given vector of input numbers, calculate Mean Absolute Deviation
+around the mean of this dataset.
+Mean Absolute Deviation is the average absolute difference between each
+element and a centerpoint (mean in this case):
+MAD = average | x - x_mean |
+>>> mean_absolute_deviation({1.0, 2.0, 3.0, 4.0})
+1.0
+*/
+#include<stdio.h>
+#include<math.h>
+#include<vector>
+using namespace std;
+float mean_absolute_deviation(vector<float> numbers){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0, 4.0}) - 1.0) < 1e-4);
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0}) - 2.0/3.0) < 1e-4);
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0, 4.0}) - 1.0) < 1e-4);
+    assert (abs(mean_absolute_deviation({1.0, 2.0, 3.0, 4.0, 5.0}) - 6.0/5.0) < 1e-4);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/5
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Insert a number "delimeter" between every two consecutive elements of input vector `numbers"
+>>> intersperse({}, 4)
+{}
+>>> intersperse({1, 2, 3}, 4)
+{1, 4, 2, 4, 3}
+*/
+#include<stdio.h>
+#include<vector>
+using namespace std;
+vector<int> intersperse(vector<int> numbers, int delimeter){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(intersperse({}, 4), {}));
+    assert (issame(intersperse({1, 2, 3}, 4),{1, 4, 2, 4, 3}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(intersperse({}, 7), {}));
+    
+    assert (issame(intersperse({5, 6, 3, 2}, 8),{5, 8, 6, 8, 3, 8, 2}));
+    assert (issame(intersperse({2, 2, 2}, 2),{2, 2, 2, 2, 2}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/6
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Input to this function is a string represented multiple groups for nested parentheses separated by spaces.
+For each of the group, output the deepest level of nesting of parentheses.
+E.g. (()()) has maximum two levels of nesting while ((())) has three.
+
+>>> parse_nested_parens("(()()) ((())) () ((())()())")
+{2, 3, 1, 3}
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+using namespace std;
+vector<int> parse_nested_parens(string paren_string){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(parse_nested_parens("(()()) ((())) () ((())()())"),{2, 3, 1, 3}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(parse_nested_parens("(()()) ((())) () ((())()())"),{2, 3, 1, 3}));
+     assert (issame(parse_nested_parens("() (()) ((())) (((())))") , {1, 2, 3, 4}));
+    assert (issame(parse_nested_parens("(()(())((())))") ,{4}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/7
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Filter an input vector of strings only for ones that contain given substring
+>>> filter_by_substring({}, "a")
+{}
+>>> filter_by_substring({"abc", "bacd", "cde", "vector"}, "a")
+{"abc", "bacd", "vector"}
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+using namespace std;
+vector<string> filter_by_substring(vector<string> strings, string substring){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(filter_by_substring({}, "a"),{}));
+     assert (issame(filter_by_substring({"abc", "bacd", "cde", "array"}, "a"), {"abc", "bacd", "array"}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(filter_by_substring({}, "john"),{}));
+     assert (issame(filter_by_substring({"xxx", "asd", "xxy", "john doe", "xxxAAA", "xxx"}, "xxx"), {"xxx", "xxxAAA", "xxx"}));
+    assert (issame(filter_by_substring({"xxx", "asd", "aaaxxy", "john doe", "xxxAAA", "xxx"}, "xx"),{"xxx", "aaaxxy", "xxxAAA", "xxx"}));
+     assert (issame(filter_by_substring({"grunt", "trumpet", "prune", "gruesome"}, "run") ,{"grunt", "prune"}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/8
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+For a given vector of integers, return a vector consisting of a sum and a product of all the integers in a vector.
+Empty sum should be equal to 0 and empty product should be equal to 1.
+>>> sum_product({})
+(0, 1)
+>>> sum_product({1, 2, 3, 4})
+(10, 24)
+*/
+#include<stdio.h>
+#include<vector>
+using namespace std;
+vector<int> sum_product(vector<int> numbers){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(sum_product({}) ,{0, 1}));
+    assert (issame(sum_product({1, 2, 3,4}), {10, 24}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(sum_product({}) ,{0, 1}));
+    assert (issame(sum_product({1, 1, 1}), {3, 1}));
+    assert (issame(sum_product({100, 0}),{100, 0}));
+     assert (issame(sum_product({3, 5, 7}) , {3 + 5 + 7, 3 * 5 * 7}));
+      assert (issame(sum_product({10}) ,{10, 10}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/9
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+From a given vector of integers, generate a vector of rolling maximum element found until given moment
+in the sequence.
+>>> rolling_max({1, 2, 3, 2, 3, 4, 2})
+{1, 2, 3, 3, 3, 4, 4}
+*/
+#include<stdio.h>
+#include<vector>
+using namespace std;
+vector<int> rolling_max(vector<int> numbers){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+     assert (issame(rolling_max({1, 2, 3, 2, 3, 4, 2}),{1, 2, 3, 3, 3, 4, 4}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+     assert (issame(rolling_max({}),{}));
+    assert (issame(rolling_max({1, 2, 3, 4}) , {1, 2, 3, 4}));
+     assert (issame(rolling_max({4, 3, 2, 1}),{4, 4, 4, 4}));
+      assert (issame(rolling_max({3, 2, 3, 100, 3}) ,{3, 3, 3, 100, 100}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/10
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+#include<stdio.h>
+#include<string>
+using namespace std;
+bool is_palindrome(string str){
+    //Test if given string is a palindrome 
+    string s(str.rbegin(),str.rend());
+    return s==str;
+}
+string make_palindrome(string str){
+    /*
+    Find the shortest palindrome that begins with a supplied string. 
+    Algorithm idea is simple: - Find the longest postfix of supplied string that is a palindrome. 
+    - Append to the end of the string reverse of a string prefix that comes before the palindromic suffix.
+    >>> make_palindrome("") 
+    "" 
+    >>> make_palindrome("cat") 
+    "catac" 
+    >>> make_palindrome("cata") 
+    "catac" 
+    */
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (make_palindrome("") == "");
+    assert (make_palindrome("cat") == "catac");
+     assert (make_palindrome("cata") == "catac");
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (make_palindrome("") == "");
+    assert (make_palindrome("x") == "x");
+     assert (make_palindrome("xyz") == "xyzyx");
+     assert (make_palindrome("xyx") == "xyx") ;
+     assert (make_palindrome("jerry") == "jerryrrej");
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/11
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Input are two strings a and b consisting only of 1s and 0s.
+Perform binary XOR on these inputs and return result also as a string.
+>>> string_xor("010", "110")
+"100"
+*/
+#include<stdio.h>
+#include<string>
+using namespace std;
+string string_xor(string a,string b){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (string_xor("010", "110") == "100");
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (string_xor("111000", "101010") == "010010");
+     assert (string_xor("1", "1") == "0");
+    assert (string_xor("0101", "0000") == "0101");
+
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/12
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Out of vector of strings, return the longest one. Return the first one in case of multiple
+strings of the same length. Return None in case the input vector is empty.
+>>> longest({})
+
+>>> longest({"a", "b", "c"})
+"a"
+>>> longest({"a", "bb", "ccc"})
+"ccc"
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+using namespace std;
+string longest(vector<string> strings){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (longest({}) == "");
+    assert (longest({"a", "b", "c"}) == "a");
+    assert (longest({"a", "bb", "ccc"}) == "ccc");
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (longest({}) == "");
+    assert (longest({"x", "y", "z"}) == "x");
+    assert (longest({"x", "yyy", "zzzz", "www", "kkkk", "abc"}) == "zzzz");
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/13
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Return a greatest common divisor of two integers a and b
+>>> greatest_common_divisor(3, 5)
+1
+>>> greatest_common_divisor(25, 15)
+5
+*/
+#include<stdio.h>
+using namespace std;
+int greatest_common_divisor(int a, int b){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (greatest_common_divisor(3, 5) == 1);
+     assert (greatest_common_divisor(25, 15) == 5);
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (greatest_common_divisor(3, 7) == 1);
+     assert (greatest_common_divisor(10, 15) == 5);
+      assert (greatest_common_divisor(49, 14) == 7);
+     assert (greatest_common_divisor(144, 60) == 12);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/14
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Return vector of all prefixes from shortest to longest of the input string
+>>> all_prefixes("abc")
+{"a", "ab", "abc"}
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+using namespace std;
+vector<string> all_prefixes(string str){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(all_prefixes("abc"),{"a","ab","abc"}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<string> a,vector<string>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+    if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(all_prefixes(""),{}));
+    assert (issame(all_prefixes("asdfgh") ,{"a", "as", "asd", "asdf", "asdfg", "asdfgh"}));
+     assert (issame(all_prefixes("WWW") ,{"W", "WW", "WWW"}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/15
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Return a string containing space-delimited numbers starting from 0 upto n inclusive.
+>>> string_sequence(0)
+"0"
+>>> string_sequence(5)
+"0 1 2 3 4 5"
+*/
+#include<stdio.h>
+#include<string>
+using namespace std;
+string string_sequence(int n){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (string_sequence(0) == "0");
+    assert (string_sequence(5) == "0 1 2 3 4 5");
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (string_sequence(0) == "0");
+    assert (string_sequence(3) == "0 1 2 3");
+     assert (string_sequence(10) == "0 1 2 3 4 5 6 7 8 9 10");
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/16
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Given a string, find out how many distinct characters (regardless of case) does it consist of
+>>> count_distinct_characters("xyzXYZ")
+3
+>>> count_distinct_characters("Jerry")
+4
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+#include<algorithm>
+using namespace std;
+int count_distinct_characters(string str){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (count_distinct_characters("xyzXYZ") == 3);
+    assert (count_distinct_characters("Jerry") == 4);
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (count_distinct_characters("") == 0);
+    assert (count_distinct_characters("abcde") == 5);
+    assert (count_distinct_characters("abcdecadeCADE") == 5);
+    assert (count_distinct_characters("aaaaAAAAaaaa") == 1);
+    assert (count_distinct_characters("Jerry jERRY JeRRRY") == 5);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/17
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Input to this function is a string representing musical notes in a special ASCII format.
+Your task is to parse this string and return vector of integers corresponding to how many beats does each
+not last.
+
+Here is a legend:
+"o" - whole note, lasts four beats
+"o|" - half note, lasts two beats
+".|" - quater note, lasts one beat
+
+>>> parse_music("o o| .| o| o| .| .| .| .| o o")
+{4, 2, 1, 2, 2, 1, 1, 1, 1, 4, 4}
+*/
+#include<stdio.h>
+#include<vector>
+#include<string>
+using namespace std;
+vector<int> parse_music(string music_string){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(parse_music("o o| .| o| o| .| .| .| .| o o") , {4, 2, 1, 2, 2, 1, 1, 1, 1, 4, 4}));
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+bool issame(vector<int> a,vector<int>b){
+    if (a.size()!=b.size()) return false;
+    for (int i=0;i<a.size();i++)
+    {
+        if (a[i]!=b[i]) return false;
+    }
+    return true;
+}
+int main(){
+    assert (issame(parse_music("") , {}));
+     assert (issame(parse_music("o o o o") ,{4, 4, 4, 4}));
+      assert (issame(parse_music(".| .| .| .|") , {1, 1, 1, 1}));
+ assert (issame(parse_music("o| o| .| .| o o o o") , {2, 2, 1, 1, 4, 4, 4, 4}));
+  assert (issame(parse_music("o| .| o| .| o o| o o|") , {2, 1, 2, 1, 4, 2, 4, 2}));
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/18
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Find how many times a given substring can be found in the original string. Count overlaping cases.
+>>> how_many_times("", "a")
+0
+>>> how_many_times("aaa", "a")
+3
+>>> how_many_times("aaaa", "aa")
+3
+*/
+#include<stdio.h>
+#include<string>
+using namespace std;
+int how_many_times(string str,string substring){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (how_many_times("", "a") == 0);
+    assert (how_many_times("aaa", "a") == 3);
+    assert (how_many_times("aaaa", "aa") == 3);
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (how_many_times("", "x") == 0);
+    assert (how_many_times("xyxyxyx", "x") == 4);
+     assert (how_many_times("cacacacac", "cac") == 4);
+    assert (how_many_times("john doe", "john") == 1);
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.
+
+### TASK CPP/19
+Analizza il seguente task C/C++ come se stessi facendo code review:
+- identifica edge case, overflow, gestione memoria e complessita';
+- spiega quali invarianti devono essere rispettati;
+- se vedi rischi di sicurezza o undefined behavior, segnalarli.
+
+Completa la funzione in stile C/C++ semplice:
+- preferisci cicli espliciti e controllo dei limiti;
+- evita astrazioni inutili;
+- mantieni compatibilita' con i test forniti.
+
+```cpp
+/*
+Input is a space-delimited string of numberals from "zero" to "nine".
+Valid choices are "zero", "one", 'two", 'three", "four", "five", 'six", 'seven", "eight" and "nine".
+Return the string with numbers sorted from smallest to largest
+>>> sort_numbers('three one five")
+"one three five"
+*/
+#include<stdio.h>
+#include<string>
+#include<map>
+using namespace std;
+string sort_numbers(string numbers){
+```
+
+Esempi/test minimi:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (sort_numbers("three one five") == "one three five");
+}
+```
+
+Test di riferimento:
+```cpp
+#undef NDEBUG
+#include<assert.h>
+int main(){
+    assert (sort_numbers("") == "");
+    assert (sort_numbers("three") == "three");
+    assert (sort_numbers("three five nine") == "three five nine");
+     assert (sort_numbers("five zero four seven nine eight") == "zero four five seven eight nine");
+      assert (sort_numbers("six five four three two one zero") == "zero one two three four five six");
+}
+```
+
+Rispondi con una breve analisi e poi con una possibile implementazione robusta.

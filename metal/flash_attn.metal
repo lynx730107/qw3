@@ -266,6 +266,7 @@ constant bool FC_flash_attn_ext_has_sinks [[function_constant(FC_FLASH_ATTN_EXT 
 constant bool FC_flash_attn_ext_has_bias  [[function_constant(FC_FLASH_ATTN_EXT + 2)]];
 constant bool FC_flash_attn_ext_has_scap  [[function_constant(FC_FLASH_ATTN_EXT + 3)]];
 constant bool FC_flash_attn_ext_has_kvpad [[function_constant(FC_FLASH_ATTN_EXT + 4)]];
+constant bool FC_flash_attn_ext_partial   [[function_constant(FC_FLASH_ATTN_EXT + 5)]];
 
 constant bool FC_flash_attn_ext_bc_mask [[function_constant(FC_FLASH_ATTN_EXT + 10)]];
 
@@ -414,10 +415,9 @@ void kernel_flash_attn_ext_impl(
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     float S[NQ] = { [0 ... NQ-1] = 0.0f };
+    float M[NQ] = { [0 ... NQ-1] = -FLT_MAX/2 };
 
     {
-        float M[NQ] = { [0 ... NQ-1] = -FLT_MAX/2 };
-
         float slope = 1.0f;
 
         if (FC_flash_attn_ext_has_bias) {
@@ -839,7 +839,8 @@ void kernel_flash_attn_ext_impl(
 
         device float4 * dst4 = (device float4 *) dst + ((uint64_t)iq3*args.ne2*args.ne1 + iq2 + (uint64_t)(iq1 + j)*args.ne1)*DV4;
 
-        const float scale = S[jj] == 0.0 ? 0.0f : 1.0f/S[jj];
+        const float scale = FC_flash_attn_ext_partial ?
+            1.0f : (S[jj] == 0.0 ? 0.0f : 1.0f/S[jj]);
 
         if (DV4 % NW == 0) {
             FOR_UNROLL (short ii = 0; ii < DV4/NW; ++ii) {
@@ -851,6 +852,16 @@ void kernel_flash_attn_ext_impl(
             for (short i = tiisg; i < DV4; i += NW) {
                 dst4[i] = (float4) so4[j*PV4 + i]*scale;
             }
+        }
+
+        if (FC_flash_attn_ext_partial && tiisg == 0) {
+            const uint64_t nrows = (uint64_t)args.ne1*args.ne2*args.ne3;
+            device float * stats = (device float *)dst + nrows*DV;
+            const uint64_t rid =
+                (uint64_t)iq3*args.ne2*args.ne1 + iq2 +
+                (uint64_t)(iq1 + j)*args.ne1;
+            stats[2u*rid + 0u] = S[jj];
+            stats[2u*rid + 1u] = M[jj];
         }
     }
 
