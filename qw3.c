@@ -14751,7 +14751,11 @@ static int qw3_dense_batch_projection_supported(uint32_t type,
            (q3_batch && type == QW3_TENSOR_Q3_K) ||
            (k_batch && (type == QW3_TENSOR_Q4_K ||
                         type == QW3_TENSOR_Q5_K)) ||
+           type == QW3_TENSOR_Q6_K ||
+           type == QW3_TENSOR_IQ2_XXS ||
+           type == QW3_TENSOR_IQ2_XS ||
            type == QW3_TENSOR_IQ3_XXS ||
+           type == QW3_TENSOR_IQ4_NL ||
            type == QW3_TENSOR_IQ3_S ||
            type == QW3_TENSOR_IQ2_S ||
            type == QW3_TENSOR_IQ4_XS;
@@ -14837,49 +14841,21 @@ static int qw3_metal_session_eval_dense_prefill_batch(
     const uint32_t dense_dn_stride = dense_dn_inner_offset + inner_n;
     for (int il = 0; ok && il < spec->n_layer; il++) {
         const qw3_layer_weights *lw = &e->weights.layer[il];
-        const int gate_batch =
-            (q3_batch && lw->ffn_gate->type == QW3_TENSOR_Q3_K) ||
-            (k_batch && (lw->ffn_gate->type == QW3_TENSOR_Q4_K ||
-                         lw->ffn_gate->type == QW3_TENSOR_Q5_K)) ||
-            lw->ffn_gate->type == QW3_TENSOR_IQ3_XXS ||
-            lw->ffn_gate->type == QW3_TENSOR_IQ3_S ||
-            lw->ffn_gate->type == QW3_TENSOR_IQ2_S ||
-            lw->ffn_gate->type == QW3_TENSOR_IQ4_XS;
-        const int up_batch =
-            (q3_batch && lw->ffn_up->type == QW3_TENSOR_Q3_K) ||
-            (k_batch && (lw->ffn_up->type == QW3_TENSOR_Q4_K ||
-                         lw->ffn_up->type == QW3_TENSOR_Q5_K)) ||
-            lw->ffn_up->type == QW3_TENSOR_IQ3_XXS ||
-            lw->ffn_up->type == QW3_TENSOR_IQ3_S ||
-            lw->ffn_up->type == QW3_TENSOR_IQ2_S ||
-            lw->ffn_up->type == QW3_TENSOR_IQ4_XS;
-        const int down_batch =
-            (q3_batch && lw->ffn_down->type == QW3_TENSOR_Q3_K) ||
-            (k_batch && (lw->ffn_down->type == QW3_TENSOR_Q4_K ||
-                         lw->ffn_down->type == QW3_TENSOR_Q5_K)) ||
-            lw->ffn_down->type == QW3_TENSOR_IQ3_XXS ||
-            lw->ffn_down->type == QW3_TENSOR_IQ3_S ||
-            lw->ffn_down->type == QW3_TENSOR_IQ2_S ||
-            lw->ffn_down->type == QW3_TENSOR_IQ4_XS;
+        const int gate_batch = qw3_dense_batch_projection_supported(
+            lw->ffn_gate->type, q3_batch, k_batch);
+        const int up_batch = qw3_dense_batch_projection_supported(
+            lw->ffn_up->type, q3_batch, k_batch);
+        const int down_batch = qw3_dense_batch_projection_supported(
+            lw->ffn_down->type, q3_batch, k_batch);
         const int batch_ffn = gate_batch + up_batch + down_batch >= 2;
         const int is_full_attn =
             qw3_spec_layer_is_full_attention(spec, (uint32_t)il);
         const int batch_linear_qkv = !is_full_attn &&
-            ((q3_batch && lw->linear_qkv_proj->type == QW3_TENSOR_Q3_K) ||
-             (k_batch && (lw->linear_qkv_proj->type == QW3_TENSOR_Q4_K ||
-                          lw->linear_qkv_proj->type == QW3_TENSOR_Q5_K)) ||
-             lw->linear_qkv_proj->type == QW3_TENSOR_IQ3_XXS ||
-             lw->linear_qkv_proj->type == QW3_TENSOR_IQ3_S ||
-             lw->linear_qkv_proj->type == QW3_TENSOR_IQ2_S ||
-             lw->linear_qkv_proj->type == QW3_TENSOR_IQ4_XS);
+            qw3_dense_batch_projection_supported(
+                lw->linear_qkv_proj->type, q3_batch, k_batch);
         const int batch_linear_z = !is_full_attn &&
-            ((q3_batch && lw->linear_gate_proj->type == QW3_TENSOR_Q3_K) ||
-             (k_batch && (lw->linear_gate_proj->type == QW3_TENSOR_Q4_K ||
-                          lw->linear_gate_proj->type == QW3_TENSOR_Q5_K)) ||
-             lw->linear_gate_proj->type == QW3_TENSOR_IQ3_XXS ||
-             lw->linear_gate_proj->type == QW3_TENSOR_IQ3_S ||
-             lw->linear_gate_proj->type == QW3_TENSOR_IQ2_S ||
-             lw->linear_gate_proj->type == QW3_TENSOR_IQ4_XS);
+            qw3_dense_batch_projection_supported(
+                lw->linear_gate_proj->type, q3_batch, k_batch);
         const int batch_linear_proj = batch_linear_qkv || batch_linear_z;
         const uint32_t batch_gqa_mask = is_full_attn && gqa_batch ?
             (qw3_dense_batch_projection_supported(

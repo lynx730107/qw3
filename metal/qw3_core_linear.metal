@@ -1740,6 +1740,150 @@ kernel void qw3_matmul_iq2_s_batch4(
     }
 }
 #ifdef QW3_METAL_HAS_TENSOR
+kernel void qw3_matmul_iq2_xxs_mpp_direct(
+    constant qw3_matmul_q8_0_batch_args &args,
+    device const uchar *weights,
+    device const float *x,
+    device float *out,
+    device const ushort *grid_table,
+    device const uchar *sign_table,
+    threadgroup char *shmem [[threadgroup(0)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    ushort tid [[thread_index_in_threadgroup]]) {
+    constexpr int NR0 = 64;
+    constexpr int NR1 = 32;
+    constexpr int NK = 32;
+    const int r0 = int(group.y) * NR0;
+    const int r1 = int(group.x) * NR1;
+    if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    threadgroup half *sa = (threadgroup half *)shmem;
+    auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
+    device float *ptrB = (device float *)x + args.in_offset;
+    auto tB = tensor(ptrB,
+                    dextents<int32_t, 2>(int(args.n_in), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.in_stride)}));
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cT = mm.template get_destination_cooperative_tensor<
+        decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cT.get_capacity(); i++)
+        if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    for (uint loop_k = 0; loop_k < args.n_in; loop_k += NK) {
+        const int row = int(tid) / 2;
+        const int half_k = int(tid) % 2;
+        if (r0 + row < int(args.n_out)) {
+            const uint k0 = loop_k + uint(half_k * 16);
+            device const uchar *wrow = weights +
+                uint64_t(r0 + row) * args.row_bytes;
+            device const uchar *blk = wrow + uint64_t(k0 >> 8u) * 66ull;
+            const float d = qw3_f16_to_f32(
+                ushort(blk[0]) | (ushort(blk[1]) << 8u));
+            device const uchar *qs = blk + 2u;
+            for (int i = 0; i < 16; i++) {
+                const uint local = (k0 + uint(i)) & 255u;
+                const uint ib = local >> 5u;
+                const uint l = (local & 31u) >> 3u;
+                const uint j = local & 7u;
+                device const uchar *q = qs + ib * 8u;
+                const uint packed = uint(q[4]) | (uint(q[5]) << 8u) |
+                    (uint(q[6]) << 16u) | (uint(q[7]) << 24u);
+                const uint sign_bits =
+                    uint(sign_table[(packed >> (7u * l)) & 127u]);
+                const float db = d *
+                    (0.5f + float(packed >> 28u)) * 0.25f;
+                const float sign = (sign_bits & (1u << j)) ? -1.0f : 1.0f;
+                sa[row * NK + half_k * 16 + i] = half(
+                    db * qw3_iq2_grid_value(grid_table[uint(q[l])], j) * sign);
+            }
+        } else {
+            for (int i = 0; i < 16; i++)
+                sa[row * NK + half_k * 16 + i] = half(0.0f);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        auto mA = tA.slice(0, 0);
+        auto mB = tB.slice(int(loop_k), r1);
+        mm.run(mB, mA, cT);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    auto tD = tensor(out + args.out_offset,
+                    dextents<int32_t, 2>(int(args.n_out), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.out_stride)}));
+    cT.store(tD.slice(r0, r1));
+}
+
+kernel void qw3_matmul_iq2_xs_mpp_direct(
+    constant qw3_matmul_q8_0_batch_args &args,
+    device const uchar *weights,
+    device const float *x,
+    device float *out,
+    device const ushort *grid_table,
+    device const uchar *sign_table,
+    threadgroup char *shmem [[threadgroup(0)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    ushort tid [[thread_index_in_threadgroup]]) {
+    constexpr int NR0 = 64;
+    constexpr int NR1 = 32;
+    constexpr int NK = 32;
+    const int r0 = int(group.y) * NR0;
+    const int r1 = int(group.x) * NR1;
+    if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    threadgroup half *sa = (threadgroup half *)shmem;
+    auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
+    device float *ptrB = (device float *)x + args.in_offset;
+    auto tB = tensor(ptrB,
+                    dextents<int32_t, 2>(int(args.n_in), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.in_stride)}));
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cT = mm.template get_destination_cooperative_tensor<
+        decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cT.get_capacity(); i++)
+        if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    for (uint loop_k = 0; loop_k < args.n_in; loop_k += NK) {
+        const int row = int(tid) / 2;
+        const int half_k = int(tid) % 2;
+        if (r0 + row < int(args.n_out)) {
+            const uint k0 = loop_k + uint(half_k * 16);
+            device const uchar *wrow = weights +
+                uint64_t(r0 + row) * args.row_bytes;
+            device const uchar *blk = wrow + uint64_t(k0 >> 8u) * 74ull;
+            const float d = qw3_f16_to_f32(
+                ushort(blk[0]) | (ushort(blk[1]) << 8u));
+            device const uchar *qs = blk + 2u;
+            device const uchar *scales = qs + 64u;
+            for (int i = 0; i < 16; i++) {
+                const uint local = (k0 + uint(i)) & 255u;
+                const uint ib = local >> 5u;
+                const uint l = (local & 31u) >> 3u;
+                const uint j = local & 7u;
+                const uint off = 2u * (4u * ib + l);
+                const uint q = uint(qs[off]) | (uint(qs[off + 1u]) << 8u);
+                const uint sign_bits = uint(sign_table[q >> 9u]);
+                const float db = d *
+                    (0.5f + float((uint(scales[ib]) >>
+                                  (4u * (l >> 1u))) & 15u)) * 0.25f;
+                const float sign = (sign_bits & (1u << j)) ? -1.0f : 1.0f;
+                sa[row * NK + half_k * 16 + i] = half(
+                    db * qw3_iq2_grid_value(grid_table[q & 511u], j) * sign);
+            }
+        } else {
+            for (int i = 0; i < 16; i++)
+                sa[row * NK + half_k * 16 + i] = half(0.0f);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        auto mA = tA.slice(0, 0);
+        auto mB = tB.slice(int(loop_k), r1);
+        mm.run(mB, mA, cT);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    auto tD = tensor(out + args.out_offset,
+                    dextents<int32_t, 2>(int(args.n_out), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.out_stride)}));
+    cT.store(tD.slice(r0, r1));
+}
+
 kernel void qw3_matmul_iq2_s_mpp_direct(
     constant qw3_matmul_q8_0_batch_args &args,
     device const uchar *weights,
@@ -2053,6 +2197,77 @@ kernel void qw3_matmul_iq3_xxs_mpp_direct(
                 sa[row * NK + half_k * 16 + i] = half(
                     db * qw3_iq3xxs_grid_value(grid_table[grid_index],
                                                  j & 3u) * sign);
+            }
+        } else {
+            for (int i = 0; i < 16; i++)
+                sa[row * NK + half_k * 16 + i] = half(0.0f);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        auto mA = tA.slice(0, 0);
+        auto mB = tB.slice(int(loop_k), r1);
+        mm.run(mB, mA, cT);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    auto tD = tensor(out + args.out_offset,
+                    dextents<int32_t, 2>(int(args.n_out), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.out_stride)}));
+    cT.store(tD.slice(r0, r1));
+}
+
+kernel void qw3_matmul_q6_k_mpp_direct(
+    constant qw3_matmul_q8_0_batch_args &args,
+    device const uchar *weights,
+    device const float *x,
+    device float *out,
+    threadgroup char *shmem [[threadgroup(0)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    ushort tid [[thread_index_in_threadgroup]]) {
+    constexpr int NR0 = 64;
+    constexpr int NR1 = 32;
+    constexpr int NK = 32;
+    const int r0 = int(group.y) * NR0;
+    const int r1 = int(group.x) * NR1;
+    if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    threadgroup half *sa = (threadgroup half *)shmem;
+    auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
+    device float *ptrB = (device float *)x + args.in_offset;
+    auto tB = tensor(ptrB,
+                    dextents<int32_t, 2>(int(args.n_in), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.in_stride)}));
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cT = mm.template get_destination_cooperative_tensor<
+        decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cT.get_capacity(); i++)
+        if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    for (uint loop_k = 0; loop_k < args.n_in; loop_k += NK) {
+        const int row = int(tid) / 2;
+        const int half_k = int(tid) % 2;
+        if (r0 + row < int(args.n_out)) {
+            const uint k0 = loop_k + uint(half_k * 16);
+            device const uchar *wrow = weights +
+                uint64_t(r0 + row) * args.row_bytes;
+            device const uchar *blk = wrow + uint64_t(k0 >> 8u) * 210ull;
+            const float d = qw3_f16_to_f32(
+                ushort(blk[208]) | (ushort(blk[209]) << 8u));
+            for (int i = 0; i < 16; i++) {
+                const uint local = (k0 + uint(i)) & 255u;
+                const uint half_block = local >> 7u;
+                const uint within = local & 127u;
+                const uint part = within >> 5u;
+                const uint l = within & 31u;
+                const uint ql_index = half_block * 64u +
+                    (part & 1u) * 32u + l;
+                const uint packed = uint(blk[ql_index]);
+                const uint low = part < 2u ? packed & 15u : packed >> 4u;
+                const uint high = (uint(blk[128u + half_block * 32u + l]) >>
+                                   (2u * part)) & 3u;
+                const int q = int(low | (high << 4u)) - 32;
+                const int scale = int(((device const char *)(blk + 192u))[
+                    half_block * 8u + 2u * part + l / 16u]);
+                sa[row * NK + half_k * 16 + i] =
+                    half(d * float(scale) * float(q));
             }
         } else {
             for (int i = 0; i < 16; i++)

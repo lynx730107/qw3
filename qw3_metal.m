@@ -102,6 +102,8 @@ static id<MTLComputePipelineState> g_matvec_iq4_nl_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq4_nl_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_xs_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_xxs_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq2_xs_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq2_xxs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_s_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_mpp_pipeline;
@@ -109,6 +111,7 @@ static id<MTLComputePipelineState> g_matvec_iq3_xxs_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_pipeline;
+static id<MTLComputePipelineState> g_matmul_q6_k_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_add_x0_pipeline;
@@ -1374,6 +1377,18 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    g_matmul_iq2_xxs_mpp_pipeline = nil;
+    if (g_metal4_tensor_api_enabled) {
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_xxs_mpp_direct"];
+        if (fn) {
+            g_matmul_iq2_xxs_mpp_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+            if (!g_matmul_iq2_xxs_mpp_pipeline)
+                fprintf(stderr,
+                        "qw3: Metal pipeline qw3_matmul_iq2_xxs_mpp failed: %s\n",
+                        [[error localizedDescription] UTF8String]);
+        }
+    }
     fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_xs"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_matvec_iq2_xs not found\n");
@@ -1385,6 +1400,18 @@ static int qw3_metal_compile_kernels(void) {
         fprintf(stderr, "qw3: Metal pipeline qw3_matvec_iq2_xs failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
+    }
+    g_matmul_iq2_xs_mpp_pipeline = nil;
+    if (g_metal4_tensor_api_enabled) {
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_xs_mpp_direct"];
+        if (fn) {
+            g_matmul_iq2_xs_mpp_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+            if (!g_matmul_iq2_xs_mpp_pipeline)
+                fprintf(stderr,
+                        "qw3: Metal pipeline qw3_matmul_iq2_xs_mpp failed: %s\n",
+                        [[error localizedDescription] UTF8String]);
+        }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_s"];
     if (!fn) {
@@ -1493,6 +1520,18 @@ static int qw3_metal_compile_kernels(void) {
         fprintf(stderr, "qw3: Metal pipeline qw3_matvec_q6_k_fast failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
+    }
+    g_matmul_q6_k_mpp_pipeline = nil;
+    if (g_metal4_tensor_api_enabled) {
+        fn = [g_library newFunctionWithName:@"qw3_matmul_q6_k_mpp_direct"];
+        if (fn) {
+            g_matmul_q6_k_mpp_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+            if (!g_matmul_q6_k_mpp_pipeline)
+                fprintf(stderr,
+                        "qw3: Metal pipeline qw3_matmul_q6_k_mpp failed: %s\n",
+                        [[error localizedDescription] UTF8String]);
+        }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_q6_k_add_x0"];
     if (!fn) {
@@ -4265,7 +4304,9 @@ static int qw3_metal_encode_dense_batch_matmul(
     if (!obj || !cb || !src || !dst || !n_tokens || !n_in || !n_out ||
         (n_in % 256u) != 0 ||
         (tensor_type != 10u && tensor_type != 11u && tensor_type != 12u &&
-         tensor_type != 13u && tensor_type != 18u && tensor_type != 20u &&
+         tensor_type != 13u && tensor_type != 14u &&
+         tensor_type != 16u && tensor_type != 17u &&
+         tensor_type != 18u && tensor_type != 20u &&
          tensor_type != 21u && tensor_type != 22u &&
          tensor_type != 23u)) return 0;
     const uint64_t x_bytes = (uint64_t)n_tokens * n_in * sizeof(float);
@@ -4276,6 +4317,9 @@ static int qw3_metal_encode_dense_batch_matmul(
          tensor_type == 11u ? 110ull :
          tensor_type == 12u ? 144ull :
          tensor_type == 13u ? 176ull :
+         tensor_type == 14u ? 210ull :
+         tensor_type == 16u ? 66ull :
+         tensor_type == 17u ? 74ull :
          tensor_type == 18u ? 98ull :
          tensor_type == 21u ? 110ull :
          tensor_type == 22u ? 82ull : 136ull);
@@ -4355,6 +4399,77 @@ static int qw3_metal_encode_dense_batch_matmul(
         [enc dispatchThreadgroups:use_mpp ?
              MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u) :
              MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
+        qw3_metal_end_compute_encoder(cb, enc);
+        return 1;
+    }
+    if (tensor_type == 20u) {
+        if (!weights || !g_matmul_iq4_nl_mpp_pipeline ||
+            n_tokens < 16u) return 0;
+        struct {
+            uint32_t n_in, n_out, row_bytes, n_tokens;
+            uint32_t in_offset, in_stride, out_offset, out_stride;
+        } args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
+                  0u, n_in, 0u, n_out};
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:g_matmul_iq4_nl_mpp_pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
+        [enc setBuffer:src offset:0 atIndex:2];
+        [enc setBuffer:dst offset:0 atIndex:3];
+        [enc setThreadgroupMemoryLength:8192u atIndex:0];
+        [enc dispatchThreadgroups:
+             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
+        qw3_metal_end_compute_encoder(cb, enc);
+        return 1;
+    }
+    if (tensor_type == 14u) {
+        if (!weights || !g_matmul_q6_k_mpp_pipeline ||
+            n_tokens < 16u) return 0;
+        struct {
+            uint32_t n_in, n_out, row_bytes, n_tokens;
+            uint32_t in_offset, in_stride, out_offset, out_stride;
+        } args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
+                  0u, n_in, 0u, n_out};
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:g_matmul_q6_k_mpp_pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
+        [enc setBuffer:src offset:0 atIndex:2];
+        [enc setBuffer:dst offset:0 atIndex:3];
+        [enc setThreadgroupMemoryLength:8192u atIndex:0];
+        [enc dispatchThreadgroups:
+             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
+        qw3_metal_end_compute_encoder(cb, enc);
+        return 1;
+    }
+    if (tensor_type == 16u || tensor_type == 17u) {
+        id<MTLBuffer> signs = nil;
+        id<MTLBuffer> grid = nil;
+        id<MTLComputePipelineState> pipeline = tensor_type == 16u ?
+            g_matmul_iq2_xxs_mpp_pipeline : g_matmul_iq2_xs_mpp_pipeline;
+        if (!weights || !pipeline || n_tokens < 16u ||
+            !qw3_metal_dense_iq_buffers(&signs,
+                tensor_type == 17u ? &grid : NULL, NULL, NULL)) return 0;
+        if (tensor_type == 16u) grid = g_iq2xxs_kgrid_buffer;
+        struct {
+            uint32_t n_in, n_out, row_bytes, n_tokens;
+            uint32_t in_offset, in_stride, out_offset, out_stride;
+        } args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
+                  0u, n_in, 0u, n_out};
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
+        [enc setBuffer:src offset:0 atIndex:2];
+        [enc setBuffer:dst offset:0 atIndex:3];
+        [enc setBuffer:grid offset:0 atIndex:4];
+        [enc setBuffer:signs offset:0 atIndex:5];
+        [enc setThreadgroupMemoryLength:8192u atIndex:0];
+        [enc dispatchThreadgroups:
+             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -4453,7 +4568,9 @@ int qw3_metal_session_batch_matmul_quant_x1_to_scratch(
     if (!s || !s->obj || !n_tokens || !n_in || !n_out ||
         (n_in % 256u) != 0 || g_batch_cb ||
         (tensor_type != 10u && tensor_type != 11u && tensor_type != 12u &&
-         tensor_type != 13u && tensor_type != 18u && tensor_type != 20u &&
+         tensor_type != 13u && tensor_type != 14u &&
+         tensor_type != 16u && tensor_type != 17u &&
+         tensor_type != 18u && tensor_type != 20u &&
          tensor_type != 21u && tensor_type != 22u &&
          tensor_type != 23u)) return 0;
     if (!g_initialized && !qw3_metal_init()) return 0;
@@ -4553,15 +4670,21 @@ int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
     const int k_batch = qw3_metal_dense_q4_q5_k_batch_enabled(n_tokens);
     const int gate_batch = (q3_batch && gate_type == 11u) ||
         (k_batch && (gate_type == 12u || gate_type == 13u)) ||
-        gate_type == 18u || gate_type == 21u || gate_type == 22u ||
+        gate_type == 14u || gate_type == 16u || gate_type == 17u ||
+        gate_type == 18u ||
+        gate_type == 21u || gate_type == 22u ||
         gate_type == 23u;
     const int up_batch = (q3_batch && up_type == 11u) ||
         (k_batch && (up_type == 12u || up_type == 13u)) ||
-        up_type == 18u || up_type == 21u || up_type == 22u ||
+        up_type == 14u || up_type == 16u || up_type == 17u ||
+        up_type == 18u ||
+        up_type == 21u || up_type == 22u ||
         up_type == 23u;
     const int down_batch = (q3_batch && down_type == 11u) ||
         (k_batch && (down_type == 12u || down_type == 13u)) ||
-        down_type == 18u || down_type == 21u || down_type == 22u ||
+        down_type == 14u || down_type == 16u || down_type == 17u ||
+        down_type == 18u ||
+        down_type == 21u || down_type == 22u ||
         down_type == 23u;
     if (gate_batch + up_batch + down_batch < 2 ||
         !qw3_metal_session_prepare_dense_ffn_batch(
@@ -4619,15 +4742,18 @@ int qw3_metal_session_batch_dense_ffn(qw3_metal_session *s,
     uint64_t down_offset, uint32_t down_type,
     uint32_t n_tokens, uint32_t n_embd, uint32_t n_ff) {
     if ((gate_type != 11u && gate_type != 12u && gate_type != 13u &&
-         gate_type != 18u &&
+         gate_type != 14u &&
+         gate_type != 16u && gate_type != 17u && gate_type != 18u &&
          gate_type != 21u && gate_type != 22u &&
          gate_type != 23u) ||
         (up_type != 11u && up_type != 12u && up_type != 13u &&
-         up_type != 18u &&
+         up_type != 14u &&
+         up_type != 16u && up_type != 17u && up_type != 18u &&
          up_type != 21u && up_type != 22u &&
          up_type != 23u) ||
         (down_type != 11u && down_type != 12u && down_type != 13u &&
-         down_type != 18u &&
+         down_type != 14u &&
+         down_type != 16u && down_type != 17u && down_type != 18u &&
          down_type != 21u && down_type != 22u &&
          down_type != 23u)) return 0;
     return qw3_metal_session_batch_dense_ffn_mixed(
@@ -4645,11 +4771,15 @@ int qw3_metal_session_batch_dense_deltanet_projections(
     const int k_batch = qw3_metal_dense_q4_q5_k_batch_enabled(n_tokens);
     const int qkv_batch = (q3_batch && qkv_type == 11u) ||
         (k_batch && (qkv_type == 12u || qkv_type == 13u)) ||
-        qkv_type == 18u || qkv_type == 21u || qkv_type == 22u ||
+        qkv_type == 14u || qkv_type == 16u || qkv_type == 17u ||
+        qkv_type == 18u ||
+        qkv_type == 21u || qkv_type == 22u ||
         qkv_type == 23u;
     const int z_batch = (q3_batch && z_type == 11u) ||
         (k_batch && (z_type == 12u || z_type == 13u)) ||
-        z_type == 18u || z_type == 21u || z_type == 22u ||
+        z_type == 14u || z_type == 16u || z_type == 17u ||
+        z_type == 18u ||
+        z_type == 21u || z_type == 22u ||
         z_type == 23u;
     if (!s || !s->obj || !n_tokens || !n_embd || !n_qkv || !n_z ||
         (n_embd % 256u) != 0 || g_batch_cb ||
@@ -4685,6 +4815,12 @@ int qw3_metal_session_batch_dense_deltanet_projections(
 static int qw3_metal_dense_quant_batch_available(uint32_t type,
                                                  uint32_t n_tokens) {
     if (type == 10u) return g_matmul_q2_k_batch4_pipeline != nil;
+    if (type == 14u) return n_tokens >= 16u &&
+        g_matmul_q6_k_mpp_pipeline != nil;
+    if (type == 16u) return n_tokens >= 16u &&
+        g_matmul_iq2_xxs_mpp_pipeline != nil;
+    if (type == 17u) return n_tokens >= 16u &&
+        g_matmul_iq2_xs_mpp_pipeline != nil;
     if (type == 20u) return g_matmul_iq4_nl_mpp_pipeline != nil;
     if (type == 11u) return qw3_metal_dense_q3_k_batch_enabled(n_tokens);
     if (type == 12u || type == 13u)
@@ -12311,6 +12447,8 @@ void qw3_metal_cleanup(void) {
     g_matmul_iq4_nl_mpp_pipeline = nil;
     g_matvec_iq2_xs_pipeline = nil;
     g_matvec_iq2_xxs_pipeline = nil;
+    g_matmul_iq2_xs_mpp_pipeline = nil;
+    g_matmul_iq2_xxs_mpp_pipeline = nil;
     g_matvec_iq2_s_pipeline = nil;
     g_matmul_iq2_s_batch4_pipeline = nil;
     g_matmul_iq2_s_mpp_pipeline = nil;
@@ -12318,6 +12456,7 @@ void qw3_metal_cleanup(void) {
     g_matmul_iq3_xxs_batch4_pipeline = nil;
     g_matmul_iq3_xxs_mpp_pipeline = nil;
     g_matvec_q6_k_pipeline = nil;
+    g_matmul_q6_k_mpp_pipeline = nil;
     g_matvec_iq4_xs_add_x0_pipeline = nil;
     g_matvec_q6_k_add_x0_pipeline = nil;
     g_matvec_iq4_xs_swiglu_add_x0_pipeline = nil;
