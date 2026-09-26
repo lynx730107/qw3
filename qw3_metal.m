@@ -4670,19 +4670,22 @@ int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
     const int k_batch = qw3_metal_dense_q4_q5_k_batch_enabled(n_tokens);
     const int gate_batch = (q3_batch && gate_type == 11u) ||
         (k_batch && (gate_type == 12u || gate_type == 13u)) ||
-        gate_type == 14u || gate_type == 16u || gate_type == 17u ||
+        (n_tokens >= 16u && (gate_type == 14u || gate_type == 16u ||
+                            gate_type == 17u)) ||
         gate_type == 18u ||
         gate_type == 21u || gate_type == 22u ||
         gate_type == 23u;
     const int up_batch = (q3_batch && up_type == 11u) ||
         (k_batch && (up_type == 12u || up_type == 13u)) ||
-        up_type == 14u || up_type == 16u || up_type == 17u ||
+        (n_tokens >= 16u && (up_type == 14u || up_type == 16u ||
+                            up_type == 17u)) ||
         up_type == 18u ||
         up_type == 21u || up_type == 22u ||
         up_type == 23u;
     const int down_batch = (q3_batch && down_type == 11u) ||
         (k_batch && (down_type == 12u || down_type == 13u)) ||
-        down_type == 14u || down_type == 16u || down_type == 17u ||
+        (n_tokens >= 16u && (down_type == 14u || down_type == 16u ||
+                            down_type == 17u)) ||
         down_type == 18u ||
         down_type == 21u || down_type == 22u ||
         down_type == 23u;
@@ -4771,13 +4774,15 @@ int qw3_metal_session_batch_dense_deltanet_projections(
     const int k_batch = qw3_metal_dense_q4_q5_k_batch_enabled(n_tokens);
     const int qkv_batch = (q3_batch && qkv_type == 11u) ||
         (k_batch && (qkv_type == 12u || qkv_type == 13u)) ||
-        qkv_type == 14u || qkv_type == 16u || qkv_type == 17u ||
+        (n_tokens >= 16u && (qkv_type == 14u || qkv_type == 16u ||
+                            qkv_type == 17u)) ||
         qkv_type == 18u ||
         qkv_type == 21u || qkv_type == 22u ||
         qkv_type == 23u;
     const int z_batch = (q3_batch && z_type == 11u) ||
         (k_batch && (z_type == 12u || z_type == 13u)) ||
-        z_type == 14u || z_type == 16u || z_type == 17u ||
+        (n_tokens >= 16u && (z_type == 14u || z_type == 16u ||
+                            z_type == 17u)) ||
         z_type == 18u ||
         z_type == 21u || z_type == 22u ||
         z_type == 23u;
