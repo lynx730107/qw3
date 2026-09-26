@@ -8,13 +8,14 @@
 
 /* Public engine boundary.
  *
- * qw3.c is a minimalist, single-model inference engine for Qwen3.6-35B-A3B,
- * following the ds4.c philosophy: one model, zero frameworks, vertical code.
+ * qw3.c is a minimalist inference engine for the supported Qwen3 hybrid
+ * profiles, including Qwen3.6-35B-A3B MoE and Qwen3.8-27B dense, following
+ * the ds4.c philosophy: a small explicit model set, zero frameworks, vertical
+ * code.
  *
- * The architecture is a hybrid Gated-DeltaNet / GQA transformer with sparse
- * MoE (256 experts, top-8 routing + 1 shared expert).  30 of the 40 layers
- * use linear attention (Gated DeltaNet with a fixed-size recurrent state),
- * while 10 layers use standard GQA with a traditional KV cache.
+ * Both validated profiles use hybrid Gated-DeltaNet / GQA attention. The
+ * Qwen3.6 profile has sparse MoE feed-forward layers; Qwen3.8 has dense FFN
+ * layers and a 64-layer trunk.
  *
  * Callers treat qw3_engine as the loaded model and qw3_session as one mutable
  * inference timeline.  A session owns the live KV cache (for GQA layers),
@@ -88,6 +89,8 @@ typedef struct {
 /* Engine lifecycle. */
 int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt);
 void qw3_engine_close(qw3_engine *e);
+int qw3_engine_layer_count(qw3_engine *e);
+bool qw3_engine_is_dense(qw3_engine *e);
 void qw3_engine_summary(qw3_engine *e);
 void qw3_engine_inspect(qw3_engine *e, FILE *fp);
 void qw3_engine_layer_types(qw3_engine *e, int layer, FILE *fp);
@@ -177,6 +180,12 @@ int qw3_engine_metal_session_gqa_single_test(qw3_engine *e, int token,
                                              int ctx_size, FILE *fp);
 int qw3_engine_metal_session_gqa_cached2_test(qw3_engine *e, int token,
                                               int ctx_size, FILE *fp);
+int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
+                                             int ctx_size, FILE *fp);
+int qw3_engine_metal_dense_logits_test(qw3_engine *e, int token,
+                                      int ctx_size, FILE *fp);
+int qw3_engine_metal_dense_greedy_test(qw3_engine *e, int token,
+                                      int n_steps, int ctx_size, FILE *fp);
 int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
                                               int n_ctx, int ctx_size,
                                               FILE *fp);
@@ -204,6 +213,8 @@ const char *qw3_think_mode_name(qw3_think_mode mode);
 /* Memory estimation. */
 qw3_context_memory qw3_context_memory_estimate(qw3_backend backend,
                                                 int ctx_size);
+qw3_context_memory qw3_engine_context_memory_estimate(qw3_engine *e,
+                                                       int ctx_size);
 
 /* Logging. */
 bool qw3_log_is_tty(FILE *fp);

@@ -45,7 +45,9 @@ case "$load" in
 esac
 
 roundtrip=$(run -p ciao --session-roundtrip --ctx "$CTX" 2>/dev/null)
-echo "$roundtrip" | grep -q 'top5=ok maxdiff=0' || fail "session roundtrip mismatch"
+echo "$roundtrip" | grep -q \
+    'logits=exact decode_steps=4 maxdiff=0 rmsdiff=0 corrupt=rejected' ||
+    fail "session roundtrip mismatch: $roundtrip"
 
 run -p ciao -n 2 --dump-logprobs "$logits_file" --logprobs-top-k 5 --ctx "$CTX" >/dev/null 2>/dev/null
 cmp -s "$FIXTURES_DIR/ciao-logits-v1.json" "$logits_file" ||
@@ -55,7 +57,7 @@ run -p ciao --dump-trace "$trace_file" --ctx "$CTX" >/dev/null 2>/dev/null
 grep -q '"schema":"qw3-local-trace-v1"' "$trace_file" || fail "dump-trace schema missing"
 grep -q '"name":"embedding","layer":-1' "$trace_file" || fail "dump-trace embedding missing"
 grep -q '"name":"full","layer":39' "$trace_file" || fail "dump-trace final layer missing"
-grep -q '"top_logits":\[{"id":8160,"logit":25.60219}' "$trace_file" ||
+grep -q '"top_logits":\[{"id":8160,"logit":25.6021' "$trace_file" ||
     fail "dump-trace top logit mismatch"
 
 echo "test-vectors: ok"

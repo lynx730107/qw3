@@ -251,11 +251,11 @@ kernel void qw3_deltanet_batch_fused_gdn(constant qw3_batch_gdn_args &args,
         float b = sh[0];
         float g = sh[1];
         float sk = 0.0f;
-        for (uint i = 0; i < args.head_dim; i++) sk += st[j * args.head_dim + i] * kh[i];
+        for (uint i = 0; i < args.head_dim; i++) sk += st[i * args.head_dim + j] * kh[i];
         float d = b * (vh[j] - sk * g);
         float sum = 0.0f;
         for (uint i = 0; i < args.head_dim; i++) {
-            uint idx = j * args.head_dim + i;
+            uint idx = i * args.head_dim + j;
             float sv = st[idx] * g + kh[i] * d;
             st[idx] = sv;
             sum += sv * qh[i];
@@ -308,13 +308,18 @@ kernel void qw3_deltanet_batch_recur_tiled(constant qw3_batch_gdn_args &args,
         }
         b = simd_broadcast(b, 0);
         g = simd_broadcast(g, 0);
-        uint state_col = j * args.head_dim + i0;
-        float4 sv = *((device const float4 *)(st + state_col));
+        float4 sv = float4(st[(i0 + 0u) * args.head_dim + j],
+                           st[(i0 + 1u) * args.head_dim + j],
+                           st[(i0 + 2u) * args.head_dim + j],
+                           st[(i0 + 3u) * args.head_dim + j]);
         float4 kv = *((device const float4 *)(kh + i0));
         float sk = simd_sum(dot(sv, kv));
         float d = b * (vh[j] - sk * g);
         sv = sv * g + kv * d;
-        *((device float4 *)(st + state_col)) = sv;
+        st[(i0 + 0u) * args.head_dim + j] = sv.x;
+        st[(i0 + 1u) * args.head_dim + j] = sv.y;
+        st[(i0 + 2u) * args.head_dim + j] = sv.z;
+        st[(i0 + 3u) * args.head_dim + j] = sv.w;
         float4 qv = *((device const float4 *)(qh + i0));
         float out = simd_sum(dot(sv, qv));
         if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j] = out * norm_scale;
@@ -358,20 +363,30 @@ kernel void qw3_deltanet_batch_recur_tiled2(constant qw3_batch_gdn_args &args,
         g = simd_broadcast(g, 0);
         float4 kv = *((device const float4 *)(kh + i0));
         float4 qv = *((device const float4 *)(qh + i0));
-        uint state_col0 = j0 * args.head_dim + i0;
-        float4 sv0 = *((device const float4 *)(st + state_col0));
+        float4 sv0 = float4(st[(i0 + 0u) * args.head_dim + j0],
+                            st[(i0 + 1u) * args.head_dim + j0],
+                            st[(i0 + 2u) * args.head_dim + j0],
+                            st[(i0 + 3u) * args.head_dim + j0]);
         float sk0 = simd_sum(dot(sv0, kv));
         float d0 = b * (vh[j0] - sk0 * g);
         sv0 = sv0 * g + kv * d0;
-        *((device float4 *)(st + state_col0)) = sv0;
+        st[(i0 + 0u) * args.head_dim + j0] = sv0.x;
+        st[(i0 + 1u) * args.head_dim + j0] = sv0.y;
+        st[(i0 + 2u) * args.head_dim + j0] = sv0.z;
+        st[(i0 + 3u) * args.head_dim + j0] = sv0.w;
         float out0 = simd_sum(dot(sv0, qv));
         if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j0] = out0 * norm_scale;
-        uint state_col1 = j1 * args.head_dim + i0;
-        float4 sv1 = *((device const float4 *)(st + state_col1));
+        float4 sv1 = float4(st[(i0 + 0u) * args.head_dim + j1],
+                            st[(i0 + 1u) * args.head_dim + j1],
+                            st[(i0 + 2u) * args.head_dim + j1],
+                            st[(i0 + 3u) * args.head_dim + j1]);
         float sk1 = simd_sum(dot(sv1, kv));
         float d1 = b * (vh[j1] - sk1 * g);
         sv1 = sv1 * g + kv * d1;
-        *((device float4 *)(st + state_col1)) = sv1;
+        st[(i0 + 0u) * args.head_dim + j1] = sv1.x;
+        st[(i0 + 1u) * args.head_dim + j1] = sv1.y;
+        st[(i0 + 2u) * args.head_dim + j1] = sv1.z;
+        st[(i0 + 3u) * args.head_dim + j1] = sv1.w;
         float out1 = simd_sum(dot(sv1, qv));
         if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j1] = out1 * norm_scale;
     }
@@ -413,41 +428,61 @@ kernel void qw3_deltanet_batch_recur_tiled4(constant qw3_batch_gdn_args &args,
         g = simd_broadcast(g, 0);
         float4 kv = *((device const float4 *)(kh + i0));
         float4 qv = *((device const float4 *)(qh + i0));
-        uint state_col0 = j0 * args.head_dim + i0;
-        float4 sv0 = *((device const float4 *)(st + state_col0));
+        float4 sv0 = float4(st[(i0 + 0u) * args.head_dim + j0],
+                            st[(i0 + 1u) * args.head_dim + j0],
+                            st[(i0 + 2u) * args.head_dim + j0],
+                            st[(i0 + 3u) * args.head_dim + j0]);
         float sk0 = simd_sum(dot(sv0, kv));
         float d0 = b * (vh[j0] - sk0 * g);
         sv0 = sv0 * g + kv * d0;
-        *((device float4 *)(st + state_col0)) = sv0;
+        st[(i0 + 0u) * args.head_dim + j0] = sv0.x;
+        st[(i0 + 1u) * args.head_dim + j0] = sv0.y;
+        st[(i0 + 2u) * args.head_dim + j0] = sv0.z;
+        st[(i0 + 3u) * args.head_dim + j0] = sv0.w;
         float out0 = simd_sum(dot(sv0, qv));
         if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j0] = out0 * rsqrt(float(args.head_dim));
         if (j1 < args.head_dim) {
-            uint state_col1 = j1 * args.head_dim + i0;
-            float4 sv1 = *((device const float4 *)(st + state_col1));
+            float4 sv1 = float4(st[(i0 + 0u) * args.head_dim + j1],
+                                st[(i0 + 1u) * args.head_dim + j1],
+                                st[(i0 + 2u) * args.head_dim + j1],
+                                st[(i0 + 3u) * args.head_dim + j1]);
             float sk1 = simd_sum(dot(sv1, kv));
             float d1 = b * (vh[j1] - sk1 * g);
             sv1 = sv1 * g + kv * d1;
-            *((device float4 *)(st + state_col1)) = sv1;
+            st[(i0 + 0u) * args.head_dim + j1] = sv1.x;
+            st[(i0 + 1u) * args.head_dim + j1] = sv1.y;
+            st[(i0 + 2u) * args.head_dim + j1] = sv1.z;
+            st[(i0 + 3u) * args.head_dim + j1] = sv1.w;
             float out1 = simd_sum(dot(sv1, qv));
             if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j1] = out1 * rsqrt(float(args.head_dim));
         }
         if (j2 < args.head_dim) {
-            uint state_col2 = j2 * args.head_dim + i0;
-            float4 sv2 = *((device const float4 *)(st + state_col2));
+            float4 sv2 = float4(st[(i0 + 0u) * args.head_dim + j2],
+                                st[(i0 + 1u) * args.head_dim + j2],
+                                st[(i0 + 2u) * args.head_dim + j2],
+                                st[(i0 + 3u) * args.head_dim + j2]);
             float sk2 = simd_sum(dot(sv2, kv));
             float d2 = b * (vh[j2] - sk2 * g);
             sv2 = sv2 * g + kv * d2;
-            *((device float4 *)(st + state_col2)) = sv2;
+            st[(i0 + 0u) * args.head_dim + j2] = sv2.x;
+            st[(i0 + 1u) * args.head_dim + j2] = sv2.y;
+            st[(i0 + 2u) * args.head_dim + j2] = sv2.z;
+            st[(i0 + 3u) * args.head_dim + j2] = sv2.w;
             float out2 = simd_sum(dot(sv2, qv));
             if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j2] = out2 * rsqrt(float(args.head_dim));
         }
         if (j3 < args.head_dim) {
-            uint state_col3 = j3 * args.head_dim + i0;
-            float4 sv3 = *((device const float4 *)(st + state_col3));
+            float4 sv3 = float4(st[(i0 + 0u) * args.head_dim + j3],
+                                st[(i0 + 1u) * args.head_dim + j3],
+                                st[(i0 + 2u) * args.head_dim + j3],
+                                st[(i0 + 3u) * args.head_dim + j3]);
             float sk3 = simd_sum(dot(sv3, kv));
             float d3 = b * (vh[j3] - sk3 * g);
             sv3 = sv3 * g + kv * d3;
-            *((device float4 *)(st + state_col3)) = sv3;
+            st[(i0 + 0u) * args.head_dim + j3] = sv3.x;
+            st[(i0 + 1u) * args.head_dim + j3] = sv3.y;
+            st[(i0 + 2u) * args.head_dim + j3] = sv3.z;
+            st[(i0 + 3u) * args.head_dim + j3] = sv3.w;
             float out3 = simd_sum(dot(sv3, qv));
             if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j3] = out3 * rsqrt(float(args.head_dim));
         }

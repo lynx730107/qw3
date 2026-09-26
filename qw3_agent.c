@@ -51,7 +51,6 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define AGENT_COLOR_CODE "\033[33m"
 #define AGENT_COLOR_TOOL "\033[36m"
 
-#define QW3_AGENT_N_LAYER 40
 #define QW3_AGENT_READ_DEFAULT_LINES 512
 #define QW3_AGENT_READ_MAX_LINES 2048
 #define QW3_AGENT_SOURCE_READ_MAX_LINES 256
@@ -139,6 +138,7 @@ typedef struct {
 
 typedef struct {
     const char *model_path;
+    char *model_path_owned;
     const char *prompt;
     char *prompt_owned;
     const char *user_system;
@@ -154,8 +154,11 @@ typedef struct {
     char *tool_native_owned;
     int n_predict;
     int ctx_size;
+    int metal_n_gpu_layers;
+    bool metal_n_gpu_layers_set;
     int max_tool_rounds;
     bool tools_enabled;
+    bool compact_tools;
     bool dump_prompt;
     bool prefix_cache;
     qw3_backend backend;
@@ -690,17 +693,18 @@ static char *native_tool_call_text(const tool_call_list *calls) {
     return sb.p ? sb.p : agent_strdup("");
 }
 
-static char *native_tool_declarations(void) {
+static char *native_tool_declarations(bool compact_tools) {
     strbuf sb;
     sb_init(&sb);
 #define TOOL_DECL(NAME, DESC, PARAMS) \
     sb_append(&sb, "{\"type\":\"function\",\"function\":{\"name\":\"" NAME "\",\"description\":\"" DESC "\",\"parameters\":{\"type\":\"object\",\"properties\":{" PARAMS "}}}}\n")
 #define TOOL_PARAM(NAME, DESC) \
     "\"" NAME "\":{\"type\":\"string\",\"description\":\"" DESC "\"}"
-    TOOL_DECL("read", "Read a precise numbered line range from a text file. Broad or sequential source-file reads are blocked; use get_skeleton, semantic_search, or get_function first.",
+    TOOL_DECL("read", "Read a precise numbered line range from a text file. Broad source-file reads are blocked.",
               TOOL_PARAM("path", "Path to read") ","
               TOOL_PARAM("start", "Required first 1-based line for source files") ","
               TOOL_PARAM("lines", "Maximum lines to return; source files are capped by context guard"));
+    if (!compact_tools) {
     TOOL_DECL("more", "Continue the previous read.",
               TOOL_PARAM("path", "Optional path") ","
               TOOL_PARAM("lines", "Maximum lines to return; default 160"));
@@ -730,6 +734,7 @@ static char *native_tool_declarations(void) {
               TOOL_PARAM("pattern", "Literal pattern") ","
               TOOL_PARAM("path", "Root path") ","
               TOOL_PARAM("max", "Maximum matches"));
+    }
     TOOL_DECL("write", "Create or overwrite a text file.",
               TOOL_PARAM("path", "Path to write") ","
               TOOL_PARAM("content", "File content"));
@@ -1301,6 +1306,22 @@ static bool agent_transcript_has_prefix(const agent_state *a,
 /* Restore or create the reusable system-prompt state. A complete conversation
  * checkpoint always wins; this path is only the fallback for a fresh session
  * or a transcript-only conversation. */
+typedef struct {
+    agent_state *agent;
+    int last_report;
+} agent_prefix_progress;
+
+static void agent_prefix_progress_update(void *ud, const char *event,
+                                         int current, int total) {
+    agent_prefix_progress *p = (agent_prefix_progress *)ud;
+    if (!p || !p->agent || !event || strcmp(event, "prefill_chunk") ||
+        total <= 0 || current <= 0) return;
+    if (current < total && current - p->last_report < 64) return;
+    p->last_report = current;
+    agent_statusf(p->agent, "agent: preparing prefix cache %d/%d tokens\n",
+                  current, total);
+}
+
 static int agent_prepare_prefix_cache(agent_state *a) {
     if (!a || !a->session || !a->engine || !a->cfg.prefix_cache ||
         a->cfg.backend != QW3_BACKEND_METAL ||
@@ -1335,7 +1356,13 @@ static int agent_prepare_prefix_cache(agent_state *a) {
     } else {
         if (rc < 0) (void)unlink(path);
         err[0] = '\0';
+        agent_statusf(a, "agent: preparing prefix cache (%d tokens)\n",
+                      prefix.len);
+        agent_prefix_progress progress = { .agent = a, .last_report = 0 };
+        qw3_session_set_progress(a->session, agent_prefix_progress_update,
+                                 &progress);
         rc = store_write_checkpoint_path(a, path, &prefix, err, sizeof(err));
+        qw3_session_set_progress(a->session, NULL, NULL);
         if (rc == 0) {
             result = "written";
             agent_statusf(a, "agent: prefix cache created (%d tokens)\n",
@@ -4508,6 +4535,12 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
 
 static char *execute_one_tool_raw(agent_state *a, const tool_call *call) {
     if (!a->cfg.tools_enabled) return agent_strdup("error: tools are disabled");
+    if (a->cfg.compact_tools && strcmp(call->name, "read") != 0 &&
+        strcmp(call->name, "write") != 0 &&
+        strcmp(call->name, "edit") != 0 &&
+        strcmp(call->name, "bash") != 0) {
+        return agent_strdup("error: tool is not available with --compact-tools");
+    }
     if (!strcmp(call->name, "read")) return tool_read(a, call);
     if (!strcmp(call->name, "more")) return tool_more(a, call);
     if (!strcmp(call->name, "list")) return tool_list(call);
@@ -4550,7 +4583,7 @@ static bool agent_shell_command_is_verification(const char *cmd) {
         "go test", "npm test", "npm run test", "npm run build",
         "pnpm test", "yarn test", "meson test", "xcodebuild", "swift test",
         "git diff --check", "shellcheck", "gcc", "clang", "cc",
-        "sh tests/", "./tests/", NULL
+        "sh tests/", "./tests/", "test", NULL
     };
     for (int i = 0; patterns[i]; i++) {
         if (agent_shell_has_command(cmd, patterns[i])) return true;
@@ -4622,6 +4655,14 @@ static int agent_verify_guard_selftest(void) {
     agent_note_tool_result(&state, &call,
                            "$ make test-agent-edit\n\nexit=0\n");
     if (state.edit_verification_pending) return 6;
+    snprintf(call.name, sizeof(call.name), "edit");
+    agent_note_tool_result(&state, &call, "ok: edited note.txt (1 change)");
+    if (!state.edit_verification_pending) return 7;
+    snprintf(call.name, sizeof(call.name), "bash");
+    call.params[0].value = "test \"$(cat note.txt)\" = beta";
+    agent_note_tool_result(&state, &call,
+                           "$ test \"$(cat note.txt)\" = beta\n\nexit=0\n");
+    if (state.edit_verification_pending) return 8;
     return 0;
 }
 
@@ -6694,7 +6735,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     return 0;
 }
 
-static char *build_system_prompt(const char *user_system, bool tools_enabled) {
+static char *build_system_prompt(const char *user_system, bool tools_enabled,
+                                 bool compact_tools) {
     strbuf sb;
     sb_init(&sb);
     if (tools_enabled) {
@@ -6702,7 +6744,7 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "# Tools\n\n"
             "You have access to the following functions:\n\n"
             "<tools>\n");
-        char *tools = native_tool_declarations();
+        char *tools = native_tool_declarations(compact_tools);
         sb_append(&sb, tools ? tools : "");
         free(tools);
         sb_append(&sb,
@@ -6733,6 +6775,14 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "like normal with your current knowledge and do not tell the user "
             "about function calls\n"
             "</IMPORTANT>\n\n"
+        );
+        if (compact_tools) {
+            sb_append(&sb,
+                "Use read for precise ranges; broad source reads are blocked. "
+                "Use write/edit for file changes, then verify with the narrowest "
+                "relevant bash build or test before the final answer.\n\n");
+        } else {
+        sb_append(&sb,
             "Context discipline:\n"
             "- Do not use read(path) to inspect source files broadly; broad "
             "source reads are rejected by the context guard.\n"
@@ -6769,6 +6819,7 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled) {
             "- After write or edit succeeds, run the narrowest relevant build, "
             "test, syntax check, or git diff --check with bash before giving the "
             "final answer. A read-back alone is not verification.\n\n");
+        }
     }
     char now_text[96] = {0};
     time_t now = time(NULL);
@@ -6807,7 +6858,7 @@ static void print_help(void) {
         "  --system-file PATH   Read extra system prompt from a file\n"
         "  -n N                 Max tokens per assistant turn (default: 2048)\n"
         "  --ctx N              Context size (default: 32768)\n"
-        "  --ngl N              Metal layers to keep on GPU, 0..40 (default: 40)\n"
+        "  --ngl N              Metal trunk layers on GPU, 0..model layer count\n"
         "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32, f16, or q8_0\n"
         "  --kv-f16             Use f16 Metal GQA KV cache (recommended for large ctx)\n"
         "  --kv-f32             Use f32 Metal GQA KV cache\n"
@@ -6830,6 +6881,7 @@ static void print_help(void) {
         "  --no-prefix-cache   Disable the reusable Metal system-prompt cache\n"
         "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
+        "  --compact-tools      Advertise only read, write, edit, and bash\n"
         "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
         "  --tool-dsml-file PATH\n"
         "                       Execute DSML tool_calls read from a file and exit\n"
@@ -6869,8 +6921,6 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
     const char *cache_type_alias = NULL;
-    int ngl = -1;
-    int ngl_set = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
             print_help();
@@ -6903,8 +6953,16 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         } else if (!strcmp(argv[i], "--ctx") && i + 1 < argc) {
             cfg->ctx_size = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--ngl") && i + 1 < argc) {
-            ngl = atoi(argv[++i]);
-            ngl_set = 1;
+            const char *value = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            long ngl = strtol(value, &end, 10);
+            if (errno || end == value || *end || ngl < 0 || ngl > INT_MAX) {
+                fprintf(stderr, "agent: --ngl requires a non-negative integer\n");
+                return -1;
+            }
+            cfg->metal_n_gpu_layers = (int)ngl;
+            cfg->metal_n_gpu_layers_set = true;
             cfg->backend = QW3_BACKEND_METAL;
         } else if ((!strcmp(argv[i], "-ctk") || !strcmp(argv[i], "--ctk")) &&
                    i + 1 < argc) {
@@ -6961,6 +7019,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             if (cfg->max_tool_rounds > 128) cfg->max_tool_rounds = 128;
         } else if (!strcmp(argv[i], "--no-tools")) {
             cfg->tools_enabled = false;
+        } else if (!strcmp(argv[i], "--compact-tools")) {
+            cfg->compact_tools = true;
         } else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc) {
             cfg->tool_dsml = argv[++i];
         } else if (!strcmp(argv[i], "--tool-dsml-file") && i + 1 < argc) {
@@ -6992,18 +7052,13 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
                 qw3_backend_name(cfg->backend));
         return -1;
     }
-    if (ngl_set) {
+    if (cfg->metal_n_gpu_layers_set) {
         if (cfg->backend != QW3_BACKEND_METAL) {
             fprintf(stderr, "agent: --ngl is available only with the Metal backend\n");
             return -1;
         }
-        if (ngl < 0 || ngl > QW3_AGENT_N_LAYER) {
-            fprintf(stderr, "agent: --ngl must be in the range 0..%d\n",
-                    QW3_AGENT_N_LAYER);
-            return -1;
-        }
         char ngl_env[16];
-        snprintf(ngl_env, sizeof(ngl_env), "%d", ngl);
+        snprintf(ngl_env, sizeof(ngl_env), "%d", cfg->metal_n_gpu_layers);
         setenv("QW3_METAL_NGL", ngl_env, 1);
     }
     if (cache_type_alias) {
@@ -7042,12 +7097,15 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         fprintf(stderr, "agent: cannot create store directory\n");
         return -1;
     }
-    cfg->system_prompt = build_system_prompt(cfg->user_system, cfg->tools_enabled);
+    cfg->system_prompt = build_system_prompt(cfg->user_system,
+                                             cfg->tools_enabled,
+                                             cfg->compact_tools);
     if (!cfg->system_prompt) return -1;
     return 0;
 }
 
 static void free_config(agent_config *cfg) {
+    free(cfg->model_path_owned);
     free(cfg->prompt_owned);
     free(cfg->user_system_owned);
     free(cfg->system_prompt);
@@ -7056,6 +7114,98 @@ static void free_config(agent_config *cfg) {
     free(cfg->chdir_path);
     free(cfg->tool_dsml_owned);
     free(cfg->tool_native_owned);
+}
+
+static void agent_absolutize_env_path(const char *name) {
+    const char *value = getenv(name);
+    if (!value || !value[0] || value[0] == '/') return;
+    char *absolute = realpath(value, NULL);
+    if (!absolute) return;
+    setenv(name, absolute, 1);
+    free(absolute);
+}
+
+static int agent_prepare_chdir_paths(agent_config *cfg) {
+    if (!cfg || !cfg->chdir_path) return 0;
+    if (!cfg->tool_dsml && !cfg->tool_native) {
+        cfg->model_path_owned = realpath(cfg->model_path, NULL);
+        if (!cfg->model_path_owned) {
+            fprintf(stderr, "agent: cannot resolve model %s before --chdir\n",
+                    cfg->model_path);
+            return -1;
+        }
+        cfg->model_path = cfg->model_path_owned;
+    }
+    char *store = realpath(cfg->store_dir, NULL);
+    if (!store) {
+        fprintf(stderr, "agent: cannot resolve store directory before --chdir\n");
+        return -1;
+    }
+    free(cfg->store_dir);
+    cfg->store_dir = store;
+
+    if (cfg->backend == QW3_BACKEND_METAL) {
+        agent_absolutize_env_path("QW3_METAL_KERNEL_DIR");
+        agent_absolutize_env_path("QW3_METAL_KERNEL_SOURCE");
+        agent_absolutize_env_path("QW3_METAL_FLASH_ATTN_SOURCE");
+        if (!getenv("QW3_METAL_KERNEL_DIR") &&
+            !getenv("QW3_METAL_KERNEL_SOURCE")) {
+            char cwd[PATH_MAX];
+            if (getcwd(cwd, sizeof(cwd))) {
+                char *kernel_dir = path_join(cwd, "metal");
+                char *probe = path_join(kernel_dir, "qw3_core_common.metal");
+                if (access(probe, R_OK) == 0)
+                    setenv("QW3_METAL_KERNEL_DIR", kernel_dir, 1);
+                free(probe);
+                free(kernel_dir);
+            }
+        }
+    }
+    return 0;
+}
+
+static int agent_validate_model_config(const agent_config *cfg,
+                                       qw3_engine *engine) {
+    if (!cfg || !engine) return -1;
+    const int n_layers = qw3_engine_layer_count(engine);
+    if (n_layers <= 0) return -1;
+    if (cfg->backend != QW3_BACKEND_METAL) return 0;
+
+    int ngl = n_layers;
+    if (cfg->metal_n_gpu_layers_set) {
+        ngl = cfg->metal_n_gpu_layers;
+    } else {
+        const char *env = getenv("QW3_METAL_NGL");
+        if (env && env[0]) {
+            char *end = NULL;
+            errno = 0;
+            long value = strtol(env, &end, 10);
+            if (!errno && end != env && !*end && value >= 0 &&
+                value <= INT_MAX) {
+                ngl = (int)value;
+            }
+        }
+    }
+    if (ngl > n_layers) {
+        fprintf(stderr, "agent: --ngl must be in the range 0..%d for this model\n",
+                n_layers);
+        return -1;
+    }
+    if (qw3_engine_is_dense(engine)) {
+        if (ngl != n_layers) {
+            fprintf(stderr,
+                    "agent: dense Metal requires full %d-layer offload; use --ngl %d or --cpu\n",
+                    n_layers, n_layers);
+            return -1;
+        }
+        const char *q8 = getenv("QW3_METAL_KV_Q8_0");
+        if (q8 && strcmp(q8, "0") != 0) {
+            fprintf(stderr,
+                    "agent: dense Metal Q8 KV is not validated; use --kv-f16 or --kv-f32\n");
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static void agent_init_transcript(agent_state *a) {
@@ -8665,6 +8815,10 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
+    if (agent_prepare_chdir_paths(&a.cfg) != 0) {
+        free_config(&a.cfg);
+        return 1;
+    }
     a.output_color = isatty(STDOUT_FILENO) || isatty(STDERR_FILENO);
     if (a.cfg.chdir_path && chdir(a.cfg.chdir_path) != 0) {
         fprintf(stderr, "agent: cannot chdir to %s: %s\n",
@@ -8708,12 +8862,6 @@ int main(int argc, char **argv) {
             a.cfg.model_path, qw3_backend_name(a.cfg.backend), a.cfg.ctx_size,
             qw3_think_mode_name(a.cfg.think_mode),
             a.cfg.tools_enabled ? "on" : "off");
-    qw3_context_memory mem = qw3_context_memory_estimate(a.cfg.backend,
-                                                         a.cfg.ctx_size);
-    qw3_log(stderr, QW3_LOG_TIMING,
-            "qw3-agent: memory estimate %.1f MB\n",
-            (double)mem.total_bytes / (1024.0 * 1024.0));
-
     qw3_engine_options opt = {
         .model_path = a.cfg.model_path,
         .backend = a.cfg.backend,
@@ -8726,6 +8874,17 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
+    if (agent_validate_model_config(&a.cfg, a.engine) != 0) {
+        qw3_engine_close(a.engine);
+        agent_trace_close(&a);
+        free_config(&a.cfg);
+        return 1;
+    }
+    qw3_context_memory mem =
+        qw3_engine_context_memory_estimate(a.engine, a.cfg.ctx_size);
+    qw3_log(stderr, QW3_LOG_TIMING,
+            "qw3-agent: memory estimate %.1f MB\n",
+            (double)mem.total_bytes / (1024.0 * 1024.0));
     if (qw3_session_create(&a.session, a.engine, a.cfg.ctx_size) != 0) {
         fprintf(stderr, "agent: cannot create %s session\n",
                 qw3_backend_name(a.cfg.backend));

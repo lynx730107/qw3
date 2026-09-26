@@ -77,7 +77,7 @@ static void usage(FILE *fp) {
         "  -m, --model FILE       GGUF model path. Default: qw3.gguf\n"
         "  --metal | --cpu | --backend NAME\n"
         "      Select backend explicitly. Defaults to Metal on macOS, CPU elsewhere.\n"
-        "  --ngl N                Metal layers to keep on GPU, 0..40.\n"
+        "  --ngl N                Metal layers to keep on GPU, 0..model layer count.\n"
         "  -t, --threads N        CPU helper threads.\n"
         "  --quality              Ignored by qw3-bench.\n"
         "  --warm-weights         Touch mapped tensor pages before benchmarking.\n"
@@ -286,11 +286,6 @@ static bench_config parse_options(int argc, char **argv) {
             fprintf(stderr, "qw3-bench: --ngl is available only with the Metal backend\n");
             exit(2);
         }
-        if (c.ngl > QW3_BENCH_N_LAYER) {
-            fprintf(stderr, "qw3-bench: --ngl must be in the range 0..%d\n",
-                    QW3_BENCH_N_LAYER);
-            exit(2);
-        }
     }
 
     if (c.llama_style) {
@@ -447,8 +442,10 @@ static int next_frontier(const bench_config *c, int cur) {
     return next;
 }
 
-static void log_context_memory(qw3_backend backend, int ctx_size) {
-    qw3_context_memory m = qw3_context_memory_estimate(backend, ctx_size);
+static void log_context_memory(qw3_engine *engine, qw3_backend backend,
+                               int ctx_size) {
+    qw3_context_memory m =
+        qw3_engine_context_memory_estimate(engine, ctx_size);
     fprintf(stderr,
             "qw3-bench: context buffers %.2f MiB (ctx=%d, backend=%s, gqa_kv=%.2f MiB, deltanet=%.2f MiB, scratch=%.2f MiB)\n",
             (double)m.total_bytes / (1024.0 * 1024.0),
@@ -688,8 +685,6 @@ int main(int argc, char **argv) {
         snprintf(ngl_env, sizeof(ngl_env), "%d", cfg.ngl);
         setenv("QW3_METAL_NGL", ngl_env, 1);
     }
-    log_context_memory(cfg.backend, cfg.ctx_alloc);
-
     qw3_engine_options opt = {
         .model_path = cfg.model_path,
         .backend = cfg.backend,
@@ -698,6 +693,13 @@ int main(int argc, char **argv) {
     };
     qw3_engine *engine = NULL;
     if (qw3_engine_open(&engine, &opt) != 0) return 1;
+    if (cfg.ngl_set && cfg.ngl > qw3_engine_layer_count(engine)) {
+        fprintf(stderr, "qw3-bench: --ngl must be in the range 0..%d for this model\n",
+                qw3_engine_layer_count(engine));
+        qw3_engine_close(engine);
+        return 2;
+    }
+    log_context_memory(engine, cfg.backend, cfg.ctx_alloc);
 
     if (cfg.llama_style) {
         int rc = run_llama_style_bench(engine, &cfg);

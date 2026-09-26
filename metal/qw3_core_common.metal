@@ -137,6 +137,62 @@ kernel void qw3_embed_q8_0_batch(constant qw3_embed_q8_0_batch_args &args,
     char q = *((device const char *)(blk + 2u + lane));
     out[uint64_t(t) * args.n_embd + i] = d * float(q);
 }
+struct qw3_embed_q3_k_args { uint n_embd; };
+inline float qw3_embed_q3_k_value(device const uchar *weights, uint gid) {
+    const uint block = gid / 256u;
+    const uint local = gid & 255u;
+    device const uchar *blk = weights + uint64_t(block) * 110ull;
+
+    const uint half_block = local / 128u;
+    const uint within = local & 127u;
+    const uint group = within / 32u;
+    const uint upper = (within & 31u) >= 16u ? 1u : 0u;
+    const uint lane = within & 15u;
+    const uint scale_index = half_block * 8u + group * 2u + upper;
+
+    device const uchar *packed = blk + 96u;
+    uint aux0 = uint(packed[0]) | (uint(packed[1]) << 8) |
+                (uint(packed[2]) << 16) | (uint(packed[3]) << 24);
+    uint aux1 = uint(packed[4]) | (uint(packed[5]) << 8) |
+                (uint(packed[6]) << 16) | (uint(packed[7]) << 24);
+    uint tmp = uint(packed[8]) | (uint(packed[9]) << 8) |
+               (uint(packed[10]) << 16) | (uint(packed[11]) << 24);
+    const uint kmask1 = 0x03030303u;
+    const uint kmask2 = 0x0f0f0f0fu;
+    uint aux[4];
+    aux[2] = ((aux0 >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
+    aux[3] = ((aux1 >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
+    aux[0] = (aux0 & kmask2) | (((tmp >> 0) & kmask1) << 4);
+    aux[1] = (aux1 & kmask2) | (((tmp >> 2) & kmask1) << 4);
+    const uint scale = (aux[scale_index / 4u] >>
+                        (8u * (scale_index & 3u))) & 0xffu;
+
+    const uint shift = 2u * group;
+    const uint mask = 1u << (half_block * 4u + group);
+    const uint q_index = half_block * 32u + upper * 16u + lane;
+    const int low = int((uint(blk[32u + q_index]) >> shift) & 3u);
+    const int q = low - ((uint(blk[upper * 16u + lane]) & mask) ? 0 : 4);
+    const float d = float(*((device const half *)(blk + 108u)));
+    return d * float(int(scale) - 32) * float(q);
+}
+kernel void qw3_embed_q3_k(constant qw3_embed_q3_k_args &args,
+                           device const uchar *weights,
+                           device float *out,
+                           uint gid [[thread_position_in_grid]]) {
+    if (gid < args.n_embd) out[gid] = qw3_embed_q3_k_value(weights, gid);
+}
+struct qw3_embed_q3_k_batch_args { uint n_embd; uint row_bytes; uint n_tokens; };
+kernel void qw3_embed_q3_k_batch(constant qw3_embed_q3_k_batch_args &args,
+                                 device const uchar *weights,
+                                 device const uint *tokens,
+                                 device float *out,
+                                 uint gid [[thread_position_in_grid]]) {
+    if (gid >= args.n_tokens * args.n_embd) return;
+    const uint token_index = gid / args.n_embd;
+    const uint dim = gid - token_index * args.n_embd;
+    device const uchar *row = weights + uint64_t(tokens[token_index]) * args.row_bytes;
+    out[gid] = qw3_embed_q3_k_value(row, dim);
+}
 struct qw3_kv_quant_q8_args { uint n; };
 kernel void qw3_gqa_kv_quant_q8(constant qw3_kv_quant_q8_args &args,
                                 device const float *k,

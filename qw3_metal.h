@@ -20,8 +20,29 @@ int qw3_metal_flush_commands(void);
 int qw3_metal_commit_commands(void);
 int qw3_metal_end_commands(void);
 int qw3_metal_synchronize(void);
+/* Q3_K batch is worthwhile by default only with the Metal 4 tensor kernel. */
+int qw3_metal_dense_q3_k_batch_enabled(uint32_t n_tokens);
+int qw3_metal_dense_q4_q5_k_batch_enabled(uint32_t n_tokens);
 
 typedef struct qw3_metal_session qw3_metal_session;
+
+typedef struct {
+  uint32_t n_layer;
+  uint32_t n_embd;
+  uint32_t vocab_size;
+  uint32_t n_head;
+  uint32_t n_head_kv;
+  uint32_t n_head_dim;
+  uint32_t n_linear_qk_heads;
+  uint32_t n_linear_v_heads;
+  uint32_t n_linear_head_dim;
+  uint32_t n_linear_qkv;
+  uint32_t n_linear_inner;
+  uint32_t n_linear_conv_k;
+  uint32_t n_ff_dense;
+  uint32_t n_expert;
+  uint32_t full_attn_interval;
+} qw3_metal_model_config;
 
 typedef struct {
   uint64_t total_bytes;
@@ -55,8 +76,8 @@ typedef struct {
   uint64_t logits_bytes;
 } qw3_metal_state_info;
 
-qw3_metal_session *qw3_metal_session_create(uint32_t ctx_size,
-                                            uint32_t vocab_size);
+qw3_metal_session *qw3_metal_session_create(
+    uint32_t ctx_size, const qw3_metal_model_config *config);
 void qw3_metal_session_free(qw3_metal_session *s);
 int qw3_metal_session_clear(qw3_metal_session *s);
 qw3_metal_session_info qw3_metal_session_get_info(qw3_metal_session *s);
@@ -72,11 +93,86 @@ int qw3_metal_session_write_state(qw3_metal_session *s,
                                   const void *src, uint64_t bytes);
 int qw3_metal_session_embed_q8_0(qw3_metal_session *s, uint64_t tensor_offset,
                                  uint32_t token, uint32_t n_embd, float *out);
+int qw3_metal_session_embed_q3_k(qw3_metal_session *s, uint64_t tensor_offset,
+                                uint32_t token, uint32_t n_embd, float *out);
 int qw3_metal_session_batch_embed_q8_0(qw3_metal_session *s,
                                        uint64_t tensor_offset,
                                        const uint32_t *tokens,
                                        uint32_t n_tokens,
                                        uint32_t n_embd);
+int qw3_metal_session_batch_embed_q3_k(qw3_metal_session *s,
+                                      uint64_t tensor_offset,
+                                      const uint32_t *tokens,
+                                      uint32_t n_tokens,
+                                      uint32_t n_embd);
+int qw3_metal_session_batch_matmul_quant_x1_to_scratch(
+    qw3_metal_session *s, uint64_t tensor_offset, uint32_t tensor_type,
+    uint32_t n_tokens, uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_batch_dense_ffn(qw3_metal_session *s,
+    uint64_t gate_offset, uint32_t gate_type,
+    uint64_t up_offset, uint32_t up_type,
+    uint64_t down_offset, uint32_t down_type,
+    uint32_t n_tokens, uint32_t n_embd, uint32_t n_ff);
+int qw3_metal_session_prepare_dense_ffn_batch(qw3_metal_session *s,
+    uint32_t n_tokens, uint32_t n_embd, uint32_t n_ff);
+int qw3_metal_session_copy_scratch_to_dense_ffn_row(qw3_metal_session *s,
+    uint32_t row, uint32_t n_ff, int up);
+int qw3_metal_session_copy_dense_hidden_to_inner(qw3_metal_session *s,
+    uint32_t row, uint32_t n_ff);
+int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
+    uint64_t gate_offset, uint32_t gate_type,
+    uint64_t up_offset, uint32_t up_type,
+    uint64_t down_offset, uint32_t down_type,
+    uint32_t n_tokens, uint32_t n_embd, uint32_t n_ff);
+int qw3_metal_session_batch_dense_deltanet_projections(
+    qw3_metal_session *s,
+    uint64_t qkv_offset, uint32_t qkv_type,
+    uint64_t z_offset, uint32_t z_type,
+    uint32_t n_tokens, uint32_t n_embd,
+    uint32_t n_qkv, uint32_t n_z);
+int qw3_metal_session_batch_dense_gqa_projections(
+    qw3_metal_session *s,
+    uint64_t q_offset, uint32_t q_type,
+    uint64_t k_offset, uint32_t k_type,
+    uint64_t v_offset, uint32_t v_type,
+    uint32_t n_tokens, uint32_t n_embd,
+    uint32_t qg_n, uint32_t kv_n, uint32_t batch_mask);
+int qw3_metal_session_stage_dense_gqa_projections(
+    qw3_metal_session *s, uint32_t n_tokens,
+    uint32_t qg_n, uint32_t kv_n,
+    uint32_t q_offset, uint32_t k_offset, uint32_t v_offset,
+    uint32_t stride);
+int qw3_metal_session_stage_dense_deltanet_projections(
+    qw3_metal_session *s, uint32_t n_tokens,
+    uint32_t n_qkv, uint32_t n_z,
+    uint32_t qkv_offset, uint32_t z_offset, uint32_t stride);
+int qw3_metal_session_copy_batch_scratch_to_x1(
+    qw3_metal_session *s, uint32_t n_tokens, uint32_t n,
+    uint32_t src_offset, uint32_t stride);
+int qw3_metal_session_batch_dense_gqa_output_add(
+    qw3_metal_session *s, uint64_t weight_offset, uint32_t weight_type,
+    uint32_t n_tokens, uint32_t n_in, uint32_t n_embd);
+int qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
+    qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
+    uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_matvec_iq4_xs_pair_x1_to_scratch(
+    qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
+    uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_gqa_project_cache_typed_prefill(
+    qw3_metal_session *s,
+    uint64_t q_weight_offset, uint64_t k_weight_offset,
+    uint64_t v_weight_offset,
+    uint32_t q_weight_type, uint32_t k_weight_type,
+    uint32_t v_weight_type, uint32_t n_embd,
+    uint64_t q_norm_weight_offset, uint64_t k_norm_weight_offset,
+    uint32_t qg_n, uint32_t q_n, uint32_t kv_n,
+    uint32_t n_heads, uint32_t n_kv_heads, uint32_t head_dim,
+    uint32_t rope_dim, uint32_t layer_slot, uint32_t pos,
+    float rope_theta, float eps, uint32_t batch_row,
+    uint32_t batch_mask);
+int qw3_metal_session_copy_dense_attention_row_to_scratch(
+    qw3_metal_session *s, uint32_t row, uint32_t n,
+    uint32_t scratch_offset, int z_projection);
 int qw3_metal_session_batch_rmsnorm_weight_f32_x0_inplace(
     qw3_metal_session *s, uint64_t weight_offset, uint32_t n_tokens,
     uint32_t n, float eps);
@@ -175,6 +271,12 @@ int qw3_metal_session_read_batch_x1(qw3_metal_session *s, float *out,
 int qw3_metal_session_read_batch_scratch(qw3_metal_session *s, float *out,
                                          uint32_t n_tokens,
                                          uint32_t n_out);
+int qw3_metal_session_prepare_dense_prefill_buffers(
+    qw3_metal_session *s, uint32_t n_tokens, uint32_t n_embd);
+int qw3_metal_session_copy_x0_x1_to_batch(qw3_metal_session *s,
+    uint32_t row, uint32_t n, int copy_x1);
+int qw3_metal_session_copy_batch_x1_to_x1(qw3_metal_session *s,
+    uint32_t row, uint32_t n);
 int qw3_metal_session_read_conv_state(qw3_metal_session *s,
                                       uint32_t layer_slot,
                                       uint32_t n_channels, float *out);
@@ -210,6 +312,42 @@ int qw3_metal_session_matvec_q8_0_x1_to_scratch(qw3_metal_session *s,
                                                 uint64_t tensor_offset,
                                                 uint32_t n_in, uint32_t n_out,
                                                 uint32_t out_offset,
+                                                float *out);
+int qw3_metal_session_matvec_iq4_xs_x1_to_scratch(qw3_metal_session *s,
+                                                   uint64_t tensor_offset,
+                                                   uint32_t n_in,
+                                                   uint32_t n_out,
+                                                   uint32_t out_offset,
+                                                   float *out);
+int qw3_metal_session_matvec_iq2_xs_x1_to_scratch(qw3_metal_session *s,
+                                                   uint64_t tensor_offset,
+                                                   uint32_t n_in,
+                                                   uint32_t n_out,
+                                                   uint32_t out_offset,
+                                                   float *out);
+int qw3_metal_session_matvec_iq2_s_x1_to_scratch(qw3_metal_session *s,
+                                                  uint64_t tensor_offset,
+                                                  uint32_t n_in,
+                                                  uint32_t n_out,
+                                                  uint32_t out_offset,
+                                                  float *out);
+int qw3_metal_session_matvec_iq3_xxs_inner_to_x1(qw3_metal_session *s,
+                                                  uint64_t tensor_offset,
+                                                  uint32_t n_in,
+                                                  uint32_t n_out,
+                                                  float *out);
+int qw3_metal_session_matvec_quant_x1_to_scratch(qw3_metal_session *s,
+                                                  uint64_t tensor_offset,
+                                                  uint32_t tensor_type,
+                                                  uint32_t n_in,
+                                                  uint32_t n_out,
+                                                  uint32_t out_offset,
+                                                  float *out);
+int qw3_metal_session_matvec_quant_inner_to_x1(qw3_metal_session *s,
+                                                uint64_t tensor_offset,
+                                                uint32_t tensor_type,
+                                                uint32_t n_in,
+                                                uint32_t n_out,
                                                 float *out);
 int qw3_metal_session_matvec_q8_0_pair_x1_to_scratch(
     qw3_metal_session *s, uint64_t tensor_a_offset, uint64_t tensor_b_offset,
@@ -277,6 +415,13 @@ int qw3_metal_session_matvec_q8_0_inner_to_x1(qw3_metal_session *s,
                                               uint64_t tensor_offset,
                                               uint32_t n_in, uint32_t n_out,
                                               float *out);
+int qw3_metal_session_matvec_q5_k_inner_to_x1(qw3_metal_session *s,
+                                              uint64_t tensor_offset,
+                                              uint32_t n_in, uint32_t n_out,
+                                              float *out);
+int qw3_metal_session_matvec_iq4_xs_inner_add_x0(
+    qw3_metal_session *s, uint64_t tensor_offset,
+    uint32_t n_in, uint32_t n_out);
 int qw3_metal_session_matvec_q8_0_inner_scale_add_x0(qw3_metal_session *s,
                                                      uint64_t tensor_offset,
                                                      uint32_t n_in,
@@ -284,7 +429,7 @@ int qw3_metal_session_matvec_q8_0_inner_scale_add_x0(qw3_metal_session *s,
                                                      uint32_t scalar_offset);
 int qw3_metal_session_matvec_iq3_s_expert_x1_to_scratch(
     qw3_metal_session *s, uint64_t tensor_offset, uint32_t expert,
-    uint32_t n_in, uint32_t n_out, uint32_t out_offset);
+    uint32_t n_in, uint32_t n_out, uint32_t out_offset, float *out);
 int qw3_metal_session_matvec_iq4_xs_expert_inner_to_x1(qw3_metal_session *s,
                                                        uint64_t tensor_offset,
                                                        uint32_t expert,
@@ -327,6 +472,10 @@ int qw3_metal_session_matvec_q6_k_x1_to_logits(qw3_metal_session *s,
                                                uint64_t tensor_offset,
                                                uint32_t n_in, uint32_t n_out,
                                                float *out);
+int qw3_metal_session_matvec_q5_k_x1_to_logits(qw3_metal_session *s,
+                                               uint64_t tensor_offset,
+                                               uint32_t n_in, uint32_t n_out,
+                                               float *out);
 int qw3_metal_session_argmax_logits(qw3_metal_session *s, uint32_t n,
                                     uint32_t *idx_out, float *val_out);
 int qw3_metal_session_argmax_logits_repetition(qw3_metal_session *s,
@@ -355,17 +504,46 @@ int qw3_metal_session_gqa_project_cache(
     uint32_t n_heads, uint32_t n_kv_heads, uint32_t head_dim, uint32_t rope_dim,
     uint32_t layer_slot, uint32_t pos, float rope_theta, float eps,
     float *q_out, float *k_out, float *v_out, float *gate_out);
+int qw3_metal_session_gqa_project_cache_typed(
+    qw3_metal_session *s, uint64_t q_weight_offset,
+    uint64_t k_weight_offset, uint64_t v_weight_offset,
+    uint32_t q_weight_type, uint32_t k_weight_type,
+    uint32_t v_weight_type, uint32_t n_embd,
+    uint64_t q_norm_weight_offset, uint64_t k_norm_weight_offset,
+    uint32_t qg_n, uint32_t q_n, uint32_t kv_n,
+    uint32_t n_heads, uint32_t n_kv_heads, uint32_t head_dim,
+    uint32_t rope_dim, uint32_t layer_slot, uint32_t pos,
+    float rope_theta, float eps,
+    float *q_out, float *k_out, float *v_out, float *gate_out);
 int qw3_metal_session_gqa_single_attn_out(qw3_metal_session *s,
                                           uint64_t out_weight_offset,
                                           uint32_t n_heads, uint32_t n_kv_heads,
                                           uint32_t head_dim, uint32_t n_embd,
                                           float *out);
+int qw3_metal_session_gqa_single_attn_out_typed(qw3_metal_session *s,
+                                                 uint64_t out_weight_offset,
+                                                 uint32_t out_weight_type,
+                                                 uint32_t n_heads,
+                                                 uint32_t n_kv_heads,
+                                                 uint32_t head_dim,
+                                                 uint32_t n_embd,
+                                                 float *out);
 int qw3_metal_session_gqa_cached_attn_out(qw3_metal_session *s,
                                           uint64_t out_weight_offset,
                                           uint32_t n_ctx, uint32_t layer_slot,
                                           uint32_t n_heads, uint32_t n_kv_heads,
                                           uint32_t head_dim, uint32_t n_embd,
                                           float *out);
+int qw3_metal_session_gqa_cached_attn_out_typed(qw3_metal_session *s,
+                                                 uint64_t out_weight_offset,
+                                                 uint32_t out_weight_type,
+                                                 uint32_t n_ctx,
+                                                 uint32_t layer_slot,
+                                                 uint32_t n_heads,
+                                                 uint32_t n_kv_heads,
+                                                 uint32_t head_dim,
+                                                 uint32_t n_embd,
+                                                 float *out);
 
 int qw3_metal_set_model_map_range(const void *model_map, uint64_t model_size,
                                   uint64_t map_offset, uint64_t map_size);

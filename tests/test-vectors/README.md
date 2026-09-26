@@ -17,6 +17,17 @@ Current vector source:
   and top-1 logit. Full trace files are meant for local CPU/Metal comparison
   and are not stored as fixtures yet.
 
+The dense Qwen3.8 profile also has a live differential fixture:
+
+- `make test-dense-logits` evaluates raw token `66` in both the local
+  `llama.cpp` build and `qw3`, checks identical top-8 logits ordering and eight
+  greedy continuation tokens, then bounds full-vocabulary RMSE and maximum
+  absolute error;
+- the `llama.cpp` side uses Metal by default (`QW3_LLAMA_NGL=99`) so its
+  quantized matvec consumes float activations like the independent `qw3` CPU
+  reference. Forcing `QW3_LLAMA_NGL=0` is a diagnostic with different Q8
+  activation-rounding semantics and is not the fixture baseline.
+
 Run:
 
 ```sh

@@ -1,5 +1,5 @@
 /* =========================================================================
- * qw3_cli.c — Minimal CLI for Qwen3.6-35B-A3B inference.
+ * qw3_cli.c — Minimal CLI for supported Qwen3 hybrid models.
  * =========================================================================
  *
  * Usage:
@@ -19,7 +19,7 @@
 #define QW3_CLI_ENABLE_INTERNAL_TESTS 0
 #endif
 
-#define QW3_CLI_N_LAYER 40
+#define QW3_CLI_N_LAYER 64
 #define QW3_CLI_REPEAT_PENALTY_DEFAULT 1.06f
 #define QW3_CLI_REPEAT_LAST_N_DEFAULT 1024
 
@@ -518,9 +518,7 @@ static int cli_internal_option(const char *arg)
         return 0;
     if (!strncmp(arg, "--metal-", 8))
         return 1;
-    return !strcmp(arg, "--inspect") ||
-           !strcmp(arg, "--layer-types") ||
-           !strcmp(arg, "--probe-token") ||
+    return !strcmp(arg, "--probe-token") ||
            !strcmp(arg, "--tokenize") ||
            !strcmp(arg, "--chat-tokenize") ||
            !strcmp(arg, "--top-k") ||
@@ -803,7 +801,7 @@ static int interactive_chat(qw3_engine *engine, qw3_backend backend,
 static void usage(void)
 {
     fprintf(stderr,
-            "qw3-cli — Qwen3.6-35B-A3B inference engine\n"
+            "qw3-cli — Qwen3 hybrid-model inference engine\n"
             "\n"
             "Usage:\n"
             "  qw3-cli [options]\n"
@@ -828,7 +826,7 @@ static void usage(void)
             "              Recent prompt/generated tokens to penalize (default: 1024)\n"
             "  --seed N     Sampling seed (default: fixed)\n"
             "  --ctx N      Context size (default: 32768)\n"
-            "  --ngl N      Metal layers to keep on GPU, 0..40 (default: 40)\n"
+            "  --ngl N      Metal trunk layers to keep on GPU, 0..64 (profile-clamped)\n"
             "  -ctk TYPE    Metal K cache type: f32, f16, or q8_0 (use with -ctv)\n"
             "  -ctv TYPE    Metal V cache type: f32, f16, or q8_0 (use with -ctk)\n"
             "  --kv-f16     Use f16 Metal GQA KV cache (recommended for large ctx)\n"
@@ -837,10 +835,10 @@ static void usage(void)
             "  --cpu        Use CPU backend\n"
             "  --metal      Use Metal backend when compiled in\n"
             "  --nothink    Disable thinking mode\n"
-#if QW3_CLI_ENABLE_INTERNAL_TESTS
             "  --inspect    Print GGUF metadata summary after loading\n"
             "  --layer-types N\n"
             "              Print tensor quantization types for one layer\n"
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
             "  --probe-token ID\n"
             "              Run a small CPU probe: embedding, layer-0 norm, MoE router\n"
             "  --tokenize   Tokenize -p TEXT and print token IDs\n"
@@ -985,6 +983,12 @@ static void usage(void)
             "              Run session layer-3 single-token GQA through attn_o\n"
             "  --metal-session-gqa-cached2-test ID\n"
             "              Run session layer-3 GQA over two cached tokens through attn_o\n"
+            "  --metal-session-quant-types-test ID\n"
+            "              Compare one dense x1 matvec per GGUF quant type with CPU\n"
+            "  --metal-dense-logits-test ID\n"
+            "              Compare two dense Metal decode steps with the CPU logits\n"
+            "  --metal-dense-greedy-test ID N\n"
+            "              Compare N dense Metal greedy steps with CPU logits\n"
             "  --metal-session-gqa-cached-bench ID N\n"
             "              Benchmark session layer-3 cached attention at N cached tokens\n"
             "  --metal-greedy-test N\n"
@@ -1040,9 +1044,9 @@ int main(int argc, char **argv)
     qw3_backend backend = QW3_BACKEND_METAL;
 #endif
     qw3_think_mode think_mode = QW3_THINK_ON;
-#if QW3_CLI_ENABLE_INTERNAL_TESTS
     int inspect = 0;
     int layer_types = -1;
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
     int tokenize = 0;
     int chat_tokenize = 0;
     int probe_token = -1;
@@ -1114,6 +1118,10 @@ int main(int argc, char **argv)
     int metal_session_gqa_project_test = -1;
     int metal_session_gqa_single_test = -1;
     int metal_session_gqa_cached2_test = -1;
+    int metal_session_quant_types_test = -1;
+    int metal_dense_logits_test = -1;
+    int metal_dense_greedy_token = -1;
+    int metal_dense_greedy_n = 0;
     int metal_session_gqa_cached_bench_token = -1;
     int metal_session_gqa_cached_bench_n = 0;
     int metal_greedy_test = 0;
@@ -1273,7 +1281,6 @@ int main(int argc, char **argv)
         {
             think_mode = QW3_THINK_NONE;
         }
-#if QW3_CLI_ENABLE_INTERNAL_TESTS
         else if (strcmp(argv[i], "--inspect") == 0)
         {
             inspect = 1;
@@ -1282,6 +1289,7 @@ int main(int argc, char **argv)
         {
             layer_types = atoi(argv[++i]);
         }
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
         else if (strcmp(argv[i], "--probe-token") == 0 && i + 1 < argc)
         {
             probe_token = atoi(argv[++i]);
@@ -1636,6 +1644,22 @@ int main(int argc, char **argv)
             metal_session_gqa_cached2_test = atoi(argv[++i]);
             backend = QW3_BACKEND_METAL;
         }
+        else if (strcmp(argv[i], "--metal-session-quant-types-test") == 0 && i + 1 < argc)
+        {
+            metal_session_quant_types_test = atoi(argv[++i]);
+            backend = QW3_BACKEND_METAL;
+        }
+        else if (strcmp(argv[i], "--metal-dense-logits-test") == 0 && i + 1 < argc)
+        {
+            metal_dense_logits_test = atoi(argv[++i]);
+            backend = QW3_BACKEND_METAL;
+        }
+        else if (strcmp(argv[i], "--metal-dense-greedy-test") == 0 && i + 2 < argc)
+        {
+            metal_dense_greedy_token = atoi(argv[++i]);
+            metal_dense_greedy_n = atoi(argv[++i]);
+            backend = QW3_BACKEND_METAL;
+        }
         else if (strcmp(argv[i], "--metal-session-gqa-cached-bench") == 0 && i + 2 < argc)
         {
             metal_session_gqa_cached_bench_token = atoi(argv[++i]);
@@ -1772,23 +1796,10 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    /* Print model shape summary. */
-    qw3_log(stderr, QW3_LOG_OK,
-            "qw3: Qwen3.6-35B-A3B engine (Phase 3 CPU reference)\n");
     qw3_log(stderr, QW3_LOG_OK,
             "qw3: model=%s  backend=%s  ctx=%d  think=%s\n",
             model_path, qw3_backend_name(backend),
             ctx_size, qw3_think_mode_name(think_mode));
-
-    /* Memory estimate. */
-    qw3_context_memory mem = qw3_context_memory_estimate(backend, ctx_size);
-    qw3_log(stderr, QW3_LOG_TIMING,
-            "qw3: memory estimate: total=%.1f MB "
-            "(gqa_kv=%.1f MB  deltanet=%.1f MB  scratch=%.1f MB)\n",
-            (double)mem.total_bytes / (1024.0 * 1024.0),
-            (double)mem.gqa_kv_bytes / (1024.0 * 1024.0),
-            (double)mem.deltanet_state_bytes / (1024.0 * 1024.0),
-            (double)mem.scratch_bytes / (1024.0 * 1024.0));
 
     qw3_engine_options opt = {
         .model_path = model_path,
@@ -1804,8 +1815,17 @@ int main(int argc, char **argv)
         qw3_log(stderr, QW3_LOG_ERROR, "qw3: engine open failed\n");
         return 1;
     }
+    qw3_engine_summary(engine);
+    qw3_context_memory mem =
+        qw3_engine_context_memory_estimate(engine, ctx_size);
+    qw3_log(stderr, QW3_LOG_TIMING,
+            "qw3: memory estimate: total=%.1f MB "
+            "(gqa_kv=%.1f MB  deltanet=%.1f MB  scratch=%.1f MB)\n",
+            (double)mem.total_bytes / (1024.0 * 1024.0),
+            (double)mem.gqa_kv_bytes / (1024.0 * 1024.0),
+            (double)mem.deltanet_state_bytes / (1024.0 * 1024.0),
+            (double)mem.scratch_bytes / (1024.0 * 1024.0));
 
-#if QW3_CLI_ENABLE_INTERNAL_TESTS
     if (inspect)
     {
         qw3_engine_inspect(engine, stdout);
@@ -1814,6 +1834,7 @@ int main(int argc, char **argv)
     {
         qw3_engine_layer_types(engine, layer_types, stdout);
     }
+#if QW3_CLI_ENABLE_INTERNAL_TESTS
     if (probe_token >= 0)
     {
         qw3_engine_probe_token(engine, probe_token, stdout);
@@ -2562,6 +2583,34 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    if (metal_session_quant_types_test >= 0)
+    {
+        if (qw3_engine_metal_session_quant_types_test(
+                engine, metal_session_quant_types_test, ctx_size, stdout) != 0)
+        {
+            qw3_engine_close(engine);
+            return 1;
+        }
+    }
+    if (metal_dense_logits_test >= 0)
+    {
+        if (qw3_engine_metal_dense_logits_test(
+                engine, metal_dense_logits_test, ctx_size, stdout) != 0)
+        {
+            qw3_engine_close(engine);
+            return 1;
+        }
+    }
+    if (metal_dense_greedy_token >= 0)
+    {
+        if (qw3_engine_metal_dense_greedy_test(
+                engine, metal_dense_greedy_token,
+                metal_dense_greedy_n, ctx_size, stdout) != 0)
+        {
+            qw3_engine_close(engine);
+            return 1;
+        }
+    }
     if (metal_session_gqa_cached_bench_token >= 0)
     {
         if (qw3_engine_metal_session_gqa_cached_bench(
@@ -2823,7 +2872,7 @@ int main(int argc, char **argv)
         }
     }
 #endif
-    if (prompt
+    if (prompt && layer_types < 0 && !inspect
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
         && top_k_logits <= 0 && !session_roundtrip && !trace_layers &&
         !dump_trace_path &&
@@ -2888,6 +2937,9 @@ int main(int argc, char **argv)
         metal_session_gqa_project_test < 0 &&
         metal_session_gqa_single_test < 0 &&
         metal_session_gqa_cached2_test < 0 &&
+        metal_session_quant_types_test < 0 &&
+        metal_dense_logits_test < 0 &&
+        metal_dense_greedy_token < 0 &&
         metal_session_gqa_cached_bench_token < 0 &&
         metal_greedy_test <= 0 &&
         metal_run <= 0 &&
@@ -2900,8 +2952,7 @@ int main(int argc, char **argv)
         metal_gqa_real_layer_test < 0 &&
         !dump_logprobs_path &&
         !save_session_path && !load_session_path &&
-        !tokenize && !chat_tokenize && probe_token < 0 &&
-        layer_types < 0 && !inspect
+        !tokenize && !chat_tokenize && probe_token < 0
 #endif
     )
     {
@@ -2953,7 +3004,7 @@ int main(int argc, char **argv)
     }
     else
     {
-        if (!prompt)
+        if (!prompt && !inspect && layer_types < 0)
         {
             int chat_rc = interactive_chat(engine, backend, system_prompt,
                                            ctx_size, n_predict, think_mode,

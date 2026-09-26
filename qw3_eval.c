@@ -3794,8 +3794,10 @@ static int next_pending_case(eval_ui *ui, int start) {
     return -1;
 }
 
-static void log_context_memory(qw3_backend backend, int ctx_size) {
-    qw3_context_memory m = qw3_context_memory_estimate(backend, ctx_size);
+static void log_context_memory(qw3_engine *engine, qw3_backend backend,
+                               int ctx_size) {
+    qw3_context_memory m =
+        qw3_engine_context_memory_estimate(engine, ctx_size);
     fprintf(stderr,
             "qw3-eval: context buffers %.2f MiB (ctx=%d, backend=%s)\n",
             (double)m.total_bytes / (1024.0 * 1024.0),
@@ -3894,7 +3896,7 @@ int main(int argc, char **argv) {
             "(largest prompt=%d tokens, case=%d, generation budget=%d)\n",
             cfg.ctx_size, max_prompt_tokens, max_prompt_case + 1, cfg.max_tokens);
     trace_write_header(trace, &cfg, ncases, max_prompt_tokens);
-    log_context_memory(cfg.backend, cfg.ctx_size);
+    log_context_memory(engine, cfg.backend, cfg.ctx_size);
 
     qw3_session *session = NULL;
     if (qw3_session_create(&session, engine, cfg.ctx_size) != 0) {

@@ -2,6 +2,8 @@ CC ?= cc
 CFLAGS ?= -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99
 OBJCFLAGS ?= -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc
 LDLIBS ?= -lm -pthread
+LLAMA_CPP ?= ../../llama.cpp
+GGML_LIB_DIR ?= $(LLAMA_CPP)/build/bin
 
 UNAME_S := $(shell uname -s)
 METAL_SRCS := $(wildcard metal/*.metal)
@@ -11,8 +13,8 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav \
-	test-vectors test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-context test-agent-edit test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
-	test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
+	test-vectors test-model-profiles test-quant-k test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-context test-agent-edit test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
+	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 all: qw3-cli qw3-agent qw3-eval qw3-bench
@@ -130,8 +132,42 @@ endif
 tools codenav:
 	$(MAKE) -C codenavsrc
 
-test-vectors: qw3-cpu
-	sh tests/test_vectors.sh
+test-vectors: qw3-cpu-test
+	QW3_BIN=./qw3-cpu-test sh tests/test_vectors.sh
+
+test-model-profiles: qw3-cpu qw3-cpu-test
+	sh tests/test_model_profiles.sh
+
+qw3-quant-k-test: tests/test_quant_k.c qw3.c qw3.h
+	$(CC) $(CFLAGS) -DQW3_NO_METAL -o $@ tests/test_quant_k.c \
+		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
+		-lggml-cpu -lggml-base -lggml $(LDLIBS)
+
+test-quant-k: qw3-quant-k-test
+	./qw3-quant-k-test
+
+test-dense-forward: qw3-cpu-test
+	sh tests/test_dense_forward.sh
+
+qw3-dense-logits-test: tests/test_dense_logits.c qw3_cpu_core.o qw3.h
+	$(CC) $(filter-out -std=c99,$(CFLAGS)) -std=c11 \
+		-I$(LLAMA_CPP)/include -I$(LLAMA_CPP)/ggml/include \
+		-o $@ tests/test_dense_logits.c qw3_cpu_core.o \
+		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
+		-lllama -lggml-cpu -lggml-base -lggml $(LDLIBS)
+
+test-dense-logits: qw3-dense-logits-test
+	./qw3-dense-logits-test \
+		$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} 66
+
+test-dense-session: qw3-cpu-test
+	sh tests/test_dense_session.sh
+
+test-dense-metal-bringup: qw3-test
+	QW3_METAL_BIN=./qw3-test sh tests/test_dense_metal_bringup.sh
+
+test-dense-agent: qw3-agent
+	sh tests/test_dense_agent.sh
 
 test-agent-edit: qw3-agent
 	sh tests/test_agent_edit_tool.sh
@@ -206,6 +242,6 @@ test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke t
 
 clean:
 	rm -f qw3_runtime_fingerprint.h
-	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-metal qw3-agent qw3-agent-cpu \
+	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

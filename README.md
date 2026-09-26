@@ -1,8 +1,8 @@
 # qw3
 
-`qw3` is a small experimental C/Objective-C runtime for Qwen3.6 35B-A3B GGUF
-models, with an Apple Metal backend, benchmark tools, evaluation code, and an
-integrated local agent.
+`qw3` is a small experimental C/Objective-C runtime for Qwen3.6 35B-A3B and
+Qwen3.8 27B GGUF models, with an Apple Metal backend, benchmark tools,
+evaluation code, and an integrated local agent.
 
 The project started as an attempt to reproduce, on a smaller and narrower
 scale, some of the ideas behind Salvatore Sanfilippo's DwarfStar/ds4 project:
@@ -19,12 +19,15 @@ discipline.
 ## Status
 
 - Main backend: Metal on macOS/Apple Silicon.
-- Target model: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`.
-- The only supported GGUF quantization is currently Unsloth's `IQ4_XS`
-  release from Hugging Face.
-- Metal generation: stable.
-- Metal prefill: about 633 tok/s in the warmed local `pp4096` benchmark on the
-  tested Apple M5 setup.
+- Validated GGUFs: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` and
+  `Qwen3.8-27B-UD-Q3_K_XL.gguf`. Other quantizations remain unvalidated.
+- Qwen3.6 Metal generation is stable; its warmed `pp4096` prefill reaches
+  about 633 tok/s on the tested Apple M5 setup.
+- Qwen3.8 CPU and full-offload Metal decode pass differential logits and
+  eight-step greedy tests. Dense Metal prefill batches FFN projections using
+  IQ3_S/IQ4_XS in groups of up to 128 tokens, including mixed layers with
+  two supported projections. Attention and other quantizations still use
+  tokenwise projections.
 - Agent: usable, with local tools, context compaction, and code-navigation
   helpers.
 
@@ -75,12 +78,34 @@ Generation:
   --ctx 16000 --nothink -p "hello"
 ```
 
+Qwen3.8 dense generation (all 64 trunk layers on Metal; F16 KV by default):
+
+```sh
+./qw3-cli -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf \
+  --ngl 64 --ctx 32 --nothink -p "ciao" -n 1
+```
+
+Use `--cpu` if full Metal offload is unavailable. Dense Q8 KV is not yet
+validated; use F16 or `--kv-f32`.
+
 Interactive agent:
 
 ```sh
 ./qw3-agent -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
   --ctx 16000 --nothink
 ```
+
+Qwen3.8 dense agent (full Metal offload required):
+
+```sh
+./qw3-agent -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf \
+  --ngl 64 --kv-f16 --ctx 2048 --compact-tools --nothink
+```
+
+`--compact-tools` advertises only `read`, `write`, `edit`, and `bash` to keep
+the initial prompt shorter while dense prefill remains expensive. The full
+tool set remains the default. Dense agent generation, checkpoint restore, and
+prefix-cache restore are covered by `make test-dense-agent`.
 
 llama-bench-style benchmark:
 
@@ -94,6 +119,53 @@ Metal logits regression:
 ```sh
 make test-metal-logits
 ```
+
+Qwen3.8 dense Metal regression (all GGUF matvec types, representative complete
+DeltaNet/GQA layers, 64-layer F16/F32 logits, eight greedy tokens, CLI
+generation, and session roundtrip):
+
+```sh
+make test-dense-metal-bringup
+```
+
+Dense Metal decode is functional. Per-layer prefill batches FFN projections
+in 61 of 64 layers with IQ3_S, IQ4_XS, IQ2_S, or IQ3_XXS. On Metal 4 and
+batches of at least 16 tokens, Q3_K, Q4_K, and Q5_K also use tiled tensor
+matmuls, raising FFN batch coverage to 63 layers. Smaller batches and devices
+without the Tensor API retain the tokenwise path for these formats. Set
+`QW3_METAL_DENSE_Q3_K_BATCH=0` to disable the new path, or `=1` to force
+the experimental four-token fallback. Set
+`QW3_METAL_DENSE_Q4_Q5_K_BATCH=0` to disable Q4_K/Q5_K batch. Compatible
+GQA Q/K/V projections are also batched for at least 16 tokens; set
+`QW3_METAL_DENSE_GQA_BATCH=0` for an A/B control or `=1` to force smaller
+batches. GQA causal attention and recurrent state updates remain sequential.
+
+On the fanless Apple M5 test machine, a three-repetition `pp128` run measured
+18.76 ± 0.20 tok/s with Q3_K tiled versus 15.41 ± 0.29 tok/s with it
+disabled. Adding Q4_K/Q5_K tiled measured 20.84 ± 0.47 tok/s versus
+17.80 ± 0.85 with those formats disabled in a subsequent A/B pair.
+Batching compatible GQA projections measured 24.01 ± 0.38 tok/s versus
+20.54 ± 0.50 with that path disabled in another A/B pair.
+Individual cold runs varied more; these are not sustained-speed guarantees.
+This remains far below the local `llama.cpp` baseline of
+150.0 tok/s for `pp128` with the same GGUF and full GPU offload. The
+128-token batch-vs-tokenwise regression preserves the greedy choice and
+next-token continuation (with GQA projections batched: logit max difference
+0.01879, RMS 0.00315).
+Reproduce the `qw3` measurement with:
+
+```sh
+./qw3-bench -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ngl 64 \
+  --llama-style -p 128 -n 32 -r 1 --no-warmup --ctx-alloc 256
+```
+
+Set `QW3_METAL_DENSE_PREFILL_BATCH=1` to disable dense batching for comparison,
+or a value from 2 to 128 to choose the batch size. The next speed step is
+batching GQA projections, covering the remaining FFN formats, and improving
+single-token decode kernels.
+Set
+`QW3_METAL_DENSE_PROFILE=1` for per-stage decode diagnostics (it synchronizes
+between stages and therefore slows the run).
 
 ## Performance
 
