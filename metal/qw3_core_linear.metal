@@ -1780,21 +1780,27 @@ kernel void qw3_matmul_iq2_xxs_mpp_direct(
             const float d = qw3_f16_to_f32(
                 ushort(blk[0]) | (ushort(blk[1]) << 8u));
             device const uchar *qs = blk + 2u;
-            for (int i = 0; i < 16; i++) {
-                const uint local = (k0 + uint(i)) & 255u;
-                const uint ib = local >> 5u;
-                const uint l = (local & 31u) >> 3u;
-                const uint j = local & 7u;
-                device const uchar *q = qs + ib * 8u;
-                const uint packed = uint(q[4]) | (uint(q[5]) << 8u) |
-                    (uint(q[6]) << 16u) | (uint(q[7]) << 24u);
-                const uint sign_bits =
-                    uint(sign_table[(packed >> (7u * l)) & 127u]);
-                const float db = d *
-                    (0.5f + float(packed >> 28u)) * 0.25f;
-                const float sign = (sign_bits & (1u << j)) ? -1.0f : 1.0f;
+            const uint il = (k0 & 255u) >> 4u;
+            const uint ib32 = il >> 1u;
+            const uint half16 = il & 1u;
+            device const uchar *q = qs + ib32 * 8u;
+            const uint packed = uint(q[4]) | (uint(q[5]) << 8u) |
+                (uint(q[6]) << 16u) | (uint(q[7]) << 24u);
+            const float db = d *
+                (0.5f + float(packed >> 28u)) * 0.25f;
+            const ushort grid0 = grid_table[uint(q[2u * half16])];
+            const ushort grid1 = grid_table[uint(q[2u * half16 + 1u])];
+            const uint sign0 = uint(sign_table[
+                (packed >> (14u * half16)) & 127u]);
+            const uint sign1 = uint(sign_table[
+                (packed >> (14u * half16 + 7u)) & 127u]);
+            for (uint i = 0; i < 8u; i++) {
+                const float s0 = (sign0 & (1u << i)) ? -1.0f : 1.0f;
+                const float s1 = (sign1 & (1u << i)) ? -1.0f : 1.0f;
                 sa[row * NK + half_k * 16 + i] = half(
-                    db * qw3_iq2_grid_value(grid_table[uint(q[l])], j) * sign);
+                    db * qw3_iq2_grid_value(grid0, i) * s0);
+                sa[row * NK + half_k * 16 + 8u + i] = half(
+                    db * qw3_iq2_grid_value(grid1, i) * s1);
             }
         } else {
             for (int i = 0; i < 16; i++)
@@ -1853,20 +1859,27 @@ kernel void qw3_matmul_iq2_xs_mpp_direct(
                 ushort(blk[0]) | (ushort(blk[1]) << 8u));
             device const uchar *qs = blk + 2u;
             device const uchar *scales = qs + 64u;
-            for (int i = 0; i < 16; i++) {
-                const uint local = (k0 + uint(i)) & 255u;
-                const uint ib = local >> 5u;
-                const uint l = (local & 31u) >> 3u;
-                const uint j = local & 7u;
-                const uint off = 2u * (4u * ib + l);
-                const uint q = uint(qs[off]) | (uint(qs[off + 1u]) << 8u);
-                const uint sign_bits = uint(sign_table[q >> 9u]);
-                const float db = d *
-                    (0.5f + float((uint(scales[ib]) >>
-                                  (4u * (l >> 1u))) & 15u)) * 0.25f;
-                const float sign = (sign_bits & (1u << j)) ? -1.0f : 1.0f;
+            const uint il = (k0 & 255u) >> 4u;
+            const uint ib32 = il >> 1u;
+            const uint half16 = il & 1u;
+            const uint off = 2u * (4u * ib32 + 2u * half16);
+            const uint q0 = uint(qs[off]) | (uint(qs[off + 1u]) << 8u);
+            const uint q1 = uint(qs[off + 2u]) |
+                (uint(qs[off + 3u]) << 8u);
+            const float db = d *
+                (0.5f + float((uint(scales[ib32]) >>
+                              (4u * half16)) & 15u)) * 0.25f;
+            const ushort grid0 = grid_table[q0 & 511u];
+            const ushort grid1 = grid_table[q1 & 511u];
+            const uint sign0 = uint(sign_table[q0 >> 9u]);
+            const uint sign1 = uint(sign_table[q1 >> 9u]);
+            for (uint i = 0; i < 8u; i++) {
+                const float s0 = (sign0 & (1u << i)) ? -1.0f : 1.0f;
+                const float s1 = (sign1 & (1u << i)) ? -1.0f : 1.0f;
                 sa[row * NK + half_k * 16 + i] = half(
-                    db * qw3_iq2_grid_value(grid_table[q & 511u], j) * sign);
+                    db * qw3_iq2_grid_value(grid0, i) * s0);
+                sa[row * NK + half_k * 16 + 8u + i] = half(
+                    db * qw3_iq2_grid_value(grid1, i) * s1);
             }
         } else {
             for (int i = 0; i < 16; i++)
@@ -1926,20 +1939,28 @@ kernel void qw3_matmul_iq2_s_mpp_direct(
             device const uchar *signs = qs + 32u;
             device const uchar *qh = qs + 64u;
             device const uchar *scales = qh + 8u;
-            for (int i = 0; i < 16; i++) {
-                const uint local = (k0 + uint(i)) & 255u;
-                const uint ib = local >> 5u;
-                const uint l = (local & 31u) >> 3u;
-                const uint j = local & 7u;
-                const uint idx = uint(qs[4u * ib + l]) |
-                    ((uint(qh[ib]) << (8u - 2u * l)) & 0x300u);
-                const uint sign_bits = uint(signs[4u * ib + l]);
-                const float db = d *
-                    (0.5f + float((uint(scales[ib]) >>
-                                  (4u * (l >> 1u))) & 15u)) * 0.25f;
-                const float sign = (sign_bits & (1u << j)) ? -1.0f : 1.0f;
+            const uint il = (k0 & 255u) >> 4u;
+            const uint ib32 = il >> 1u;
+            const uint half16 = il & 1u;
+            device const uchar *q = qs + 4u * ib32 + 2u * half16;
+            device const uchar *sgn = signs + 4u * ib32 + 2u * half16;
+            const uint qh4 = uint(qh[ib32]) >> (4u * half16);
+            const float db = d *
+                (0.5f + float((uint(scales[ib32]) >>
+                              (4u * half16)) & 15u)) * 0.25f;
+            const ushort grid0 = grid_table[
+                uint(q[0]) | ((qh4 << 8u) & 0x300u)];
+            const ushort grid1 = grid_table[
+                uint(q[1]) | ((qh4 << 6u) & 0x300u)];
+            const uint sign0 = uint(sgn[0]);
+            const uint sign1 = uint(sgn[1]);
+            for (uint i = 0; i < 8u; i++) {
+                const float s0 = (sign0 & (1u << i)) ? -1.0f : 1.0f;
+                const float s1 = (sign1 & (1u << i)) ? -1.0f : 1.0f;
                 sa[row * NK + half_k * 16 + i] = half(
-                    db * qw3_iq2_grid_value(grid_table[idx], j) * sign);
+                    db * qw3_iq2_grid_value(grid0, i) * s0);
+                sa[row * NK + half_k * 16 + 8u + i] = half(
+                    db * qw3_iq2_grid_value(grid1, i) * s1);
             }
         } else {
             for (int i = 0; i < 16; i++)
@@ -2179,24 +2200,36 @@ kernel void qw3_matmul_iq3_xxs_mpp_direct(
                 ushort(blk[0]) | (ushort(blk[1]) << 8u));
             device const uchar *qs = blk + 2u;
             device const uchar *ss = qs + 64u;
-            for (int i = 0; i < 16; i++) {
-                const uint local = (k0 + uint(i)) & 255u;
-                const uint ib = local >> 5u;
-                const uint l = (local & 31u) >> 3u;
-                const uint j = local & 7u;
-                device const uchar *sp = ss + 4u * ib;
-                const uint packed = uint(sp[0]) | (uint(sp[1]) << 8u) |
-                    (uint(sp[2]) << 16u) | (uint(sp[3]) << 24u);
-                const float db = d *
-                    (0.5f + float(packed >> 28u)) * 0.5f;
-                const uint sign_bits =
-                    uint(sign_table[(packed >> (7u * l)) & 127u]);
-                const uint grid_index =
-                    uint(qs[8u * ib + 2u * l + (j >> 2u)]);
-                const float sign = (sign_bits & (1u << j)) ? -1.0f : 1.0f;
+            const uint il = (k0 & 255u) >> 4u;
+            const uint ib32 = il >> 1u;
+            const uint half16 = il & 1u;
+            device const uchar *q3 = qs + 8u * ib32;
+            device const uchar *sp = ss + 4u * ib32;
+            const uint packed = uint(sp[0]) | (uint(sp[1]) << 8u) |
+                (uint(sp[2]) << 16u) | (uint(sp[3]) << 24u);
+            const float db = d *
+                (0.5f + float(packed >> 28u)) * 0.5f;
+            const uint sign0 = uint(sign_table[
+                (packed >> (14u * half16)) & 127u]);
+            const uint sign1 = uint(sign_table[
+                (packed >> (14u * half16 + 7u)) & 127u]);
+            const ushort grid0 = grid_table[uint(q3[4u * half16])];
+            const ushort grid1 = grid_table[uint(q3[4u * half16 + 1u])];
+            const ushort grid2 = grid_table[uint(q3[4u * half16 + 2u])];
+            const ushort grid3 = grid_table[uint(q3[4u * half16 + 3u])];
+            for (uint i = 0; i < 4u; i++) {
+                const float s00 = (sign0 & (1u << i)) ? -1.0f : 1.0f;
+                const float s01 = (sign0 & (1u << (i + 4u))) ? -1.0f : 1.0f;
+                const float s10 = (sign1 & (1u << i)) ? -1.0f : 1.0f;
+                const float s11 = (sign1 & (1u << (i + 4u))) ? -1.0f : 1.0f;
                 sa[row * NK + half_k * 16 + i] = half(
-                    db * qw3_iq3xxs_grid_value(grid_table[grid_index],
-                                                 j & 3u) * sign);
+                    db * qw3_iq3xxs_grid_value(grid0, i) * s00);
+                sa[row * NK + half_k * 16 + 4u + i] = half(
+                    db * qw3_iq3xxs_grid_value(grid1, i) * s01);
+                sa[row * NK + half_k * 16 + 8u + i] = half(
+                    db * qw3_iq3xxs_grid_value(grid2, i) * s10);
+                sa[row * NK + half_k * 16 + 12u + i] = half(
+                    db * qw3_iq3xxs_grid_value(grid3, i) * s11);
             }
         } else {
             for (int i = 0; i < 16; i++)
