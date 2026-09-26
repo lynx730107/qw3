@@ -8885,6 +8885,10 @@ int main(int argc, char **argv) {
     qw3_log(stderr, QW3_LOG_TIMING,
             "qw3-agent: memory estimate %.1f MB\n",
             (double)mem.total_bytes / (1024.0 * 1024.0));
+    const double session_init_start = agent_now_sec();
+    qw3_log(stderr, QW3_LOG_TIMING,
+            "qw3-agent: initializing %s session and kernels...\n",
+            qw3_backend_name(a.cfg.backend));
     if (qw3_session_create(&a.session, a.engine, a.cfg.ctx_size) != 0) {
         fprintf(stderr, "agent: cannot create %s session\n",
                 qw3_backend_name(a.cfg.backend));
@@ -8893,6 +8897,9 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
+    qw3_log(stderr, QW3_LOG_TIMING,
+            "qw3-agent: session ready in %.2f s\n",
+            agent_now_sec() - session_init_start);
 
     agent_init_transcript(&a);
     if (a.cfg.conversation) {
