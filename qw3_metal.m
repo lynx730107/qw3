@@ -6867,10 +6867,10 @@ int qw3_metal_session_matvec_iq4_xs_x1_to_scratch(
     [enc setBuffer:obj.x1 offset:0 atIndex:2];
     [enc setBuffer:obj.scratch offset:(NSUInteger)out_offset_bytes atIndex:3];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    NSUInteger threads = qw3_metal_matvec_threads(
-        g_matvec_iq4_xs_pipeline, n_in / 256u);
-    [enc dispatchThreadgroups:MTLSizeMake(n_out, 1, 1)
-        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    // The fast kernel assigns two rows to each of two SIMD groups, so one
+    // 64-thread group covers four output rows.
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u, 1u, 1u)
+        threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
     qw3_metal_end_compute_encoder(cb, enc);
 
     id<MTLBuffer> readback = nil;
@@ -12930,11 +12930,8 @@ int qw3_metal_matvec_iq4_xs_expert(uint64_t tensor_offset, uint32_t expert,
     [enc setBuffer:xb offset:0 atIndex:2];
     [enc setBuffer:outb offset:0 atIndex:3];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    NSUInteger threads = g_matvec_iq4_xs_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threads > 256) threads = 256;
-    if (threads < 32) threads = 32;
-    [enc dispatchThreadgroups:MTLSizeMake(n_out, 1, 1)
-        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u, 1u, 1u)
+        threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
     qw3_metal_end_compute_encoder(cb, enc);
     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
     if (cb.status == MTLCommandBufferStatusError) {
