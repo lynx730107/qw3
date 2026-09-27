@@ -1210,7 +1210,7 @@ kernel void qw3_matmul_iq3_s_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;

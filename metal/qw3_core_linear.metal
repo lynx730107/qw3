@@ -1435,7 +1435,7 @@ kernel void qw3_matmul_iq4_nl_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
@@ -1496,7 +1496,7 @@ kernel void qw3_matmul_q2_k_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
@@ -1569,7 +1569,7 @@ kernel void qw3_matmul_q3_k_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
@@ -1967,7 +1967,7 @@ kernel void qw3_matmul_iq2_xxs_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
@@ -2045,7 +2045,7 @@ kernel void qw3_matmul_iq2_xs_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
@@ -2123,7 +2123,7 @@ kernel void qw3_matmul_iq2_s_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
@@ -2386,7 +2386,7 @@ kernel void qw3_matmul_iq3_xxs_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
@@ -2472,7 +2472,7 @@ kernel void qw3_matmul_q6_k_mpp_direct(
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
-    constexpr int NR1 = 32;
+    constexpr int NR1 = 64;
     constexpr int NK = 32;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;

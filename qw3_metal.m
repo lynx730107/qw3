@@ -4383,7 +4383,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [enc setBuffer:dst offset:0 atIndex:3];
         if (use_mpp) [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:use_mpp ?
-             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u) :
+             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u) :
              MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
@@ -4408,7 +4408,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [enc setBuffer:dst offset:0 atIndex:3];
         if (use_mpp) [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:use_mpp ?
-             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u) :
+             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u) :
              MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
@@ -4430,7 +4430,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [enc setBuffer:dst offset:0 atIndex:3];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:
-             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u)
+             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -4451,7 +4451,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [enc setBuffer:dst offset:0 atIndex:3];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:
-             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u)
+             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -4480,7 +4480,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [enc setBuffer:signs offset:0 atIndex:5];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:
-             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u)
+             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -4519,7 +4519,7 @@ static int qw3_metal_encode_dense_batch_matmul(
             [enc setBuffer:signs offset:0 atIndex:5];
         if (use_mpp) [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:use_mpp ?
-             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u) :
+             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u) :
              MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
@@ -4545,7 +4545,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [direct setBuffer:kgrid offset:0 atIndex:4];
         [direct setThreadgroupMemoryLength:8192u atIndex:0];
         [direct dispatchThreadgroups:
-            MTLSizeMake((n_tokens + 31u) / 32u,
+            MTLSizeMake((n_tokens + 63u) / 64u,
                         (n_out + 63u) / 64u, 1u)
             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, direct);
