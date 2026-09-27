@@ -1294,9 +1294,9 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
-    fn = [g_library newFunctionWithName:@"qw3_matvec_q3_k"];
+    fn = [g_library newFunctionWithName:@"qw3_matvec_q3_k_fast"];
     if (!fn) {
-        fprintf(stderr, "qw3: Metal function qw3_matvec_q3_k not found\n");
+        fprintf(stderr, "qw3: Metal function qw3_matvec_q3_k_fast not found\n");
         return 0;
     }
     g_matvec_q3_k_pipeline = [g_device newComputePipelineStateWithFunction:fn
@@ -7194,7 +7194,8 @@ int qw3_metal_session_matvec_quant_x1_to_scratch(
     [enc setBuffer:obj.scratch offset:(NSUInteger)out_offset_bytes atIndex:3];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
     // q6_K_fast packs four output rows into its two SIMD groups.
-    const int packed_rows4 = pipeline == g_matvec_q6_k_pipeline ||
+    const int packed_rows4 = pipeline == g_matvec_q3_k_pipeline ||
+                             pipeline == g_matvec_q6_k_pipeline ||
                              pipeline == g_matvec_iq4_xs_pipeline;
     const int packed_rows8 = 0;
     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
@@ -8781,7 +8782,8 @@ static int qw3_metal_session_matvec_k_expert_inner_to_x1(qw3_metal_session *s,
     [enc setBuffer:obj.inner offset:0 atIndex:2];
     [enc setBuffer:obj.x1 offset:0 atIndex:3];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    const int packed_rows4 = pipeline == g_matvec_q6_k_pipeline ||
+    const int packed_rows4 = pipeline == g_matvec_q3_k_pipeline ||
+                             pipeline == g_matvec_q6_k_pipeline ||
                              pipeline == g_matvec_iq4_xs_pipeline;
     const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
@@ -8999,7 +9001,8 @@ static int qw3_metal_session_matvec_k_expert_inner_to_scratch(qw3_metal_session 
     [enc setBuffer:obj.inner offset:0 atIndex:2];
     [enc setBuffer:obj.scratch offset:(NSUInteger)out_offset_bytes atIndex:3];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    const int packed_rows4 = pipeline == g_matvec_q6_k_pipeline ||
+    const int packed_rows4 = pipeline == g_matvec_q3_k_pipeline ||
+                             pipeline == g_matvec_q6_k_pipeline ||
                              pipeline == g_matvec_iq4_xs_pipeline;
     const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;

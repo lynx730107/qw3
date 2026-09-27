@@ -1236,6 +1236,129 @@ kernel void qw3_matvec_q3_k(constant qw3_matvec_q8_0_args &args,
     sum = simd_sum(sum);
     if (tid == 0) out[row] = sum;
 }
+/* Decode four output rows per 64-thread group. This follows the lane mapping
+ * used by llama.cpp's Q3_K matvec while retaining our row-major GGUF input. */
+kernel void qw3_matvec_q3_k_fast(constant qw3_matvec_q8_0_args &args,
+                                 device const uchar *weights,
+                                 device const float *x,
+                                 device float *out,
+                                 threadgroup float *sh,
+                                 uint group [[threadgroup_position_in_grid]],
+                                 ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                 ushort lane [[thread_index_in_simdgroup]]) {
+    (void)sh;
+    const uint first_row = (group * 2u + uint(simd_idx)) * 2u;
+    const ushort tid = lane / 4u;
+    const ushort ix = lane & 3u;
+    const ushort ip = tid / 4u;
+    const ushort il = 2u * ((tid & 3u) / 2u);
+    const ushort ir = tid & 1u;
+    const ushort l0 = 8u * ir;
+    const ushort4 mm[4] = {
+        ushort4(0x0001, 0x0100, 0x0002, 0x0200),
+        ushort4(0x0004, 0x0400, 0x0008, 0x0800),
+        ushort4(0x0010, 0x1000, 0x0020, 0x2000),
+        ushort4(0x0040, 0x4000, 0x0080, 0x8000)
+    };
+    const int4 qm[2] = {
+        int4(0x0003, 0x0300, 0x000c, 0x0c00),
+        int4(0x0030, 0x3000, 0x00c0, 0xc000)
+    };
+    const ushort4 hm = mm[2u * ip + il / 2u];
+    const ushort shift = 2u * il;
+    const float v1 = il == 0u ? 4.0f : 64.0f;
+    const float v2 = 4.0f * v1;
+    const ushort s_shift1 = 4u * ip;
+    const ushort s_shift2 = s_shift1 + il;
+    const ushort q_offset = 32u * ip + l0;
+    const ushort y_offset = 128u * ip + 32u * il + l0;
+    const uint nb = args.n_in / 256u;
+    device const float *y1 = x + uint(ix) * 256u + y_offset;
+    float sumf1[2] = {0.0f, 0.0f};
+    float sumf2[2] = {0.0f, 0.0f};
+
+    for (uint ib = uint(ix); ib < nb; ib += 4u) {
+        float yl[32];
+#pragma unroll
+        for (ushort l = 0u; l < 8u; ++l) {
+            yl[l] = y1[l];
+            yl[l + 8u] = y1[l + 16u];
+            yl[l + 16u] = y1[l + 32u];
+            yl[l + 24u] = y1[l + 48u];
+        }
+#pragma unroll
+        for (ushort row_off = 0u; row_off < 2u; ++row_off) {
+            const uint row = first_row + uint(row_off);
+            if (row >= args.n_out) continue;
+            device const uchar *blk = weights +
+                uint64_t(row) * uint64_t(args.row_bytes) +
+                uint64_t(ib) * 110ull;
+            device const ushort *q =
+                (device const ushort *)(blk + 32u + q_offset);
+            device const ushort *h =
+                (device const ushort *)(blk + l0);
+            device const ushort *a =
+                (device const ushort *)(blk + 96u);
+            uint scales32 = uint(a[4]) | (uint(a[5]) << 16u);
+            const uint aux32 = ((scales32 >> s_shift2) << 4u) &
+                               0x30303030u;
+            scales32 = uint(a[il]) | (uint(a[il + 1u]) << 16u);
+            scales32 = ((scales32 >> s_shift1) & 0x0f0f0f0fu) | aux32;
+            thread const char *scales = (thread const char *)&scales32;
+            float s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;
+            float s4 = 0.0f, s5 = 0.0f, s6 = 0.0f;
+#pragma unroll
+            for (ushort l = 0u; l < 8u; l += 2u) {
+                const int qs = int(q[l / 2u]);
+                s1 += yl[l] * float(qs & qm[il / 2u][0]);
+                s2 += yl[l + 1u] * float(qs & qm[il / 2u][1]);
+                s3 += (h[l / 2u] & hm[0]) ? 0.0f : yl[l];
+                s3 += (h[l / 2u] & hm[1]) ? 0.0f : yl[l + 1u];
+                s4 += yl[l + 16u] * float(qs & qm[il / 2u][2]);
+                s5 += yl[l + 17u] * float(qs & qm[il / 2u][3]);
+                s6 += (h[l / 2u] & hm[2]) ? 0.0f : yl[l + 16u];
+                s6 += (h[l / 2u] & hm[3]) ? 0.0f : yl[l + 17u];
+            }
+            const float d = float(*((device const half *)(blk + 108u)));
+            float d1 = d * (s1 + s2 / 256.0f - s3 * v1);
+            float d2 = d * (s4 + s5 / 256.0f - s6 * v2);
+            sumf1[row_off] += d1 * float(scales[0] - 32);
+            sumf2[row_off] += d2 * float(scales[2] - 32);
+
+            s1 = s2 = s3 = s4 = s5 = s6 = 0.0f;
+#pragma unroll
+            for (ushort l = 0u; l < 8u; l += 2u) {
+                const int qs = int(q[l / 2u + 8u]);
+                s1 += yl[l + 8u] * float(qs & qm[il / 2u][0]);
+                s2 += yl[l + 9u] * float(qs & qm[il / 2u][1]);
+                s3 += (h[l / 2u + 8u] & hm[0]) ? 0.0f : yl[l + 8u];
+                s3 += (h[l / 2u + 8u] & hm[1]) ? 0.0f : yl[l + 9u];
+                s4 += yl[l + 24u] * float(qs & qm[il / 2u][2]);
+                s5 += yl[l + 25u] * float(qs & qm[il / 2u][3]);
+                s6 += (h[l / 2u + 8u] & hm[2]) ? 0.0f : yl[l + 24u];
+                s6 += (h[l / 2u + 8u] & hm[3]) ? 0.0f : yl[l + 25u];
+            }
+            d1 = d * (s1 + s2 / 256.0f - s3 * v1);
+            d2 = d * (s4 + s5 / 256.0f - s6 * v2);
+            sumf1[row_off] += d1 * float(scales[1] - 32);
+            sumf2[row_off] += d2 * float(scales[3] - 32);
+        }
+        y1 += 4u * 256u;
+    }
+#pragma unroll
+    for (ushort row_off = 0u; row_off < 2u; ++row_off) {
+        const float sum = (sumf1[row_off] + 0.25f * sumf2[row_off]) /
+                          float(1u << shift);
+        sumf1[row_off] = simd_sum(sum);
+    }
+    if (lane == 0u) {
+#pragma unroll
+        for (ushort row_off = 0u; row_off < 2u; ++row_off) {
+            const uint row = first_row + uint(row_off);
+            if (row < args.n_out) out[row] = sumf1[row_off];
+        }
+    }
+}
 /* Reuse each Q3_K block across four prompt rows. This is also the fallback
  * for mixed dense FFNs whose Q3_K projection would otherwise run x1. */
 kernel void qw3_matmul_q3_k_batch4(
