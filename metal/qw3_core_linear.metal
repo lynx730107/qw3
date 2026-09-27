@@ -1683,41 +1683,49 @@ kernel void qw3_matmul_q4_q5_k_mpp_direct(
         decltype(tB), decltype(tA), float>();
     for (uint16_t i = 0; i < cT.get_capacity(); i++)
         if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    const bool is_q5 = args.is_q5 != 0u;
+    const uint64_t block_bytes = is_q5 ? 176ull : 144ull;
+    const uint ql_offset = is_q5 ? 48u : 16u;
     for (uint loop_k = 0; loop_k < args.n_in; loop_k += NK) {
         const int row = int(tid) / 2;
         const int half_k = int(tid) % 2;
         if (r0 + row < int(args.n_out)) {
             const uint k0 = loop_k + uint(half_k * 16);
+            const uint g = (loop_k & 255u) >> 5u;
+            const uint l0 = uint(half_k * 16);
             device const uchar *wrow = weights +
                 uint64_t(r0 + row) * args.row_bytes;
             device const uchar *blk = wrow +
-                uint64_t(k0 >> 8u) * (args.is_q5 ? 176ull : 144ull);
+                uint64_t(k0 >> 8u) * block_bytes;
             const float d = qw3_f16_to_f32(
                 ushort(blk[0]) | (ushort(blk[1]) << 8u));
             const float dmin = qw3_f16_to_f32(
                 ushort(blk[2]) | (ushort(blk[3]) << 8u));
             device const uchar *scales = blk + 4u;
             device const uchar *qh = blk + 16u;
-            device const uchar *ql = blk + (args.is_q5 ? 48u : 16u);
+            device const uchar *ql = blk + ql_offset;
+            uint sc, mn;
+            if (g < 4u) {
+                sc = uint(scales[g]) & 63u;
+                mn = uint(scales[g + 4u]) & 63u;
+            } else {
+                sc = (uint(scales[g + 4u]) & 15u) |
+                     ((uint(scales[g - 4u]) >> 6u) << 4u);
+                mn = (uint(scales[g + 4u]) >> 4u) |
+                     ((uint(scales[g]) >> 6u) << 4u);
+            }
+            const float dl = d * float(sc);
+            const float ml = dmin * float(mn);
+            device const uchar *qgroup = ql + (g >> 1u) * 32u + l0;
+            const uint high_mask = 1u << g;
+            const bool high_nibble = (g & 1u) != 0u;
             for (int i = 0; i < 16; i++) {
-                const uint local = (k0 + uint(i)) & 255u;
-                const uint g = local >> 5u;
-                const uint l = local & 31u;
-                uint sc, mn;
-                if (g < 4u) {
-                    sc = uint(scales[g]) & 63u;
-                    mn = uint(scales[g + 4u]) & 63u;
-                } else {
-                    sc = (uint(scales[g + 4u]) & 15u) |
-                         ((uint(scales[g - 4u]) >> 6u) << 4u);
-                    mn = (uint(scales[g + 4u]) >> 4u) |
-                         ((uint(scales[g]) >> 6u) << 4u);
-                }
-                const uint packed = uint(ql[(g >> 1u) * 32u + l]);
-                uint q = (g & 1u) ? packed >> 4u : packed & 15u;
-                if (args.is_q5 && (uint(qh[l]) & (1u << g))) q += 16u;
+                const uint l = l0 + uint(i);
+                const uint packed = uint(qgroup[i]);
+                uint q = high_nibble ? packed >> 4u : packed & 15u;
+                if (is_q5 && (uint(qh[l]) & high_mask)) q += 16u;
                 sa[row * NK + half_k * 16 + i] =
-                    half(d * float(sc) * float(q) - dmin * float(mn));
+                    half(dl * float(q) - ml);
             }
         } else {
             for (int i = 0; i < 16; i++)
