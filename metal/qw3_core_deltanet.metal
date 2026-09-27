@@ -151,13 +151,18 @@ kernel void qw3_deltanet_recur_scratch_gates_tiled(constant qw3_recur_scratch_ar
     b = simd_broadcast(b, 0);
     g = simd_broadcast(g, 0);
     uint i0 = uint(lane) * 4u;
-    uint state_col = j * args.head_dim + i0;
-    float4 sv = *((device const float4 *)(sin + state_col));
+    float4 sv = float4(sin[(i0 + 0u) * args.head_dim + j],
+                       sin[(i0 + 1u) * args.head_dim + j],
+                       sin[(i0 + 2u) * args.head_dim + j],
+                       sin[(i0 + 3u) * args.head_dim + j]);
     float4 kv = *((device const float4 *)(kh + i0));
     float sk = simd_sum(dot(sv, kv));
     float d = b * (vh[j] - sk * g);
     sv = sv * g + kv * d;
-    *((device float4 *)(sout + state_col)) = sv;
+    sout[(i0 + 0u) * args.head_dim + j] = sv.x;
+    sout[(i0 + 1u) * args.head_dim + j] = sv.y;
+    sout[(i0 + 2u) * args.head_dim + j] = sv.z;
+    sout[(i0 + 3u) * args.head_dim + j] = sv.w;
     float4 qv = *((device const float4 *)(qh + i0));
     float out = simd_sum(dot(sv, qv));
     if (lane == 0) core_out[uint64_t(hv) * args.head_dim + j] = out * rsqrt(float(args.head_dim));
