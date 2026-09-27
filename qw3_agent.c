@@ -63,10 +63,8 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_SEMANTIC_MAX_BYTES 24000
 #define QW3_AGENT_CODENAV_TIMEOUT_SEC 30.0
 #define QW3_AGENT_SEMANTIC_TIMEOUT_SEC 120.0
-#define QW3_AGENT_WEB_MAX_BYTES 200000
-#define QW3_AGENT_WEB_HEAD_BYTES 8192
-#define QW3_AGENT_WEB_HEAD_LINES 100
-#define QW3_AGENT_WEB_READ_MAX_LINES 120
+#define QW3_AGENT_WEB_MAX_BYTES 12000
+#define QW3_AGENT_WEB_VISIT_MAX_CHARS 8000
 #define QW3_AGENT_WEB_TIMEOUT_SEC 30.0
 #define QW3_AGENT_BASH_TIMEOUT_SEC 120
 #define QW3_AGENT_BASH_MAX_BYTES 32768
@@ -251,9 +249,6 @@ typedef struct {
     agent_timing_fn timing_update;
     void *timing_ud;
     double progress_start_sec;
-    bool web_request_is_evening;
-    bool web_request_is_bibliography;
-    bool web_result_complete;
     bool edit_verification_pending;
     int compact_retry_after_tokens;
     FILE *trace_fp;
@@ -726,10 +721,10 @@ static char *native_tool_declarations(bool compact_tools) {
               TOOL_PARAM("code_only", "true/false; default true") ","
               TOOL_PARAM("semantic_only", "true/false; default false") ","
               TOOL_PARAM("content", "true/false; default false"));
-    TOOL_DECL("google_search", "Search the web and return compact Markdown links. Preserve exact temporal qualifiers from the request (for example tonight versus today), start with one focused query, prefer aggregate sources, and reuse returned URLs before searching again.",
+    TOOL_DECL("search_web", "Search the web with DuckDuckGo and return up to five results with title, URL, and snippet.",
               TOOL_PARAM("query", "Web search query"));
-    TOOL_DECL("visit_page", "Fetch a known URL and return compact readable text plus a temp output_path for the full page text. Answer immediately when requested facts are in the preview. A truncated page tail alone is not a reason to inspect output_path.",
-              TOOL_PARAM("url", "HTTP or HTTPS URL"));
+    TOOL_DECL("visit_url", "Fetch a URL and return up to 8000 characters of readable text with HTML tags removed.",
+              TOOL_PARAM("url", "URL to fetch"));
     TOOL_DECL("search", "Search text files for a literal pattern.",
               TOOL_PARAM("pattern", "Literal pattern") ","
               TOOL_PARAM("path", "Root path") ","
@@ -2178,7 +2173,7 @@ static void infer_tool_name_from_params(tool_call *call) {
     if (tool_param_value(call, "cmd") || tool_param_value(call, "command")) {
         snprintf(call->name, sizeof(call->name), "bash");
     } else if (tool_param_value(call, "url")) {
-        snprintf(call->name, sizeof(call->name), "visit_page");
+        snprintf(call->name, sizeof(call->name), "visit_url");
     } else if (tool_param_value(call, "function_name") ||
                tool_param_value(call, "symbol")) {
         snprintf(call->name, sizeof(call->name), "get_function");
@@ -2199,7 +2194,7 @@ static void infer_tool_name_from_params(tool_call *call) {
 
 static const char *native_shorthand_tools[] = {
     "read", "more", "list", "get_skeleton", "get_function", "get_fucttion",
-    "semantic_search", "google_search", "visit_page", "search", "write",
+    "semantic_search", "search_web", "visit_url", "search", "write",
     "edit", "bash",
 };
 
@@ -2761,28 +2756,6 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     if (lines <= 0) lines = default_lines;
     if (lines > max_lines) lines = max_lines;
 
-    const bool is_web_capture =
-        !strncmp(path, "/tmp/qw3_agent_web_",
-                 strlen("/tmp/qw3_agent_web_"));
-    const int web_read_max_lines = agent_env_int(
-        "QW3_AGENT_WEB_READ_MAX_LINES", QW3_AGENT_WEB_READ_MAX_LINES,
-        20, max_lines);
-    if (is_web_capture && lines > web_read_max_lines) {
-        strbuf guard;
-        sb_init(&guard);
-        sb_printf(&guard,
-                  "context_guard: broad web capture read rejected "
-                  "(%d lines requested, maximum %d).\n",
-                  lines, web_read_max_lines);
-        sb_append(&guard,
-                  "Use search with path set to this output_path and a precise "
-                  "keyword from the user request. Then read at most 120 lines "
-                  "around matching line numbers. If there are no relevant "
-                  "matches, visit another URL already returned by "
-                  "google_search.\n");
-        return guard.p;
-    }
-
     const bool is_source = agent_path_is_source(path);
     const bool explicit_start = agent_has_param_value(call, "start");
     const bool explicit_lines = agent_has_param_value(call, "lines");
@@ -3061,335 +3034,80 @@ static char *tool_semantic_search(const tool_call *call) {
     return out.p;
 }
 
-static int agent_count_lines(const char *s) {
-    if (!s || !s[0]) return 0;
-    int lines = 0;
-    for (const char *p = s; *p; p++) {
-        if (*p == '\n') lines++;
-    }
-    if (s && s[0] && s[strlen(s) - 1] != '\n') lines++;
-    return lines;
-}
-
-static char *agent_string_head(const char *s, int max_lines, size_t max_bytes,
-                               int *lines_read, bool *byte_limited) {
-    if (lines_read) *lines_read = 0;
-    if (byte_limited) *byte_limited = false;
-    if (!s) return agent_strdup("");
-    size_t used = 0;
-    int lines = 0;
-    while (s[used] && used < max_bytes && lines < max_lines) {
-        if (s[used++] == '\n') lines++;
-    }
-    if (s[used] && used >= max_bytes && byte_limited) *byte_limited = true;
-    if (used && s[used - 1] != '\n' && lines < max_lines) lines++;
-    if (lines_read) *lines_read = lines;
-    char *out = malloc(used + 1);
-    if (!out) return agent_strdup("");
-    memcpy(out, s, used);
-    out[used] = '\0';
-    return out;
-}
-
-static bool agent_web_preview_has_complete_evening_schedule(const char *text) {
-    if (!text) return false;
-    const char *p = strstr(text, "Stasera in TV alle ");
-    if (!p) return false;
-
-    int timed_entries = 0;
-    while (*p) {
-        const char *line = p;
-        const char *end = strchr(line, '\n');
-        size_t n = end ? (size_t)(end - line) : strlen(line);
-        while (n && isspace((unsigned char)*line)) {
-            line++;
-            n--;
-        }
-        if (n >= 5 && isdigit((unsigned char)line[0]) &&
-            isdigit((unsigned char)line[1]) && line[2] == ':' &&
-            isdigit((unsigned char)line[3]) &&
-            isdigit((unsigned char)line[4])) {
-            timed_entries++;
-            if (timed_entries >= 5) return true;
-        }
-        if (!end) break;
-        p = end + 1;
-    }
-    return false;
-}
-
-static bool agent_web_preview_has_complete_bibliography(const char *text) {
-    if (!text) return false;
-    const bool italian = strstr(text, "\nOpere\n") &&
-                         strstr(text, "\nRomanzi e racconti\n") &&
-                         strstr(text, "\nPoesia\n") &&
-                         strstr(text, "\nMiscellanea\n");
-    const bool english = strstr(text, "\nWorks\n") &&
-                         (strstr(text, "\nNovels\n") ||
-                          strstr(text, "\nNovels and short stories\n")) &&
-                         strstr(text, "\nPoetry\n");
-    return italian || english;
-}
-
-static bool agent_write_temp_text(const char *prefix, const char *text,
-                                  char *path, size_t path_len,
-                                  char *err, size_t err_len) {
-    char tmpl[PATH_MAX];
-    snprintf(tmpl, sizeof(tmpl), "/tmp/%s_XXXXXX", prefix);
-    int fd = mkstemp(tmpl);
-    if (fd < 0) {
-        snprintf(err, err_len, "failed to create temporary file: %s",
-                 strerror(errno));
-        return false;
-    }
-    const char *p = text ? text : "";
-    size_t left = strlen(p);
-    while (left > 0) {
-        ssize_t n = write(fd, p, left);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) {
-            snprintf(err, err_len, "failed to write temporary file: %s",
-                     strerror(errno));
-            close(fd);
-            unlink(tmpl);
-            return false;
-        }
-        p += n;
-        left -= (size_t)n;
-    }
-    if (close(fd) != 0) {
-        snprintf(err, err_len, "failed to close temporary file: %s",
-                 strerror(errno));
-        unlink(tmpl);
-        return false;
-    }
-    snprintf(path, path_len, "%s", tmpl);
-    return true;
-}
-
-static char *tool_google_search(const tool_call *call) {
+static char *tool_search_web(const tool_call *call) {
     const char *query = tool_param_value(call, "query");
-    if (!query || !query[0]) query = tool_param_value(call, "q");
     if (!query || !query[0]) {
-        return agent_strdup("error: google_search requires query");
+        return agent_strdup("error: search_web requires query");
     }
-    int max_bytes = agent_env_int("QW3_AGENT_WEB_MAX_BYTES",
-                                  QW3_AGENT_WEB_MAX_BYTES,
-                                  4096, 1000000);
     static const char script[] =
-        "import html, re, sys, time, urllib.parse, urllib.request\n"
-        "from html.parser import HTMLParser\n"
+        "import html, re, sys, urllib.parse, urllib.request\n"
         "q=sys.argv[1]\n"
-        "url='https://lite.duckduckgo.com/lite/?q='+urllib.parse.quote(q)\n"
-        "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 qw3-agent'})\n"
-        "data=None; last=None\n"
-        "for attempt in range(2):\n"
-        "    try:\n"
-        "        data=urllib.request.urlopen(req,timeout=12).read().decode('utf-8','replace')\n"
-        "        break\n"
-        "    except Exception as e:\n"
-        "        last=e\n"
-        "        if attempt == 0: time.sleep(0.25)\n"
-        "if data is None:\n"
-        "    print('error: google_search request failed: '+str(last))\n"
+        "url='https://html.duckduckgo.com/html/?q='+urllib.parse.quote_plus(q)\n"
+        "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})\n"
+        "try:\n"
+        "    page=urllib.request.urlopen(req,timeout=20).read().decode('utf-8','replace')\n"
+        "except Exception as e:\n"
+        "    print('error: search_web failed: '+str(e))\n"
         "    raise SystemExit(1)\n"
-        "class P(HTMLParser):\n"
-        "    def __init__(self): super().__init__(); self.items=[]; self.cur=None\n"
-        "    def handle_starttag(self,tag,attrs):\n"
-        "        if tag!='a' or len(self.items)>=8: return\n"
-        "        d=dict(attrs); cls=d.get('class','')\n"
-        "        if 'result-link' in cls or 'result__a' in cls: self.cur=[d.get('href',''),'']\n"
-        "    def handle_data(self,data):\n"
-        "        if self.cur is not None: self.cur[1]+=data\n"
-        "    def handle_endtag(self,tag):\n"
-        "        if tag=='a' and self.cur is not None:\n"
-        "            href=html.unescape(self.cur[0]); title=' '.join(html.unescape(self.cur[1]).split())\n"
-        "            if href.startswith('//duckduckgo.com/l/?'):\n"
-        "                qs=urllib.parse.parse_qs(urllib.parse.urlparse('https:'+href).query)\n"
-        "                href=qs.get('uddg',[href])[0]\n"
-        "            if title and href: self.items.append((title,href))\n"
-        "            self.cur=None\n"
-        "p=P(); p.feed(data); items=p.items\n"
-        "skip={'della','delle','degli','italiana','italiani','guida','oggi','tutti','tutte','canali','aggregata','programmi','programmazione','with','from','this','that'}\n"
-        "terms={x for x in re.findall(r'\\w+',q.casefold()) if len(x)>=4 and x not in skip}\n"
-        "ranked=[]\n"
-        "for rank,item in enumerate(items):\n"
-        "    title=item[0].casefold(); score=sum(1 for term in terms if term in title)\n"
-        "    ranked.append((-score,rank,item))\n"
-        "items=[item for _,_,item in sorted(ranked)]\n"
-        "print('google_search query='+q)\n"
-        "if not items: print('(no results parsed)')\n"
-        "for i,(title,href) in enumerate(items,1): print(f'{i}. [{title}]({href})')\n";
+        "pat=r'<a[^>]*class=[\"\\\'][^\"\\\']*result__a[^\"\\\']*[\"\\\'][^>]*href=[\"\\\']([^\"\\\']*)[\"\\\'][^>]*>(.*?)</a>'\n"
+        "items=[]\n"
+        "for m in re.finditer(pat,page,re.I|re.S):\n"
+        "    href=html.unescape(m.group(1))\n"
+        "    if href.startswith('//duckduckgo.com/l/?'):\n"
+        "        args=urllib.parse.parse_qs(urllib.parse.urlparse('https:'+href).query)\n"
+        "        href=args.get('uddg',[href])[0]\n"
+        "    title=' '.join(html.unescape(re.sub(r'<[^>]+>',' ',m.group(2))).split())\n"
+        "    tail=page[m.end():m.end()+2500]\n"
+        "    sm=re.search(r'class=[\"\\\'][^\"\\\']*result__snippet[^\"\\\']*[\"\\\'][^>]*>(.*?)</(?:a|div)',tail,re.I|re.S)\n"
+        "    snippet=' '.join(html.unescape(re.sub(r'<[^>]+>',' ',sm.group(1))).split()) if sm else ''\n"
+        "    if title and href and not any(x[1]==href for x in items): items.append((title,href,snippet))\n"
+        "    if len(items)>=5: break\n"
+        "print('--- search_web: '+repr(q)+' ('+str(len(items))+' results) ---')\n"
+        "if not items: print('(no results)')\n"
+        "for i,(title,href,snippet) in enumerate(items,1):\n"
+        "    print(str(i)+'. '+title)\n"
+        "    print('   '+href)\n"
+        "    if snippet: print('   '+snippet[:300])\n";
     char *argv[] = {"python3", "-c", (char *)script, (char *)query, NULL};
-    char *captured = run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
-                                      (size_t)max_bytes);
-    if (!captured || strstr(captured, "\nexit=")) return captured;
-    strbuf out;
-    sb_init(&out);
-    sb_append(&out, captured);
-    if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
-    sb_append(&out,
-              "Web workflow: open the returned URL whose title most directly "
-              "matches the requested subject, section, and date; it may not be "
-              "result 1. Reuse these results instead of issuing one search per "
-              "requested item.\n");
-    free(captured);
-    return out.p;
+    return run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
+                            QW3_AGENT_WEB_MAX_BYTES);
 }
 
-static char *tool_visit_page(agent_state *a, const tool_call *call) {
+static char *tool_visit_url(const tool_call *call) {
     const char *url = tool_param_value(call, "url");
-    if (!url || !url[0]) return agent_strdup("error: visit_page requires url");
-    if (strncmp(url, "http://", 7) && strncmp(url, "https://", 8)) {
-        return agent_strdup("error: visit_page only supports http:// or https:// URLs");
-    }
-    int max_bytes = agent_env_int("QW3_AGENT_WEB_MAX_BYTES",
-                                  QW3_AGENT_WEB_MAX_BYTES,
-                                  4096, 1000000);
+    if (!url || !url[0]) return agent_strdup("error: visit_url requires url");
+    char max_chars[32];
+    snprintf(max_chars, sizeof(max_chars), "%d",
+             QW3_AGENT_WEB_VISIT_MAX_CHARS);
     static const char script[] =
-        "import html, re, sys, time, urllib.request\n"
-        "url=sys.argv[1]\n"
-        "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 qw3-agent'})\n"
-        "raw=None; last=None\n"
-        "for attempt in range(2):\n"
-        "    try:\n"
-        "        raw=urllib.request.urlopen(req,timeout=12).read()\n"
-        "        break\n"
-        "    except Exception as e:\n"
-        "        last=e\n"
-        "        if attempt == 0: time.sleep(0.25)\n"
-        "if raw is None:\n"
-        "    print('error: visit_page request failed: '+str(last))\n"
+        "import html, re, sys, urllib.request\n"
+        "url=sys.argv[1].strip()\n"
+        "limit=int(sys.argv[2])\n"
+        "if not url.startswith(('http://','https://')): url='http://'+url\n"
+        "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})\n"
+        "try:\n"
+        "    raw=urllib.request.urlopen(req,timeout=30).read(2000000)\n"
+        "except Exception as e:\n"
+        "    print('error: visit_url failed: '+str(e))\n"
         "    raise SystemExit(1)\n"
-        "enc='utf-8'\n"
-        "text=raw.decode(enc,'replace')\n"
-        "text=re.sub(r'(?is)<(script|style|noscript|svg).*?</\\1>',' ',text)\n"
-        "title=''\n"
-        "m=re.search(r'(?is)<title[^>]*>(.*?)</title>',text)\n"
-        "if m: title=html.unescape(re.sub(r'\\s+',' ',m.group(1))).strip()\n"
-        "main=re.search(r'(?is)<main\\b[^>]*>(.*?)</main\\s*>',text)\n"
-        "if main: text=main.group(1)\n"
-        "def image_text(match):\n"
-        "    tag=match.group(0)\n"
-        "    if 'channel-logo' not in tag.casefold(): return ' '\n"
-        "    alt=re.search(r'\\balt\\s*=\\s*\"([^\"]*)\"',tag,re.I|re.S)\n"
-        "    if not alt: alt=re.search(r\"\\balt\\s*=\\s*'([^']*)'\",tag,re.I|re.S)\n"
-        "    label=html.unescape(alt.group(1)).strip() if alt else ''\n"
-        "    return ('\\n'+label+'\\n') if label else ' '\n"
-        "text=re.sub(r'(?is)<img\\b[^>]*>',image_text,text)\n"
-        "text=re.sub(r'(?i)<\\s*br\\s*/?>','\\n',text)\n"
-        "text=re.sub(r'(?i)</\\s*(p|div|section|article|header|footer|li|h[1-6]|tr)\\s*>','\\n',text)\n"
+        "text=raw.decode('utf-8','replace')\n"
+        "text=re.sub(r'(?is)<(script|style|nav|footer|noscript|svg)\\b[^>]*>.*?</\\1>',' ',text)\n"
+        "text=re.sub(r'(?i)<\\s*(br|/p|/div|/h[1-6]|/li|/tr|/table|/section|/article)\\b[^>]*>','\\n',text)\n"
         "text=re.sub(r'<[^>]+>',' ',text)\n"
         "text=html.unescape(text)\n"
-        "lines=[]\n"
-        "for line in text.splitlines():\n"
-        "    line=re.sub(r'\\s+',' ',line).strip()\n"
-        "    if len(line)<80 and 'modifica wikitesto' in line.casefold(): continue\n"
-        "    if line: lines.append(line)\n"
-        "print('visit_page url='+url)\n"
-        "if title: print('title: '+title)\n"
-        "print('')\n"
-        "print('\\n'.join(lines))\n";
-    char *argv[] = {"python3", "-c", (char *)script, (char *)url, NULL};
-    char *md = run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
-                                (size_t)max_bytes);
-    if (!md) return agent_strdup("error: visit_page failed");
-    if (!strncmp(md, "error:", 6) || strstr(md, "\nexit=")) return md;
-
-    char path[PATH_MAX];
-    char err[256] = {0};
-    if (!agent_write_temp_text("qw3_agent_web", md, path, sizeof(path),
-                               err, sizeof(err))) {
-        strbuf out;
-        sb_init(&out);
-        sb_printf(&out, "error: visit_page failed: %s\n", err);
-        free(md);
-        return out.p;
-    }
-
-    int total_lines = agent_count_lines(md);
-    int shown_lines = 0;
-    bool byte_limited = false;
-    char *head = agent_string_head(md, QW3_AGENT_WEB_HEAD_LINES,
-                                   QW3_AGENT_WEB_HEAD_BYTES,
-                                   &shown_lines, &byte_limited);
-    bool truncated = byte_limited || shown_lines < total_lines;
-    bool complete_schedule =
-        agent_web_preview_has_complete_evening_schedule(head);
-    bool complete_bibliography =
-        agent_web_preview_has_complete_bibliography(head);
-    bool complete_result = a &&
-        ((a->web_request_is_evening && complete_schedule) ||
-         (a->web_request_is_bibliography && complete_bibliography));
-    if (complete_result) a->web_result_complete = true;
-    const char *complete_kind = complete_bibliography ? "bibliography" :
-                                                       "evening schedule";
-    char *focused_preview = NULL;
-    const char *preview = head ? head : "";
-    if (complete_result && a->web_request_is_bibliography) {
-        const char *start = strstr(preview, "\nOpere\n");
-        if (start) {
-            start++;
-            const char *end = strstr(start, "\nDiscografia\n");
-            size_t n = end ? (size_t)(end - start) : strlen(start);
-            focused_preview = malloc(n + 1);
-            if (focused_preview) {
-                memcpy(focused_preview, start, n);
-                focused_preview[n] = '\0';
-                preview = focused_preview;
-            }
-        }
-    }
-    strbuf out;
-    sb_init(&out);
-    if (complete_result) {
-        sb_printf(&out,
-                  "visit_page url=%s\npreview_status=complete structured "
-                  "%s\n",
-                  url, complete_kind);
-    } else {
-        sb_printf(&out,
-                  "visit_page url=%s\noutput_path=%s (%zu bytes, %d lines)\n",
-                  url, path, strlen(md), total_lines);
-    }
-    if (truncated && !complete_result) {
-        sb_printf(&out, "<head -%d %s>\n", QW3_AGENT_WEB_HEAD_LINES, path);
-        sb_append(&out, preview);
-        if (preview[0] && preview[strlen(preview) - 1] != '\n') {
-            sb_append(&out, "\n");
-        }
-        sb_append(&out, "</head>\n");
-        sb_append(&out,
-                  "More page text is available at output_path, but truncation "
-                  "only means the page has a tail: it does not make facts shown "
-                  "in this preview incomplete. Inspect the file only for a "
-                  "specific requested fact that is absent here.\n");
-    } else {
-        sb_append(&out, "<text>\n");
-        sb_append(&out, preview);
-        if (preview[0] && preview[strlen(preview) - 1] != '\n') {
-            sb_append(&out, "\n");
-        }
-        sb_append(&out, "</text>\n");
-    }
-    if (complete_result) {
-        sb_append(&out,
-                  "Web workflow: this preview is a complete structured result. "
-                  "Answer the user now; do not call another tool to verify or "
-                  "re-read entries already shown.\n");
-    } else {
-        sb_append(&out,
-                  "Web workflow: facts explicitly paired with their labels in "
-                  "the preview are ready to use; do not verify or re-read them. "
-                  "If all requested facts are present, stop browsing and answer "
-                  "now. Only for a missing fact, search output_path and read a "
-                  "short matching range; never inspect the whole capture. Reuse "
-                  "another returned URL before running a new search.\n");
-    }
-    free(focused_preview);
-    free(head);
-    free(md);
-    return out.p;
+        "content='\\n'.join(' '.join(line.split()) for line in text.splitlines() if line.strip())\n"
+        "print('--- visit_url: '+url+' ---')\n"
+        "if not content:\n"
+        "    print('(no useful text content)')\n"
+        "elif len(content)>limit:\n"
+        "    print(content[:limit]+'\\n...[truncated]')\n"
+        "else:\n"
+        "    print(content)\n";
+    char *argv[] = {
+        "python3", "-c", (char *)script, (char *)url, max_chars, NULL
+    };
+    return run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
+                            QW3_AGENT_WEB_MAX_BYTES);
 }
 
 static char *tool_write(agent_state *a, const tool_call *call) {
@@ -4097,13 +3815,6 @@ static char *tool_search(agent_state *a, const tool_call *call) {
     search_rec(&out, path, pattern, 0, 8, &matches, max);
     if (matches == 0) {
         sb_append(&out, "(no matches)\n");
-        if (!strncmp(path, "/tmp/qw3_agent_web_",
-                     strlen("/tmp/qw3_agent_web_"))) {
-            sb_append(&out,
-                      "Web workflow: this capture has no matching content. "
-                      "Stop inspecting it and visit another URL already "
-                      "returned by google_search.\n");
-        }
     }
     if (matches >= max) sb_append(&out, "... truncated\n");
     return out.p;
@@ -4307,13 +4018,6 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
     const char *cmd = tool_param_value(call, "cmd");
     if (!cmd || !cmd[0]) cmd = tool_param_value(call, "command");
     if (!cmd || !cmd[0]) return agent_strdup("error: bash requires cmd");
-    if (strstr(cmd, "/tmp/qw3_agent_web_")) {
-        return agent_strdup(
-            "context_guard: do not inspect visit_page captures with bash. "
-            "Use search on output_path, then a short read around matching "
-            "lines. If search finds nothing relevant, visit another URL "
-            "already returned by google_search.");
-    }
     int pipefd[2];
     if (pipe(pipefd) != 0) {
         strbuf err;
@@ -4548,8 +4252,8 @@ static char *execute_one_tool_raw(agent_state *a, const tool_call *call) {
     if (!strcmp(call->name, "get_function") ||
         !strcmp(call->name, "get_fucttion")) return tool_get_function(call);
     if (!strcmp(call->name, "semantic_search")) return tool_semantic_search(call);
-    if (!strcmp(call->name, "google_search")) return tool_google_search(call);
-    if (!strcmp(call->name, "visit_page")) return tool_visit_page(a, call);
+    if (!strcmp(call->name, "search_web")) return tool_search_web(call);
+    if (!strcmp(call->name, "visit_url")) return tool_visit_url(call);
     if (!strcmp(call->name, "write")) return tool_write(a, call);
     if (!strcmp(call->name, "edit")) return tool_edit(a, call);
     if (!strcmp(call->name, "search")) return tool_search(a, call);
@@ -5316,7 +5020,7 @@ static int agent_repeat_guard_selftest(void) {
     agent_tool_history history = {0};
     tool_call_list calls = {0};
     calls.n_calls = 1;
-    snprintf(calls.calls[0].name, sizeof(calls.calls[0].name), "visit_page");
+    snprintf(calls.calls[0].name, sizeof(calls.calls[0].name), "visit_url");
     calls.calls[0].n_params = 1;
     snprintf(calls.calls[0].params[0].name,
              sizeof(calls.calls[0].params[0].name), "url");
@@ -5329,32 +5033,6 @@ static int agent_repeat_guard_selftest(void) {
     calls.calls[0].params[0].value = "https://example.test/two";
     if (!agent_tool_history_add(&history, &calls, repeated,
                                 sizeof(repeated))) return 7;
-
-    static const char complete_schedule[] =
-        "Stasera in TV alle 21:30\n"
-        "Rai 1\n21:30\nA\nCanale 5\n21:20\nB\nRai 2\n20:55\nC\n"
-        "Italia 1\n21:19\nD\nRai 3\n21:20\nE\n";
-    static const char partial_schedule[] =
-        "Stasera in TV alle 21:30\nRai 1\n21:30\nA\n"
-        "Canale 5\n21:20\nB\n";
-    if (!agent_web_preview_has_complete_evening_schedule(complete_schedule)) {
-        return 8;
-    }
-    if (agent_web_preview_has_complete_evening_schedule(partial_schedule)) {
-        return 9;
-    }
-
-    static const char complete_bibliography[] =
-        "\nOpere\n\nRomanzi e racconti\nTitolo A, 2000\n"
-        "\nPoesia\nTitolo B, 2001\n\nMiscellanea\nTitolo C, 2002\n";
-    static const char partial_bibliography[] =
-        "\nOpere\n\nRomanzi e racconti\nTitolo A, 2000\n";
-    if (!agent_web_preview_has_complete_bibliography(complete_bibliography)) {
-        return 10;
-    }
-    if (agent_web_preview_has_complete_bibliography(partial_bibliography)) {
-        return 11;
-    }
 
     return 0;
 }
@@ -6331,41 +6009,12 @@ static int generate_once(agent_state *a, char **assistant_text,
     return rc;
 }
 
-static bool agent_ascii_contains_ci(const char *text, const char *needle) {
-    if (!text || !needle || !needle[0]) return false;
-    const size_t needle_len = strlen(needle);
-    for (const char *p = text; *p; p++) {
-        size_t i = 0;
-        while (i < needle_len && p[i] &&
-               tolower((unsigned char)p[i]) ==
-                   tolower((unsigned char)needle[i])) {
-            i++;
-        }
-        if (i == needle_len) return true;
-    }
-    return false;
-}
-
 static int run_agent_turn(agent_state *a, const char *user_message) {
     agent_trace_begin(a, "user_turn");
     agent_trace_i64(a, "context_tokens", a ? a->transcript.len : 0);
     agent_trace_i64(a, "input_bytes",
                     user_message ? (int64_t)strlen(user_message) : 0);
     agent_trace_end(a);
-    a->web_result_complete = false;
-    a->web_request_is_evening =
-        agent_ascii_contains_ci(user_message, "stasera") ||
-        agent_ascii_contains_ci(user_message, "questa sera") ||
-        agent_ascii_contains_ci(user_message, "tonight") ||
-        agent_ascii_contains_ci(user_message, "this evening");
-    a->web_request_is_bibliography =
-        agent_ascii_contains_ci(user_message, "bibliograf") ||
-        agent_ascii_contains_ci(user_message, "libri") ||
-        agent_ascii_contains_ci(user_message, "opere") ||
-        agent_ascii_contains_ci(user_message, "books") ||
-        agent_ascii_contains_ci(user_message, "works") ||
-        agent_ascii_contains_ci(user_message, "wrote") ||
-        agent_ascii_contains_ci(user_message, "written");
     agent_reset_source_read_budget(a);
     char compact_err[160] = {0};
     if (!agent_compact_if_needed(a, "soft limit before user turn",
@@ -6417,33 +6066,9 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 "facts instead of inventing them. Preserve all dates, names, "
                 "and constraints from the original request exactly.\n\n"
                 "Original user request:\n";
-            static const char complete_web_control_intro[] =
-                "Internal qw3-agent control: a web tool returned a complete "
-                "structured result for this request. Do not call another tool "
-                "or verify it again. Return only the fields the user requested, "
-                "using that result and preserving labels, values, dates, and "
-                "names exactly. Do not add descriptions, infer omitted details, "
-                "or complete text ending in an ellipsis.\n\n"
-                "Original user request:\n";
-            static const char complete_bibliography_control_intro[] =
-                "Internal qw3-agent control: the web tool returned a complete "
-                "bibliography grouped by category. Do not call another tool. "
-                "List every title from the provided Opere section exactly once, "
-                "under its existing category, with its stated year. Use one "
-                "compact bullet per work. Unless the original request explicitly "
-                "asks for them, omit publishers, cities, descriptions, and other "
-                "metadata. Do not use titles from the biography, invent entries, "
-                "duplicate entries, or add commentary.\n\n"
-                "Original user request:\n";
             strbuf final_control;
             sb_init(&final_control);
-            const char *control_intro = budget_control_intro;
-            if (a->web_result_complete && a->web_request_is_bibliography) {
-                control_intro = complete_bibliography_control_intro;
-            } else if (a->web_result_complete) {
-                control_intro = complete_web_control_intro;
-            }
-            sb_append(&final_control, control_intro);
+            sb_append(&final_control, budget_control_intro);
             sb_append(&final_control, user_message ? user_message : "");
             if (!agent_ensure_message_room(a, "user", final_control.p, 128,
                                            "final tool-budget response would "
@@ -6460,12 +6085,9 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 return -1;
             }
             sb_free(&final_control);
-            agent_statusf(
-                a,
-                a->web_result_complete ?
-                    "agent: complete web result; requesting final answer\n" :
-                    "agent: tool round limit reached; requesting final answer "
-                    "from collected results\n");
+            agent_statusf(a,
+                          "agent: tool round limit reached; requesting final "
+                          "answer from collected results\n");
         }
         int transcript_before_generation = a->transcript.len;
         bool suppress_output = a->edit_verification_pending;
@@ -6538,9 +6160,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             free_tool_calls(&native_calls);
             free(assistant);
             if (!ok) return -1;
-            if (a->web_result_complete) {
-                round = a->cfg.max_tool_rounds - 1;
-            } else if (all_guard_rejected && guard_retry_credits > 0) {
+            if (all_guard_rejected && guard_retry_credits > 0) {
                 guard_retry_credits--;
                 round--;
             }
@@ -6722,9 +6342,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         free(response);
         free(tool_result);
         free(assistant);
-        if (a->web_result_complete) {
-            round = a->cfg.max_tool_rounds - 1;
-        } else if (all_guard_rejected && guard_retry_credits > 0) {
+        if (all_guard_rejected && guard_retry_credits > 0) {
             guard_retry_credits--;
             round--;
         }
@@ -6793,27 +6411,6 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
             "- Prefer get_function when you need one function or method body.\n"
             "- Prefer semantic_search when you know the intent but not the "
             "exact symbol name.\n"
-            "- For web research, begin with one focused google_search and open "
-            "the most relevant result. Prefer one aggregate source over a "
-            "separate search for every requested item.\n"
-            "- Preserve the user's exact temporal scope in web queries: tonight "
-            "is not interchangeable with today, and explicit dates must remain "
-            "unchanged.\n"
-            "- Choose search results by title relevance, not merely rank. Reuse "
-            "URLs already returned by google_search. After visit_page, answer "
-            "as soon as the requested facts are present. A truncated page tail "
-            "alone is not a reason to inspect output_path. Only when a requested "
-            "fact is absent, search there for a precise keyword and read one "
-            "short matching range; never read the whole capture.\n"
-            "- After search finds no relevant text in a fetched output_path, "
-            "stop inspecting that capture and visit a different URL from the "
-            "existing search results. Never use bash or grep on web captures.\n"
-            "- Treat ellipses and visibly cut-off web text as incomplete. Never "
-            "guess or complete the missing words; omit that detail instead.\n"
-            "- Never end a response by merely promising another search or read: "
-            "either issue that tool call in the same response or provide the "
-            "best supported final answer. If web tools fail, say so and do not "
-            "invent current web content.\n"
             "- Use read only for small non-source files or precise source line "
             "ranges with explicit start and lines.\n"
             "- After write or edit succeeds, run the narrowest relevant build, "
@@ -8370,11 +7967,11 @@ static int agent_status_line_selftest(void) {
     worker.agent = &state;
     pthread_mutex_init(&worker.mu, NULL);
     worker.busy = true;
-    snprintf(worker.activity, sizeof(worker.activity), "tool:visit_page");
+    snprintf(worker.activity, sizeof(worker.activity), "tool:visit_url");
     agent_input_queue queue = {.len = 2};
     char status[240];
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
-    if (!strstr(status, "state=tool:visit_page") ||
+    if (!strstr(status, "state=tool:visit_url") ||
         !strstr(status, "queued=2")) {
         pthread_mutex_destroy(&worker.mu);
         return 1;

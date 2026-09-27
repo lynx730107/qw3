@@ -36,11 +36,11 @@ grep -q '"name":"read"' "$out" || fail "compact read tool is missing"
 grep -q '"name":"write"' "$out" || fail "compact write tool is missing"
 grep -q '"name":"edit"' "$out" || fail "compact edit tool is missing"
 grep -q '"name":"bash"' "$out" || fail "compact bash tool is missing"
-if grep -q '"name":"google_search"' "$out"; then
+if grep -q '"name":"search_web"' "$out"; then
     fail "compact mode advertised a non-local tool"
 fi
 "$AGENT" --compact-tools --store-dir "$tmpdir/store" \
-    --tool-native '<tool_call><function=google_search><parameter=query>x</parameter></function></tool_call>' \
+    --tool-native '<tool_call><function=search_web><parameter=query>x</parameter></function></tool_call>' \
     >"$out" 2>&1 || fail "compact tool rejection failed"
 grep -q 'tool is not available with --compact-tools' "$out" ||
     fail "compact mode executed an undeclared tool"
