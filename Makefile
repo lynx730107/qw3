@@ -13,7 +13,7 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav \
-	test-vectors test-model-profiles test-quant-k test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-context test-agent-edit test-agent-llama-reference test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-agent-web-moe test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
+	test-vectors test-model-profiles test-quant-k test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-context test-agent-edit test-agent-llama-reference test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-agent-web-moe test-agent-web-think test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
 	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
@@ -196,6 +196,9 @@ test-agent-llama-reference: qw3-agent
 test-agent-web-moe: qw3-agent
 	python3 tests/test_agent_llama_reference.py --candidate-only \
 		--model $${QW3_MOE_MODEL:-../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf}
+
+test-agent-web-think: qw3-agent
+	python3 tests/test_agent_llama_reference.py --candidate-only --think
 
 test-agent-repeat: qw3-agent
 	QW3_AGENT_REPEAT_GUARD_SELFTEST=1 ./qw3-agent

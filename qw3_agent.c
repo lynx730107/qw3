@@ -4854,6 +4854,17 @@ static bool agent_response_has_visible_text(const char *text) {
     return !hidden || !range_is_space(text, (size_t)(hidden - text));
 }
 
+static bool agent_response_has_final_text(const char *text,
+                                          qw3_think_mode think_mode) {
+    if (!text) return false;
+    if (qw3_think_mode_enabled(think_mode)) {
+        const char *think_end = strstr(text, "</think>");
+        if (!think_end) return false;
+        text = think_end + strlen("</think>");
+    }
+    return agent_response_has_visible_text(text);
+}
+
 static int agent_tool_parse_selftest(void) {
     static const char complete[] =
         "<tool_call>\n<bash>\n<parameter=cmd>\nprintf OK\n</parameter>\n"
@@ -4883,6 +4894,13 @@ static int agent_tool_parse_selftest(void) {
     free_tool_calls(&calls);
     if (agent_response_has_visible_text(eos_after_parameter)) return 7;
     if (!agent_response_has_visible_text("normal answer")) return 8;
+    if (agent_response_has_final_text("reasoning only", QW3_THINK_ON)) return 9;
+    if (agent_response_has_final_text("reasoning</think>   ",
+                                      QW3_THINK_ON)) return 10;
+    if (!agent_response_has_final_text("reasoning</think>final answer",
+                                       QW3_THINK_ON)) return 11;
+    if (!agent_response_has_final_text("normal answer",
+                                       QW3_THINK_NONE)) return 12;
     return 0;
 }
 
@@ -6208,8 +6226,13 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                               "requesting a check\n");
                 continue;
             }
-            if (!agent_response_has_visible_text(assistant)) {
-                const bool malformed_tool = assistant &&
+            if (!agent_response_has_final_text(assistant,
+                                                a->cfg.think_mode)) {
+                const bool thought_only =
+                    qw3_think_mode_enabled(a->cfg.think_mode) &&
+                    assistant &&
+                    text_slice_has_nonspace(assistant, strlen(assistant));
+                const bool malformed_tool = !thought_only && assistant &&
                     text_slice_has_nonspace(assistant, strlen(assistant));
                 a->transcript.len = transcript_before_generation;
                 agent_message_ledger_truncate(&a->messages,
@@ -6227,6 +6250,12 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                         "Internal qw3-agent control: your previous final "
                         "response was empty. Do not call tools. Answer the "
                         "user now with the evidence already available." :
+                        thought_only ?
+                        "Internal qw3-agent control: your previous response "
+                        "ended with reasoning but produced neither a tool "
+                        "call nor a final answer. Continue the task now. If "
+                        "current or external information is required, call "
+                        "the appropriate tool instead of only announcing it." :
                         malformed_tool ?
                         "Internal qw3-agent control: your previous output "
                         "contained incomplete tool markup and was not shown. "
@@ -6392,6 +6421,9 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
             "- If there is no function call available, answer the question "
             "like normal with your current knowledge and do not tell the user "
             "about function calls\n"
+            "- When a task requires current, external, or project information, "
+            "call the appropriate function; do not merely say that you will "
+            "use it\n"
             "</IMPORTANT>\n\n"
         );
         if (compact_tools) {

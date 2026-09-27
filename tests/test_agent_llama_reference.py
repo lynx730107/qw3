@@ -201,7 +201,7 @@ def run_llama_reference(server, model, url, prompt, workdir, timeout):
         log_file.close()
 
 
-def run_qw3_agent(agent, model, prompt, workdir, timeout):
+def run_qw3_agent(agent, model, prompt, workdir, timeout, think=False):
     trace = workdir / "qw3-agent.jsonl"
     store = workdir / "store"
     store.mkdir()
@@ -211,7 +211,6 @@ def run_qw3_agent(agent, model, prompt, workdir, timeout):
         "-m", str(model),
         "--ctx", "8192",
         "--no-prefix-cache",
-        "--nothink",
         "--temp", "0",
         "--seed", "1",
         "--max-tool-rounds", "4",
@@ -220,6 +219,8 @@ def run_qw3_agent(agent, model, prompt, workdir, timeout):
         "--store-dir", str(store),
         "-p", prompt,
     ]
+    if not think:
+        command.insert(6, "--nothink")
     started = time.monotonic()
     completed = subprocess.run(
         command,
@@ -307,6 +308,11 @@ def main():
         action="store_true",
         help="run only qw3-agent against the live oracle",
     )
+    parser.add_argument(
+        "--think",
+        action="store_true",
+        help="enable candidate reasoning mode",
+    )
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parent.parent
@@ -367,7 +373,7 @@ def main():
                 fail("llama-server reference did not call visit_url exactly once")
 
         candidate = run_qw3_agent(
-            agent, model, prompt, workdir, args.timeout)
+            agent, model, prompt, workdir, args.timeout, args.think)
         qw3_ok, qw3_error = validate_output(
             "qw3-agent", candidate["output"], expected)
         if not qw3_ok:
@@ -381,6 +387,7 @@ def main():
             "expected": expected,
             "qw3_agent": {
                 "model": model.name,
+                "think": args.think,
                 "tool_rounds": candidate["tool_rounds"],
                 "wall_seconds": round(candidate["wall_seconds"], 3),
                 "prefill_seconds": round(candidate["prefill_seconds"], 3),
