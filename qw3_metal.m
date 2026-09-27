@@ -4561,6 +4561,62 @@ static int qw3_metal_encode_dense_batch_matmul(
     return 1;
 }
 
+/* Reuse the Metal 4 paired IQ3_S tile for a dense gate/up projection.
+ * The dense identity map is a one-expert instance of the mapped MoE ABI. */
+static int qw3_metal_encode_dense_iq3_s_gate_up(
+    QW3MetalSessionObj *obj, id<MTLCommandBuffer> cb,
+    uint64_t gate_offset, uint64_t up_offset,
+    uint32_t n_tokens, uint32_t n_embd, uint32_t n_ff) {
+    if (!obj || !cb || !n_tokens || !n_embd || !n_ff ||
+        (n_embd % 256u) != 0u ||
+        !g_moe_iq3_s_prefill_pair_mapped_mpp_pipeline ||
+        !obj.prefillX1 || !obj.denseBatchGate ||
+        !obj.denseBatchCount || !obj.denseBatchPairIds ||
+        !obj.denseBatchBlockIds) return 0;
+    const uint64_t row_bytes = (uint64_t)(n_embd / 256u) * 110ull;
+    const uint64_t weight_bytes = row_bytes * n_ff;
+    if (row_bytes > UINT32_MAX || weight_bytes > UINT32_MAX ||
+        obj.prefillX1.length < (uint64_t)n_tokens * n_embd * sizeof(float) ||
+        obj.denseBatchGate.length <
+            (uint64_t)n_tokens * n_ff * sizeof(float)) return 0;
+    uint64_t gate_inner = 0, up_inner = 0;
+    id<MTLBuffer> gate = qw3_metal_model_view_for(
+        gate_offset, weight_bytes, &gate_inner);
+    id<MTLBuffer> up = qw3_metal_model_view_for(
+        up_offset, weight_bytes, &up_inner);
+    id<MTLBuffer> kgrid = qw3_metal_iq3s_expanded_kgrid_buffer();
+    if (!gate || !up || !kgrid) return 0;
+    struct {
+        uint32_t n_in, n_ff, n_embd, n_tokens, n_active;
+        uint32_t iq3_row_bytes, iq3_expert_bytes;
+        uint32_t down_row_bytes, down_expert_bytes;
+        uint32_t stride, hidden_offset, compact_blocks, mid_preweighted;
+    } args = {
+        n_embd, n_ff, n_embd, n_tokens, 1u,
+        (uint32_t)row_bytes, (uint32_t)weight_bytes,
+        0u, 0u, n_ff, 0u, 0u, 0u
+    };
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:
+        g_moe_iq3_s_prefill_pair_mapped_mpp_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:gate offset:(NSUInteger)gate_inner atIndex:1];
+    [enc setBuffer:up offset:(NSUInteger)up_inner atIndex:2];
+    [enc setBuffer:obj.prefillX1 offset:0 atIndex:3];
+    [enc setBuffer:obj.denseBatchGate offset:0 atIndex:4];
+    [enc setBuffer:kgrid offset:0 atIndex:5];
+    [enc setBuffer:obj.denseBatchCount offset:0 atIndex:6];
+    [enc setBuffer:obj.denseBatchPairIds offset:0 atIndex:7];
+    [enc setBuffer:obj.denseBatchBlockIds offset:0 atIndex:8];
+    [enc setBuffer:obj.denseBatchCount offset:0 atIndex:9];
+    [enc setThreadgroupMemoryLength:16384u atIndex:0];
+    [enc dispatchThreadgroups:
+        MTLSizeMake((n_tokens + 31u) / 32u, (n_ff + 63u) / 64u, 1u)
+        threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    return 1;
+}
+
 /* Standalone probe; the production graph will preallocate stable buffers. */
 int qw3_metal_session_batch_matmul_quant_x1_to_scratch(
     qw3_metal_session *s, uint64_t tensor_offset, uint32_t tensor_type,
@@ -4693,31 +4749,41 @@ int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
         !qw3_metal_session_prepare_dense_ffn_batch(
             s, n_tokens, n_embd, n_ff)) return 0;
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const int paired_iq3_s = gate_batch && up_batch &&
+        gate_type == 21u && up_type == 21u &&
+        g_moe_iq3_s_prefill_pair_mapped_mpp_pipeline != nil;
 
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb ||
-        (gate_batch && !qw3_metal_encode_dense_batch_matmul(
+        (paired_iq3_s && !qw3_metal_encode_dense_iq3_s_gate_up(
+            obj, cb, gate_offset, up_offset,
+            n_tokens, n_embd, n_ff)) ||
+        (!paired_iq3_s && gate_batch && !qw3_metal_encode_dense_batch_matmul(
             obj, cb, gate_offset, gate_type, n_tokens, n_embd, n_ff,
             obj.prefillX1, obj.denseBatchGate)) ||
-        (up_batch && !qw3_metal_encode_dense_batch_matmul(
+        (!paired_iq3_s && up_batch && !qw3_metal_encode_dense_batch_matmul(
             obj, cb, up_offset, up_type, n_tokens, n_embd, n_ff,
             obj.prefillX1, obj.denseBatchUp))) return 0;
 
     struct { uint32_t n; float scale; } unary = {
         n_tokens * n_ff, 1.0f
     };
-    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:g_silu_mul_pipeline];
-    [enc setBytes:&unary length:sizeof(unary) atIndex:0];
-    [enc setBuffer:obj.denseBatchGate offset:0 atIndex:1];
-    [enc setBuffer:obj.denseBatchUp offset:0 atIndex:2];
-    [enc setBuffer:obj.denseBatchGate offset:0 atIndex:3];
-    NSUInteger threads = g_silu_mul_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threads > 256) threads = 256;
-    [enc dispatchThreads:MTLSizeMake(unary.n, 1, 1)
-    threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
-    qw3_metal_end_compute_encoder(cb, enc);
+    id<MTLComputeCommandEncoder> enc = nil;
+    NSUInteger threads = 0;
+    if (!paired_iq3_s) {
+        enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:g_silu_mul_pipeline];
+        [enc setBytes:&unary length:sizeof(unary) atIndex:0];
+        [enc setBuffer:obj.denseBatchGate offset:0 atIndex:1];
+        [enc setBuffer:obj.denseBatchUp offset:0 atIndex:2];
+        [enc setBuffer:obj.denseBatchGate offset:0 atIndex:3];
+        threads = g_silu_mul_pipeline.maxTotalThreadsPerThreadgroup;
+        if (threads > 256) threads = 256;
+        [enc dispatchThreads:MTLSizeMake(unary.n, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, enc);
+    }
 
     if (down_batch) {
         if (!qw3_metal_encode_dense_batch_matmul(
