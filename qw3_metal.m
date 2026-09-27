@@ -120,6 +120,7 @@ static id<MTLComputePipelineState> g_matvec_q6_k_swiglu_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pair_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq4_xs_mpp_pipeline;
 static id<MTLComputePipelineState> g_moe_iq3_s_pair_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_pair_pipeline;
@@ -1826,6 +1827,17 @@ static int qw3_metal_compile_kernels(void) {
     }
     g_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq4_xs_mpp_direct"];
+        if (fn) {
+            g_matmul_iq4_xs_mpp_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+            if (!g_matmul_iq4_xs_mpp_pipeline) {
+                fprintf(stderr, "qw3: Metal pipeline qw3_matmul_iq4_xs_mpp_direct failed: %s\n",
+                        [[error localizedDescription] UTF8String]);
+            }
+        } else {
+            fprintf(stderr, "qw3: Metal function qw3_matmul_iq4_xs_mpp_direct not found\n");
+        }
         fn = [g_library newFunctionWithName:@"qw3_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp"];
         if (fn) {
             g_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp_pipeline =
@@ -4523,6 +4535,28 @@ static int qw3_metal_encode_dense_batch_matmul(
              MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
+        return 1;
+    }
+    if (tensor_type == 23u && n_tokens >= 16u &&
+        g_matmul_iq4_xs_mpp_pipeline) {
+        struct {
+            uint32_t n_in, n_out, row_bytes, n_tokens;
+            uint32_t in_offset, in_stride, out_offset, out_stride;
+        } direct_args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
+                         0u, n_in, 0u, n_out};
+        id<MTLComputeCommandEncoder> direct =
+            qw3_metal_compute_encoder(cb);
+        [direct setComputePipelineState:g_matmul_iq4_xs_mpp_pipeline];
+        [direct setBytes:&direct_args length:sizeof(direct_args) atIndex:0];
+        [direct setBuffer:weights offset:(NSUInteger)inner atIndex:1];
+        [direct setBuffer:src offset:0 atIndex:2];
+        [direct setBuffer:dst offset:0 atIndex:3];
+        [direct setThreadgroupMemoryLength:8192u atIndex:0];
+        [direct dispatchThreadgroups:
+            MTLSizeMake((n_tokens + 63u) / 64u,
+                        (n_out + 63u) / 64u, 1u)
+            threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
+        qw3_metal_end_compute_encoder(cb, direct);
         return 1;
     }
     id<MTLBuffer> kgrid = tensor_type == 21u ?
@@ -12577,6 +12611,7 @@ void qw3_metal_cleanup(void) {
     g_matvec_iq3_s_pipeline = nil;
     g_matvec_iq3_s_pair_pipeline = nil;
     g_matmul_iq3_s_mpp_pipeline = nil;
+    g_matmul_iq4_xs_mpp_pipeline = nil;
     g_moe_iq3_s_pair_batch_pipeline = nil;
     g_moe_down_iq4_xs_batch_pipeline = nil;
     g_moe_down_iq4_xs_pair_pipeline = nil;
