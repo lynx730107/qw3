@@ -4359,7 +4359,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [enc setBuffer:dst offset:0 atIndex:3];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:
-             MTLSizeMake((n_tokens + 31u) / 32u, (n_out + 63u) / 64u, 1u)
+             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
