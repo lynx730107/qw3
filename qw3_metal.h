@@ -14,6 +14,7 @@ int qw3_metal_init(void);
 void qw3_metal_kernel_fingerprint(unsigned char out[32]);
 void qw3_metal_cleanup(void);
 int qw3_metal_begin_commands(void);
+int qw3_metal_begin_dense_layer_commands(void);
 int qw3_metal_begin_commands_concurrent(void);
 int qw3_metal_batch_barrier(void);
 int qw3_metal_flush_commands(void);

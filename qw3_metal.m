@@ -46,6 +46,7 @@ static id<MTLCommandQueue> g_queue;
 static id<MTLCommandBuffer> g_batch_cb;
 static id<MTLComputeCommandEncoder> g_batch_enc;
 static int g_batch_concurrent;
+static int g_batch_separate_encoders;
 static NSMutableArray<id<MTLCommandBuffer>> *g_pending_cbs;
 
 static NSMutableArray<id<MTLBuffer>> *g_model_buffers;
@@ -472,7 +473,12 @@ static id<MTLComputeCommandEncoder> qw3_metal_compute_encoder(id<MTLCommandBuffe
 static void qw3_metal_end_compute_encoder(id<MTLCommandBuffer> cb,
                                           id<MTLComputeCommandEncoder> enc) {
     if (!enc) return;
-    if (g_batch_cb && cb == g_batch_cb && enc == g_batch_enc) return;
+    if (g_batch_cb && cb == g_batch_cb && enc == g_batch_enc) {
+        if (!g_batch_separate_encoders) return;
+        [enc endEncoding];
+        g_batch_enc = nil;
+        return;
+    }
     [enc endEncoding];
 }
 
@@ -2866,6 +2872,7 @@ int qw3_metal_begin_commands(void) {
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (g_batch_cb) return 0;
     g_batch_concurrent = 0;
+    g_batch_separate_encoders = 0;
     if (getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
     } else {
@@ -2874,10 +2881,21 @@ int qw3_metal_begin_commands(void) {
     return g_batch_cb != nil;
 }
 
+int qw3_metal_begin_dense_layer_commands(void) {
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (g_batch_cb) return 0;
+    g_batch_concurrent = 0;
+    g_batch_separate_encoders = 1;
+    g_batch_cb = [g_queue commandBuffer];
+    if (!g_batch_cb) g_batch_separate_encoders = 0;
+    return g_batch_cb != nil;
+}
+
 int qw3_metal_begin_commands_concurrent(void) {
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (g_batch_cb) return 0;
     g_batch_concurrent = 1;
+    g_batch_separate_encoders = 0;
     if (getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
     } else {
@@ -2902,7 +2920,8 @@ int qw3_metal_flush_commands(void) {
     g_batch_cb = nil;
     [cb commit];
     [g_pending_cbs addObject:cb];
-    if (getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
+    if (!g_batch_separate_encoders &&
+        getenv("QW3_METAL_RETAINED_COMMAND_BUFFERS") == NULL) {
         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
     } else {
         g_batch_cb = [g_queue commandBuffer];
@@ -2910,6 +2929,7 @@ int qw3_metal_flush_commands(void) {
     if (!g_batch_cb) {
         (void)qw3_metal_wait_pending_command_buffers("command batch");
         g_batch_concurrent = 0;
+        g_batch_separate_encoders = 0;
         return 0;
     }
     return 1;
@@ -2922,6 +2942,7 @@ int qw3_metal_commit_commands(void) {
     id<MTLCommandBuffer> cb = g_batch_cb;
     g_batch_cb = nil;
     g_batch_concurrent = 0;
+    g_batch_separate_encoders = 0;
     [cb commit];
     [g_pending_cbs addObject:cb];
     return 1;
@@ -2933,6 +2954,7 @@ int qw3_metal_end_commands(void) {
     id<MTLCommandBuffer> cb = g_batch_cb;
     g_batch_cb = nil;
     g_batch_concurrent = 0;
+    g_batch_separate_encoders = 0;
     return qw3_metal_finish_command_buffer(cb, 1, "command batch");
 }
 
@@ -4716,7 +4738,7 @@ int qw3_metal_session_batch_matmul_quant_x1_to_scratch(
 
 int qw3_metal_session_prepare_dense_ffn_batch(qw3_metal_session *s,
     uint32_t n_tokens, uint32_t n_embd, uint32_t n_ff) {
-    if (!s || !s->obj || !n_tokens || !n_embd || !n_ff || g_batch_cb ||
+    if (!s || !s->obj || !n_tokens || !n_embd || !n_ff ||
         (n_embd % 256u) != 0 || (n_ff % 256u) != 0 ||
         (uint64_t)n_tokens * n_ff > UINT32_MAX ||
         (uint64_t)n_tokens * n_embd > UINT32_MAX) return 0;
@@ -4921,7 +4943,7 @@ int qw3_metal_session_batch_dense_deltanet_projections(
         z_type == 21u || z_type == 22u ||
         z_type == 23u;
     if (!s || !s->obj || !n_tokens || !n_embd || !n_qkv || !n_z ||
-        (n_embd % 256u) != 0 || g_batch_cb ||
+        (n_embd % 256u) != 0 ||
         (!qkv_batch && !z_batch)) return 0;
     if (!g_initialized && !qw3_metal_init()) return 0;
     if (!qw3_metal_compile_kernels()) return 0;
@@ -4977,7 +4999,7 @@ int qw3_metal_session_batch_dense_gqa_projections(
     uint32_t n_tokens, uint32_t n_embd,
     uint32_t qg_n, uint32_t kv_n, uint32_t batch_mask) {
     if (!s || !s->obj || !n_tokens || !n_embd || !qg_n || !kv_n ||
-        !batch_mask || (batch_mask & ~7u) || g_batch_cb ||
+        !batch_mask || (batch_mask & ~7u) ||
         ((batch_mask & 1u) &&
          !qw3_metal_dense_quant_batch_available(q_type, n_tokens)) ||
         ((batch_mask & 2u) &&
@@ -5028,7 +5050,7 @@ int qw3_metal_session_stage_dense_gqa_projections(
     if (!s || !s->obj || !n_tokens || !qg_n || !kv_n || !stride ||
         q_offset > stride || qg_n > stride - q_offset ||
         k_offset > stride || kv_n > stride - k_offset ||
-        v_offset > stride || kv_n > stride - v_offset || g_batch_cb) return 0;
+        v_offset > stride || kv_n > stride - v_offset) return 0;
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
     const uint64_t q_bytes = (uint64_t)n_tokens * qg_n * sizeof(float);
     const uint64_t kv_bytes = (uint64_t)n_tokens * kv_n * sizeof(float);
@@ -5076,7 +5098,7 @@ int qw3_metal_session_stage_dense_deltanet_projections(
     uint32_t qkv_offset, uint32_t z_offset, uint32_t stride) {
     if (!s || !s->obj || !n_tokens || !n_qkv || !n_z || !stride ||
         qkv_offset > stride || n_qkv > stride - qkv_offset ||
-        z_offset > stride || n_z > stride - z_offset || g_batch_cb) return 0;
+        z_offset > stride || n_z > stride - z_offset) return 0;
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
     const uint64_t qkv_bytes = (uint64_t)n_tokens * n_qkv * sizeof(float);
     const uint64_t z_bytes = (uint64_t)n_tokens * n_z * sizeof(float);
@@ -5116,7 +5138,7 @@ int qw3_metal_session_copy_batch_scratch_to_x1(
     qw3_metal_session *s, uint32_t n_tokens, uint32_t n,
     uint32_t src_offset, uint32_t stride) {
     if (!s || !s->obj || !n_tokens || !n || !stride ||
-        src_offset > stride || n > stride - src_offset || g_batch_cb) return 0;
+        src_offset > stride || n > stride - src_offset) return 0;
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
     const uint64_t scratch_bytes =
         (uint64_t)n_tokens * stride * sizeof(float);
@@ -5147,7 +5169,7 @@ int qw3_metal_session_copy_batch_scratch_to_x1(
 int qw3_metal_session_batch_dense_gqa_output_add(
     qw3_metal_session *s, uint64_t weight_offset, uint32_t weight_type,
     uint32_t n_tokens, uint32_t n_in, uint32_t n_embd) {
-    if (!s || !s->obj || !n_tokens || !n_in || !n_embd || g_batch_cb ||
+    if (!s || !s->obj || !n_tokens || !n_in || !n_embd ||
         !qw3_metal_dense_quant_batch_available(weight_type, n_tokens)) return 0;
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
     const uint64_t in_bytes = (uint64_t)n_tokens * n_in * sizeof(float);

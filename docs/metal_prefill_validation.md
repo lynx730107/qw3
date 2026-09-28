@@ -1562,3 +1562,24 @@ Validation also included `test-metal-logits`, coherent generation after the
 6399-token `prompt_perf.txt` input, and the model-driven agent coding smoke
 test requiring native `write` and `bash` calls. The generated text remained
 coherent and the tool workflow completed successfully.
+
+## Dense per-layer command batching (September 28)
+
+The Qwen3.8 dense prefill path now encodes a fully batched attention/DeltaNet
+stage and its dense FFN into one retained Metal command buffer per layer. The
+individual compute and blit encoders remain ordered, but the host waits only
+after the complete layer instead of after each projection, staging, recurrence,
+output, and FFN stage. `QW3_METAL_DENSE_LAYER_BATCH=0` restores the previous
+stage-by-stage submission for A/B diagnostics. Partial/fallback layers continue
+to use the previous path.
+
+Matched three-repetition `pp128` runs on the Apple M5 measured 108.95 tok/s
+with layer batching and 97.66 tok/s without it. A subsequent default run
+measured 109.87 tok/s with a 0.42 tok/s standard deviation. The same local
+llama.cpp build measured 159.22 ± 1.13 tok/s, so this closes part of the gap
+but does not reach parity.
+
+The 128-token dense differential retained the same top token and continuation;
+the batch-vs-tokenwise logit difference was 0.02285 maximum and 0.00456 RMS,
+and DeltaNet state difference was 0.00076 maximum. `test-dense-metal-bringup`
+and `test-metal-logits` passed, including MoE decode/greedy coverage.

@@ -140,18 +140,19 @@ GQA Q/K/V projections are also batched for at least 16 tokens; set
 `QW3_METAL_DENSE_GQA_BATCH=0` for an A/B control or `=1` to force smaller
 batches. GQA causal attention and recurrent state updates remain sequential.
 
-On the fanless Apple M5 test machine, a three-repetition `pp128` run measured
-18.76 ± 0.20 tok/s with Q3_K tiled versus 15.41 ± 0.29 tok/s with it
-disabled. Adding Q4_K/Q5_K tiled measured 20.84 ± 0.47 tok/s versus
-17.80 ± 0.85 with those formats disabled in a subsequent A/B pair.
-Batching compatible GQA projections measured 24.01 ± 0.38 tok/s versus
-20.54 ± 0.50 with that path disabled in another A/B pair.
-Individual cold runs varied more; these are not sustained-speed guarantees.
-This remains far below the local `llama.cpp` baseline of
-150.0 tok/s for `pp128` with the same GGUF and full GPU offload. The
+On the fanless Apple M5 test machine, the accumulated dense batch kernels and
+per-layer command batching measured 108.95 tok/s for `pp128` versus 97.66
+tok/s with `QW3_METAL_DENSE_LAYER_BATCH=0` in a matched three-repetition A/B.
+A subsequent default run measured 109.87 ± 0.42 tok/s. Per-layer batching
+keeps the individual compute/blit encoders ordered in one retained Metal
+command buffer and synchronizes once after the FFN. Individual cold runs vary;
+these are not sustained-speed guarantees. The local `llama.cpp` baseline is
+159.22 ± 1.13 tok/s for `pp128` with the same GGUF and full GPU offload, so
+the remaining gap is still substantial. Set
+`QW3_METAL_DENSE_LAYER_BATCH=0` to restore separate stage submissions. The
 128-token batch-vs-tokenwise regression preserves the greedy choice and
-next-token continuation (with GQA projections batched: logit max difference
-0.01879, RMS 0.00315).
+next-token continuation (latest default: logit max difference 0.02285, RMS
+0.00456; DeltaNet state max difference 0.00076).
 Reproduce the `qw3` measurement with:
 
 ```sh
@@ -161,8 +162,8 @@ Reproduce the `qw3` measurement with:
 
 Set `QW3_METAL_DENSE_PREFILL_BATCH=1` to disable dense batching for comparison,
 or a value from 2 to 128 to choose the batch size. The next speed step is
-batching GQA projections, covering the remaining FFN formats, and improving
-single-token decode kernels.
+reducing the remaining quantized-matmul and DeltaNet cost while preserving the
+single-command-buffer layer path.
 Set
 `QW3_METAL_DENSE_PROFILE=1` for per-stage decode diagnostics (it synchronizes
 between stages and therefore slows the run).

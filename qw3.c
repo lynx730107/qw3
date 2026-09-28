@@ -14820,6 +14820,9 @@ static int qw3_metal_session_eval_dense_prefill_batch(
     const char *gqa_batch_env = getenv("QW3_METAL_DENSE_GQA_BATCH");
     const int gqa_batch = gqa_batch_env && gqa_batch_env[0] ?
         strcmp(gqa_batch_env, "0") != 0 : ntok >= 16u;
+    const char *layer_batch_env = getenv("QW3_METAL_DENSE_LAYER_BATCH");
+    const int layer_batch_enabled = !layer_batch_env ||
+        strcmp(layer_batch_env, "0") != 0;
     const uint32_t dense_gqa_qg_offset = 0u;
     const uint32_t dense_gqa_k_offset = dense_gqa_qg_offset + qg_n;
     const uint32_t dense_gqa_v_offset = dense_gqa_k_offset + kv_n;
@@ -14872,13 +14875,20 @@ static int qw3_metal_session_eval_dense_prefill_batch(
             batch_linear_qkv && batch_linear_z &&
             qw3_dense_batch_projection_supported(
                 lw->linear_ssm_out->type, q3_batch, k_batch, ntok);
+        const int full_batch_attention =
+            full_batch_gqa || full_batch_deltanet;
+        const int layer_batch = !profile && full_batch_attention &&
+            batch_ffn && gate_batch && up_batch && down_batch &&
+            layer_batch_enabled;
         layer = il;
         token_in_layer = -1;
         stage = "begin layer commands";
         const double layer_start = profile ? qw3_now_sec() : 0.0;
-        ok = (!batch_ffn || qw3_metal_session_prepare_dense_ffn_batch(
-                  s->metal, ntok, n_embd, n_ff)) &&
-             (!batch_linear_proj ||
+        ok = !batch_ffn || qw3_metal_session_prepare_dense_ffn_batch(
+                 s->metal, ntok, n_embd, n_ff);
+        if (ok && layer_batch)
+            ok = qw3_metal_begin_dense_layer_commands();
+        ok = ok && (!batch_linear_proj ||
               (qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
                    s->metal, lw->attn_norm->offset, ntok,
                    n_embd, QW3_RMS_EPS) &&
@@ -15019,12 +15029,10 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                 s->metal, lw->ffn_norm->offset, ntok,
                 n_embd, QW3_RMS_EPS);
         }
-        if (ok) {
+        if (ok && !layer_batch) {
             stage = "begin layer commands";
             ok = qw3_metal_begin_commands();
         }
-        const int full_batch_attention =
-            full_batch_gqa || full_batch_deltanet;
         const int need_token_loop = !full_batch_attention || !batch_ffn ||
                                     !gate_batch || !up_batch;
         for (uint32_t t = 0; ok && need_token_loop && t < ntok; t++) {
@@ -15188,10 +15196,10 @@ static int qw3_metal_session_eval_dense_prefill_batch(
             ok = qw3_metal_session_copy_x0_x1_to_batch(
                 s->metal, t, n_embd, batch_ffn);
         }
-        if (ok) {
+        if (ok && !layer_batch) {
             stage = "submit layer attention";
             ok = qw3_metal_synchronize();
-        } else {
+        } else if (!ok) {
             (void)qw3_metal_synchronize();
         }
         const double attention_done = profile ? qw3_now_sec() : 0.0;
@@ -15223,6 +15231,12 @@ static int qw3_metal_session_eval_dense_prefill_batch(
             }
             if (ok) ok = qw3_metal_synchronize();
             else (void)qw3_metal_synchronize();
+        }
+        if (ok && layer_batch) {
+            stage = "submit batched dense layer";
+            ok = qw3_metal_synchronize();
+        } else if (!ok && layer_batch) {
+            (void)qw3_metal_synchronize();
         }
         if (profile) {
             const double layer_done = qw3_now_sec();
