@@ -1583,3 +1583,20 @@ The 128-token dense differential retained the same top token and continuation;
 the batch-vs-tokenwise logit difference was 0.02285 maximum and 0.00456 RMS,
 and DeltaNet state difference was 0.00076 maximum. `test-dense-metal-bringup`
 and `test-metal-logits` passed, including MoE decode/greedy coverage.
+
+## Dense staged 128-row quantized matmuls (September 29)
+
+The dense Metal prefill path now stages each dequantized 64x32 weight tile once
+per threadgroup and gives each of four independent SIMD groups 32 input rows.
+This follows Splash's high-reuse prefill shape without changing the model's
+native GGUF storage. It covers Q3_K, Q4_K, Q5_K, IQ2_S, IQ3_XXS, IQ3_S, and
+IQ4_XS when a full 128-token prefill chunk is available; tails retain the
+previous 64-row cooperative path. `QW3_METAL_STAGED128=0` disables all staged
+kernels for A/B diagnostics.
+
+On the Apple M5, repeated five-sample `pp128` runs measured 136.3-137.6 tok/s,
+up from interleaved previous-kernel measurements of 109.4-110.2 tok/s. An
+isolated 5120x17408 Q3_K projection fell from roughly 8.1 ms to 2.8 ms; the
+complete-model gain is smaller because its GGUF mixes several quantization
+formats and includes attention and recurrent work. The local llama.cpp
+reference remains 159.22 ± 1.13 tok/s, so parity is not yet reached.

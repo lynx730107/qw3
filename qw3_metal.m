@@ -87,7 +87,14 @@ static id<MTLComputePipelineState> g_matvec_q4_k_pipeline;
 static id<MTLComputePipelineState> g_matvec_q3_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q3_k_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_q3_k_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_q3_k_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matmul_q4_q5_k_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_q4_q5_k_mpp_staged128_pipeline;
+
+static int qw3_metal_staged128_enabled(void) {
+    const char *env = getenv("QW3_METAL_STAGED128");
+    return !env || !env[0] || strcmp(env, "0") != 0;
+}
 
 int qw3_metal_dense_q3_k_batch_enabled(uint32_t n_tokens) {
     const char *env = getenv("QW3_METAL_DENSE_Q3_K_BATCH");
@@ -108,9 +115,11 @@ static id<MTLComputePipelineState> g_matmul_iq2_xxs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_s_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq2_s_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_xxs_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq3_xxs_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q6_k_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_pair_pipeline;
@@ -122,6 +131,8 @@ static id<MTLComputePipelineState> g_matvec_iq3_s_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pair_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq4_xs_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_staged128_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq4_xs_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_moe_iq3_s_pair_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_pair_pipeline;
@@ -1327,6 +1338,7 @@ static int qw3_metal_compile_kernels(void) {
         return 0;
     }
     g_matmul_q3_k_mpp_pipeline = nil;
+    g_matmul_q3_k_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_q3_k_mpp_direct"];
         if (fn) {
@@ -1337,8 +1349,18 @@ static int qw3_metal_compile_kernels(void) {
                         "qw3: Metal pipeline qw3_matmul_q3_k_mpp failed: %s\n",
                         [[error localizedDescription] UTF8String]);
         }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_q3_k_mpp_staged128"];
+        if (fn) {
+            g_matmul_q3_k_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+            if (!g_matmul_q3_k_mpp_staged128_pipeline)
+                fprintf(stderr,
+                        "qw3: Metal pipeline qw3_matmul_q3_k_mpp_staged128 failed: %s\n",
+                        [[error localizedDescription] UTF8String]);
+        }
     }
     g_matmul_q4_q5_k_mpp_pipeline = nil;
+    g_matmul_q4_q5_k_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_q4_q5_k_mpp_direct"];
         if (fn) {
@@ -1348,6 +1370,11 @@ static int qw3_metal_compile_kernels(void) {
                 fprintf(stderr,
                         "qw3: Metal pipeline qw3_matmul_q4_q5_k_mpp failed: %s\n",
                         [[error localizedDescription] UTF8String]);
+        }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_q4_q5_k_mpp_staged128"];
+        if (fn) {
+            g_matmul_q4_q5_k_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_iq4_nl"];
@@ -1446,6 +1473,7 @@ static int qw3_metal_compile_kernels(void) {
         return 0;
     }
     g_matmul_iq2_s_mpp_pipeline = nil;
+    g_matmul_iq2_s_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_s_mpp_direct"];
         if (fn) {
@@ -1455,6 +1483,11 @@ static int qw3_metal_compile_kernels(void) {
                 fprintf(stderr,
                         "qw3: Metal pipeline qw3_matmul_iq2_s_mpp failed: %s\n",
                         [[error localizedDescription] UTF8String]);
+        }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_s_mpp_staged128"];
+        if (fn) {
+            g_matmul_iq2_s_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_iq3_xxs_fast"];
@@ -1482,6 +1515,7 @@ static int qw3_metal_compile_kernels(void) {
         return 0;
     }
     g_matmul_iq3_xxs_mpp_pipeline = nil;
+    g_matmul_iq3_xxs_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_iq3_xxs_mpp_direct"];
         if (fn) {
@@ -1491,6 +1525,11 @@ static int qw3_metal_compile_kernels(void) {
                 fprintf(stderr,
                         "qw3: Metal pipeline qw3_matmul_iq3_xxs_mpp_direct failed: %s\n",
                         [[error localizedDescription] UTF8String]);
+        }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq3_xxs_mpp_staged128"];
+        if (fn) {
+            g_matmul_iq3_xxs_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_iq4_xs_add_x0_fast"];
@@ -1733,6 +1772,11 @@ static int qw3_metal_compile_kernels(void) {
         } else {
             fprintf(stderr, "qw3: Metal function qw3_matmul_iq3_s_mpp_direct not found\n");
         }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq3_s_mpp_staged128"];
+        if (fn) {
+            g_matmul_iq3_s_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+        }
         fn = [g_library newFunctionWithName:@"qw3_moe_iq3_s_prefill_mapped_mpp"];
         if (fn) {
             g_moe_iq3_s_prefill_mapped_mpp_pipeline =
@@ -1843,6 +1887,11 @@ static int qw3_metal_compile_kernels(void) {
             }
         } else {
             fprintf(stderr, "qw3: Metal function qw3_matmul_iq4_xs_mpp_direct not found\n");
+        }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq4_xs_mpp_staged128"];
+        if (fn) {
+            g_matmul_iq4_xs_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
         fn = [g_library newFunctionWithName:@"qw3_moe_down_iq4_xs_prefill_mapped_mid_f32_mpp"];
         if (fn) {
@@ -4385,15 +4434,22 @@ static int qw3_metal_encode_dense_batch_matmul(
             uint32_t is_q5;
         } args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
                   0u, n_in, 0u, n_out, tensor_type == 13u};
+        const int use_staged128 = n_tokens % 128u == 0u &&
+            g_matmul_q4_q5_k_mpp_staged128_pipeline &&
+            qw3_metal_staged128_enabled();
         id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-        [enc setComputePipelineState:g_matmul_q4_q5_k_mpp_pipeline];
+        [enc setComputePipelineState:use_staged128 ?
+            g_matmul_q4_q5_k_mpp_staged128_pipeline :
+            g_matmul_q4_q5_k_mpp_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [enc setBuffer:src offset:0 atIndex:2];
         [enc setBuffer:dst offset:0 atIndex:3];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:
-             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
+             MTLSizeMake(use_staged128 ? n_tokens / 128u :
+                         (n_tokens + 63u) / 64u,
+                         (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -4403,22 +4459,28 @@ static int qw3_metal_encode_dense_batch_matmul(
         const int use_mpp = n_tokens >= 16u &&
             g_matmul_q3_k_mpp_pipeline &&
             getenv("QW3_METAL_Q3_K_BATCH4") == NULL;
+        const int use_staged128 = use_mpp && n_tokens % 128u == 0u &&
+            g_matmul_q3_k_mpp_staged128_pipeline &&
+            qw3_metal_staged128_enabled();
         struct {
             uint32_t n_in, n_out, row_bytes, n_tokens;
             uint32_t in_offset, in_stride, out_offset, out_stride;
         } args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
                   0u, n_in, 0u, n_out};
         id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-        [enc setComputePipelineState:use_mpp ?
-            g_matmul_q3_k_mpp_pipeline : g_matmul_q3_k_batch4_pipeline];
+        [enc setComputePipelineState:use_staged128 ?
+            g_matmul_q3_k_mpp_staged128_pipeline : (use_mpp ?
+            g_matmul_q3_k_mpp_pipeline : g_matmul_q3_k_batch4_pipeline)];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [enc setBuffer:src offset:0 atIndex:2];
         [enc setBuffer:dst offset:0 atIndex:3];
         if (use_mpp) [enc setThreadgroupMemoryLength:8192u atIndex:0];
-        [enc dispatchThreadgroups:use_mpp ?
+        [enc dispatchThreadgroups:use_staged128 ?
+             MTLSizeMake(n_tokens / 128u, (n_out + 63u) / 64u, 1u) : (use_mpp ?
              MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u) :
              MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
+             )
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -4533,6 +4595,18 @@ static int qw3_metal_encode_dense_batch_matmul(
                                   g_matmul_iq2_s_mpp_pipeline) :
             (tensor_type == 18u ? g_matmul_iq3_xxs_batch4_pipeline :
                                   g_matmul_iq2_s_batch4_pipeline);
+        const int use_staged128 = tensor_type == 18u && use_mpp &&
+            n_tokens % 128u == 0u &&
+            g_matmul_iq3_xxs_mpp_staged128_pipeline &&
+            qw3_metal_staged128_enabled();
+        const int use_iq2s_staged128 = tensor_type == 22u && use_mpp &&
+            n_tokens % 128u == 0u &&
+            g_matmul_iq2_s_mpp_staged128_pipeline &&
+            qw3_metal_staged128_enabled();
+        if (use_staged128)
+            pipeline = g_matmul_iq3_xxs_mpp_staged128_pipeline;
+        else if (use_iq2s_staged128)
+            pipeline = g_matmul_iq2_s_mpp_staged128_pipeline;
         if (!weights || !pipeline ||
             !qw3_metal_dense_iq_buffers(tensor_type == 18u ? &signs : NULL,
                 NULL, tensor_type == 22u ? &grid : NULL,
@@ -4552,15 +4626,20 @@ static int qw3_metal_encode_dense_batch_matmul(
         if (tensor_type == 18u)
             [enc setBuffer:signs offset:0 atIndex:5];
         if (use_mpp) [enc setThreadgroupMemoryLength:8192u atIndex:0];
-        [enc dispatchThreadgroups:use_mpp ?
+        [enc dispatchThreadgroups:(use_staged128 || use_iq2s_staged128) ?
+             MTLSizeMake(n_tokens / 128u, (n_out + 63u) / 64u, 1u) : (use_mpp ?
              MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u) :
              MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
+             )
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
     }
     if (tensor_type == 23u && n_tokens >= 16u &&
         g_matmul_iq4_xs_mpp_pipeline) {
+        const int use_staged128 = n_tokens % 128u == 0u &&
+            g_matmul_iq4_xs_mpp_staged128_pipeline &&
+            qw3_metal_staged128_enabled();
         struct {
             uint32_t n_in, n_out, row_bytes, n_tokens;
             uint32_t in_offset, in_stride, out_offset, out_stride;
@@ -4568,14 +4647,17 @@ static int qw3_metal_encode_dense_batch_matmul(
                          0u, n_in, 0u, n_out};
         id<MTLComputeCommandEncoder> direct =
             qw3_metal_compute_encoder(cb);
-        [direct setComputePipelineState:g_matmul_iq4_xs_mpp_pipeline];
+        [direct setComputePipelineState:use_staged128 ?
+            g_matmul_iq4_xs_mpp_staged128_pipeline :
+            g_matmul_iq4_xs_mpp_pipeline];
         [direct setBytes:&direct_args length:sizeof(direct_args) atIndex:0];
         [direct setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [direct setBuffer:src offset:0 atIndex:2];
         [direct setBuffer:dst offset:0 atIndex:3];
         [direct setThreadgroupMemoryLength:8192u atIndex:0];
         [direct dispatchThreadgroups:
-            MTLSizeMake((n_tokens + 63u) / 64u,
+            MTLSizeMake(use_staged128 ? n_tokens / 128u :
+                        (n_tokens + 63u) / 64u,
                         (n_out + 63u) / 64u, 1u)
             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, direct);
@@ -4586,6 +4668,9 @@ static int qw3_metal_encode_dense_batch_matmul(
     if (!weights || (tensor_type == 21u && !kgrid)) return 0;
     if (tensor_type == 21u && n_tokens >= 16u &&
         g_matmul_iq3_s_mpp_pipeline) {
+        const int use_staged128 = n_tokens % 128u == 0u &&
+            g_matmul_iq3_s_mpp_staged128_pipeline &&
+            qw3_metal_staged128_enabled();
         struct {
             uint32_t n_in, n_out, row_bytes, n_tokens;
             uint32_t in_offset, in_stride, out_offset, out_stride;
@@ -4593,7 +4678,9 @@ static int qw3_metal_encode_dense_batch_matmul(
                          0u, n_in, 0u, n_out};
         id<MTLComputeCommandEncoder> direct =
             qw3_metal_compute_encoder(cb);
-        [direct setComputePipelineState:g_matmul_iq3_s_mpp_pipeline];
+        [direct setComputePipelineState:use_staged128 ?
+            g_matmul_iq3_s_mpp_staged128_pipeline :
+            g_matmul_iq3_s_mpp_pipeline];
         [direct setBytes:&direct_args length:sizeof(direct_args) atIndex:0];
         [direct setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [direct setBuffer:src offset:0 atIndex:2];
@@ -4601,7 +4688,8 @@ static int qw3_metal_encode_dense_batch_matmul(
         [direct setBuffer:kgrid offset:0 atIndex:4];
         [direct setThreadgroupMemoryLength:8192u atIndex:0];
         [direct dispatchThreadgroups:
-            MTLSizeMake((n_tokens + 63u) / 64u,
+            MTLSizeMake(use_staged128 ? n_tokens / 128u :
+                        (n_tokens + 63u) / 64u,
                         (n_out + 63u) / 64u, 1u)
             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, direct);
@@ -12611,7 +12699,9 @@ void qw3_metal_cleanup(void) {
     g_matvec_q3_k_pipeline = nil;
     g_matmul_q3_k_batch4_pipeline = nil;
     g_matmul_q3_k_mpp_pipeline = nil;
+    g_matmul_q3_k_mpp_staged128_pipeline = nil;
     g_matmul_q4_q5_k_mpp_pipeline = nil;
+    g_matmul_q4_q5_k_mpp_staged128_pipeline = nil;
     g_matvec_iq4_nl_pipeline = nil;
     g_matmul_iq4_nl_mpp_pipeline = nil;
     g_matvec_iq2_xs_pipeline = nil;
@@ -12621,9 +12711,11 @@ void qw3_metal_cleanup(void) {
     g_matvec_iq2_s_pipeline = nil;
     g_matmul_iq2_s_batch4_pipeline = nil;
     g_matmul_iq2_s_mpp_pipeline = nil;
+    g_matmul_iq2_s_mpp_staged128_pipeline = nil;
     g_matvec_iq3_xxs_pipeline = nil;
     g_matmul_iq3_xxs_batch4_pipeline = nil;
     g_matmul_iq3_xxs_mpp_pipeline = nil;
+    g_matmul_iq3_xxs_mpp_staged128_pipeline = nil;
     g_matvec_q6_k_pipeline = nil;
     g_matmul_q6_k_mpp_pipeline = nil;
     g_matvec_iq4_xs_add_x0_pipeline = nil;
@@ -12634,6 +12726,8 @@ void qw3_metal_cleanup(void) {
     g_matvec_iq3_s_pair_pipeline = nil;
     g_matmul_iq3_s_mpp_pipeline = nil;
     g_matmul_iq4_xs_mpp_pipeline = nil;
+    g_matmul_iq3_s_mpp_staged128_pipeline = nil;
+    g_matmul_iq4_xs_mpp_staged128_pipeline = nil;
     g_moe_iq3_s_pair_batch_pipeline = nil;
     g_moe_down_iq4_xs_batch_pipeline = nil;
     g_moe_down_iq4_xs_pair_pipeline = nil;

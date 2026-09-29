@@ -143,7 +143,11 @@ batches. GQA causal attention and recurrent state updates remain sequential.
 On the fanless Apple M5 test machine, the accumulated dense batch kernels and
 per-layer command batching measured 108.95 tok/s for `pp128` versus 97.66
 tok/s with `QW3_METAL_DENSE_LAYER_BATCH=0` in a matched three-repetition A/B.
-A subsequent default run measured 109.87 ± 0.42 tok/s. Per-layer batching
+Four-simdgroup staged prefill kernels now reuse each dequantized 64x32 weight
+tile across 128 input rows for Q3_K, Q4_K, Q5_K, IQ2_S, IQ3_XXS, IQ3_S, and
+IQ4_XS. Interleaved runs improved the default from about 109.4-110.2 tok/s to
+136.3-137.6 tok/s. Set `QW3_METAL_STAGED128=0` to select the previous 64-row
+cooperative kernels. Per-layer batching
 keeps the individual compute/blit encoders ordered in one retained Metal
 command buffer and synchronizes once after the FFN. Individual cold runs vary;
 these are not sustained-speed guarantees. The local `llama.cpp` baseline is
