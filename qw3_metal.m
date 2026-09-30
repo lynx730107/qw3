@@ -8706,7 +8706,7 @@ int qw3_metal_session_deltanet_tiled_gdn_from_scratch(
     [enc setBuffer:obj.scratch offset:0 atIndex:1];
     [enc setBuffer:dtb offset:(NSUInteger)dt_inner atIndex:2];
     [enc setBuffer:ab offset:(NSUInteger)a_inner atIndex:3];
-    [enc dispatchThreadgroups:MTLSizeMake(1, 1, 1)
+    [enc dispatchThreadgroups:MTLSizeMake((v_heads + 31u) / 32u, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
 
@@ -12135,10 +12135,16 @@ static int qw3_metal_session_try_gqa_grouped_flash_decode(
     if (!obj || !obj.gqaKvF16 || obj.gqaKvQ8 ||
         !g_gqa_flash_attn_external_enabled || n_ctx < 1024u ||
         head_dim != 256u || n_kv_heads == 0 ||
-        n_heads != 8u * n_kv_heads || !g_gqa_flash_group_reduce_pipeline) {
+        n_heads % n_kv_heads != 0u || n_heads / n_kv_heads < 2u ||
+        n_heads / n_kv_heads > 8u || !g_gqa_flash_group_reduce_pipeline) {
         return -1;
     }
 
+    const uint32_t group_heads = n_heads / n_kv_heads;
+    /* Sparse six-head tiles only repay grouped bulk work at long contexts.
+     * Keep the existing decode path below 8K unless explicitly forced. */
+    if (group_heads != 8u && n_ctx < 8192u &&
+        !(enabled && !strcmp(enabled, "1"))) return -1;
     const uint32_t chunk = 512u;
     const uint32_t n_bulk = n_ctx / chunk;
     const uint32_t tail_count = n_ctx - n_bulk * chunk;
@@ -12175,11 +12181,11 @@ static int qw3_metal_session_try_gqa_grouped_flash_decode(
     if (!cb) return 0;
 
     qw3_metal_flash_attn_args args = {
-        .ne01 = 8,
+        .ne01 = (int32_t)group_heads,
         .ne02 = (int32_t)n_kv_heads,
         .ne03 = (int32_t)n_bulk,
         .nb01 = (uint64_t)head_dim * sizeof(float),
-        .nb02 = (uint64_t)8u * head_dim * sizeof(float),
+        .nb02 = (uint64_t)group_heads * head_dim * sizeof(float),
         .nb03 = 0,
         .ne11 = (int32_t)chunk,
         .ne_12_2 = (int32_t)n_kv_heads,
@@ -12192,12 +12198,12 @@ static int qw3_metal_session_try_gqa_grouped_flash_decode(
         .nb21 = (uint64_t)kv_stride * sizeof(uint16_t),
         .nb22 = (uint64_t)head_dim * sizeof(uint16_t),
         .nb23 = (uint64_t)chunk * kv_stride * sizeof(uint16_t),
-        .ne31 = 8, .ne32 = 1, .ne33 = 1,
+        .ne31 = (int32_t)group_heads, .ne32 = 1, .ne33 = 1,
         .nb31 = sizeof(uint16_t),
         .nb32 = sizeof(uint16_t),
         .nb33 = sizeof(uint16_t),
         .ne1 = (int32_t)n_kv_heads,
-        .ne2 = 8,
+        .ne2 = (int32_t)group_heads,
         .ne3 = (int32_t)n_bulk,
         .scale = 1.0f / sqrtf((float)head_dim),
         .max_bias = 0.0f, .m0 = 0.0f, .m1 = 0.0f,

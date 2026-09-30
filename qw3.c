@@ -10797,6 +10797,9 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
                         e->weights.layer[0].attn_norm, n_embd);
     if (ok) ok = qw3_session_create(&s, e, ctx_size) == 0 && s && s->metal;
     if (ok) ok = qw3_metal_session_embed_norm_profile(e, s, token);
+    const char *matvec_reps_env = getenv("QW3_METAL_DENSE_PROBE_REPS");
+    int matvec_reps = matvec_reps_env ? atoi(matvec_reps_env) : 0;
+    if (matvec_reps > 100) matvec_reps = 100;
     for (size_t i = 0; i < n_types && ok; i++) {
         const qw3_tensor *w = weights[i];
         const uint32_t n_out = (uint32_t)w->dim[1];
@@ -10819,6 +10822,30 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
                 "metal session quant type: %s type=%s layer=%d tensor=%.*s n_in=%u n_out=%u maxdiff=%.7g rmsdiff=%.7g\n",
                 ok ? "ok" : "failed", tensor_type_name(types[i]), layers[i],
                 (int)w->name_len, w->name, n_embd, n_out, maxdiff, rmsdiff);
+        if (ok && matvec_reps > 0) {
+            const double start = qw3_now_sec();
+            for (int rep = 0; rep < matvec_reps && ok; rep++)
+                ok = qw3_metal_session_matvec_quant_x1_to_scratch(
+                    s->metal, w->offset, w->type, n_embd, n_out, 0, NULL);
+            if (ok) ok = qw3_metal_synchronize();
+            fprintf(fp, "metal dense warmed matvec: type=%s reps=%d ms=%.4f\n",
+                    tensor_type_name(w->type), matvec_reps,
+                    (qw3_now_sec() - start) * 1000.0 / matvec_reps);
+            const qw3_layer_weights *lw = &e->weights.layer[layers[i]];
+            if (ok && w == lw->ffn_gate &&
+                w->type == QW3_TENSOR_IQ3_S && lw->ffn_up->type == w->type) {
+                ok = qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
+                    s->metal, w->offset, lw->ffn_up->offset, n_embd, n_out) &&
+                     qw3_metal_synchronize();
+                const double pair_start = qw3_now_sec();
+                for (int rep = 0; rep < matvec_reps && ok; rep++)
+                    ok = qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
+                        s->metal, w->offset, lw->ffn_up->offset, n_embd, n_out);
+                if (ok) ok = qw3_metal_synchronize();
+                fprintf(fp, "metal dense warmed matvec: type=iq3_s_pair reps=%d ms=%.4f\n",
+                        matvec_reps, (qw3_now_sec() - pair_start) * 1000.0 / matvec_reps);
+            }
+        }
     }
     if (ok) {
         const qw3_layer_weights *lw0 = &e->weights.layer[0];
@@ -14204,7 +14231,8 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
         fprintf(fp, "metal session gqa cached bench: Metal backend is not initialized\n");
         return -1;
     }
-    if (token < 0 || token >= QW3_N_VOCAB) {
+    const qw3_model_spec *spec = e->model.spec;
+    if (!spec || token < 0 || token >= spec->n_vocab) {
         fprintf(fp, "metal session gqa cached bench: token %d is outside vocab\n", token);
         return -1;
     }
@@ -14214,9 +14242,9 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     if (layer_env && layer_env[0]) {
         char *end = NULL;
         long v = strtol(layer_env, &end, 10);
-        if (end != layer_env && v >= 0 && v < QW3_N_LAYER) il = (int)v;
+        if (end != layer_env && v >= 0 && v < spec->n_layer) il = (int)v;
     }
-    if (!qw3_layer_is_full_attention((uint32_t)il)) {
+    if (!qw3_spec_layer_is_full_attention(spec, (uint32_t)il)) {
         fprintf(fp,
                 "metal session gqa cached bench: layer %d is not full-attention\n",
                 il);
@@ -14224,13 +14252,17 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     }
     uint32_t full_slot = 0;
     for (int j = 0; j < il; j++) {
-        if (qw3_layer_is_full_attention((uint32_t)j)) full_slot++;
+        if (qw3_spec_layer_is_full_attention(spec, (uint32_t)j)) full_slot++;
     }
     const int iters = 64;
     const qw3_layer_weights *lw = &e->weights.layer[il];
-    const uint32_t qg_n = (uint32_t)tensor_cols_qg();
-    const uint32_t q_n = QW3_N_HEAD * QW3_N_HEAD_DIM;
-    const uint32_t kv_n = (uint32_t)tensor_cols_kv();
+    const uint32_t n_embd = (uint32_t)spec->n_embd;
+    const uint32_t n_heads = (uint32_t)spec->n_head;
+    const uint32_t n_kv_heads = (uint32_t)spec->n_head_kv;
+    const uint32_t head_dim = (uint32_t)spec->n_head_dim;
+    const uint32_t qg_n = (uint32_t)spec_tensor_cols_qg(spec);
+    const uint32_t q_n = n_heads * head_dim;
+    const uint32_t kv_n = (uint32_t)spec_tensor_cols_kv(spec);
     qw3_session *s = NULL;
     int ok = qw3_session_create(&s, e, ctx_size) == 0 && s && s->metal;
     float *q_last = qw3_xmalloc((size_t)q_n * sizeof(float));
@@ -14238,36 +14270,46 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     float *k_cache = qw3_xmalloc((size_t)n_ctx * kv_n * sizeof(float));
     float *v_cache = qw3_xmalloc((size_t)n_ctx * kv_n * sizeof(float));
     float *cpu_inner = qw3_xmalloc((size_t)q_n * sizeof(float));
-    float *cpu_out = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
-    float *gpu_out = qw3_xmalloc((size_t)QW3_N_EMBD * sizeof(float));
+    float *cpu_out = qw3_xmalloc((size_t)n_embd * sizeof(float));
+    float *gpu_out = qw3_xmalloc((size_t)n_embd * sizeof(float));
     memset(q_last, 0, (size_t)q_n * sizeof(float));
     memset(gate_last, 0, (size_t)q_n * sizeof(float));
     memset(k_cache, 0, (size_t)n_ctx * kv_n * sizeof(float));
     memset(v_cache, 0, (size_t)n_ctx * kv_n * sizeof(float));
     memset(cpu_inner, 0, (size_t)q_n * sizeof(float));
-    memset(cpu_out, 0, (size_t)QW3_N_EMBD * sizeof(float));
-    memset(gpu_out, 0, (size_t)QW3_N_EMBD * sizeof(float));
+    memset(cpu_out, 0, (size_t)n_embd * sizeof(float));
+    memset(gpu_out, 0, (size_t)n_embd * sizeof(float));
 
     double fill_ms = 0.0;
     if (ok) {
-        ok = qw3_metal_session_embed_q8_0(
-                 s->metal, e->weights.token_embd->offset,
-                 (uint32_t)token, QW3_N_EMBD, NULL) &&
+        ok = qw3_metal_session_embed_norm_profile(e, s, token) &&
              qw3_metal_session_rmsnorm_weight_f32(
                  s->metal, lw->attn_norm->offset,
-                 QW3_N_EMBD, QW3_RMS_EPS, NULL);
+                 n_embd, QW3_RMS_EPS, NULL);
     }
     if (ok) {
         const double t0 = qw3_now_sec();
         for (int pos = 0; ok && pos < n_ctx; pos++) {
+            /* Vary K/V across blocks: constant V would hide wrong attention
+             * weights, head routing, and split/tail reductions. */
+            if (pos % 64 == 0) {
+                const int varied_token = (token + pos / 64) % spec->n_vocab;
+                ok = qw3_metal_session_embed_norm_profile(e, s, varied_token) &&
+                     qw3_metal_session_rmsnorm_weight_f32(
+                         s->metal, lw->attn_norm->offset,
+                         n_embd, QW3_RMS_EPS, NULL);
+                if (!ok) break;
+            }
             float *q_out = (pos + 1 == n_ctx) ? q_last : NULL;
             float *gate_out = (pos + 1 == n_ctx) ? gate_last : NULL;
-            ok = qw3_metal_session_gqa_project_cache(
+            ok = qw3_metal_session_gqa_project_cache_typed(
                 s->metal, lw->attn_q_proj->offset, lw->attn_k_proj->offset,
-                lw->attn_v_proj->offset, lw->attn_q_norm->offset,
+                lw->attn_v_proj->offset,
+                lw->attn_q_proj->type, lw->attn_k_proj->type,
+                lw->attn_v_proj->type, n_embd, lw->attn_q_norm->offset,
                 lw->attn_k_norm->offset, qg_n, q_n, kv_n,
-                QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
-                QW3_ROPE_DIM, full_slot, (uint32_t)pos, QW3_ROPE_THETA,
+                n_heads, n_kv_heads, head_dim,
+                (uint32_t)spec->rope_dim, full_slot, (uint32_t)pos, spec->rope_theta,
                 QW3_RMS_EPS, q_out,
                 k_cache + (size_t)pos * kv_n,
                 v_cache + (size_t)pos * kv_n,
@@ -14279,24 +14321,24 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     float maxdiff = 0.0f;
     double rmsdiff = 0.0;
     if (ok) {
-        cpu_gqa_attend_inner(q_last, gate_last, k_cache, v_cache, n_ctx,
-                             cpu_inner);
-        ok = cpu_matvec_q8_0(&e->model, lw->attn_o_proj, cpu_inner, cpu_out);
+        cpu_gqa_attend_inner_spec(spec, q_last, gate_last, k_cache, v_cache,
+                                  n_ctx, cpu_inner);
+        ok = cpu_matvec(&e->model, lw->attn_o_proj, cpu_inner, cpu_out);
     }
     if (ok) {
-        ok = qw3_metal_session_gqa_cached_attn_out(
-                 s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, full_slot,
-                 QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
-                 QW3_N_EMBD, gpu_out) &&
+        ok = qw3_metal_session_gqa_cached_attn_out_typed(
+                 s->metal, lw->attn_o_proj->offset, lw->attn_o_proj->type,
+                 (uint32_t)n_ctx, full_slot, n_heads, n_kv_heads, head_dim,
+                 n_embd, gpu_out) &&
              qw3_metal_synchronize();
     }
     if (ok) {
-        for (int i = 0; i < QW3_N_EMBD; i++) {
+        for (uint32_t i = 0; i < n_embd; i++) {
             float d = fabsf(cpu_out[i] - gpu_out[i]);
             if (d > maxdiff) maxdiff = d;
             rmsdiff += (double)d * d;
         }
-        rmsdiff = sqrt(rmsdiff / (double)QW3_N_EMBD);
+        rmsdiff = sqrt(rmsdiff / (double)n_embd);
         if (maxdiff > 0.05f || rmsdiff > 0.005) ok = 0;
     }
 
@@ -14304,10 +14346,10 @@ int qw3_engine_metal_session_gqa_cached_bench(qw3_engine *e, int token,
     if (ok) {
         const double t0 = qw3_now_sec();
         for (int i = 0; ok && i < iters; i++) {
-            ok = qw3_metal_session_gqa_cached_attn_out(
-                s->metal, lw->attn_o_proj->offset, (uint32_t)n_ctx, full_slot,
-                QW3_N_HEAD, QW3_N_HEAD_KV, QW3_N_HEAD_DIM,
-                QW3_N_EMBD, NULL);
+            ok = qw3_metal_session_gqa_cached_attn_out_typed(
+                s->metal, lw->attn_o_proj->offset, lw->attn_o_proj->type,
+                (uint32_t)n_ctx, full_slot, n_heads, n_kv_heads, head_dim,
+                n_embd, NULL);
         }
         if (ok) ok = qw3_metal_synchronize();
         attend_ms = (qw3_now_sec() - t0) * 1000.0;

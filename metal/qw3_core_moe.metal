@@ -151,11 +151,25 @@ kernel void qw3_matvec_iq3_s_pair(constant qw3_matvec_q8_0_args &args,
     up_sum = simd_sum(up_sum);
     if (tid == 0) { out[row] = gate_sum; out[args.n_out + row] = up_sum; }
 }
-/* Preserve the signed/scaled dot-product order, but keep the 32 activations
- * in thread storage and the exact packed lookup grid in threadgroup memory. */
+inline float4 qw3_iq3s_float_grid(ushort packed) {
+    const uint g = uint(packed);
+    return float4(2u * (g & 7u) + 1u,
+                  2u * ((g >> 3u) & 7u) + 1u,
+                  2u * ((g >> 6u) & 7u) + 1u,
+                  2u * ((g >> 9u) & 7u) + 1u);
+}
+inline float qw3_iq3s_grid_value(ushort packed, uint j) {
+    return float(2u * ((uint(packed) >> (3u * j)) & 7u) + 1u);
+}
+inline float qw3_iq3s_grid_value(float4 magnitudes, uint j) {
+    return magnitudes[j];
+}
+/* Preserve the signed/scaled dot-product order. Decode grid magnitudes once
+ * per workgroup in the paired path; single matvec keeps the smaller grid. */
+template<typename Grid>
 inline float qw3_iq3s_dot32_shared(device const uchar *blk,
                                   thread const float *xx,
-                                  threadgroup const ushort *grid,
+                                  threadgroup const Grid *grid,
                                   uint ib) {
     const half d = *((device const half *)blk);
     device const uchar *qs = blk + 2 + ib * 8u;
@@ -167,13 +181,13 @@ inline float qw3_iq3s_dot32_shared(device const uchar *blk,
     for (uint l = 0; l < 4u; l++) {
         const uint idx1 = uint(qs[2u * l]) | ((uint(qhb) << (8u - 2u * l)) & 256u);
         const uint idx2 = uint(qs[2u * l + 1u]) | ((uint(qhb) << (7u - 2u * l)) & 256u);
-        const uint g1 = uint(grid[idx1]), g2 = uint(grid[idx2]);
+        const Grid g1 = grid[idx1], g2 = grid[idx2];
         const uchar s = signs[l];
         for (uint j = 0; j < 4u; j++) {
             const float sign1 = (uint(s) & (1u << j)) ? -1.0f : 1.0f;
             const float sign2 = (uint(s) & (1u << (j + 4u))) ? -1.0f : 1.0f;
-            const float v1 = float(2u * ((g1 >> (3u * j)) & 7u) + 1u);
-            const float v2 = float(2u * ((g2 >> (3u * j)) & 7u) + 1u);
+            const float v1 = qw3_iq3s_grid_value(g1, j);
+            const float v2 = qw3_iq3s_grid_value(g2, j);
             sum += db * v1 * sign1 * xx[8u * l + j];
             sum += db * v2 * sign2 * xx[8u * l + j + 4u];
         }
@@ -252,9 +266,9 @@ kernel void qw3_matvec_iq3_s_pair_fast(constant qw3_matvec_q8_0_args &args,
                                        ushort simd_idx [[simdgroup_index_in_threadgroup]],
                                        ushort lane [[thread_index_in_simdgroup]]) {
     (void)sh;
-    threadgroup ushort grid[512];
+    threadgroup float4 grid[512];
     const uint tid = uint(simd_idx) * 32u + uint(lane);
-    for (uint i = tid; i < 512u; i += 64u) grid[i] = kgrid[i];
+    for (uint i = tid; i < 512u; i += 64u) grid[i] = qw3_iq3s_float_grid(kgrid[i]);
     threadgroup_barrier(mem_flags::mem_threadgroup);
     const uint nr0 = 4u;
     const uint nsg = 2u;

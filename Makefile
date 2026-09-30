@@ -14,7 +14,7 @@ endif
 
 .PHONY: all clean cpu metal agent tools codenav \
 	test-vectors test-model-profiles test-quant-k test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-python-smoke test-agent-context test-agent-edit test-agent-llama-reference test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-agent-web-moe test-agent-web-think test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
-	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
+	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-gqa-decode test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 all: qw3-cli qw3-agent qw3-eval qw3-bench
@@ -226,6 +226,13 @@ test-metal-logits: qw3-test
 
 test-metal-gqa-decode: qw3-test
 	QW3_METAL_BIN=./qw3-test sh tests/test_metal_gqa_decode.sh
+
+test-dense-gqa-decode: qw3-test
+	QW3_METAL_BIN=./qw3-test \
+		QW3_MODEL=$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} \
+		QW3_METAL_GQA_FLASH_DECODE_GROUPED=$${QW3_METAL_GQA_FLASH_DECODE_GROUPED:-1} \
+		QW3_GQA_DECODE_CONTEXTS="$${QW3_GQA_DECODE_CONTEXTS:-1023 1024 1025 4097 16385}" \
+		sh tests/test_metal_gqa_decode.sh
 
 test-metal-logits-concurrent: qw3-test
 	QW3_METAL_BIN=./qw3-test QW3_METAL_PREFILL_CONCURRENT=1 sh tests/test_metal_logits_regression.sh

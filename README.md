@@ -159,7 +159,7 @@ throughput). Smaller chunks keep the pair tile.
 Set `QW3_METAL_DENSE_PREFILL_IQ3_PAIR=1` to restore paired prefill for A/B runs;
 `=0` forces separate projections. Decode's pair setting is independent.
 Individual cold runs vary; these are not sustained-speed guarantees.
-The local `llama.cpp` baseline is
+The earlier local `llama.cpp` baseline measured
 159.22 ± 1.13 tok/s for `pp128` with the same GGUF and full GPU offload, so
 the remaining gap is still substantial. Set
 `QW3_METAL_DENSE_LAYER_BATCH=0` to restore separate stage submissions. The
@@ -182,12 +182,30 @@ Set
 between stages and therefore slows the run).
 Set `QW3_METAL_DENSE_PROBE_REPS=20` when running `--metal-session-embed-test`
 to time repeated quantized projections separately from their first invocation.
+The same option now times warmed single matvec and IQ3_S gate/up pairs with
+`--metal-session-quant-types-test`.
+
+The two-column DeltaNet prefill kernel now retains FP32 state in registers
+through the chunk and stores it once, preserving the state layout and math.
+A matched five-repetition `pp128` comparison improved from 144.55 to 152.84
+tok/s (+5.7%). Greedy continuation and session round-trip regressions pass
+without wider tolerances.
 
 Dense decode now reuses vector-loaded IQ4_XS activations and workgroup-local
 lookup tables for IQ4_XS and IQ3_S matvecs. Short warmed M5 measurements at
 depth 128 (`tg32`, ctx 256) improved from 6.74-6.76 to 7.16-7.21 tok/s;
 the same-GGUF llama.cpp reference measured 8.88 tok/s. Longer repeated runs
 showed baseline drift, so these observations are not sustained-speed promises.
+IQ3_S gate/up pairs additionally use exact, expanded FP32 lookup magnitudes;
+single matvec retains the smaller packed lookup table. The warmed pair probe
+improved from 0.9682 to 0.8448 ms, but this is not a whole-model decode result.
+Grouped FlashAttention also supports dense 6:1 Q/KV heads, automatically from
+8192 context tokens. `QW3_METAL_GQA_FLASH_DECODE_GROUPED=0` disables this path;
+`=1` permits it from 1024 tokens for testing. The MoE 8:1 threshold is unchanged.
+Use `make test-dense-gqa-decode` for CPU comparisons at threshold and tail
+boundaries with non-constant K/V input. See
+[the dated measurement record](docs/dense_metal_perf_2026-09-30.md) for A/B
+results, current llama.cpp comparisons, and rejected experiments.
 FP32 activations/accumulators and the existing numerical test thresholds are
 retained. This does not enable the model's optional NextN/MTP block.
 

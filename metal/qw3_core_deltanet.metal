@@ -350,6 +350,17 @@ kernel void qw3_deltanet_batch_recur_tiled2(constant qw3_batch_gdn_args &args,
     float a_hv = a[hv];
     float dt_hv = dt_bias[hv];
     float norm_scale = rsqrt(float(args.head_dim));
+    /* Each SIMD owns two independent state columns for the entire chunk.
+     * Keep them in FP32 registers; no other group consumes intermediate
+     * state. Only the per-token core output and the final state are shared. */
+    float4 sv0 = float4(st[(i0 + 0u) * args.head_dim + j0],
+                       st[(i0 + 1u) * args.head_dim + j0],
+                       st[(i0 + 2u) * args.head_dim + j0],
+                       st[(i0 + 3u) * args.head_dim + j0]);
+    float4 sv1 = float4(st[(i0 + 0u) * args.head_dim + j1],
+                       st[(i0 + 1u) * args.head_dim + j1],
+                       st[(i0 + 2u) * args.head_dim + j1],
+                       st[(i0 + 3u) * args.head_dim + j1]);
     for (uint t = 0; t < args.n_tokens; t++) {
         uint64_t base = uint64_t(t) * args.stride;
         device const float *qh = scratch + base + args.conv_offset + uint64_t(hk) * args.head_dim;
@@ -368,33 +379,25 @@ kernel void qw3_deltanet_batch_recur_tiled2(constant qw3_batch_gdn_args &args,
         g = simd_broadcast(g, 0);
         float4 kv = *((device const float4 *)(kh + i0));
         float4 qv = *((device const float4 *)(qh + i0));
-        float4 sv0 = float4(st[(i0 + 0u) * args.head_dim + j0],
-                            st[(i0 + 1u) * args.head_dim + j0],
-                            st[(i0 + 2u) * args.head_dim + j0],
-                            st[(i0 + 3u) * args.head_dim + j0]);
         float sk0 = simd_sum(dot(sv0, kv));
         float d0 = b * (vh[j0] - sk0 * g);
         sv0 = sv0 * g + kv * d0;
-        st[(i0 + 0u) * args.head_dim + j0] = sv0.x;
-        st[(i0 + 1u) * args.head_dim + j0] = sv0.y;
-        st[(i0 + 2u) * args.head_dim + j0] = sv0.z;
-        st[(i0 + 3u) * args.head_dim + j0] = sv0.w;
         float out0 = simd_sum(dot(sv0, qv));
         if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j0] = out0 * norm_scale;
-        float4 sv1 = float4(st[(i0 + 0u) * args.head_dim + j1],
-                            st[(i0 + 1u) * args.head_dim + j1],
-                            st[(i0 + 2u) * args.head_dim + j1],
-                            st[(i0 + 3u) * args.head_dim + j1]);
         float sk1 = simd_sum(dot(sv1, kv));
         float d1 = b * (vh[j1] - sk1 * g);
         sv1 = sv1 * g + kv * d1;
-        st[(i0 + 0u) * args.head_dim + j1] = sv1.x;
-        st[(i0 + 1u) * args.head_dim + j1] = sv1.y;
-        st[(i0 + 2u) * args.head_dim + j1] = sv1.z;
-        st[(i0 + 3u) * args.head_dim + j1] = sv1.w;
         float out1 = simd_sum(dot(sv1, qv));
         if (lane == 0) scratch[base + args.inner_offset + uint64_t(hv) * args.head_dim + j1] = out1 * norm_scale;
     }
+    st[(i0 + 0u) * args.head_dim + j0] = sv0.x;
+    st[(i0 + 1u) * args.head_dim + j0] = sv0.y;
+    st[(i0 + 2u) * args.head_dim + j0] = sv0.z;
+    st[(i0 + 3u) * args.head_dim + j0] = sv0.w;
+    st[(i0 + 0u) * args.head_dim + j1] = sv1.x;
+    st[(i0 + 1u) * args.head_dim + j1] = sv1.y;
+    st[(i0 + 2u) * args.head_dim + j1] = sv1.z;
+    st[(i0 + 3u) * args.head_dim + j1] = sv1.w;
 }
 kernel void qw3_deltanet_batch_recur_tiled4(constant qw3_batch_gdn_args &args,
                                             device float *state,
