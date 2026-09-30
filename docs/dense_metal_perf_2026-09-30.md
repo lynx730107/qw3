@@ -153,6 +153,88 @@ dense agent generation/checkpoint/prefix-cache smoke test passed as well.
 CPU vectors, model profiles and the quant-format comparison against local
 ggml also passed.
 
+## Compact IQ2 decode cache (baseline `12e9a18`)
+
+This pass targets model generation, not the agent prompt or tool executor.
+Store IQ2_XXS/XS/S codebook magnitudes in `uchar4` instead of `half4`:
+the values are exact small integers. Workgroup lookup memory falls from
+4/8/16 KiB to 2/4/8 KiB. Conversion to FP32 still happens before scaling and
+dot products; model weights, activations, products, accumulators, state and
+KV precision are unchanged. The work distribution and arithmetic order from
+`12e9a18` are retained. No prefill matrix kernel is changed.
+
+The sampled benchmark uses a real chat prompt, seed 42, temperature 0.6,
+top-k 20, top-p 0.95 and repetition penalty 1.06 over the last 1024 tokens.
+It generates exactly 128 tokens; EOS does not shorten the measurement, and
+prompt prefill is outside timing. The initial old/new observations were
+8.463/8.866 tok/s, with 117.776/112.413 ms per model forward versus just
+0.388/0.375 ms for sampling. Subsequent old/new observations were
+8.661/8.872 tok/s. Every run had the same token-ID hash,
+`51138e1f4070fd90`; the apparent gain varies with session drift.
+After rebuilding the retained implementation and completing regressions,
+`make bench-sampled-decode` measured 8.914 tok/s, 111.790 ms for the model
+and 0.388 ms for sampling, with that same token hash.
+The following old-cache run, using the same host and benchmark executable,
+measured 8.644 tok/s, 115.299 ms model time and 0.383 ms sampling time, again
+with identical token IDs by hash (+3.1% throughput for the adjacent new run).
+Repeating the byte-cache run next gave 8.822 tok/s, 112.972 ms model time
+and 0.376 ms sampling time, with the same hash. The two new runs bracketing
+that baseline average about +2.6% throughput; this is still a short test.
+
+Five-repeat whole-model `tg64`, depth 128, context allocation 256, F16 KV,
+with untimed warmup, run sequentially:
+
+| Run | tok/s |
+| --- | ---: |
+| Compact IQ2 cache | 8.67 +/- 0.08 |
+| `12e9a18` cache | 8.37 +/- 0.14 |
+| Compact IQ2 cache | 8.58 +/- 0.14 |
+| llama.cpp `4fea119de`, same GGUF | 8.75 +/- 0.22 |
+| `12e9a18` cache | 8.33 +/- 0.18 |
+| Compact IQ2 cache | 8.39 +/- 0.21 |
+
+The adjacent old/new comparisons range from +0.7% to +3.6%; averaging the
+new measurements on either side of each old run suggests about +1.9-3.0%,
+with clear drift and overlapping variability in the final pair. This is a
+small improvement in these observations,
+not the larger isolated-kernel gains or a sustained-speed guarantee.
+The new runs are 0.9-4.1% below this llama measurement, which itself declined
+from 9.01 to 8.48 tok/s across its five repetitions. A sustained overtake is
+not demonstrated.
+The baseline uses the same current host executable with Metal sources saved
+from `12e9a18` through `QW3_METAL_KERNEL_DIR`.
+
+Additional experiments were CPU-checked but removed because they did not
+demonstrate an advantage over the compact-IQ2-only path in isolated or
+sampled whole-model decode:
+
+- FP32-vectorized single IQ3_S projection using the packed table.
+- One-SIMD/four-column FP32 DeltaNet recurrence: 8.878 versus 8.872 tok/s
+  for the scalar recurrence in adjacent sampled runs. CPU logits and the
+  unchanged eight-step greedy sequence passed; the difference is noise.
+- Fusing the two small Q8 DeltaNet gate projections: 8.845 tok/s. Both
+  projection outputs, full CPU logits and greedy IDs passed.
+- Byte caches for IQ3_XXS or paired IQ3_S: 8.882/8.870 tok/s respectively,
+  versus 8.872 for compact IQ2 alone.
+- Two instead of four paired IQ3_S output rows per SIMD: 8.813 tok/s.
+  Direct paired-output and odd-row/partial-input comparisons passed.
+- Packed 16-bit IQ2 lookup tables (0.5/1/2 KiB), expanded at every dot:
+  CPU/tail checks passed, but warmed IQ2 input/inner projections took roughly
+  0.77-0.82 ms versus about 0.46-0.55 ms with byte-expanded tables. The added
+  unpacking work outweighed the smaller cache; this variant was removed
+  without claiming a whole-model measurement.
+
+No experimental dispatch flags or kernels from these trials remain enabled
+or in the source. They do not justify additional default complexity.
+
+Validation of the retained byte cache passed the full dense bring-up
+(all input/inner/output quant formats and 60 tail/pair cases, CPU logits,
+eight unchanged greedy IDs, F16/F32 KV, 128-token prefill/continuation and
+session roundtrip), MoE logit/greedy/prefill regression, dense agent
+generation/checkpoint/prefix-cache smoke, native tool parser and executor
+verification self-tests, runtime fingerprint, CPU vectors/model profiles,
+and quant-format comparisons against local ggml. Tolerances were not relaxed.
+
 ## Reproduction and validation
 
 ```sh
@@ -165,6 +247,7 @@ ggml also passed.
 QW3_METAL_DENSE_PROBE_REPS=100 ./qw3-test --metal \
   -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ctx 32 \
   --metal-session-quant-types-test 66
+make bench-sampled-decode
 make test-dense-metal-bringup test-dense-gqa-decode test-metal-logits \
   test-metal-gqa-decode test-dense-agent test-agent-python-smoke \
   test-agent-git-smoke test-agent-verify test-runtime-fingerprint

@@ -212,7 +212,7 @@ retained. This does not enable the model's optional NextN/MTP block.
 A further decode pass splits IQ3_XXS and IQ2_XXS/XS/S quant blocks into
 32-value lane units, uses vector dot products, and reuses activations across
 two output rows per SIMD group. IQ3_S gate/up pairs also use vector products.
-The IQ2 lookup cache stores exact small integer magnitudes in half; scaled
+The IQ2 lookup cache stores exact small integer magnitudes in bytes; scaled
 weights, activations, products and accumulators remain FP32. This reassociates
 floating-point sums, so it is not bit-identical to the older kernels.
 A sequential five-repeat comparison at depth 128 (`tg32`, ctx 256) measured
@@ -224,6 +224,13 @@ short sample.
 `QW3_METAL_DENSE_IQ2_VECTOR=0` restores the old IQ2 decode kernels for A/B tests.
 Dense regression additionally checks both paired outputs directly and 60
 odd-row/partial-input cases, with independent finite-metric validation.
+The subsequent byte-cache refinement halves IQ2 workgroup lookup memory
+without changing that arithmetic. Alternating five-repeat `tg64` runs show
+a small, variable gain (about 2-3% when bracketing the old-cache runs), not a
+sustained overtake of llama.cpp; see the dated measurements above.
+`make bench-sampled-decode` measures 128 generated tokens with sampling and
+repetition penalty, separately reports model/sampling time, and hashes the
+token sequence; prompt prefill is outside the measurement.
 
 ## Performance
 

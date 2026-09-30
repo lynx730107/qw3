@@ -12,7 +12,7 @@ ifeq ($(UNAME_S),Darwin)
 METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
-.PHONY: all clean cpu metal agent tools codenav test-agent-git-smoke \
+.PHONY: all clean cpu metal agent tools codenav bench-sampled-decode test-agent-git-smoke \
 	test-vectors test-model-profiles test-quant-k test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-python-smoke test-agent-context test-agent-edit test-agent-llama-reference test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-agent-web-moe test-agent-web-think test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
 	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-gqa-decode test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
@@ -93,6 +93,9 @@ qw3-test: qw3_metal_cli_test.o qw3_metal_core.o qw3_metal.o
 qw3-bench: qw3_bench.o qw3_metal_core.o qw3_metal.o
 	$(CC) $(CFLAGS) -o $@ qw3_bench.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
 
+qw3-sampled-decode-bench: tests/bench_sampled_decode.c qw3.h qw3_metal_core.o qw3_metal.o
+	$(CC) $(CFLAGS) -o $@ tests/bench_sampled_decode.c qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+
 qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
 
@@ -124,13 +127,16 @@ qw3-agent: qw3-agent-cpu
 qw3-eval: qw3-eval-cpu
 	cp qw3-eval-cpu qw3-eval
 
-qw3-metal qw3-bench-metal qw3-eval-metal:
+qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 endif
 
 tools codenav:
 	$(MAKE) -C codenavsrc
+
+bench-sampled-decode: qw3-sampled-decode-bench
+	./qw3-sampled-decode-bench "$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}"
 
 test-vectors: qw3-cpu-test
 	QW3_BIN=./qw3-cpu-test sh tests/test_vectors.sh
@@ -266,5 +272,5 @@ test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke t
 clean:
 	rm -f qw3_runtime_fingerprint.h
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
-		qw3-bench qw3-bench-cpu qw3-bench-metal \
+		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

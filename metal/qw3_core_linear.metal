@@ -2070,12 +2070,12 @@ kernel void qw3_matvec_iq2_s(constant qw3_matvec_q8_0_args &args,
     if (tid == 0) out[row] = sum;
 }
 /* Decode IQ2 in 32-value units, with two output rows per SIMD group.
- * The lookup magnitudes are small integers and exactly representable in half;
- * only the cache uses half, not the scaled weights, activations or arithmetic. */
+ * The lookup magnitudes are exact bytes; expand them to FP32 only when used.
+ * This halves the workgroup cache, without rounding weights or activations. */
 template<ushort Kind>
 inline float qw3_iq2_dot32_vector(device const uchar *blk,
                                   thread const float4 *xx,
-                                  threadgroup const half4 *grid,
+                                  threadgroup const uchar4 *grid,
                                   threadgroup const uchar *signs, uint ib) {
     const float d = float(*((device const half *)blk));
     device const uchar *qs = blk + 2u;
@@ -2129,16 +2129,16 @@ kernel void qw3_matvec_iq2_fast(
     (void)sh;
     constexpr uint NG = Kind == 0u ? 256u : Kind == 1u ? 512u : 1024u;
     constexpr uint NB = Kind == 0u ? 66u : Kind == 1u ? 74u : 82u;
-    threadgroup half4 grid[NG * 2u];
+    threadgroup uchar4 grid[NG * 2u];
     threadgroup uchar signs[128];
     const uint tid = uint(simd_idx) * 32u + uint(lane);
     for (uint i = tid; i < NG; i += 64u) {
         const ushort packed = grid_table[i];
-        grid[2u * i] = half4(qw3_iq2_grid_value(packed, 0u),
+        grid[2u * i] = uchar4(qw3_iq2_grid_value(packed, 0u),
                              qw3_iq2_grid_value(packed, 1u),
                              qw3_iq2_grid_value(packed, 2u),
                              qw3_iq2_grid_value(packed, 3u));
-        grid[2u * i + 1u] = half4(qw3_iq2_grid_value(packed, 4u),
+        grid[2u * i + 1u] = uchar4(qw3_iq2_grid_value(packed, 4u),
                                   qw3_iq2_grid_value(packed, 5u),
                                   qw3_iq2_grid_value(packed, 6u),
                                   qw3_iq2_grid_value(packed, 7u));
