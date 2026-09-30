@@ -15,14 +15,14 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
   when the recovered target is valid and unambiguous.
 - [completed] Add safe whitespace-flexible edit recovery and exact mismatch
   diagnostics while preserving the unique-target invariant.
-- [completed] Track edits and require a build or test before a coding turn can
-  finish.
-- [completed] Recognize successful Python script/module/inline execution as
-  verification, including `cd ... && python3 ...`, syntax checks, versioned
-  interpreters and environment prefixes. Ignore commands only quoted in text
-  and use the terminal shell status (not an `exit=0` printed by a failed
-  program). Cover the rewrite/run/follow-up sequence with guard regressions
-  and `make test-agent-python-smoke` on the dense 27B model.
+- [completed] Track edits and request a relevant build, test or check before
+  finishing. Release the runtime guard after an actually successful `bash`
+  execution, without language or executable-name whitelists. Selecting a
+  meaningful check remains the model's responsibility; exit zero alone is
+  not proof of correctness. Failed, interrupted and timed-out executions do
+  not release the guard. Use the terminal shell status, not an `exit=0` printed
+  by a failed program. Cover custom runners and rewrite/run/follow-up sequences
+  with model-free regressions, plus C and Python model-driven smoke fixtures.
 
 ## Phase 2: Context ownership
 

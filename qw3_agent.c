@@ -4264,129 +4264,6 @@ static char *execute_one_tool_raw(agent_state *a, const tool_call *call) {
     return out.p;
 }
 
-/* Read a literal shell word, keeping quoted separators inside that word.
- * This is only a command classifier, not a shell evaluator. Dynamic command
- * names and shell substitutions deliberately do not qualify as verification. */
-static bool agent_shell_literal_word(const char **cursor, char *word,
-                                     size_t capacity) {
-    const char *p = *cursor;
-    size_t n = 0;
-    char quote = 0;
-    bool literal = true;
-    while (*p && (quote || (!isspace((unsigned char)*p) &&
-                            !strchr(";&|()<>\n", *p)))) {
-        char c = *p++;
-        if (c == '\\' && quote != '\'' && *p) {
-            c = *p++;
-        } else if (c == '\'' || c == '"') {
-            if (!quote) { quote = c; continue; }
-            if (quote == c) { quote = 0; continue; }
-        } else if ((c == '$' || c == '`') && quote != '\'') {
-            literal = false;
-        }
-        if (n + 1 < capacity) word[n++] = c;
-        else literal = false;
-    }
-    word[n] = '\0';
-    *cursor = p;
-    return literal && !quote && n != 0;
-}
-
-static bool agent_shell_python_verification(const char *command,
-                                             const char *args) {
-    const char *base = strrchr(command, '/');
-    base = base ? base + 1 : command;
-    if (strncmp(base, "python", 6)) return false;
-    for (const char *p = base + 6; *p; p++) {
-        if (!isdigit((unsigned char)*p) && *p != '.') return false;
-    }
-    char arg[512];
-    while (*args) {
-        while (*args == ' ' || *args == '\t') args++;
-        if (!agent_shell_literal_word(&args, arg, sizeof(arg))) return false;
-        /* An actual script, inline program, or module must be executed;
-         * interpreter version/help queries are not checks. */
-        if (!strcmp(arg, "-c") || !strcmp(arg, "-m")) {
-            while (*args == ' ' || *args == '\t') args++;
-            return agent_shell_literal_word(&args, arg, sizeof(arg));
-        }
-        if (arg[0] != '-') return true;
-        if (!strcmp(arg, "--")) {
-            while (*args == ' ' || *args == '\t') args++;
-            return agent_shell_literal_word(&args, arg, sizeof(arg)) &&
-                   strcmp(arg, "-") != 0;
-        }
-        if (strcmp(arg, "-u") && strcmp(arg, "-B") &&
-            strcmp(arg, "-I") && strcmp(arg, "-E") &&
-            strcmp(arg, "-s") && strcmp(arg, "-S") &&
-            strcmp(arg, "-O") && strcmp(arg, "-OO")) return false;
-    }
-    return false;
-}
-
-static bool agent_shell_matches_verification(const char *command,
-                                              const char *args,
-                                              const char *pattern) {
-    char expected[128], actual[512];
-    const char *p = pattern;
-    if (!agent_shell_literal_word(&p, expected, sizeof(expected))) return false;
-    size_t len = strlen(expected);
-    bool prefix = len && expected[len - 1] == '/';
-    if (prefix ? strncmp(command, expected, len) != 0 :
-                 strcmp(command, expected) != 0) return false;
-    while (*p) {
-        while (isspace((unsigned char)*p)) p++;
-        while (*args == ' ' || *args == '\t') args++;
-        if (!agent_shell_literal_word(&p, expected, sizeof(expected)) ||
-            !agent_shell_literal_word(&args, actual, sizeof(actual))) return false;
-        len = strlen(expected);
-        prefix = len && expected[len - 1] == '/';
-        if (prefix ? strncmp(actual, expected, len) != 0 :
-                     strcmp(actual, expected) != 0) return false;
-    }
-    return true;
-}
-
-static bool agent_shell_command_is_verification(const char *cmd) {
-    if (!cmd) return false;
-    static const char *patterns[] = {
-        "make", "ninja", "ctest", "pytest", "cargo test", "cargo check",
-        "go test", "npm test", "npm run test", "npm run build",
-        "pnpm test", "yarn test", "meson test", "xcodebuild", "swift test",
-        "git diff --check", "shellcheck", "gcc", "clang", "cc",
-        "sh tests/", "./tests/", "test", NULL
-    };
-    const char *p = cmd;
-    bool command_start = true;
-    while (*p) {
-        if (*p == '\n' || strchr(";&|", *p)) {
-            command_start = true;
-            p++;
-            continue;
-        }
-        if (isspace((unsigned char)*p)) { p++; continue; }
-        if (*p == '#') {
-            while (*p && *p != '\n') p++;
-            continue;
-        }
-        /* Do not infer successful checks inside substitutions, groups,
-         * redirections, or heredoc bodies from the outer shell exit code. */
-        if (strchr("()<>`", *p)) return false;
-        char word[512];
-        bool literal = agent_shell_literal_word(&p, word, sizeof(word));
-        if (command_start && literal) {
-            if (strchr(word, '=') || !strcmp(word, "env")) continue;
-            if (agent_shell_python_verification(word, p)) return true;
-            for (int i = 0; patterns[i]; i++) {
-                if (agent_shell_matches_verification(word, p, patterns[i]))
-                    return true;
-            }
-        }
-        command_start = false;
-    }
-    return false;
-}
-
 static bool agent_tool_output_succeeded(const char *out) {
     /* Only the terminal status footer is authoritative, not program output
      * containing a literal "exit=0" before a failure/timeout footer. */
@@ -4415,9 +4292,10 @@ static void agent_note_tool_result(agent_state *a, const tool_call *call,
         return;
     }
     if (!strcmp(call->name, "bash") && a->edit_verification_pending &&
-        agent_shell_command_is_verification(tool_param_value(call, "cmd") ?
-            tool_param_value(call, "cmd") : tool_param_value(call, "command")) &&
         agent_tool_output_succeeded(out)) {
+        /* The executor reports completion, not semantic test coverage. The
+         * model must choose a relevant check; guessing that from executable
+         * names rejects valid custom commands and can trap follow-up turns. */
         a->edit_verification_pending = false;
     }
 }
@@ -4441,21 +4319,18 @@ static int agent_verify_guard_selftest(void) {
     if (!state.edit_verification_pending) return 2;
 
     memset(&call, 0, sizeof(call));
+    snprintf(call.name, sizeof(call.name), "read");
+    agent_note_tool_result(&state, &call, "example contents\n");
+    if (!state.edit_verification_pending) return 3;
     snprintf(call.name, sizeof(call.name), "bash");
-    call.params[0].value = "ls";
+    call.params[0].value = "./custom-validator --check";
     snprintf(call.params[0].name, sizeof(call.params[0].name), "cmd");
     call.n_params = 1;
-    agent_note_tool_result(&state, &call, "$ ls\n\nexit=0\n");
-    if (!state.edit_verification_pending) return 3;
-    call.params[0].value = "echo make";
-    agent_note_tool_result(&state, &call, "$ echo make\nmake\n\nexit=0\n");
-    if (!state.edit_verification_pending) return 4;
-    call.params[0].value = "make test-agent-edit";
     agent_note_tool_result(&state, &call,
-                           "$ make test-agent-edit\n\nexit=1\n");
+                           "$ ./custom-validator --check\n\nexit=1\n");
     if (!state.edit_verification_pending) return 5;
     agent_note_tool_result(&state, &call,
-                           "$ make test-agent-edit\n\nexit=0\n");
+                           "$ ./custom-validator --check\n\nexit=0\n");
     if (state.edit_verification_pending) return 6;
     snprintf(call.name, sizeof(call.name), "edit");
     agent_note_tool_result(&state, &call, "ok: edited note.txt (1 change)");
@@ -4466,48 +4341,26 @@ static int agent_verify_guard_selftest(void) {
                            "$ test \"$(cat note.txt)\" = beta\n\nexit=0\n");
     if (state.edit_verification_pending) return 8;
 
-    static const struct { const char *cmd; bool verifies; } commands[] = {
-        {"python3 bpe_demo.py", true},
-        {"cd /tmp && python3 bpe_demo.py", true},
-        {"cd /tmp && python3 -c \"import ast; ast.parse(open('bpe_demo.py').read()); print('syntax OK')\"", true},
-        {"cd /tmp && python3 -m py_compile bpe_demo.py && echo \"OK\"", true},
-        {"env PYTHONUTF8=1 /usr/bin/python3.12 -B 'demo script.py'", true},
-        {"'python3' -u demo.py", true},
-        {"python -m unittest", true},
-        {"cd '/tmp/directory with spaces' && git diff --check", true},
-        {"sh tests/test_example.sh", true},
-        {"./tests/test_example.sh", true},
-        {"python3 --version", false},
-        {"python3 -V", false},
-        {"python3 --help", false},
-        {"python3", false},
-        {"python3 -c", false},
-        {"python3 -m", false},
-        {"python3 -u", false},
-        {"python3 -", false},
-        {"python_tool demo.py", false},
-        {"echo 'python3 demo.py'", false},
-        {"echo 'ignored; python3 demo.py'", false},
-        {"echo \"ignored && make\"", false},
-        {"echo done # python3 demo.py", false},
-        {"cat <<EOF\npython3 demo.py\nEOF", false},
-        {"echo $(python3 demo.py)", false},
-        {"ls /tmp/python3", false},
-        {NULL, false}
+    /* Runtime completion must be independent of language, command spelling,
+     * wrappers and project-specific runners. These are status fixtures, not
+     * an assertion that every successful command is a meaningful test. */
+    static const char *commands[] = {
+        "./custom-validator --check",
+        "cd '/tmp/directory with spaces' && ./project-runner",
+        "env MODE=test ruby demo.rb",
+        "node demo.js",
+        "python3 demo.py",
+        "sh tests/test_example.sh",
+        "git diff --check",
+        "ls", "echo done", NULL
     };
-    for (int i = 0; commands[i].cmd; i++) {
-        bool actual = agent_shell_command_is_verification(commands[i].cmd);
-        if (actual != commands[i].verifies) {
-            fprintf(stderr, "verify classifier failed: %s (got %d)\n",
-                    commands[i].cmd, actual);
-            return 9;
-        }
+    for (int i = 0; commands[i]; i++) {
         state.edit_verification_pending = true;
-        call.params[0].value = (char *)commands[i].cmd;
+        call.params[0].value = (char *)commands[i];
         agent_note_tool_result(&state, &call, "output\n\nexit=0\n");
-        if (state.edit_verification_pending == commands[i].verifies) return 10;
+        if (state.edit_verification_pending) return 10;
     }
-    call.params[0].value = "python3 demo.py";
+    call.params[0].value = "./project-runner";
     static const char *failed_outputs[] = {
         "Traceback\n\nexit=1\n",
         "exit=0\n\nexit=1\n",
@@ -4515,7 +4368,7 @@ static int agent_verify_guard_selftest(void) {
         "exit=0\n\nexit=unknown\n",
         "interrupted=1\n\nexit=0\n",
         "timed_out=10s\n\nexit=0\n",
-        "syntax OK\n", NULL
+        "syntax OK\n", "printed exit=0\n", NULL
     };
     for (int i = 0; failed_outputs[i]; i++) {
         state.edit_verification_pending = true;
@@ -4524,19 +4377,19 @@ static int agent_verify_guard_selftest(void) {
     }
     /* Reproduce failed run -> rewrite -> successful run -> follow-up. */
     snprintf(call.name, sizeof(call.name), "write");
-    agent_note_tool_result(&state, &call, "ok: wrote demo.py (100 bytes)");
+    agent_note_tool_result(&state, &call, "ok: wrote project.src (100 bytes)");
     snprintf(call.name, sizeof(call.name), "bash");
     agent_note_tool_result(&state, &call, "Traceback\n\nexit=1\n");
     if (!state.edit_verification_pending) return 12;
     snprintf(call.name, sizeof(call.name), "write");
-    agent_note_tool_result(&state, &call, "ok: wrote demo.py (90 bytes)");
+    agent_note_tool_result(&state, &call, "ok: wrote project.src (90 bytes)");
     snprintf(call.name, sizeof(call.name), "bash");
-    call.params[0].value = "cd /tmp && python3 demo.py";
-    agent_note_tool_result(&state, &call, "['vado', 'a', 'casa']\n\nexit=0\n");
+    call.params[0].value = "cd /tmp && ./project-runner";
+    agent_note_tool_result(&state, &call, "expected result\n\nexit=0\n");
     if (state.edit_verification_pending) return 13;
     /* The same successful check cannot verify a later edit. */
     snprintf(call.name, sizeof(call.name), "write");
-    agent_note_tool_result(&state, &call, "ok: wrote demo.py (95 bytes)");
+    agent_note_tool_result(&state, &call, "ok: wrote project.src (95 bytes)");
     if (!state.edit_verification_pending) return 14;
     return 0;
 }

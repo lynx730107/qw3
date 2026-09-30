@@ -17,7 +17,7 @@ tool_file="$tmpdir/tool.xml"
 mkdir -p "$store"
 
 run_tool() {
-    "$BIN" --store-dir "$store" --tool-native-file "$tool_file" 2>&1
+    "$BIN" --chdir "$tmpdir" --store-dir "$store" --tool-native-file "$tool_file" 2>&1
 }
 
 contains() {
@@ -42,6 +42,53 @@ out=$(run_tool)
 contains "$out" 'STDOUT_MARKER' || fail "stdout was not captured"
 contains "$out" 'STDERR_MARKER' || fail "stderr was not captured"
 contains "$out" 'exit=3' || fail "non-zero exit status was lost"
+
+# Real execution of an arbitrary project runner, including a quoted cwd.
+# Its name/language must not affect execution or the reported shell status.
+mkdir "$tmpdir/project with spaces"
+cat > "$tmpdir/project with spaces/custom-runner" <<'EOF'
+#!/bin/sh
+printf 'CUSTOM_RUNNER:%s\n' "$1"
+if [ "$1" = fail ]; then
+    printf 'exit=0\n'
+    exit 7
+fi
+exit 0
+EOF
+chmod +x "$tmpdir/project with spaces/custom-runner"
+cat > "$tool_file" <<'EOF'
+<tool_call>
+<function=bash>
+<parameter=cmd>cd "project with spaces" && ./custom-runner success</parameter>
+</function>
+</tool_call>
+EOF
+out=$(run_tool)
+contains "$out" 'CUSTOM_RUNNER:success' || fail "custom runner was not executed"
+[ "$(printf '%s\n' "$out" | awk '/^exit=/ {status=$0} END {print status}')" = 'exit=0' ] ||
+    fail "successful runner status differs"
+
+cat > "$tool_file" <<'EOF'
+<tool_call>
+<function=bash>
+<parameter=cmd>cd "project with spaces" && ./custom-runner fail</parameter>
+</function>
+</tool_call>
+EOF
+out=$(run_tool)
+contains "$out" 'CUSTOM_RUNNER:fail' || fail "failing runner was not executed"
+[ "$(printf '%s\n' "$out" | awk '/^exit=/ {status=$0} END {print status}')" = 'exit=7' ] ||
+    fail "program output hid the actual failure status"
+
+cat > "$tool_file" <<'EOF'
+<tool_call>
+<function=bash>
+<parameter=cmd>./nonexistent-qw3-test-command</parameter>
+</function>
+</tool_call>
+EOF
+out=$(run_tool)
+contains "$out" 'exit=127' || fail "missing executable status was lost"
 
 cat > "$tool_file" <<'EOF'
 <tool_call>
