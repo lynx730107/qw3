@@ -127,6 +127,8 @@ typedef struct {
 typedef struct {
     tool_call calls[8];
     int n_calls;
+    int n_recovered;
+    int n_rejected_wrappers;
 } tool_call_list;
 
 typedef struct {
@@ -2238,6 +2240,91 @@ static void parse_native_xml_params(const char *q, const char *end,
     }
 }
 
+/* A model can confuse only the outer function tag with a parameter tag.
+ * Recover that exact shape, not arbitrary bare parameters or guessed tools.
+ * Every argument must be closed and unambiguous before execution. */
+static bool native_parameter_function_wrapper(const char *body,
+                                               const char *end) {
+    const size_t prefix_len = strlen(QWEN_XML_PARAMETER_BEGIN);
+    if ((size_t)(end - body) < prefix_len ||
+        strncmp(body, QWEN_XML_PARAMETER_BEGIN, prefix_len)) return false;
+    const char *name = body + prefix_len;
+    const char *gt = strchr(name, '>');
+    return gt && gt < end &&
+           native_tool_name_is_known(name, (size_t)(gt - name));
+}
+
+static bool parse_native_parameter_function(const char *body, const char *end,
+                                            tool_call *call) {
+    if (!native_parameter_function_wrapper(body, end)) return false;
+    const char *name = body + strlen(QWEN_XML_PARAMETER_BEGIN);
+    const char *gt = strchr(name, '>');
+    const char *fn_end = strstr(gt + 1, QWEN_XML_FUNCTION_END);
+    if (!fn_end || fn_end >= end ||
+        skip_space(fn_end + strlen(QWEN_XML_FUNCTION_END), end) != end)
+        return false;
+    const char *q = skip_space(gt + 1, fn_end);
+    int n_params = 0;
+    while (q < fn_end) {
+        const size_t prefix_len = strlen(QWEN_XML_PARAMETER_BEGIN);
+        if ((size_t)(fn_end - q) < prefix_len ||
+            strncmp(q, QWEN_XML_PARAMETER_BEGIN, prefix_len) ||
+            n_params >= 16) return false;
+        const char *pa_name = q + prefix_len;
+        const char *pa_gt = strchr(pa_name, '>');
+        const char *pa_end = pa_gt ? strstr(pa_gt + 1, QWEN_XML_PARAMETER_END) : NULL;
+        if (!pa_gt || pa_gt >= fn_end || pa_gt == pa_name ||
+            (size_t)(pa_gt - pa_name) >= sizeof(call->params[0].name) ||
+            !pa_end || pa_end >= fn_end) return false;
+        /* Literal nested parameter markup makes the boundary ambiguous;
+         * escaped XML remains opaque data and is decoded only once below. */
+        const char *nested = strstr(pa_gt + 1, QWEN_XML_PARAMETER_BEGIN);
+        if (nested && nested < pa_end) return false;
+        n_params++;
+        q = skip_space(pa_end + strlen(QWEN_XML_PARAMETER_END), fn_end);
+    }
+    if (!n_params) return false;
+    snprintf(call->name, sizeof(call->name), "%.*s", (int)(gt - name), name);
+    parse_native_xml_params(gt + 1, fn_end, call);
+    for (int i = 0; i < call->n_params; i++) {
+        for (int j = 0; j < i; j++) {
+            if (!strcmp(call->params[i].name, call->params[j].name)) {
+                clear_tool_call(call);
+                return false;
+            }
+        }
+    }
+    return call->n_params == n_params;
+}
+
+static int parse_native_parameter_functions(const char *text,
+                                            tool_call_list *out) {
+    const char *p = text ? text : "";
+    const char *text_end = p + strlen(p);
+    while (out->n_calls < 8) {
+        const char *start = strstr(p, QWEN_XML_TOOL_CALL_BEGIN);
+        if (!start) break;
+        const char *body = start + strlen(QWEN_XML_TOOL_CALL_BEGIN);
+        const char *next = strstr(body, QWEN_XML_TOOL_CALL_BEGIN);
+        const char *close = strstr(body, QWEN_XML_TOOL_CALL_END);
+        const char *end = close ? close : text_end;
+        if (next && next < end) end = next;
+        body = skip_space(body, end);
+        tool_call *call = &out->calls[out->n_calls];
+        if (parse_native_parameter_function(body, end, call)) {
+            out->n_calls++;
+            out->n_recovered++;
+        } else {
+            if (native_parameter_function_wrapper(body, end))
+                out->n_rejected_wrappers++;
+            clear_tool_call(call);
+        }
+        if (!next) break;
+        p = next;
+    }
+    return out->n_calls;
+}
+
 static int parse_native_shorthand_tool_calls(const char *text,
                                              tool_call_list *out) {
     const char *p = text ? text : "";
@@ -2403,6 +2490,17 @@ static int parse_native_tool_calls(const char *text, tool_call_list *out) {
         const char *body_end = close;
         body = skip_space(body, body_end);
         tool_call *call = &out->calls[out->n_calls];
+        if (native_parameter_function_wrapper(body, body_end)) {
+            if (parse_native_parameter_function(body, body_end, call)) {
+                out->n_calls++;
+                out->n_recovered++;
+            } else {
+                out->n_rejected_wrappers++;
+                clear_tool_call(call);
+            }
+            p = close + end_len;
+            continue;
+        }
         const char *q = body;
         const char *fn_end = body_end;
         if ((size_t)(body_end - body) >= strlen(QWEN_XML_FUNCTION_BEGIN) &&
@@ -2440,6 +2538,12 @@ static int parse_native_tool_calls(const char *text, tool_call_list *out) {
         }
         p = close + end_len;
     }
+    if (out->n_calls == 0) {
+        (void)parse_native_parameter_functions(text, out);
+    }
+    /* A rejected explicit wrapper must not become an inferred command from
+     * a JSON object, example or nested function inside one of its arguments. */
+    if (out->n_calls == 0 && out->n_rejected_wrappers) return 0;
     if (out->n_calls == 0) {
         (void)parse_native_function_blocks(text, out);
     }
@@ -4925,6 +5029,80 @@ static int agent_tool_parse_selftest(void) {
                                        QW3_THINK_ON)) return 11;
     if (!agent_response_has_final_text("normal answer",
                                        QW3_THINK_NONE)) return 12;
+
+    static const char wrong_wrapper[] =
+        "<tool_call>\n<parameter=bash>\n<parameter=cmd>\n"
+        "git log -3 --oneline\n</parameter>\n</function>";
+    if (parse_native_tool_calls(wrong_wrapper, &calls) != 1) return 13;
+    if (strcmp(calls.calls[0].name, "bash") || calls.n_recovered != 1 ||
+        strcmp(tool_param_value(&calls.calls[0], "cmd"),
+               "git log -3 --oneline")) {
+        free_tool_calls(&calls);
+        return 14;
+    }
+    free_tool_calls(&calls);
+    /* This is a structural recovery for every declared tool, not git/bash. */
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) /
+                              sizeof(native_shorthand_tools[0]); i++) {
+        for (int closed = 0; closed < 2; closed++) {
+            strbuf fixture;
+            sb_init(&fixture);
+            sb_printf(&fixture,
+                      "<tool_call>\n<parameter=%s>\n"
+                      "<parameter=arg>value &lt;node&gt; &amp; literal"
+                      "</parameter>\n</function>%s",
+                      native_shorthand_tools[i],
+                      closed ? "\n</tool_call>" : "");
+            int n = parse_native_tool_calls(fixture.p, &calls);
+            sb_free(&fixture);
+            bool ok = n == 1 && calls.n_recovered == 1 &&
+                !strcmp(calls.calls[0].name, native_shorthand_tools[i]) &&
+                calls.calls[0].n_params == 1 &&
+                !strcmp(tool_param_value(&calls.calls[0], "arg"),
+                        "value <node> & literal");
+            free_tool_calls(&calls);
+            if (!ok) return 15;
+        }
+    }
+    static const char *rejected[] = {
+        "<tool_call><parameter=unknown><parameter=cmd>x</parameter></function>",
+        "<tool_call><parameter=bash><parameter=cmd>x</parameter>",
+        "<tool_call><parameter=bash><parameter=cmd>x</function></tool_call>",
+        "<tool_call><parameter=bash><parameter=cmd>a</parameter><parameter=cmd>b</parameter></function></tool_call>",
+        "<tool_call><parameter=bash>unexpected<parameter=cmd>x</parameter></function></tool_call>",
+        "<tool_call><parameter=bash><parameter=cmd>x</parameter></function>unexpected</tool_call>",
+        "<tool_call><parameter=bash><parameter=cmd><parameter=arg>x</parameter></parameter></function></tool_call>",
+        "<tool_call><parameter=bash><parameter=cmd><function=write><parameter=path>x</parameter></function></parameter></function></tool_call>",
+        "<tool_call><parameter=bash><parameter=cmd>{\"name\":\"write\",\"path\":\"x\",\"content\":\"x\"}</function></tool_call>",
+        "<parameter=bash><parameter=cmd>x</parameter></function>", NULL
+    };
+    for (int i = 0; rejected[i]; i++) {
+        int n = parse_native_tool_calls(rejected[i], &calls);
+        free_tool_calls(&calls);
+        if (n) return 16;
+    }
+    static const char mixed[] =
+        "<tool_call><parameter=read><parameter=path>a.txt</parameter>"
+        "</function></tool_call>\n"
+        "<tool_call><function=list><parameter=path>.</parameter>"
+        "</function></tool_call>";
+    int n = parse_native_tool_calls(mixed, &calls);
+    bool mixed_ok = n == 2 && calls.n_recovered == 1 &&
+        !strcmp(calls.calls[0].name, "read") &&
+        !strcmp(tool_param_value(&calls.calls[0], "path"), "a.txt") &&
+        !strcmp(calls.calls[1].name, "list");
+    free_tool_calls(&calls);
+    if (!mixed_ok) return 17;
+    static const char boundary[] =
+        "<tool_call><parameter=write><parameter=path>incomplete\n"
+        "<tool_call><parameter=bash><parameter=cmd>safe</parameter>"
+        "</function></tool_call>";
+    n = parse_native_tool_calls(boundary, &calls);
+    bool boundary_ok = n == 1 && calls.n_recovered == 1 &&
+        !strcmp(calls.calls[0].name, "bash") &&
+        !strcmp(tool_param_value(&calls.calls[0], "cmd"), "safe");
+    free_tool_calls(&calls);
+    if (!boundary_ok) return 18;
     return 0;
 }
 
@@ -6151,6 +6329,12 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int n_native = parse_native_tool_calls(assistant ? assistant : "",
                                                &native_calls);
         if (n_native > 0) {
+            if (native_calls.n_recovered) {
+                agent_trace_begin(a, "tool_call_recovery");
+                agent_trace_string(a, "kind", "parameter_function_wrapper");
+                agent_trace_i64(a, "calls", native_calls.n_recovered);
+                agent_trace_end(a);
+            }
             if (final_only) {
                 free_tool_calls(&native_calls);
                 free(assistant);
@@ -6252,12 +6436,15 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             }
             if (!agent_response_has_final_text(assistant,
                                                 a->cfg.think_mode)) {
+                const bool has_text = assistant &&
+                    text_slice_has_nonspace(assistant, strlen(assistant));
+                const bool malformed_tool = has_text &&
+                    (!qw3_think_mode_enabled(a->cfg.think_mode) ||
+                     strstr(assistant, QWEN_XML_TOOL_CALL_BEGIN) ||
+                     strstr(assistant, DSML_BEGIN) ||
+                     native_shorthand_tool_marker(assistant));
                 const bool thought_only =
-                    qw3_think_mode_enabled(a->cfg.think_mode) &&
-                    assistant &&
-                    text_slice_has_nonspace(assistant, strlen(assistant));
-                const bool malformed_tool = !thought_only && assistant &&
-                    text_slice_has_nonspace(assistant, strlen(assistant));
+                    has_text && !malformed_tool;
                 a->transcript.len = transcript_before_generation;
                 agent_message_ledger_truncate(&a->messages,
                                               transcript_before_generation);
@@ -6268,11 +6455,13 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 agent_trace_i64(a, "round", round);
                 agent_trace_i64(a, "retries_left", empty_retry_credits);
                 agent_trace_bool(a, "final_only", final_only);
+                agent_trace_string(a, "kind", malformed_tool ? "malformed_tool" :
+                                   thought_only ? "reasoning_only" : "empty");
                 agent_trace_end(a);
                 if (empty_retry_credits-- > 0) {
                     const char *retry_control = final_only ?
                         "Internal qw3-agent control: your previous final "
-                        "response was empty. Do not call tools. Answer the "
+                        "response contained no usable answer. Do not call tools. Answer the "
                         "user now with the evidence already available." :
                         thought_only ?
                         "Internal qw3-agent control: your previous response "
@@ -6282,7 +6471,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                         "the appropriate tool instead of only announcing it." :
                         malformed_tool ?
                         "Internal qw3-agent control: your previous output "
-                        "contained incomplete tool markup and was not shown. "
+                        "contained malformed or incomplete tool markup and was not shown. "
                         "Retry the tool call using the complete native XML "
                         "format, including all closing tags." :
                         "Internal qw3-agent control: your previous response "
@@ -6301,13 +6490,16 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                         return -1;
                     }
                     agent_statusf(a,
-                                  "agent: empty response; retrying (%d left)\n",
+                                  "agent: %s; retrying (%d left)\n",
+                                  malformed_tool ? "malformed tool call" :
+                                  thought_only ? "reasoning without answer or tool" :
+                                  "empty response",
                                   empty_retry_credits);
                     round--;
                     continue;
                 }
                 agent_statusf(a,
-                              "agent: failed to produce a non-empty response "
+                              "agent: failed to produce a usable answer or tool call "
                               "after retries\n");
                 return -1;
             }

@@ -23,6 +23,16 @@ also pass the Metal logit, no-garbage, and native tool-call checks.
   not release the guard. Use the terminal shell status, not an `exit=0` printed
   by a failed program. Cover custom runners and rewrite/run/follow-up sequences
   with model-free regressions, plus C and Python model-driven smoke fixtures.
+- [completed] Recover the structural `<parameter=TOOL>` / `</function>`
+  wrapper confusion inside an explicit native tool call when the tool name is
+  known and every argument is complete and unambiguous. Preserve argument
+  values; reject truncated, duplicate or nested parameters and never infer
+  another command from data inside a rejected wrapper. Trace the recovery and
+  distinguish malformed calls, reasoning-only output and truly empty retries.
+  Cover every declared tool in parser fixtures and a real custom runner in
+  executor integration. `make test-agent-git-smoke` checks the natural Italian
+  Git request with cold, warm and disabled prefix cache, requiring a real tool
+  result and a correct final answer without retries in an isolated repository.
 
 ## Phase 2: Context ownership
 

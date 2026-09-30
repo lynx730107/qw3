@@ -58,10 +58,9 @@ EOF
 chmod +x "$tmpdir/project with spaces/custom-runner"
 cat > "$tool_file" <<'EOF'
 <tool_call>
-<function=bash>
+<parameter=bash>
 <parameter=cmd>cd "project with spaces" && ./custom-runner success</parameter>
 </function>
-</tool_call>
 EOF
 out=$(run_tool)
 contains "$out" 'CUSTOM_RUNNER:success' || fail "custom runner was not executed"
