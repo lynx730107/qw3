@@ -14,7 +14,8 @@ fail() {
 [ -x "$BIN" ] || fail "binary not found: $BIN"
 
 OUT="$(mktemp -t qw3-dense-metal.XXXXXX)"
-trap 'rm -f "$OUT"' EXIT HUP INT TERM
+ERR="$(mktemp -t qw3-dense-metal-stderr.XXXXXX)"
+trap 'rm -f "$OUT" "$ERR"' EXIT HUP INT TERM
 
 QW3_METAL_NGL=64 "$BIN" -m "$MODEL" --ctx "$CTX" \
     --metal-session-test --metal-session-embed-test 66 \
@@ -33,8 +34,9 @@ QW3_METAL_NGL=64 "$BIN" -m "$MODEL" --ctx "$CTX" \
     --metal-gqa-real-layer-test 66 \
     --metal-dense-logits-test 66 \
     --metal-dense-greedy-test 66 8 \
-    >"$OUT" 2>&1 || {
+    >"$OUT" 2>"$ERR" || {
     cat "$OUT" >&2
+    cat "$ERR" >&2
     fail "dense Metal differential diagnostics failed"
 }
 
@@ -149,6 +151,33 @@ grep -q "metal session gqa cached2: ok profile=Qwen3.8-27B tokens=66,67 layer=3"
 grep -q "metal session quant types: ok x1=13 inner=8 output=1 token=66" "$OUT" || {
     cat "$OUT" >&2
     fail "dense quantized matvec formats did not match CPU"
+}
+grep -q "metal session quant pair type: ok type=iq3_s " "$OUT" || {
+    cat "$OUT" >&2
+    fail "dense paired IQ3_S gate/up projections did not match CPU"
+}
+tail_checks=$(grep -c "metal session quant tail: ok " "$OUT" || true)
+[ "$tail_checks" -eq 60 ] || {
+    cat "$OUT" >&2
+    fail "dense IQ2/IQ3 odd-row/partial-input tails were not all checked"
+}
+# Check finite values outside the engine's -ffast-math compilation too.
+awk '
+    /^metal session quant (tail|pair type): ok / {
+        found++; maxdiff=""; rmsdiff="";
+        for (i = 1; i <= NF; i++) {
+            split($i, p, "=");
+            if (p[1] == "maxdiff") maxdiff = p[2];
+            if (p[1] == "rmsdiff") rmsdiff = p[2];
+        }
+        number = "^[0-9]+([.][0-9]*)?([eE][-+]?[0-9]+)?$";
+        if (maxdiff !~ number || rmsdiff !~ number ||
+            maxdiff + 0 > 0.0001 || rmsdiff + 0 > 0.00001) bad = 1;
+    }
+    END { if (found != 61 || bad) exit 1; }
+' "$OUT" || {
+    cat "$OUT" >&2
+    fail "dense quantized pair/tail metrics were non-finite or divergent"
 }
 grep -q "metal dense logits: ok tokens=66,67" "$OUT" || {
     cat "$OUT" >&2

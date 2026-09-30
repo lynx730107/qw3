@@ -182,7 +182,7 @@ Set
 between stages and therefore slows the run).
 Set `QW3_METAL_DENSE_PROBE_REPS=20` when running `--metal-session-embed-test`
 to time repeated quantized projections separately from their first invocation.
-The same option now times warmed single matvec and IQ3_S gate/up pairs with
+The same option now times warmed input/inner matvecs and IQ3_S gate/up pairs with
 `--metal-session-quant-types-test`.
 
 The two-column DeltaNet prefill kernel now retains FP32 state in registers
@@ -208,6 +208,22 @@ boundaries with non-constant K/V input. See
 results, current llama.cpp comparisons, and rejected experiments.
 FP32 activations/accumulators and the existing numerical test thresholds are
 retained. This does not enable the model's optional NextN/MTP block.
+
+A further decode pass splits IQ3_XXS and IQ2_XXS/XS/S quant blocks into
+32-value lane units, uses vector dot products, and reuses activations across
+two output rows per SIMD group. IQ3_S gate/up pairs also use vector products.
+The IQ2 lookup cache stores exact small integer magnitudes in half; scaled
+weights, activations, products and accumulators remain FP32. This reassociates
+floating-point sums, so it is not bit-identical to the older kernels.
+A sequential five-repeat comparison at depth 128 (`tg32`, ctx 256) measured
+7.18 -> 8.29 tok/s (+15.5%), versus 8.69 for the same-GGUF llama.cpp reference.
+These remain short-run measurements, not a claim of sustained parity.
+At depth 1024, three-repeat `tg32` runs gave 7.39 -> 8.63 tok/s (+16.8%);
+llama.cpp measured 8.66 tok/s in the following run, essentially tied in this
+short sample.
+`QW3_METAL_DENSE_IQ2_VECTOR=0` restores the old IQ2 decode kernels for A/B tests.
+Dense regression additionally checks both paired outputs directly and 60
+odd-row/partial-input cases, with independent finite-metric validation.
 
 ## Performance
 

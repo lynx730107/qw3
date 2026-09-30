@@ -164,8 +164,8 @@ inline float qw3_iq3s_grid_value(ushort packed, uint j) {
 inline float qw3_iq3s_grid_value(float4 magnitudes, uint j) {
     return magnitudes[j];
 }
-/* Preserve the signed/scaled dot-product order. Decode grid magnitudes once
- * per workgroup in the paired path; single matvec keeps the smaller grid. */
+/* Scalar-order helper: single matvec retains the smaller packed grid.
+ * Paired decode uses the vector helper below instead. */
 template<typename Grid>
 inline float qw3_iq3s_dot32_shared(device const uchar *blk,
                                   thread const float *xx,
@@ -255,6 +255,31 @@ kernel void qw3_matvec_iq3_s_fast(constant qw3_matvec_q8_0_args &args,
         if (row < args.n_out) out[row] = sum3;
     }
 }
+/* Exact IQ3_S grid/sign expansion with FP32 vector products. Share activation
+ * vectors across the eight gate/up dot products owned by each SIMD lane. */
+inline float qw3_iq3s_dot32_vector(device const uchar *blk,
+                                  thread const float4 *xx,
+                                  threadgroup const float4 *grid, uint ib) {
+    const float d = float(*((device const half *)blk));
+    device const uchar *qs = blk + 2u + ib * 8u;
+    const uint qhb = uint(blk[66u + ib]);
+    device const uchar *signs = blk + 74u + ib * 4u;
+    const uint scales = uint(blk[106u + ib / 2u]);
+    const float db = d * float(1u + 2u * ((scales >> (4u * (ib & 1u))) & 15u));
+    float sum = 0.0f;
+    for (uint l = 0; l < 4u; l++) {
+        const uint idx1 = uint(qs[2u * l]) | ((qhb << (8u - 2u * l)) & 256u);
+        const uint idx2 = uint(qs[2u * l + 1u]) | ((qhb << (7u - 2u * l)) & 256u);
+        const uint s = uint(signs[l]);
+        const float4 sign1 = select(float4(1.0f), float4(-1.0f),
+                                   (uint4(s) & uint4(1u, 2u, 4u, 8u)) != 0u);
+        const float4 sign2 = select(float4(1.0f), float4(-1.0f),
+                                   (uint4(s) & uint4(16u, 32u, 64u, 128u)) != 0u);
+        sum += dot(grid[idx1] * sign1, xx[2u * l]) +
+               dot(grid[idx2] * sign2, xx[2u * l + 1u]);
+    }
+    return db * sum;
+}
 kernel void qw3_matvec_iq3_s_pair_fast(constant qw3_matvec_q8_0_args &args,
                                        device const uchar *gate_weights,
                                        device const uchar *up_weights,
@@ -279,31 +304,32 @@ kernel void qw3_matvec_iq3_s_pair_fast(constant qw3_matvec_q8_0_args &args,
     for (uint ib32 = uint(lane); ib32 < nb32; ib32 += 32u) {
         uint ibl = ib32 / 8u;
         uint ib = ib32 - ibl * 8u;
-        float xx[32];
-        for (uint j = 0; j < 32u; j++) xx[j] = x[uint64_t(ib32) * 32ull + j];
+        float4 xx[8];
+        device const float4 *x4 = (device const float4 *)(x + uint64_t(ib32) * 32ull);
+        for (uint j = 0; j < 8u; j++) xx[j] = x4[j];
         uint row = first_row;
         if (row < args.n_out) {
             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(ibl) * 110ull;
-            gate_sum0 += qw3_iq3s_dot32_shared(gate_weights + off, xx, grid, ib);
-            up_sum0 += qw3_iq3s_dot32_shared(up_weights + off, xx, grid, ib);
+            gate_sum0 += qw3_iq3s_dot32_vector(gate_weights + off, xx, grid, ib);
+            up_sum0 += qw3_iq3s_dot32_vector(up_weights + off, xx, grid, ib);
         }
         row = first_row + 1u;
         if (row < args.n_out) {
             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(ibl) * 110ull;
-            gate_sum1 += qw3_iq3s_dot32_shared(gate_weights + off, xx, grid, ib);
-            up_sum1 += qw3_iq3s_dot32_shared(up_weights + off, xx, grid, ib);
+            gate_sum1 += qw3_iq3s_dot32_vector(gate_weights + off, xx, grid, ib);
+            up_sum1 += qw3_iq3s_dot32_vector(up_weights + off, xx, grid, ib);
         }
         row = first_row + 2u;
         if (row < args.n_out) {
             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(ibl) * 110ull;
-            gate_sum2 += qw3_iq3s_dot32_shared(gate_weights + off, xx, grid, ib);
-            up_sum2 += qw3_iq3s_dot32_shared(up_weights + off, xx, grid, ib);
+            gate_sum2 += qw3_iq3s_dot32_vector(gate_weights + off, xx, grid, ib);
+            up_sum2 += qw3_iq3s_dot32_vector(up_weights + off, xx, grid, ib);
         }
         row = first_row + 3u;
         if (row < args.n_out) {
             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(ibl) * 110ull;
-            gate_sum3 += qw3_iq3s_dot32_shared(gate_weights + off, xx, grid, ib);
-            up_sum3 += qw3_iq3s_dot32_shared(up_weights + off, xx, grid, ib);
+            gate_sum3 += qw3_iq3s_dot32_vector(gate_weights + off, xx, grid, ib);
+            up_sum3 += qw3_iq3s_dot32_vector(up_weights + off, xx, grid, ib);
         }
     }
     gate_sum0 = simd_sum(gate_sum0); up_sum0 = simd_sum(up_sum0);

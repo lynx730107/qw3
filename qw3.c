@@ -10790,6 +10790,7 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
     float *gate = qw3_xmalloc((size_t)n_ff * sizeof(float));
     float *up = qw3_xmalloc((size_t)n_ff * sizeof(float));
     float *inner = qw3_xmalloc((size_t)n_ff * sizeof(float));
+    float *gpu_pair = qw3_xmalloc((size_t)n_ff * 2u * sizeof(float));
     qw3_session *s = NULL;
     int ok = tensor_read_dense_row(&e->model, e->weights.token_embd,
                                    (uint64_t)token, x);
@@ -10822,6 +10823,27 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
                 "metal session quant type: %s type=%s layer=%d tensor=%.*s n_in=%u n_out=%u maxdiff=%.7g rmsdiff=%.7g\n",
                 ok ? "ok" : "failed", tensor_type_name(types[i]), layers[i],
                 (int)w->name_len, w->name, n_embd, n_out, maxdiff, rmsdiff);
+        const qw3_layer_weights *lw = &e->weights.layer[layers[i]];
+        if (ok && w == lw->ffn_gate && w->type == QW3_TENSOR_IQ3_S &&
+            lw->ffn_up && lw->ffn_up->type == w->type && n_out == n_ff) {
+            /* Check both outputs directly, not only the subsequent SwiGLU. */
+            ok = cpu_matvec(&e->model, lw->ffn_up, xn, up) &&
+                 qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
+                     s->metal, w->offset, lw->ffn_up->offset, n_embd, n_out) &&
+                 qw3_metal_session_read_scratch(s->metal, gpu_pair, 0, 2u * n_out);
+            maxdiff = 0.0f; rmsdiff = 0.0;
+            for (uint32_t j = 0; j < 2u * n_out && ok; j++) {
+                const float ref = j < n_out ? cpu[j] : up[j - n_out];
+                const float d = fabsf(ref - gpu_pair[j]);
+                if (!isfinite(gpu_pair[j]) || !isfinite(d)) { ok = 0; break; }
+                if (d > maxdiff) maxdiff = d;
+                rmsdiff += (double)d * d;
+            }
+            rmsdiff = sqrt(rmsdiff / (2u * n_out));
+            if (maxdiff > 1e-4f || rmsdiff > 1e-5) ok = 0;
+            fprintf(fp, "metal session quant pair type: %s type=iq3_s layer=%d n_in=%u n_out=%u maxdiff=%.7g rmsdiff=%.7g\n",
+                    ok ? "ok" : "failed", layers[i], n_embd, n_out, maxdiff, rmsdiff);
+        }
         if (ok && matvec_reps > 0) {
             const double start = qw3_now_sec();
             for (int rep = 0; rep < matvec_reps && ok; rep++)
@@ -10831,7 +10853,6 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
             fprintf(fp, "metal dense warmed matvec: type=%s reps=%d ms=%.4f\n",
                     tensor_type_name(w->type), matvec_reps,
                     (qw3_now_sec() - start) * 1000.0 / matvec_reps);
-            const qw3_layer_weights *lw = &e->weights.layer[layers[i]];
             if (ok && w == lw->ffn_gate &&
                 w->type == QW3_TENSOR_IQ3_S && lw->ffn_up->type == w->type) {
                 ok = qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
@@ -10844,6 +10865,55 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
                 if (ok) ok = qw3_metal_synchronize();
                 fprintf(fp, "metal dense warmed matvec: type=iq3_s_pair reps=%d ms=%.4f\n",
                         matvec_reps, (qw3_now_sec() - pair_start) * 1000.0 / matvec_reps);
+            }
+        }
+    }
+    /* Reinterpret a bounded prefix of real quant blocks as a small matrix.
+     * Exercise partial SIMD/input iterations and odd output-row tails. */
+    static const uint32_t tail_inputs[] = {256u, 768u, 1280u};
+    static const uint32_t tail_outputs[] = {1u, 3u, 7u, 13u};
+    for (size_t i = 0; i < n_types && ok; i++) {
+        if (types[i] != QW3_TENSOR_IQ2_XXS && types[i] != QW3_TENSOR_IQ2_XS &&
+            types[i] != QW3_TENSOR_IQ2_S && types[i] != QW3_TENSOR_IQ3_XXS &&
+            types[i] != QW3_TENSOR_IQ3_S) continue;
+        const qw3_layer_weights *lw = &e->weights.layer[layers[i]];
+        const int paired = weights[i] == lw->ffn_gate &&
+            types[i] == QW3_TENSOR_IQ3_S && lw->ffn_up &&
+            lw->ffn_up->type == types[i];
+        for (size_t ni = 0; ni < sizeof(tail_inputs) / sizeof(tail_inputs[0]) && ok; ni++) {
+            for (size_t no = 0; no < sizeof(tail_outputs) / sizeof(tail_outputs[0]) && ok; no++) {
+                qw3_tensor small = *weights[i];
+                const uint32_t n_in = tail_inputs[ni], n_out = tail_outputs[no];
+                small.dim[0] = n_in; small.dim[1] = n_out;
+                small.elements = (uint64_t)n_in * n_out;
+                ok = cpu_matvec(&e->model, &small, xn, cpu) &&
+                     qw3_metal_session_matvec_quant_x1_to_scratch(
+                         s->metal, small.offset, small.type, n_in, n_out, 0, gpu);
+                float maxdiff = 0.0f;
+                double rmsdiff = 0.0;
+                if (ok && paired) {
+                    qw3_tensor small_up = *lw->ffn_up;
+                    small_up.dim[0] = n_in; small_up.dim[1] = n_out;
+                    small_up.elements = small.elements;
+                    ok = cpu_matvec(&e->model, &small_up, xn, up) &&
+                         qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
+                             s->metal, small.offset, small_up.offset, n_in, n_out) &&
+                         qw3_metal_session_read_scratch(s->metal, gpu_pair, 0, 2u * n_out);
+                }
+                const uint32_t count = paired ? 2u * n_out : n_out;
+                for (uint32_t j = 0; j < count && ok; j++) {
+                    const float ref = j < n_out ? cpu[j] : up[j - n_out];
+                    const float actual = paired ? gpu_pair[j] : gpu[j];
+                    const float d = fabsf(ref - actual);
+                    if (!isfinite(actual) || !isfinite(d)) { ok = 0; break; }
+                    if (d > maxdiff) maxdiff = d;
+                    rmsdiff += (double)d * d;
+                }
+                rmsdiff = sqrt(rmsdiff / count);
+                if (maxdiff > 1e-4f || rmsdiff > 1e-5) ok = 0;
+                fprintf(fp, "metal session quant tail: %s type=%s paired=%d n_in=%u n_out=%u maxdiff=%.7g rmsdiff=%.7g\n",
+                        ok ? "ok" : "failed", tensor_type_name(types[i]),
+                        paired, n_in, n_out, maxdiff, rmsdiff);
             }
         }
     }
@@ -10888,6 +10958,16 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
                 ok ? "ok" : "failed", tensor_type_name(inner_types[i]),
                 inner_layers[i], (int)w->name_len, w->name,
                 n_in, n_embd, maxdiff, rmsdiff);
+        if (ok && matvec_reps > 0) {
+            const double start = qw3_now_sec();
+            for (int rep = 0; rep < matvec_reps && ok; rep++)
+                ok = qw3_metal_session_matvec_quant_inner_to_x1(
+                    s->metal, w->offset, w->type, n_in, n_embd, NULL);
+            if (ok) ok = qw3_metal_synchronize();
+            fprintf(fp, "metal dense warmed inner matvec: type=%s reps=%d ms=%.4f\n",
+                    tensor_type_name(w->type), matvec_reps,
+                    (qw3_now_sec() - start) * 1000.0 / matvec_reps);
+        }
     }
     if (ok) {
         const uint32_t n_vocab = (uint32_t)spec->n_vocab;
@@ -10929,7 +11009,7 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
                     "metal session quant types: ok x1=%zu inner=%zu output=1 token=%d\n",
                     n_types, n_inner_types, token);
     qw3_session_free(s);
-    free(inner); free(up); free(gate);
+    free(gpu_pair); free(inner); free(up); free(gate);
     free(gpu); free(cpu); free(xn); free(x);
     return ok ? 0 : -1;
 #endif

@@ -2069,6 +2069,111 @@ kernel void qw3_matvec_iq2_s(constant qw3_matvec_q8_0_args &args,
     sum = simd_sum(sum);
     if (tid == 0) out[row] = sum;
 }
+/* Decode IQ2 in 32-value units, with two output rows per SIMD group.
+ * The lookup magnitudes are small integers and exactly representable in half;
+ * only the cache uses half, not the scaled weights, activations or arithmetic. */
+template<ushort Kind>
+inline float qw3_iq2_dot32_vector(device const uchar *blk,
+                                  thread const float4 *xx,
+                                  threadgroup const half4 *grid,
+                                  threadgroup const uchar *signs, uint ib) {
+    const float d = float(*((device const half *)blk));
+    device const uchar *qs = blk + 2u;
+    uint packed = 0u, scale = 0u;
+    if (Kind == 0u) {
+        device const uchar *sp = qs + 8u * ib + 4u;
+        packed = uint(sp[0]) | (uint(sp[1]) << 8u) |
+                 (uint(sp[2]) << 16u) | (uint(sp[3]) << 24u);
+    } else {
+        scale = uint(blk[(Kind == 1u ? 66u : 74u) + ib]);
+    }
+    float sum = 0.0f;
+    for (uint l = 0; l < 4u; l++) {
+        uint idx, s;
+        if (Kind == 0u) {
+            idx = uint(qs[8u * ib + l]);
+            s = uint(signs[(packed >> (7u * l)) & 127u]);
+        } else if (Kind == 1u) {
+            const uint off = 2u * (4u * ib + l);
+            const uint q = uint(qs[off]) | (uint(qs[off + 1u]) << 8u);
+            idx = q & 511u;
+            s = uint(signs[q >> 9u]);
+        } else {
+            idx = uint(qs[4u * ib + l]) |
+                  ((uint(blk[66u + ib]) << (8u - 2u * l)) & 0x300u);
+            s = uint(blk[34u + 4u * ib + l]);
+        }
+        const float4 sign1 = select(float4(1.0f), float4(-1.0f),
+                                   (uint4(s) & uint4(1u, 2u, 4u, 8u)) != 0u);
+        const float4 sign2 = select(float4(1.0f), float4(-1.0f),
+                                   (uint4(s) & uint4(16u, 32u, 64u, 128u)) != 0u);
+        const float v = dot(float4(grid[2u * idx]) * sign1, xx[2u * l]) +
+                        dot(float4(grid[2u * idx + 1u]) * sign2, xx[2u * l + 1u]);
+        if (Kind == 0u) sum += v;
+        else sum += (0.5f + float((scale >> (4u * (l >> 1u))) & 15u)) * v;
+    }
+    return d * 0.25f * (Kind == 0u ? (0.5f + float(packed >> 28u)) * sum : sum);
+}
+template<ushort Kind>
+kernel void qw3_matvec_iq2_fast(
+    constant qw3_matvec_q8_0_args &args,
+    device const uchar *weights,
+    device const float *x,
+    device float *out,
+    device const ushort *grid_table,
+    device const uchar *sign_table,
+    threadgroup float *sh,
+    uint group [[threadgroup_position_in_grid]],
+    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+    ushort lane [[thread_index_in_simdgroup]]) {
+    (void)sh;
+    constexpr uint NG = Kind == 0u ? 256u : Kind == 1u ? 512u : 1024u;
+    constexpr uint NB = Kind == 0u ? 66u : Kind == 1u ? 74u : 82u;
+    threadgroup half4 grid[NG * 2u];
+    threadgroup uchar signs[128];
+    const uint tid = uint(simd_idx) * 32u + uint(lane);
+    for (uint i = tid; i < NG; i += 64u) {
+        const ushort packed = grid_table[i];
+        grid[2u * i] = half4(qw3_iq2_grid_value(packed, 0u),
+                             qw3_iq2_grid_value(packed, 1u),
+                             qw3_iq2_grid_value(packed, 2u),
+                             qw3_iq2_grid_value(packed, 3u));
+        grid[2u * i + 1u] = half4(qw3_iq2_grid_value(packed, 4u),
+                                  qw3_iq2_grid_value(packed, 5u),
+                                  qw3_iq2_grid_value(packed, 6u),
+                                  qw3_iq2_grid_value(packed, 7u));
+    }
+    if (Kind != 2u)
+        for (uint i = tid; i < 128u; i += 64u) signs[i] = sign_table[i];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const uint row0 = (group * 2u + uint(simd_idx)) * 2u;
+    const uint row1 = row0 + 1u;
+    float sum0 = 0.0f, sum1 = 0.0f;
+    for (uint b32 = uint(lane); b32 < args.n_in / 32u; b32 += 32u) {
+        const uint b = b32 / 8u, ib = b32 & 7u;
+        device const float4 *x4 = (device const float4 *)(x + uint64_t(b32) * 32ull);
+        float4 xx[8];
+        for (uint j = 0; j < 8u; j++) xx[j] = x4[j];
+        if (row0 < args.n_out)
+            sum0 += qw3_iq2_dot32_vector<Kind>(
+                weights + uint64_t(row0) * args.row_bytes + uint64_t(b) * NB,
+                xx, grid, signs, ib);
+        if (row1 < args.n_out)
+            sum1 += qw3_iq2_dot32_vector<Kind>(
+                weights + uint64_t(row1) * args.row_bytes + uint64_t(b) * NB,
+                xx, grid, signs, ib);
+    }
+    sum0 = simd_sum(sum0); sum1 = simd_sum(sum1);
+    if (lane == 0) {
+        if (row0 < args.n_out) out[row0] = sum0;
+        if (row1 < args.n_out) out[row1] = sum1;
+    }
+}
+typedef decltype(qw3_matvec_iq2_fast<0>) qw3_matvec_iq2_fast_t;
+template [[host_name("qw3_matvec_iq2_xxs_fast")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<0>;
+template [[host_name("qw3_matvec_iq2_xs_fast")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<1>;
+template [[host_name("qw3_matvec_iq2_s_fast")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<2>;
+
 /* Four prompt rows share each IQ2_S weight decode. A simdgroup owns one
  * output row; each lane handles complete 256-value quant blocks. */
 kernel void qw3_matmul_iq2_s_batch4(
@@ -2534,6 +2639,28 @@ kernel void qw3_matvec_iq3_xxs(constant qw3_matvec_q8_0_args &args,
     sum = simd_sum(sum);
     if (tid == 0) out[row] = sum;
 }
+inline float qw3_iq3xxs_dot32_vector(device const uchar *blk,
+                                    thread const float4 *xx,
+                                    threadgroup const float4 *grid,
+                                    threadgroup const uchar *signs, uint ib) {
+    const float d = float(*((device const half *)blk));
+    device const uchar *qs = blk + 2u + 8u * ib;
+    device const uchar *sp = blk + 66u + 4u * ib;
+    const uint packed = uint(sp[0]) | (uint(sp[1]) << 8u) |
+                        (uint(sp[2]) << 16u) | (uint(sp[3]) << 24u);
+    const float db = d * (0.5f + float(packed >> 28u)) * 0.5f;
+    float sum = 0.0f;
+    for (uint l = 0; l < 4u; l++) {
+        const uint s = uint(signs[(packed >> (7u * l)) & 127u]);
+        const float4 sign1 = select(float4(1.0f), float4(-1.0f),
+                                   (uint4(s) & uint4(1u, 2u, 4u, 8u)) != 0u);
+        const float4 sign2 = select(float4(1.0f), float4(-1.0f),
+                                   (uint4(s) & uint4(16u, 32u, 64u, 128u)) != 0u);
+        sum += dot(grid[uint(qs[2u * l])] * sign1, xx[2u * l]) +
+               dot(grid[uint(qs[2u * l + 1u])] * sign2, xx[2u * l + 1u]);
+    }
+    return db * sum;
+}
 kernel void qw3_matvec_iq3_xxs_fast(
                                constant qw3_matvec_q8_0_args &args,
                                device const uchar *weights,
@@ -2546,20 +2673,37 @@ kernel void qw3_matvec_iq3_xxs_fast(
                                ushort simd_idx [[simdgroup_index_in_threadgroup]],
                                ushort lane [[thread_index_in_simdgroup]]) {
     (void)sh;
+    /* Split quant blocks into 32-value units so all lanes participate, even
+     * for 5120 inputs (only 20 whole blocks). Reuse x across output rows. */
+    threadgroup float4 grid[256];
+    threadgroup uchar signs[128];
+    const uint tid = uint(simd_idx) * 32u + uint(lane);
+    for (uint i = tid; i < 256u; i += 64u) {
+        const ushort packed = grid_table[i];
+        grid[i] = float4(qw3_iq3xxs_grid_value(packed, 0u),
+                         qw3_iq3xxs_grid_value(packed, 1u),
+                         qw3_iq3xxs_grid_value(packed, 2u),
+                         qw3_iq3xxs_grid_value(packed, 3u));
+    }
+    for (uint i = tid; i < 128u; i += 64u) signs[i] = sign_table[i];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
     uint row0 = (group * 2u + uint(simd_idx)) * 2u;
     uint row1 = row0 + 1u;
     float sum0 = 0.0f, sum1 = 0.0f;
-    uint n_blocks = args.n_in / 256u;
-    for (uint b = uint(lane); b < n_blocks; b += 32u) {
-        device const float *xx = x + uint64_t(b) * 256ull;
+    uint nb32 = args.n_in / 32u;
+    for (uint b32 = uint(lane); b32 < nb32; b32 += 32u) {
+        const uint b = b32 / 8u, ib = b32 & 7u;
+        device const float4 *x4 = (device const float4 *)(x + uint64_t(b32) * 32ull);
+        float4 xx[8];
+        for (uint j = 0; j < 8u; j++) xx[j] = x4[j];
         if (row0 < args.n_out)
-            sum0 += qw3_iq3xxs_dot_block(
+            sum0 += qw3_iq3xxs_dot32_vector(
                 weights + uint64_t(row0) * uint64_t(args.row_bytes) +
-                uint64_t(b) * 98ull, xx, grid_table, sign_table);
+                uint64_t(b) * 98ull, xx, grid, signs, ib);
         if (row1 < args.n_out)
-            sum1 += qw3_iq3xxs_dot_block(
+            sum1 += qw3_iq3xxs_dot32_vector(
                 weights + uint64_t(row1) * uint64_t(args.row_bytes) +
-                uint64_t(b) * 98ull, xx, grid_table, sign_table);
+                uint64_t(b) * 98ull, xx, grid, signs, ib);
     }
     sum0 = simd_sum(sum0);
     sum1 = simd_sum(sum1);

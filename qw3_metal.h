@@ -290,6 +290,8 @@ int qw3_metal_session_copy_batch_x0_to_x0(qw3_metal_session *s,
 int qw3_metal_session_write_x0(qw3_metal_session *s, const float *x,
                                uint32_t n);
 int qw3_metal_session_read_x0(qw3_metal_session *s, float *out, uint32_t n);
+int qw3_metal_session_read_scratch(qw3_metal_session *s, float *out,
+                                    uint32_t offset, uint32_t n);
 int qw3_metal_session_add_moe_to_x0(qw3_metal_session *s, const float *moe,
                                     uint32_t n);
 int qw3_metal_session_silu_mul_scratch_to_inner(qw3_metal_session *s,

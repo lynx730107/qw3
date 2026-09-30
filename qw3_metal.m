@@ -110,6 +110,7 @@ static id<MTLComputePipelineState> g_matvec_iq4_nl_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq4_nl_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_xs_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_xxs_pipeline;
+static int g_dense_iq2_vector;
 static id<MTLComputePipelineState> g_matmul_iq2_xs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_xxs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_s_pipeline;
@@ -1401,7 +1402,10 @@ static int qw3_metal_compile_kernels(void) {
                         [[error localizedDescription] UTF8String]);
         }
     }
-    fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_xxs"];
+    const char *iq2_vector_env = getenv("QW3_METAL_DENSE_IQ2_VECTOR");
+    g_dense_iq2_vector = !(iq2_vector_env && strcmp(iq2_vector_env, "0") == 0);
+    fn = [g_library newFunctionWithName:g_dense_iq2_vector ?
+          @"qw3_matvec_iq2_xxs_fast" : @"qw3_matvec_iq2_xxs"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_matvec_iq2_xxs not found\n");
         return 0;
@@ -1425,7 +1429,8 @@ static int qw3_metal_compile_kernels(void) {
                         [[error localizedDescription] UTF8String]);
         }
     }
-    fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_xs"];
+    fn = [g_library newFunctionWithName:g_dense_iq2_vector ?
+          @"qw3_matvec_iq2_xs_fast" : @"qw3_matvec_iq2_xs"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_matvec_iq2_xs not found\n");
         return 0;
@@ -1449,7 +1454,8 @@ static int qw3_metal_compile_kernels(void) {
                         [[error localizedDescription] UTF8String]);
         }
     }
-    fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_s"];
+    fn = [g_library newFunctionWithName:g_dense_iq2_vector ?
+          @"qw3_matvec_iq2_s_fast" : @"qw3_matvec_iq2_s"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_matvec_iq2_s not found\n");
         return 0;
@@ -6733,6 +6739,32 @@ int qw3_metal_session_read_x0(qw3_metal_session *s, float *out,
     return 1;
 }
 
+int qw3_metal_session_read_scratch(qw3_metal_session *s, float *out,
+                                    uint32_t offset, uint32_t n) {
+    if (!s || !s->obj || !out || !n) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t bytes = (uint64_t)n * sizeof(float);
+    const uint64_t start = (uint64_t)offset * sizeof(float);
+    if (!obj.scratch || start > obj.scratch.length ||
+        bytes > obj.scratch.length - start) return 0;
+    id<MTLBuffer> readback = [g_device newBufferWithLength:(NSUInteger)bytes
+                                   options:MTLResourceStorageModeShared];
+    if (!readback) return 0;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    qw3_metal_close_batch_encoder();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:obj.scratch sourceOffset:(NSUInteger)start
+                toBuffer:readback destinationOffset:0 size:(NSUInteger)bytes];
+    [blit endEncoding];
+    if (!qw3_metal_finish_command_buffer(cb, owned, "read scratch")) return 0;
+    if (cb.status == MTLCommandBufferStatusError) return 0;
+    memcpy(out, readback.contents, (size_t)bytes);
+    return 1;
+}
+
 int qw3_metal_session_add_moe_to_x0(qw3_metal_session *s, const float *moe,
                                     uint32_t n) {
     if (!s || !s->obj || !moe || n == 0) return 0;
@@ -7220,10 +7252,13 @@ static int qw3_metal_session_matvec_dense_iq(
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
     const int iq3s_fast = pipeline == g_matvec_iq3_s_pipeline;
     const int iq3xxs_fast = pipeline == g_matvec_iq3_xxs_pipeline;
-    NSUInteger threads = (iq3s_fast || iq3xxs_fast) ? 64u :
+    const int iq2_fast = g_dense_iq2_vector &&
+        (pipeline == g_matvec_iq2_xxs_pipeline ||
+         pipeline == g_matvec_iq2_xs_pipeline || pipeline == g_matvec_iq2_s_pipeline);
+    NSUInteger threads = (iq3s_fast || iq3xxs_fast || iq2_fast) ? 64u :
         qw3_metal_matvec_threads(pipeline, n_in / 256u);
     NSUInteger groups = iq3s_fast ? (n_out + 7u) / 8u :
-        iq3xxs_fast ? (n_out + 3u) / 4u : n_out;
+        (iq3xxs_fast || iq2_fast) ? (n_out + 3u) / 4u : n_out;
     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
