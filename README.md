@@ -183,6 +183,14 @@ between stages and therefore slows the run).
 Set `QW3_METAL_DENSE_PROBE_REPS=20` when running `--metal-session-embed-test`
 to time repeated quantized projections separately from their first invocation.
 
+Dense decode now reuses vector-loaded IQ4_XS activations and workgroup-local
+lookup tables for IQ4_XS and IQ3_S matvecs. Short warmed M5 measurements at
+depth 128 (`tg32`, ctx 256) improved from 6.74-6.76 to 7.16-7.21 tok/s;
+the same-GGUF llama.cpp reference measured 8.88 tok/s. Longer repeated runs
+showed baseline drift, so these observations are not sustained-speed promises.
+FP32 activations/accumulators and the existing numerical test thresholds are
+retained. This does not enable the model's optional NextN/MTP block.
+
 ## Performance
 
 Measurements below were taken on September 14, 2026, on a MacBook Air M5 with

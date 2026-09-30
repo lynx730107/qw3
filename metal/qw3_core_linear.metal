@@ -504,25 +504,6 @@ kernel void qw3_matvec_q8_0_fast(constant qw3_matvec_q8_0_args &args,
 inline float qw3_iq4nl_val(uint q) {
     return qw3_iq4nl_table[q & 15u];
 }
-inline float qw3_iq4xs_dot8(device const uchar *blk,
-                            device const float *xg,
-                            uint ib, uint il) {
-    half d = *((device const half *)blk);
-    ushort scales_h = *((device const ushort *)(blk + 2));
-    device const uchar *scales_l = blk + 4;
-    device const uchar *qs = scales_l + 4 + ib * 16u + il * 8u;
-    uint ls = ((uint(scales_l[ib / 2u]) >>
-                (4u * (ib & 1u))) & 15u) |
-              (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);
-    float dl = float(d) * float(int(ls) - 32);
-    float acc = 0.0f;
-    for (uint j = 0; j < 8u; j++) {
-        uchar v = qs[j];
-        acc += qw3_iq4nl_val(uint(v) & 15u) * xg[j];
-        acc += qw3_iq4nl_val(uint(v) >> 4u) * xg[j + 16u];
-    }
-    return dl * acc;
-}
 kernel void qw3_matvec_iq4_xs(constant qw3_matvec_q8_0_args &args,
                               device const uchar *weights,
                               device const float *x,
@@ -606,6 +587,29 @@ kernel void qw3_matvec_iq4_xs_add_x0(constant qw3_matvec_q8_0_args &args,
     sum = simd_sum(sum);
     if (tid == 0) x0[row] = x0[row] + sum * scale;
 }
+/* Load eight packed quants as two words; reuse the four activation vectors
+ * across output rows and the gate/up pair. Magnitudes remain exact integers. */
+inline float qw3_iq4xs_dot8_vector(device const uchar *blk,
+                                  thread const float4 *xl,
+                                  threadgroup const float *table,
+                                  uint ib, uint il) {
+    const half d = *((device const half *)blk);
+    const ushort scales_h = *((device const ushort *)(blk + 2));
+    device const uchar *scales_l = blk + 4;
+    device const uint *qs = (device const uint *)(blk + 8 + ib * 16u + il * 8u);
+    const uint ls = ((uint(scales_l[ib / 2u]) >> (4u * (ib & 1u))) & 15u) |
+                    (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);
+    float4 lo = float4(0.0f), hi = float4(0.0f);
+    for (uint j = 0; j < 2u; j++) {
+        const uint q = qs[j];
+        const uchar4 qlo = as_type<uchar4>(q & 0x0f0f0f0fu);
+        const uchar4 qhi = as_type<uchar4>((q >> 4u) & 0x0f0f0f0fu);
+        lo += xl[2u * j] * float4(table[qlo.x], table[qlo.y], table[qlo.z], table[qlo.w]);
+        hi += xl[2u * j + 1u] * float4(table[qhi.x], table[qhi.y], table[qhi.z], table[qhi.w]);
+    }
+    lo += hi;
+    return float(d) * float(int(ls) - 32) * (lo.x + lo.y + lo.z + lo.w);
+}
 kernel void qw3_matvec_iq4_xs_fast(constant qw3_matvec_q8_0_args &args,
                                    device const uchar *weights,
                                    device const float *x,
@@ -614,7 +618,8 @@ kernel void qw3_matvec_iq4_xs_fast(constant qw3_matvec_q8_0_args &args,
                                    uint group [[threadgroup_position_in_grid]],
                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
                                    ushort lane [[thread_index_in_simdgroup]]) {
-    (void)sh;
+    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+    threadgroup_barrier(mem_flags::mem_threadgroup);
     const uint nr0 = 2u;
     const uint nsg = 2u;
     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
@@ -627,17 +632,19 @@ kernel void qw3_matvec_iq4_xs_fast(constant qw3_matvec_q8_0_args &args,
     for (uint b = ix; b < n_blocks; b += 2u) {
         device const float *xg = x + uint64_t(b) * 256ull +
                                  uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
+        device const float4 *x4 = (device const float4 *)xg;
+        float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
         uint row = first_row;
         uint64_t block_off = uint64_t(b) * 136ull;
         if (row < args.n_out)
-            sum0 += qw3_iq4xs_dot8(weights +
+            sum0 += qw3_iq4xs_dot8_vector(weights +
                 uint64_t(row) * uint64_t(args.row_bytes) + block_off,
-                xg, ib, il);
+                xl, sh, ib, il);
         row = first_row + 1u;
         if (row < args.n_out)
-            sum1 += qw3_iq4xs_dot8(weights +
+            sum1 += qw3_iq4xs_dot8_vector(weights +
                 uint64_t(row) * uint64_t(args.row_bytes) + block_off,
-                xg, ib, il);
+                xl, sh, ib, il);
     }
     sum0 = simd_sum(sum0);
     sum1 = simd_sum(sum1);
@@ -658,7 +665,8 @@ kernel void qw3_matvec_iq4_xs_pair_fast(
                                    uint group [[threadgroup_position_in_grid]],
                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
                                    ushort lane [[thread_index_in_simdgroup]]) {
-    (void)sh;
+    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+    threadgroup_barrier(mem_flags::mem_threadgroup);
     const uint nr0 = 2u;
     const uint nsg = 2u;
     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
@@ -672,19 +680,21 @@ kernel void qw3_matvec_iq4_xs_pair_fast(
     for (uint b = ix; b < n_blocks; b += 2u) {
         device const float *xg = x + uint64_t(b) * 256ull +
                                  uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
+        device const float4 *x4 = (device const float4 *)xg;
+        float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
         uint row = first_row;
         if (row < args.n_out) {
             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
                            uint64_t(b) * 136ull;
-            gate0 += qw3_iq4xs_dot8(gate_weights + off, xg, ib, il);
-            up0 += qw3_iq4xs_dot8(up_weights + off, xg, ib, il);
+            gate0 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
+            up0 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
         }
         row = first_row + 1u;
         if (row < args.n_out) {
             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
                            uint64_t(b) * 136ull;
-            gate1 += qw3_iq4xs_dot8(gate_weights + off, xg, ib, il);
-            up1 += qw3_iq4xs_dot8(up_weights + off, xg, ib, il);
+            gate1 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
+            up1 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
         }
     }
     gate0 = simd_sum(gate0);
@@ -713,7 +723,8 @@ kernel void qw3_matvec_iq4_xs_add_x0_fast(constant qw3_matvec_q8_0_args &args,
                                           uint group [[threadgroup_position_in_grid]],
                                           ushort simd_idx [[simdgroup_index_in_threadgroup]],
                                           ushort lane [[thread_index_in_simdgroup]]) {
-    (void)sh;
+    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+    threadgroup_barrier(mem_flags::mem_threadgroup);
     const uint nr0 = 2u;
     const uint nsg = 2u;
     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
@@ -726,31 +737,17 @@ kernel void qw3_matvec_iq4_xs_add_x0_fast(constant qw3_matvec_q8_0_args &args,
     uint n_blocks = args.n_in / 256u;
     for (uint b = ix; b < n_blocks; b += 2u) {
         device const float *xg = x + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
+        device const float4 *x4 = (device const float4 *)xg;
+        float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
         uint row = first_row;
         if (row < args.n_out) {
             device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
-            half d = *((device const half *)blk);
-            ushort scales_h = *((device const ushort *)(blk + 2));
-            device const uchar *scales_l = blk + 4;
-            device const uchar *qs = scales_l + 4 + ib * 16u + il * 8u;
-            uint ls = ((uint(scales_l[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);
-            float dl = float(d) * float(int(ls) - 32);
-            float acc = 0.0f;
-            for (uint j = 0; j < 8u; j++) { uchar v = qs[j]; acc += qw3_iq4nl_val(uint(v) & 15u) * xg[j]; acc += qw3_iq4nl_val(uint(v) >> 4u) * xg[j + 16u]; }
-            sum0 += dl * acc;
+            sum0 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
         }
         row = first_row + 1u;
         if (row < args.n_out) {
             device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
-            half d = *((device const half *)blk);
-            ushort scales_h = *((device const ushort *)(blk + 2));
-            device const uchar *scales_l = blk + 4;
-            device const uchar *qs = scales_l + 4 + ib * 16u + il * 8u;
-            uint ls = ((uint(scales_l[ib / 2u]) >> (4u * (ib & 1u))) & 15u) | (((uint(scales_h) >> (2u * ib)) & 3u) << 4u);
-            float dl = float(d) * float(int(ls) - 32);
-            float acc = 0.0f;
-            for (uint j = 0; j < 8u; j++) { uchar v = qs[j]; acc += qw3_iq4nl_val(uint(v) & 15u) * xg[j]; acc += qw3_iq4nl_val(uint(v) >> 4u) * xg[j + 16u]; }
-            sum1 += dl * acc;
+            sum1 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
         }
     }
     sum0 = simd_sum(sum0);

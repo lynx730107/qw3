@@ -1675,3 +1675,80 @@ Rejected experiments were removed before promotion:
   calls averaged 2.447 ms versus 2.443 ms for native GGUF. Preparing the first
   tensor took additional work (4.923 versus 2.538 ms first call). The prepared
   layout and cache were removed; this specific reordering did not help.
+
+## Dense decode quantized matvec reuse (September 30)
+
+The dense decode FFNs are a separate bottleneck from the previously optimized
+prefill matmuls. Two native-GGUF matvec changes retain FP32 activations and
+accumulators without adding prepared model weights:
+
+- IQ4_XS single, gate/up pair, and residual-add down kernels load eight packed
+  quants as two 32-bit words and reuse four activation vectors across rows.
+  The exact 16-entry magnitude table is staged once per workgroup (64 bytes).
+- IQ3_S single and gate/up pair kernels stage the exact packed 512-entry
+  lookup grid (1 KiB) and load each 32-element activation slice once into
+  thread storage, reusing it over four output rows and both projections.
+  The signed/scaled dot-product loop order is retained.
+
+Apple M5, same Qwen3.8 UD-Q3_K_XL GGUF, full GPU offload, F16 KV, 128-token
+depth and 32 timed decode tokens. All workloads ran sequentially under
+`caffeinate -disu`, with warmup:
+
+| Configuration, in run order | Repetitions | tok/s | Sample SD |
+| --- | ---: | ---: | ---: |
+| Original qw3 | 3 | 6.76 | 0.03 |
+| llama.cpp (`4fea119de`, build 11041) | 3 | 8.88 | 0.09 |
+| IQ4_XS single + pair | 3 | 6.92 | 0.03 |
+| Original qw3, repeat | 3 | 6.74 | 0.04 |
+| IQ4_XS plus residual-add down | 3 | 6.98 | 0.04 |
+| Both IQ4_XS and IQ3_S changes | 3 | 7.21 | 0.02 |
+| IQ4_XS only, repeat | 3 | 7.05 | 0.03 |
+| Both changes, repeat | 5 | 7.16 | 0.07 |
+| Original qw3, final control | 5 | 6.48 | 0.17 |
+
+The five-sample candidate is about 6% faster than the initial original-path
+runs. The later original control drifted downward, so the larger apparent
+10% gain against that control is not treated as an isolated kernel speedup.
+These are short fanless-M5 observations, not a sustained-speed guarantee or
+decode parity: llama.cpp was still faster. Both benchmarks process fixed
+synthetic streams, not identical generated responses, and neither uses MTP
+or another speculative draft.
+
+The synchronous dense stage profiler showed gate/up at roughly 74-76 ms and
+down at 42-44 ms out of a 209-214 ms token. Profiling inserts additional waits;
+the unprofiled original takes about 148 ms/token, so these stage totals are
+diagnostic proxies, not a decomposition of production latency.
+
+Commands:
+
+```sh
+caffeinate -disu ./qw3-bench -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf \
+  --ngl 64 --llama-style -p 0 -n 32 -d 128 -r 5 --ctx-alloc 256
+caffeinate -disu ../../llama.cpp/build/bin/llama-bench \
+  -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf -ngl 99 \
+  -p 0 -n 32 -d 128 -r 3 -ctk f16 -ctv f16 -fa on -b 128 -ub 128 -o json
+```
+
+Original/candidate controls used separate snapshots of the Metal source via
+`QW3_METAL_KERNEL_DIR`, with the same host binary and benchmark arguments.
+No diagnostic selector or runtime cache is required in production.
+
+`test-dense-metal-bringup` passed with unchanged thresholds, including all
+quantization formats, CPU/Metal full logits, greedy tokens, 128-token prefill
+continuation, F32 KV, generation, and session roundtrip. Runtime fingerprint
+and agent parser/guard/trace tests also passed. `test-metal-logits` passed for
+the MoE model. `test-dense-agent` passed generation and cache/checkpoint
+creation/resume, and the dense coding smoke completed real `write`/`bash`
+calls, compilation, and exact program output.
+
+A matched five-sample `pp128` check measured 139.59 ± 1.22 tok/s for the
+candidate and 140.30 ± 1.07 for the original snapshot, within the observed
+variation. The full-chunk prefill matmuls were not changed.
+
+The live-internet dense test with `--think` also passed: exactly one real
+`visit_url` call and JSON matching the live GitHub values. It generated the
+same 221-token count as the preceding run, in 32.072 s versus 34.549 s
+(about 6.89 versus 6.40 tok/s). Prefill was unchanged within variation:
+3,767 tokens in 29.699 s versus 29.595 s. Wall time was 63.930 s versus
+65.106 s; network/startup and machine conditions were not controlled between
+these two agent runs, so the kernel gain is not equated to the wall-time gain.
