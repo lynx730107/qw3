@@ -13,7 +13,7 @@ METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
 endif
 
 .PHONY: all clean cpu metal agent tools codenav \
-	test-vectors test-model-profiles test-quant-k test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-context test-agent-edit test-agent-llama-reference test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-agent-web-moe test-agent-web-think test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
+	test-vectors test-model-profiles test-quant-k test-agent-bash test-agent-checkpoint test-agent-checkpoint-compatibility test-agent-coding-smoke test-agent-python-smoke test-agent-context test-agent-edit test-agent-llama-reference test-agent-prefix-cache test-agent-repeat test-agent-trace test-agent-verify test-agent-web-moe test-agent-web-think test-metal-smoke test-metal-logits test-metal-logits-concurrent test-metal-gqa-decode \
 	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
@@ -180,6 +180,9 @@ test-agent-checkpoint: qw3-agent
 
 test-agent-coding-smoke: qw3-agent
 	sh tests/test_agent_coding_smoke.sh
+
+test-agent-python-smoke: qw3-agent
+	sh tests/test_agent_python_smoke.sh
 
 test-agent-prefix-cache: qw3-agent
 	sh tests/test_agent_prefix_cache.sh
