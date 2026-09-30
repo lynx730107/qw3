@@ -11115,6 +11115,18 @@ int qw3_engine_metal_session_embed_test(qw3_engine *e, int token,
             qw3_metal_session_batch_matmul_quant_x1_to_scratch(
                 s->metal, weight->offset, quant_type, n_batch, n_in, n_out);
         const double mm_ms = (qw3_now_sec() - mm_start) * 1000.0;
+        const char *probe_reps_env = getenv("QW3_METAL_DENSE_PROBE_REPS");
+        int probe_reps = probe_reps_env ? atoi(probe_reps_env) : 0;
+        if (probe_reps > 100) probe_reps = 100;
+        if (batch_ok && probe_reps > 0) {
+            const double warm_start = qw3_now_sec();
+            for (int rep = 0; rep < probe_reps && batch_ok; rep++)
+                batch_ok = qw3_metal_session_batch_matmul_quant_x1_to_scratch(
+                    s->metal, weight->offset, quant_type, n_batch, n_in, n_out);
+            fprintf(fp, "metal dense warmed projection: type=%s reps=%d ms=%.3f\n",
+                tensor_type_name(quant_type), probe_reps,
+                (qw3_now_sec() - warm_start) * 1000.0 / probe_reps);
+        }
         batch_ok = batch_ok &&
             qw3_metal_session_read_batch_scratch(
                 s->metal, batch_out, n_batch, n_out);

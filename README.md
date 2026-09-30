@@ -149,8 +149,17 @@ IQ4_XS. Interleaved runs improved the default from about 109.4-110.2 tok/s to
 136.3-137.6 tok/s. Set `QW3_METAL_STAGED128=0` to select the previous 64-row
 cooperative kernels. Per-layer batching
 keeps the individual compute/blit encoders ordered in one retained Metal
-command buffer and synchronizes once after the FFN. Individual cold runs vary;
-these are not sustained-speed guarantees. The local `llama.cpp` baseline is
+command buffer and synchronizes once after the FFN.
+
+Full 128-token chunks now also use separate staged IQ3_S gate/up projections
+instead of the older 32-token mapped pair tile, preserving its F16 activation
+rounding. Matched warmed seven-sample `pp128` measurements were 142.66 ± 0.60
+tok/s versus 136.57 ± 0.89 tok/s with the pair tile (about 4.5% higher
+throughput). Smaller chunks keep the pair tile.
+Set `QW3_METAL_DENSE_PREFILL_IQ3_PAIR=1` to restore paired prefill for A/B runs;
+`=0` forces separate projections. Decode's pair setting is independent.
+Individual cold runs vary; these are not sustained-speed guarantees.
+The local `llama.cpp` baseline is
 159.22 ± 1.13 tok/s for `pp128` with the same GGUF and full GPU offload, so
 the remaining gap is still substantial. Set
 `QW3_METAL_DENSE_LAYER_BATCH=0` to restore separate stage submissions. The
@@ -171,6 +180,8 @@ single-command-buffer layer path.
 Set
 `QW3_METAL_DENSE_PROFILE=1` for per-stage decode diagnostics (it synchronizes
 between stages and therefore slows the run).
+Set `QW3_METAL_DENSE_PROBE_REPS=20` when running `--metal-session-embed-test`
+to time repeated quantized projections separately from their first invocation.
 
 ## Performance
 

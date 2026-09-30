@@ -1600,3 +1600,78 @@ isolated 5120x17408 Q3_K projection fell from roughly 8.1 ms to 2.8 ms; the
 complete-model gain is smaller because its GGUF mixes several quantization
 formats and includes attention and recurrent work. The local llama.cpp
 reference remains 159.22 ± 1.13 tok/s, so parity is not yet reached.
+
+## Dense IQ3_S staged gate/up selection (September 30)
+
+Dense FFNs with IQ3_S gate and up tensors previously always selected the
+mapped MoE pair kernel, which processes 32-token tiles and stages its input
+as half. For full 128-token chunks, two separate staged128 projections reuse
+each dequantized weight tile across all 128 tokens and are faster, even with
+their separate SwiGLU dispatch. The default now selects this path when its
+pipelines are available and staging is enabled. Smaller chunks and devices
+without the required pipelines retain the pair kernel. Decode is unchanged.
+
+A small in-place pass rounds FFN-only X1 to F16 before the two projections,
+preserving the old pair kernel's activation precision. The initial variant
+without this pass passed the greedy choice but failed continuation RMS
+(0.005648103, above the unchanged 0.005 limit); it was not promoted. With
+rounding, the 128-token test reproduces the previous logits: prefill max
+0.02284598, RMS 0.004564136; continuation max 0.02589846, RMS 0.004799505,
+and the greedy choices match. No tolerance was relaxed.
+
+`QW3_METAL_DENSE_PREFILL_IQ3_PAIR=1` restores the pair tile for diagnostic A/B
+runs, and `=0` forces separate projections. Disabling `QW3_METAL_STAGED128`
+also retains the previous default selection. The projection probe accepts
+`QW3_METAL_DENSE_PROBE_REPS` (capped at 100) and reports the average of repeated
+calls, separately from first-call `mm_ms`, to avoid confusing pipeline/startup
+cost with steady kernel time.
+
+Apple M5, same Qwen3.8 UD-Q3_K_XL GGUF, full offload, ctx 256, pp128,
+seven repetitions:
+
+| Mode | Separate staged projections | Mapped pair |
+| --- | --- | --- |
+| Initial variant, no warmup, without F16 rounding | 141.27 ± 6.14 tok/s | 135.25 ± 5.63 tok/s |
+| Initial variant, warmed, without F16 rounding | 143.31 ± 0.53 tok/s | 136.52 ± 0.92 tok/s |
+| Corrected variant, warmed, preserving F16 rounding | 142.66 ± 0.60 tok/s | 136.57 ± 0.89 tok/s |
+
+The corrected warmed improvement is 4.5%; the preceding llama.cpp reference remains
+159.22 ± 1.13 tok/s and was not remeasured in this comparison. GPU workloads
+were run sequentially. These are short M5 Air observations.
+
+Reproduce the corrected A/B with `QW3_METAL_DENSE_PREFILL_IQ3_PAIR=0` and
+then `=1`, running the following command sequentially for each value:
+
+```sh
+./qw3-bench -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ngl 64 \
+  --llama-style -p 128 -n 0 -r 7 --ctx-alloc 256
+```
+
+Validation: `make test-dense-metal-bringup`, `make test-metal-logits`,
+`make test-dense-agent`, and `make test-runtime-fingerprint` passed with
+unchanged thresholds. Agent parser, repeat guard, status, verify guard, and
+trace self-tests also passed.
+
+The live-internet candidate test with `--think` passed: one real `visit_url`
+call and a JSON answer matching the fetched GitHub fields. It processed 3,767
+prefill tokens in 29.595 s and generated 221 tokens in 34.549 s (65.106 s wall).
+This is a correctness check, not a new llama-server timing comparison; the
+agent's real-prompt prefill remains slower than the short `pp128` benchmark;
+generation is still about 6.4 tok/s. The dense coding smoke also passed with
+model-generated `write` and `bash` calls, compilation, and exact program output.
+
+Rejected experiments were removed before promotion:
+
+- IQ4_XS cooperative 128-row/eight-SIMDgroup tile: correct, but slower than
+  the four independent 32-row SIMDgroup matmuls.
+- Native-row-major IQ4_XS register prefetch: correct, pp128 fell to 128.12
+  tok/s in five no-warmup samples. This differs from Splash's prepared planes.
+- IQ4_XS K=64 staging: correct, but pp128 was 133.24 tok/s in seven
+  no-warmup samples. These cold samples include significant startup variation.
+- Dense chunk caps of 256/512: pp512 measured 137.58/136.71 tok/s against
+  136.40 with 128-token chunks, within observed variation; cap remains 128.
+- Experimental tiled IQ4_XS payloads with precomputed FP32 scales and a
+  256-MiB cache: CPU differences were unchanged, but twenty warmed projection
+  calls averaged 2.447 ms versus 2.443 ms for native GGUF. Preparing the first
+  tensor took additional work (4.923 versus 2.538 ms first call). The prepared
+  layout and cache were removed; this specific reordering did not help.

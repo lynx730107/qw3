@@ -225,6 +225,7 @@ static id<MTLComputePipelineState> g_residual_rmsnorm_weight_f32_pipeline;
 static id<MTLComputePipelineState> g_residual_rmsnorm_update_x0_pipeline;
 static id<MTLComputePipelineState> g_residual_rmsnorm_batch_update_x0_pipeline;
 static id<MTLComputePipelineState> g_silu_mul_pipeline;
+static id<MTLComputePipelineState> g_round_f16_inplace_pipeline;
 static id<MTLComputePipelineState> g_scale_pipeline;
 static id<MTLComputePipelineState> g_argmax_blocks_pipeline;
 static id<MTLComputePipelineState> g_argmax_penalty_blocks_pipeline;
@@ -2629,6 +2630,11 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_round_f16_inplace"];
+    if (fn) {
+        g_round_f16_inplace_pipeline =
+            [g_device newComputePipelineStateWithFunction:fn error:&error];
+    }
     fn = [g_library newFunctionWithName:@"qw3_silu_mul"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_silu_mul not found\n");
@@ -4927,14 +4933,36 @@ int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
         !qw3_metal_session_prepare_dense_ffn_batch(
             s, n_tokens, n_embd, n_ff)) return 0;
     QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
-    const int paired_iq3_s = gate_batch && up_batch &&
+    const char *pair_env = getenv("QW3_METAL_DENSE_PREFILL_IQ3_PAIR");
+    /* The mapped pair tile processes 32 tokens; two staged128 projections
+     * reuse the weights over the complete chunk and are faster on dense FFNs. */
+    const int enable_pair = pair_env ? strcmp(pair_env, "0") != 0 :
+        !(n_tokens % 128u == 0u && g_matmul_iq3_s_mpp_staged128_pipeline &&
+          g_round_f16_inplace_pipeline && qw3_metal_staged128_enabled());
+    const int iq3_pair_eligible = gate_batch && up_batch &&
         gate_type == 21u && up_type == 21u &&
         g_moe_iq3_s_prefill_pair_mapped_mpp_pipeline != nil;
+    const int paired_iq3_s = iq3_pair_eligible &&
+        (enable_pair || !g_round_f16_inplace_pipeline);
 
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
-    if (!cb ||
-        (paired_iq3_s && !qw3_metal_encode_dense_iq3_s_gate_up(
+    if (!cb) return 0;
+    if (iq3_pair_eligible && !paired_iq3_s) {
+        /* Preserve the pair kernel's F16 activation rounding. X1 is FFN-only
+         * here and is overwritten by the next layer's normalization. */
+        const uint32_t count = n_tokens * n_embd;
+        id<MTLComputeCommandEncoder> round_enc = qw3_metal_compute_encoder(cb);
+        [round_enc setComputePipelineState:g_round_f16_inplace_pipeline];
+        [round_enc setBytes:&count length:sizeof(count) atIndex:0];
+        [round_enc setBuffer:obj.prefillX1 offset:0 atIndex:1];
+        NSUInteger round_threads = g_round_f16_inplace_pipeline.maxTotalThreadsPerThreadgroup;
+        if (round_threads > 256) round_threads = 256;
+        [round_enc dispatchThreads:MTLSizeMake(count, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(round_threads, 1, 1)];
+        qw3_metal_end_compute_encoder(cb, round_enc);
+    }
+    if ((paired_iq3_s && !qw3_metal_encode_dense_iq3_s_gate_up(
             obj, cb, gate_offset, up_offset,
             n_tokens, n_embd, n_ff)) ||
         (!paired_iq3_s && gate_batch && !qw3_metal_encode_dense_batch_matmul(
@@ -12828,6 +12856,7 @@ void qw3_metal_cleanup(void) {
     g_residual_rmsnorm_update_x0_pipeline = nil;
     g_residual_rmsnorm_batch_update_x0_pipeline = nil;
     g_silu_mul_pipeline = nil;
+    g_round_f16_inplace_pipeline = nil;
     g_scale_pipeline = nil;
     g_argmax_blocks_pipeline = nil;
     g_argmax_penalty_blocks_pipeline = nil;

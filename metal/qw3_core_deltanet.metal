@@ -629,6 +629,11 @@ kernel void qw3_residual_rmsnorm_batch_update_x0(constant qw3_residual_batch_arg
     for (uint i = tid; i < args.n; i += nt) { float v = xr[i] + rr[i]; xr[i] = v; yr[i] = v * scale * w[i]; }
 }
 struct qw3_unary_args { uint n; float scale; };
+kernel void qw3_round_f16_inplace(constant uint &n,
+                                 device float *x,
+                                 uint gid [[thread_position_in_grid]]) {
+    if (gid < n) x[gid] = float(half(x[gid]));
+}
 kernel void qw3_silu_mul(constant qw3_unary_args &args,
                          device const float *a,
                          device const float *b,
