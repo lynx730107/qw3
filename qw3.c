@@ -3380,15 +3380,18 @@ static bool cpu_ffn_layer(qw3_engine *e, int il, const float *x,
 }
 
 static void cpu_rope_head(float *x, int pos, int rope_dim, float rope_theta) {
-    for (int i = 0; i < rope_dim; i += 2) {
-        const float freq = powf(rope_theta, -(float)i / (float)rope_dim);
+    /* Text-only Qwen IMRoPE uses split-half (NeoX) coordinate pairs.
+     * Interleaved multimodal sections select positions, not adjacent pairs. */
+    const int half_dim = rope_dim / 2;
+    for (int i = 0; i < half_dim; i++) {
+        const float freq = powf(rope_theta, -(float)(2 * i) / (float)rope_dim);
         const float ang = (float)pos * freq;
         const float c = cosf(ang);
         const float s = sinf(ang);
-        const float x0 = x[i + 0];
-        const float x1 = x[i + 1];
-        x[i + 0] = x0 * c - x1 * s;
-        x[i + 1] = x0 * s + x1 * c;
+        const float x0 = x[i];
+        const float x1 = x[i + half_dim];
+        x[i] = x0 * c - x1 * s;
+        x[i + half_dim] = x0 * s + x1 * c;
     }
 }
 

@@ -2,7 +2,9 @@
  *
  * The two runtimes are opened in sequence to keep peak memory low.  llama.cpp
  * produces the reference vector first on Metal; qw3 then evaluates the same
- * raw token sequence with an empty recurrent/KV state.  The Metal reference
+ * raw token sequence on CPU (or QW3_DENSE_METAL=1) with empty recurrent/KV
+ * state and matching cache precision. Both evaluate sequentially by default.
+ * The Metal reference
  * intentionally avoids ggml's CPU Q8 activation conversion, matching qw3's
  * direct float-activation quantized matvec semantics.  QW3_LLAMA_NGL can
  * override the default of 99 for diagnostics.
@@ -115,6 +117,12 @@ static int load_llama_logits(const char *model_path, const llama_token *tokens,
     cp.n_threads = TEST_THREADS;
     cp.n_threads_batch = TEST_THREADS;
     cp.offload_kqv = mp.n_gpu_layers != 0;
+    /* Match the target cache precision, and its one-token GEMV evaluation.
+     * A multi-row reference prefill can choose different GEMM arithmetic. */
+    const char *f16_env = getenv("QW3_METAL_KV_F16");
+    const bool f16 = getenv("QW3_DENSE_METAL") &&
+        (!f16_env || strcmp(f16_env, "0") != 0);
+    cp.type_k = cp.type_v = f16 ? GGML_TYPE_F16 : GGML_TYPE_F32;
     cp.cb_eval = trace_llama_tensor;
     struct llama_context *ctx = llama_init_from_model(model, cp);
     if (!ctx) {
@@ -123,9 +131,18 @@ static int load_llama_logits(const char *model_path, const llama_token *tokens,
         return 1;
     }
 
-    struct llama_batch batch = llama_batch_get_one((llama_token *)tokens,
-                                                    n_tokens);
-    if (llama_decode(ctx, batch) != 0) {
+    struct llama_batch batch = {0};
+    int decode_result = 0;
+    if (getenv("QW3_DENSE_LLAMA_BATCH")) {
+        batch = llama_batch_get_one((llama_token *)tokens, n_tokens);
+        decode_result = llama_decode(ctx, batch);
+    } else {
+        for (int i = 0; i < n_tokens && decode_result == 0; i++) {
+            batch = llama_batch_get_one((llama_token *)tokens + i, 1);
+            decode_result = llama_decode(ctx, batch);
+        }
+    }
+    if (decode_result != 0) {
         fprintf(stderr, "test-dense-logits: llama.cpp decode failed\n");
         llama_free(ctx);
         llama_model_free(model);
@@ -166,7 +183,7 @@ static int load_qw3_logits(const char *model_path, const int *tokens,
                            int greedy[TEST_GREEDY]) {
     const qw3_engine_options opt = {
         .model_path = model_path,
-        .backend = QW3_BACKEND_CPU,
+        .backend = getenv("QW3_DENSE_METAL") ? QW3_BACKEND_METAL : QW3_BACKEND_CPU,
         .n_threads = TEST_THREADS,
         .warm_weights = false,
     };

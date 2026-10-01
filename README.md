@@ -243,6 +243,19 @@ decode throughput, with identical sampled token IDs. See
 TensorOps experiments. `make qw3-decode-ab-bench` builds that two-session
 comparison; run it with the dense model path as its only argument.
 
+Qwen text IMRoPE now pairs the two halves of the rotated prefix on CPU,
+single-token Metal and batched/fused prefill. Earlier adjacent-pair rotation
+could pass position-zero and greedy-ID checks while drifting from llama.cpp
+in the full logit vector at later positions. `make test-rope test-rope-metal`
+checks nonzero positions without a model; `make test-dense-metal-logits`
+compares multi-token prefixes against sequential llama.cpp evaluation with
+matching KV precision. See [the correction and MTP probe](docs/mtp_probe_2026-10-01.md).
+
+`make test-mtp-reference` builds an optional, separate native Metal MTP probe
+against the local `LLAMA_CPP` build. It measures teacher-forced greedy
+agreement and checks every logit against llama.cpp MTP; it does **not** enable
+speculation in the agent or measure a generation speedup.
+
 ## Performance
 
 Measurements below were taken on September 14, 2026, on a MacBook Air M5 with

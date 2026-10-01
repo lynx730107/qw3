@@ -246,14 +246,15 @@ kernel void qw3_gqa_q_norm_gate_rope_batch(constant qw3_gqa_norm_rope_batch_args
     for (uint i = tid; i < args.head_dim; i += nt) {
         go[i] = gh[i];
         if (i >= args.rope_dim) { yo[i] = qh[i] * scale * w[i]; continue; }
-        uint p = i & ~1u;
-        float freq = pow(args.theta, -float(p) / float(args.rope_dim));
+        uint half_dim = args.rope_dim / 2u;
+        uint p = i % half_dim;
+        float freq = pow(args.theta, -float(2u * p) / float(args.rope_dim));
         float ang = float(args.pos0 + t) * freq;
         float c = cos(ang);
         float s = sin(ang);
-        float x0 = qh[p + 0u] * scale * w[p + 0u];
-        float x1 = qh[p + 1u] * scale * w[p + 1u];
-        yo[i] = (i & 1u) ? (x0 * s + x1 * c) : (x0 * c - x1 * s);
+        float x0 = qh[p] * scale * w[p];
+        float x1 = qh[p + half_dim] * scale * w[p + half_dim];
+        yo[i] = i < half_dim ? (x0 * c - x1 * s) : (x0 * s + x1 * c);
     }
 }
 kernel void qw3_gqa_k_norm_rope_batch(constant qw3_gqa_norm_rope_batch_args &args,
@@ -281,17 +282,19 @@ kernel void qw3_gqa_k_norm_rope_batch(constant qw3_gqa_norm_rope_batch_args &arg
     float scale = rsqrt(ss / float(args.head_dim) + args.eps);
     for (uint i = tid; i < args.head_dim; i += nt) {
         if (i >= args.rope_dim) { yo[i] = kh[i] * scale * w[i]; continue; }
-        uint p = i & ~1u;
-        float freq = pow(args.theta, -float(p) / float(args.rope_dim));
+        uint half_dim = args.rope_dim / 2u;
+        uint p = i % half_dim;
+        float freq = pow(args.theta, -float(2u * p) / float(args.rope_dim));
         float ang = float(args.pos0 + t) * freq;
         float c = cos(ang);
         float s = sin(ang);
-        float x0 = kh[p + 0u] * scale * w[p + 0u];
-        float x1 = kh[p + 1u] * scale * w[p + 1u];
-        yo[i] = (i & 1u) ? (x0 * s + x1 * c) : (x0 * c - x1 * s);
+        float x0 = kh[p] * scale * w[p];
+        float x1 = kh[p + half_dim] * scale * w[p + half_dim];
+        yo[i] = i < half_dim ? (x0 * c - x1 * s) : (x0 * s + x1 * c);
     }
 }
 struct qw3_rope_args { uint n_heads; uint head_dim; uint rope_dim; int pos; float theta; };
+// Qwen IMRoPE's text positions are identical across sections; pairs are split-half.
 kernel void qw3_rope_heads(constant qw3_rope_args &args,
                            device const float *x,
                            device float *out,
@@ -303,14 +306,15 @@ kernel void qw3_rope_heads(constant qw3_rope_args &args,
     device const float *xh = x + uint64_t(h) * args.head_dim;
     device float *yh = out + uint64_t(h) * args.head_dim;
     if (i >= args.rope_dim) { yh[i] = xh[i]; return; }
-    uint p = i & ~1u;
-    float freq = pow(args.theta, -float(p) / float(args.rope_dim));
+    uint half_dim = args.rope_dim / 2u;
+    uint p = i % half_dim;
+    float freq = pow(args.theta, -float(2u * p) / float(args.rope_dim));
     float ang = float(args.pos) * freq;
     float c = cos(ang);
     float s = sin(ang);
-    float x0 = xh[p + 0u];
-    float x1 = xh[p + 1u];
-    yh[i] = (i & 1u) ? (x0 * s + x1 * c) : (x0 * c - x1 * s);
+    float x0 = xh[p];
+    float x1 = xh[p + half_dim];
+    yh[i] = i < half_dim ? (x0 * c - x1 * s) : (x0 * s + x1 * c);
 }
 struct qw3_rope_batch_args { uint n_tokens; uint n_heads; uint head_dim; uint rope_dim; uint pos0; uint in_offset; uint out_offset; uint stride; float theta; };
 kernel void qw3_rope_heads_batch(constant qw3_rope_batch_args &args,
@@ -326,14 +330,15 @@ kernel void qw3_rope_heads_batch(constant qw3_rope_batch_args &args,
     device const float *xh = scratch + uint64_t(t) * args.stride + args.in_offset + uint64_t(h) * args.head_dim;
     device float *yh = scratch + uint64_t(t) * args.stride + args.out_offset + uint64_t(h) * args.head_dim;
     if (i >= args.rope_dim) { yh[i] = xh[i]; return; }
-    uint p = i & ~1u;
-    float freq = pow(args.theta, -float(p) / float(args.rope_dim));
+    uint half_dim = args.rope_dim / 2u;
+    uint p = i % half_dim;
+    float freq = pow(args.theta, -float(2u * p) / float(args.rope_dim));
     float ang = float(args.pos0 + t) * freq;
     float c = cos(ang);
     float s = sin(ang);
-    float x0 = xh[p + 0u];
-    float x1 = xh[p + 1u];
-    yh[i] = (i & 1u) ? (x0 * s + x1 * c) : (x0 * c - x1 * s);
+    float x0 = xh[p];
+    float x1 = xh[p + half_dim];
+    yh[i] = i < half_dim ? (x0 * c - x1 * s) : (x0 * s + x1 * c);
 }
 struct qw3_gqa_inner_args { uint n_heads; uint n_kv_heads; uint head_dim; };
 kernel void qw3_gqa_single_token_inner(constant qw3_gqa_inner_args &args,
