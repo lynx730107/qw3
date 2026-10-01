@@ -256,6 +256,11 @@ against the local `LLAMA_CPP` build. It measures teacher-forced greedy
 agreement and checks every logit against llama.cpp MTP; it does **not** enable
 speculation in the agent or measure a generation speedup.
 
+The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
+LM-head geometry and short-block backbone cost. They do not enable MTP in
+the CLI or agent; the block probe computes **only the last logit row**.
+See [the measured limitations](docs/decode_block_cost_2026-10-01.md).
+
 ## Performance
 
 Measurements below were taken on September 14, 2026, on a MacBook Air M5 with

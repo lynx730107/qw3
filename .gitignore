@@ -15,6 +15,8 @@ qw3-agent-cpu
 qw3-bench
 qw3-sampled-decode-bench
 qw3-decode-ab-bench
+qw3-q5-head-bench
+qw3-block-cost-bench
 qw3-dense-metal-logits-test
 qw3-rope-cpu-test
 qw3-rope-metal-test
