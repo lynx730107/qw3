@@ -2114,7 +2114,7 @@ inline float qw3_iq2_dot32_vector(device const uchar *blk,
     }
     return d * 0.25f * (Kind == 0u ? (0.5f + float(packed >> 28u)) * sum : sum);
 }
-template<ushort Kind>
+template<ushort Kind, ushort Simdgroups = 2>
 kernel void qw3_matvec_iq2_fast(
     constant qw3_matvec_q8_0_args &args,
     device const uchar *weights,
@@ -2132,7 +2132,7 @@ kernel void qw3_matvec_iq2_fast(
     threadgroup uchar4 grid[NG * 2u];
     threadgroup uchar signs[128];
     const uint tid = uint(simd_idx) * 32u + uint(lane);
-    for (uint i = tid; i < NG; i += 64u) {
+    for (uint i = tid; i < NG; i += Simdgroups * 32u) {
         const ushort packed = grid_table[i];
         grid[2u * i] = uchar4(qw3_iq2_grid_value(packed, 0u),
                              qw3_iq2_grid_value(packed, 1u),
@@ -2144,9 +2144,9 @@ kernel void qw3_matvec_iq2_fast(
                                   qw3_iq2_grid_value(packed, 7u));
     }
     if (Kind != 2u)
-        for (uint i = tid; i < 128u; i += 64u) signs[i] = sign_table[i];
+        for (uint i = tid; i < 128u; i += Simdgroups * 32u) signs[i] = sign_table[i];
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    const uint row0 = (group * 2u + uint(simd_idx)) * 2u;
+    const uint row0 = (group * Simdgroups + uint(simd_idx)) * 2u;
     const uint row1 = row0 + 1u;
     float sum0 = 0.0f, sum1 = 0.0f;
     for (uint b32 = uint(lane); b32 < args.n_in / 32u; b32 += 32u) {
@@ -2173,6 +2173,10 @@ typedef decltype(qw3_matvec_iq2_fast<0>) qw3_matvec_iq2_fast_t;
 template [[host_name("qw3_matvec_iq2_xxs_fast")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<0>;
 template [[host_name("qw3_matvec_iq2_xs_fast")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<1>;
 template [[host_name("qw3_matvec_iq2_s_fast")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<2>;
+/* Amortize the 4/8 KiB lookup cache over eight SIMD groups on M5, without
+ * increasing per-thread register work or changing either dot-product sum. */
+template [[host_name("qw3_matvec_iq2_xs_sg8")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<1, 8>;
+template [[host_name("qw3_matvec_iq2_s_sg8")]] kernel qw3_matvec_iq2_fast_t qw3_matvec_iq2_fast<2, 8>;
 
 /* Four prompt rows share each IQ2_S weight decode. A simdgroup owns one
  * output row; each lane handles complete 256-value quant blocks. */

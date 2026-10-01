@@ -14,6 +14,7 @@ qw3-agent
 qw3-agent-cpu
 qw3-bench
 qw3-sampled-decode-bench
+qw3-decode-ab-bench
 qw3-bench-cpu
 qw3-eval
 qw3-eval-cpu

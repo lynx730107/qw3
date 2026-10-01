@@ -96,6 +96,10 @@ qw3-bench: qw3_bench.o qw3_metal_core.o qw3_metal.o
 qw3-sampled-decode-bench: tests/bench_sampled_decode.c qw3.h qw3_metal_core.o qw3_metal.o
 	$(CC) $(CFLAGS) -o $@ tests/bench_sampled_decode.c qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
 
+# Diagnostic-only access to dispatch choices; no tuning API in production.
+qw3-decode-ab-bench: tests/bench_decode_ab.m qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_metal_core.o
+	$(CC) $(OBJCFLAGS) -o $@ tests/bench_decode_ab.m qw3_metal_core.o $(METAL_LDLIBS)
+
 qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
 
@@ -127,7 +131,7 @@ qw3-agent: qw3-agent-cpu
 qw3-eval: qw3-eval-cpu
 	cp qw3-eval-cpu qw3-eval
 
-qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench:
+qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 endif
@@ -272,5 +276,5 @@ test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke t
 clean:
 	rm -f qw3_runtime_fingerprint.h
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
-		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench \
+		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench qw3-decode-ab-bench \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

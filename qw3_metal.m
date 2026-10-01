@@ -111,6 +111,9 @@ static id<MTLComputePipelineState> g_matmul_iq4_nl_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_xs_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_xxs_pipeline;
 static int g_dense_iq2_vector;
+static uint32_t g_dense_iq2_simdgroups;
+static id<MTLComputePipelineState> g_matvec_iq2_xs_sg8_pipeline;
+static id<MTLComputePipelineState> g_matvec_iq2_s_sg8_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_xs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_xxs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_s_pipeline;
@@ -1496,6 +1499,20 @@ static int qw3_metal_compile_kernels(void) {
             g_matmul_iq2_s_mpp_staged128_pipeline =
                 [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
+    }
+    /* Measured on the base M5, not inferred for Pro/Max or older GPUs. Other
+     * devices retain the existing launch geometry unless explicitly opted in. */
+    const char *iq2_groups_env = getenv("QW3_METAL_DENSE_IQ2_SIMDGROUPS");
+    g_dense_iq2_simdgroups = iq2_groups_env ?
+        (strcmp(iq2_groups_env, "8") == 0 ? 8u : 2u) :
+        (strcmp(g_device_name, "Apple M5") == 0 ? 8u : 2u);
+    if (g_dense_iq2_vector && g_dense_iq2_simdgroups == 8u) {
+        fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_xs_sg8"];
+        if (fn) g_matvec_iq2_xs_sg8_pipeline =
+            [g_device newComputePipelineStateWithFunction:fn error:&error];
+        fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_s_sg8"];
+        if (fn) g_matvec_iq2_s_sg8_pipeline =
+            [g_device newComputePipelineStateWithFunction:fn error:&error];
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_iq3_xxs_fast"];
     if (!fn) {
@@ -7242,7 +7259,14 @@ static int qw3_metal_session_matvec_dense_iq(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:pipeline];
+    id<MTLComputePipelineState> grouped_pipeline = nil;
+    if (g_dense_iq2_vector && g_dense_iq2_simdgroups == 8u &&
+        n_in >= 4096u && n_out >= 4096u) {
+        if (pipeline == g_matvec_iq2_xs_pipeline) grouped_pipeline = g_matvec_iq2_xs_sg8_pipeline;
+        if (pipeline == g_matvec_iq2_s_pipeline) grouped_pipeline = g_matvec_iq2_s_sg8_pipeline;
+    }
+    const int grouped = grouped_pipeline != nil;
+    [enc setComputePipelineState:grouped ? grouped_pipeline : pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:wb offset:(NSUInteger)model_offset atIndex:1];
     [enc setBuffer:input offset:0 atIndex:2];
@@ -7255,9 +7279,9 @@ static int qw3_metal_session_matvec_dense_iq(
     const int iq2_fast = g_dense_iq2_vector &&
         (pipeline == g_matvec_iq2_xxs_pipeline ||
          pipeline == g_matvec_iq2_xs_pipeline || pipeline == g_matvec_iq2_s_pipeline);
-    NSUInteger threads = (iq3s_fast || iq3xxs_fast || iq2_fast) ? 64u :
+    NSUInteger threads = grouped ? 256u : (iq3s_fast || iq3xxs_fast || iq2_fast) ? 64u :
         qw3_metal_matvec_threads(pipeline, n_in / 256u);
-    NSUInteger groups = iq3s_fast ? (n_out + 7u) / 8u :
+    NSUInteger groups = grouped ? (n_out + 15u) / 16u : iq3s_fast ? (n_out + 7u) / 8u :
         (iq3xxs_fast || iq2_fast) ? (n_out + 3u) / 4u : n_out;
     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
@@ -12774,6 +12798,9 @@ void qw3_metal_cleanup(void) {
     g_matvec_iq4_nl_pipeline = nil;
     g_matmul_iq4_nl_mpp_pipeline = nil;
     g_matvec_iq2_xs_pipeline = nil;
+    g_matvec_iq2_xs_sg8_pipeline = nil;
+    g_matvec_iq2_s_sg8_pipeline = nil;
+    g_dense_iq2_simdgroups = 2u;
     g_matvec_iq2_xxs_pipeline = nil;
     g_matmul_iq2_xs_mpp_pipeline = nil;
     g_matmul_iq2_xxs_mpp_pipeline = nil;

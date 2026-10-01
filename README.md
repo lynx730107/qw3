@@ -232,6 +232,17 @@ sustained overtake of llama.cpp; see the dated measurements above.
 repetition penalty, separately reports model/sampling time, and hashes the
 token sequence; prompt prefill is outside the measurement.
 
+On the base M5, dense IQ2_XS/S projections with at least 4096 inputs and
+outputs now share their exact byte lookup cache across eight SIMD groups,
+instead of two. Per-thread arithmetic and precision are unchanged; other
+formats, small matrices and other GPUs retain their previous launches.
+`QW3_METAL_DENSE_IQ2_SIMDGROUPS=2` disables this policy; `=8` opts in on other
+GPUs. In-process alternating-token A/B runs measured only about +0.5-0.6%
+decode throughput, with identical sampled token IDs. See
+[the M5 investigation](docs/m5_decode_2026-10-01.md), including rejected
+TensorOps experiments. `make qw3-decode-ab-bench` builds that two-session
+comparison; run it with the dense model path as its only argument.
+
 ## Performance
 
 Measurements below were taken on September 14, 2026, on a MacBook Air M5 with
