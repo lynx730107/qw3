@@ -18,6 +18,7 @@ endif
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 .PHONY: test-rope test-rope-metal test-dense-metal-logits test-mtp-reference
+.PHONY: test-short-batch-quant test-short-batch
 
 all: qw3-cli qw3-agent qw3-eval qw3-bench
 agent: qw3-agent
@@ -109,6 +110,9 @@ qw3-q5-head-bench: tests/bench_q5_head.m tests/q5_decode_candidates.metal qw3.h 
 qw3-block-cost-bench: tests/bench_verify_blocks.c qw3.c qw3.h qw3_metal.h qw3_runtime_fingerprint.h qw3_metal.o
 	$(CC) $(CFLAGS) -fno-finite-math-only -o $@ tests/bench_verify_blocks.c qw3_metal.o $(METAL_LDLIBS)
 
+qw3-short-batch-bench: tests/bench_short_batch.m tests/bench_verify_blocks.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_short_batch.m $(METAL_LDLIBS)
+
 qw3-dense-metal-logits-test: tests/test_dense_logits.c qw3.h qw3_metal_core.o qw3_metal.o
 	$(CC) $(filter-out -std=c99,$(CFLAGS)) -fno-finite-math-only -std=c11 \
 		-I$(LLAMA_CPP)/include -I$(LLAMA_CPP)/ggml/include \
@@ -162,7 +166,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-q5-head-bench qw3-block-cost-bench:
+qw3-q5-head-bench qw3-block-cost-bench qw3-short-batch-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 endif
@@ -218,6 +222,13 @@ test-dense-metal-logits: qw3-dense-metal-logits-test
 
 test-mtp-reference: qw3-mtp-acceptance
 	sh tests/test_mtp_reference.sh
+
+test-short-batch-quant: qw3-short-batch-bench
+	QW3_BLOCK_QUANT_ONLY=1 ./qw3-short-batch-bench \
+		$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}
+
+test-short-batch: qw3-short-batch-bench
+	sh tests/test_short_batch.sh
 
 test-dense-session: qw3-cpu-test
 	sh tests/test_dense_session.sh
@@ -326,6 +337,6 @@ clean:
 	rm -f qw3_runtime_fingerprint.h
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench qw3-decode-ab-bench \
-		qw3-q5-head-bench qw3-block-cost-bench \
+		qw3-q5-head-bench qw3-block-cost-bench qw3-short-batch-bench \
 		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test qw3-mtp-acceptance \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

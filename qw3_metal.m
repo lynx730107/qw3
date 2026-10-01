@@ -122,8 +122,11 @@ static id<MTLComputePipelineState> g_matmul_iq2_s_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_xxs_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_batch4_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq3_xxs_short_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq2_s_short_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_mpp_staged128_pipeline;
+
 static id<MTLComputePipelineState> g_matvec_q6_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q6_k_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_pair_pipeline;
@@ -253,6 +256,15 @@ static uint64_t g_model_view_offsets[32];
 static uint64_t g_model_view_sizes[32];
 static uint32_t g_model_view_count;
 static char g_device_name[256];
+
+/* Only the measured M5 large projections opt in automatically. A missing
+ * optional pipeline, one-token decode and larger prefill keep their old paths. */
+static int qw3_metal_dense_short_vector_enabled(uint32_t n_tokens,
+                                               uint32_t n_in, uint32_t n_out) {
+    if (n_tokens < 2u || n_tokens > 8u || n_in < 4096u || n_out < 4096u) return 0;
+    const char *env = getenv("QW3_METAL_DENSE_SHORT_VECTOR");
+    return env && env[0] ? strcmp(env, "0") != 0 : strcmp(g_device_name, "Apple M5") == 0;
+}
 static const void *g_model_map_ptr;
 static uint64_t g_model_map_size;
 static uint64_t g_model_offset;
@@ -1538,6 +1550,12 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_matmul_iq3_xxs_short"];
+    g_matmul_iq3_xxs_short_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_s_short"];
+    g_matmul_iq2_s_short_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
     g_matmul_iq3_xxs_mpp_pipeline = nil;
     g_matmul_iq3_xxs_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
@@ -4624,6 +4642,12 @@ static int qw3_metal_encode_dense_batch_matmul(
                                   g_matmul_iq2_s_mpp_pipeline) :
             (tensor_type == 18u ? g_matmul_iq3_xxs_batch4_pipeline :
                                   g_matmul_iq2_s_batch4_pipeline);
+        if (!use_mpp && qw3_metal_dense_short_vector_enabled(n_tokens, n_in, n_out)) {
+            id<MTLComputePipelineState> short_pipeline = tensor_type == 18u ?
+                g_matmul_iq3_xxs_short_pipeline : g_matmul_iq2_s_short_pipeline;
+            if (short_pipeline && short_pipeline.maxTotalThreadsPerThreadgroup >= 128u)
+                pipeline = short_pipeline;
+        }
         const int use_staged128 = tensor_type == 18u && use_mpp &&
             n_tokens % 128u == 0u &&
             g_matmul_iq3_xxs_mpp_staged128_pipeline &&
@@ -12810,6 +12834,8 @@ void qw3_metal_cleanup(void) {
     g_matmul_iq2_s_mpp_staged128_pipeline = nil;
     g_matvec_iq3_xxs_pipeline = nil;
     g_matmul_iq3_xxs_batch4_pipeline = nil;
+    g_matmul_iq3_xxs_short_pipeline = nil;
+    g_matmul_iq2_s_short_pipeline = nil;
     g_matmul_iq3_xxs_mpp_pipeline = nil;
     g_matmul_iq3_xxs_mpp_staged128_pipeline = nil;
     g_matvec_q6_k_pipeline = nil;

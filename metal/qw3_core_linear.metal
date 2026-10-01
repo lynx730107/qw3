@@ -2716,6 +2716,131 @@ kernel void qw3_matvec_iq3_xxs_fast(
         if (row1 < args.n_out) out[row1] = sum1;
     }
 }
+// Same FP32 dot32 grouping as the production IQ3_XXS vector GEMV.
+// Decode each 32-weight unit once for up to four prompt rows; no half weights.
+kernel void qw3_matmul_iq3_xxs_short(
+    constant qw3_matmul_q8_0_batch_args &args [[buffer(0)]],
+    device const uchar *weights [[buffer(1)]],
+    device const float *x [[buffer(2)]],
+    device float *out [[buffer(3)]],
+    device const ushort *grid_table [[buffer(4)]],
+    device const uchar *sign_table [[buffer(5)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+    ushort lane [[thread_index_in_simdgroup]]) {
+    threadgroup float4 grid[256];
+    threadgroup uchar signs[128];
+    const uint tid = uint(simd_idx) * 32u + uint(lane);
+    constexpr float values[8] = {4.0f,12.0f,20.0f,28.0f,36.0f,44.0f,52.0f,62.0f};
+    for (uint i = tid; i < 256u; i += 128u) {
+        const ushort p = grid_table[i];
+        grid[i] = float4(values[p & 7u], values[(p >> 3u) & 7u],
+                         values[(p >> 6u) & 7u], values[(p >> 9u) & 7u]);
+    }
+    if (tid < 128u) signs[tid] = sign_table[tid];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const uint row = group.x * 4u + uint(simd_idx);
+    if (row >= args.n_out) return;
+    const uint t0 = group.y * 4u;
+    if (t0 >= args.n_tokens) return;
+    const uint count = min(4u, args.n_tokens - t0);
+    float4 sums = float4(0.0f);
+    for (uint b32 = uint(lane); b32 < args.n_in / 32u; b32 += 32u) {
+        const uint ib = b32 & 7u;
+        device const uchar *blk = weights + uint64_t(row) * args.row_bytes +
+                                 uint64_t(b32 / 8u) * 98ull;
+        device const uchar *qs = blk + 2u + 8u * ib;
+        device const uchar *sp = blk + 66u + 4u * ib;
+        const uint packed = uint(sp[0]) | (uint(sp[1]) << 8u) |
+                            (uint(sp[2]) << 16u) | (uint(sp[3]) << 24u);
+        const float db = float(*((device const half *)blk)) *
+                         (0.5f + float(packed >> 28u)) * 0.5f;
+        float4 dots = float4(0.0f);
+        for (uint l = 0; l < 4u; l++) {
+            const uint s = uint(signs[(packed >> (7u * l)) & 127u]);
+            const float4 w0 = grid[uint(qs[2u*l])] *
+                select(float4(1.0f), float4(-1.0f),
+                       (uint4(s) & uint4(1u,2u,4u,8u)) != 0u);
+            const float4 w1 = grid[uint(qs[2u*l+1u])] *
+                select(float4(1.0f), float4(-1.0f),
+                       (uint4(s) & uint4(16u,32u,64u,128u)) != 0u);
+            for (uint r = 0; r < count; r++) {
+                device const float *xp = x + uint64_t(t0+r) * args.in_stride +
+                    args.in_offset + b32*32u + l*8u;
+                const float4 x0 = float4(xp[0],xp[1],xp[2],xp[3]);
+                const float4 x1 = float4(xp[4],xp[5],xp[6],xp[7]);
+                dots[r] += dot(w0,x0) + dot(w1,x1);
+            }
+        }
+        sums += db * dots;
+    }
+    sums.x = simd_sum(sums.x); sums.y = simd_sum(sums.y);
+    sums.z = simd_sum(sums.z); sums.w = simd_sum(sums.w);
+    if (lane == 0u) {
+        for (uint r = 0; r < count; r++)
+            out[uint64_t(t0+r) * args.out_stride + args.out_offset + row] = sums[r];
+    }
+}
+
+kernel void qw3_matmul_iq2_s_short(
+    constant qw3_matmul_q8_0_batch_args &args [[buffer(0)]],
+    device const uchar *weights [[buffer(1)]],
+    device const float *x [[buffer(2)]],
+    device float *out [[buffer(3)]],
+    device const ushort *grid_table [[buffer(4)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+    ushort lane [[thread_index_in_simdgroup]]) {
+    threadgroup uchar4 grid[2048];
+    const uint tid = uint(simd_idx) * 32u + uint(lane);
+    constexpr uchar values[4] = {8,25,43,0};
+    for (uint i = tid; i < 1024u; i += 128u) {
+        const ushort p = grid_table[i];
+        grid[2u*i] = uchar4(values[p&3u],values[(p>>2u)&3u],
+                            values[(p>>4u)&3u],values[(p>>6u)&3u]);
+        grid[2u*i+1u] = uchar4(values[(p>>8u)&3u],values[(p>>10u)&3u],
+                               values[(p>>12u)&3u],values[(p>>14u)&3u]);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const uint row = group.x * 4u + uint(simd_idx);
+    if (row >= args.n_out) return;
+    const uint t0 = group.y * 4u;
+    if (t0 >= args.n_tokens) return;
+    const uint count = min(4u,args.n_tokens-t0);
+    float4 sums = float4(0.0f);
+    for (uint b32 = uint(lane); b32 < args.n_in/32u; b32 += 32u) {
+        const uint ib = b32 & 7u;
+        device const uchar *blk = weights + uint64_t(row)*args.row_bytes +
+                                 uint64_t(b32/8u)*82ull;
+        device const uchar *qs = blk + 2u;
+        const uint scale = uint(blk[74u+ib]);
+        const float d = float(*((device const half *)blk));
+        float4 dots = float4(0.0f);
+        for (uint l = 0; l < 4u; l++) {
+            const uint idx = uint(qs[4u*ib+l]) |
+                ((uint(blk[66u+ib]) << (8u-2u*l)) & 0x300u);
+            const uint s = uint(blk[34u+4u*ib+l]);
+            const float4 w0 = float4(grid[2u*idx]) * select(float4(1.0f),float4(-1.0f),
+                (uint4(s)&uint4(1u,2u,4u,8u)) != 0u);
+            const float4 w1 = float4(grid[2u*idx+1u]) * select(float4(1.0f),float4(-1.0f),
+                (uint4(s)&uint4(16u,32u,64u,128u)) != 0u);
+            const float sc = 0.5f+float((scale >> (4u*(l>>1u)))&15u);
+            for (uint r = 0; r < count; r++) {
+                device const float *xp = x + uint64_t(t0+r)*args.in_stride +
+                    args.in_offset+b32*32u+l*8u;
+                const float4 x0 = float4(xp[0],xp[1],xp[2],xp[3]);
+                const float4 x1 = float4(xp[4],xp[5],xp[6],xp[7]);
+                dots[r] += sc*(dot(w0,x0)+dot(w1,x1));
+            }
+        }
+        sums += d*0.25f*dots;
+    }
+    sums.x = simd_sum(sums.x); sums.y = simd_sum(sums.y);
+    sums.z = simd_sum(sums.z); sums.w = simd_sum(sums.w);
+    if (lane == 0u) for (uint r = 0; r < count; r++)
+        out[uint64_t(t0+r)*args.out_stride+args.out_offset+row] = sums[r];
+}
+
 kernel void qw3_matmul_iq3_xxs_batch4(
     constant qw3_matmul_q8_0_batch_args &args,
     device const uchar *weights,

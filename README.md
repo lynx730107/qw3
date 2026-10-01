@@ -261,6 +261,14 @@ LM-head geometry and short-block backbone cost. They do not enable MTP in
 the CLI or agent; the block probe computes **only the last logit row**.
 See [the measured limitations](docs/decode_block_cost_2026-10-01.md).
 
+On the base M5, large IQ3_XXS/IQ2_S projections now use FP32 vector kernels
+for 2..8-row batches. An alternating old/new comparison measured +13.3%
+throughput for an eight-token backbone block, **not** ordinary decode.
+One-token generation and larger prefill retain their existing kernels.
+`QW3_METAL_DENSE_SHORT_VECTOR=0` restores the old short-batch policy;
+`make test-short-batch` checks quantization/tails, logits and continuation.
+See [the short-batch measurements and scope](docs/short_batch_kernels_2026-10-01.md).
+
 ## Performance
 
 Measurements below were taken on September 14, 2026, on a MacBook Air M5 with

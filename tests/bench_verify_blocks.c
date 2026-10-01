@@ -55,10 +55,22 @@ int main(int argc, char **argv) {
     char error[512] = {0};
     if (qw3_engine_open(&engine, &options) != 0 ||
         engine->model.spec->ffn_kind != QW3_FFN_DENSE) goto done;
+#ifdef QW3_BLOCK_INIT
+    if (!QW3_BLOCK_INIT()) goto done;
+#endif
+#ifdef QW3_BLOCK_SELECT
+    QW3_BLOCK_SELECT(0);
+#endif
+#ifdef QW3_BLOCK_QUANT_CHECK
+    if (!QW3_BLOCK_QUANT_CHECK(engine)) goto done;
+    if (getenv("QW3_BLOCK_QUANT_ONLY")) { status = 0; goto done; }
+#endif
+    const int baseline_batch = getenv("QW3_BLOCK_BASELINE_BATCH") != NULL;
     const int vocab = engine->model.spec->n_vocab;
-    qw3_encode_chat_prompt(engine, NULL,
-        "Spiega dettagliatamente come implementare una tabella hash in C.",
-        QW3_THINK_NONE, &prompt);
+    const char *prompt_text = getenv("QW3_BLOCK_PROMPT");
+    if (!prompt_text) prompt_text =
+        "Spiega dettagliatamente come implementare una tabella hash in C.";
+    qw3_encode_chat_prompt(engine, NULL, prompt_text, QW3_THINK_NONE, &prompt);
     if (prompt.len < 1 || prompt.len + 33 > 512 ||
         qw3_session_create(&warm, engine, 512) != 0 ||
         warm->metal_n_gpu_layers != engine->model.spec->n_layer ||
@@ -77,8 +89,9 @@ int main(int argc, char **argv) {
         logits[v] = calloc((size_t)vocab, sizeof(float));
         if (!logits[v]) goto done;
     }
-    printf("block_probe prefix=%d suffix_hash=%" PRIx64 " repeats=%ld "
-           "last_logits_only=1 not_speculative_decode=1\n", prompt.len, hash, repeats);
+    printf("block_probe prefix=%d suffix_hash=%" PRIx64 " repeats=%ld baseline_kind=%s "
+           "last_logits_only=1 not_speculative_decode=1\n", prompt.len, hash, repeats,
+           baseline_batch ? "batch" : "serial");
     fflush(stdout);
     const int sizes[] = {2,4,8,16,32};
     for (int shape = 0; shape < 5; shape++) {
@@ -88,6 +101,9 @@ int main(int argc, char **argv) {
         int shape_ok = 1;
         /* One untimed paired trial per shape warms pipelines and buffers. */
         for (int trial = -1; trial < repeats; trial++) {
+#ifdef QW3_BLOCK_SELECT
+            QW3_BLOCK_SELECT(0);
+#endif
             for (int v = 0; v < 2; v++) {
                 qw3_session_invalidate(sessions[v]);
                 if (qw3_session_sync(sessions[v], &prompt, error, sizeof(error)) != 0)
@@ -108,8 +124,11 @@ int main(int argc, char **argv) {
             double times[2];
             for (int order = 0; order < 2; order++) {
                 const int v = order ^ ((trial + 1) & 1);
+#ifdef QW3_BLOCK_SELECT
+                QW3_BLOCK_SELECT(v);
+#endif
                 const double start = qw3_now_sec();
-                if (v == 0) {
+                if (v == 0 && !baseline_batch) {
                     for (int t = 0; t < n; t++)
                         if (qw3_metal_session_eval_dense_token(sessions[v], suffix[t],
                                 error, sizeof(error), t + 1 == n ?
@@ -130,12 +149,15 @@ int main(int argc, char **argv) {
             ok &= id0 == id1;
             if (maximum > worst_max) worst_max = maximum;
             if (rms > worst_rms) worst_rms = rms;
-            printf("block_trial n=%d trial=%d serial_ms=%.3f batch_ms=%.3f "
+            printf("block_trial n=%d trial=%d baseline_ms=%.3f batch_ms=%.3f "
                    "last_max=%.9g last_rms=%.9g ids=%d/%d ok=%d\n",
                    n, trial, times[0]*1000, times[1]*1000, maximum, rms, id0, id1, ok);
             shape_ok &= ok;
             /* The next serial token also checks recurrent/cache continuation.
              * It is outside the timed suffix on both sides. */
+#ifdef QW3_BLOCK_SELECT
+            QW3_BLOCK_SELECT(0);
+#endif
             for (int v = 0; v < 2; v++) {
                 if (qw3_session_eval_gpu_logits(sessions[v], suffix[n], error, sizeof(error)) != 0 ||
                     !block_history_matches(sessions[v], &prompt, suffix, n + 1) ||
@@ -151,7 +173,7 @@ int main(int argc, char **argv) {
             shape_ok &= ok;
             fflush(stdout);
         }
-        printf("block_summary n=%d serial_ms=%.3f batch_ms=%.3f backbone_ratio=%.3f "
+        printf("block_summary n=%d baseline_ms=%.3f batch_ms=%.3f backbone_ratio=%.3f "
                "worst_max=%.9g worst_rms=%.9g quality_ok=%d last_logits_only=1\n",
                n, elapsed[0]*1000/repeats, elapsed[1]*1000/repeats,
                elapsed[0]/elapsed[1], worst_max, worst_rms, shape_ok);
