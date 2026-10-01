@@ -16,6 +16,8 @@ qw3-bench
 qw3-sampled-decode-bench
 qw3-decode-ab-bench
 qw3-q5-head-bench
+qw3-iq3-stream-bench
+qw3-prefill-staging-bench
 qw3-block-cost-bench
 qw3-short-batch-bench
 qw3-dense-metal-logits-test

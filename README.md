@@ -243,6 +243,14 @@ decode throughput, with identical sampled token IDs. See
 TensorOps experiments. `make qw3-decode-ab-bench` builds that two-session
 comparison; run it with the dense model path as its only argument.
 
+The later [Splish-inspired M5 trials](docs/m5_splish_trials_2026-10-01.md)
+add optional `qw3-iq3-stream-bench` and `qw3-prefill-staging-bench` diagnostics.
+Compact IQ3 tables, payload prefetch, smaller stage allocation and vector
+stage writes did not demonstrate a useful whole-model gain; none was
+promoted. The report includes fresh, separately measured pp128/tg32 llama
+references and exact-logit continuation checks. `make test-iq3-stream-quant`
+checks the experimental kernels, not a production performance threshold.
+
 Qwen text IMRoPE now pairs the two halves of the rotated prefix on CPU,
 single-token Metal and batched/fused prefill. Earlier adjacent-pair rotation
 could pass position-zero and greedy-ID checks while drifting from llama.cpp
