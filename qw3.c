@@ -10917,6 +10917,37 @@ int qw3_engine_metal_session_quant_types_test(qw3_engine *e, int token,
             }
         }
     }
+    /* Small tail cases intentionally use the fallback geometry. These
+     * larger bounded prefixes also exercise the M5 eight-SIMD launch. */
+    static const uint32_t wide_inputs[] = {4352u, 5120u};
+    static const uint32_t wide_outputs[] = {4097u, 4111u};
+    for (size_t i = 0; i < n_types && ok; i++) {
+        if (types[i] != QW3_TENSOR_IQ2_XS && types[i] != QW3_TENSOR_IQ2_S) continue;
+        for (size_t ni = 0; ni < 2u && ok; ni++) {
+            for (size_t no = 0; no < 2u && ok; no++) {
+                qw3_tensor small = *weights[i];
+                const uint32_t n_in = wide_inputs[ni], n_out = wide_outputs[no];
+                small.dim[0] = n_in; small.dim[1] = n_out;
+                small.elements = (uint64_t)n_in * n_out;
+                ok = cpu_matvec(&e->model, &small, xn, cpu) &&
+                    qw3_metal_session_matvec_quant_x1_to_scratch(
+                        s->metal, small.offset, small.type, n_in, n_out, 0, gpu);
+                float maxdiff = 0.0f;
+                double rmsdiff = 0.0;
+                for (uint32_t j = 0; j < n_out && ok; j++) {
+                    const float d = fabsf(cpu[j] - gpu[j]);
+                    if (!isfinite(gpu[j]) || !isfinite(d)) { ok = 0; break; }
+                    if (d > maxdiff) maxdiff = d;
+                    rmsdiff += (double)d * d;
+                }
+                rmsdiff = sqrt(rmsdiff / n_out);
+                if (maxdiff > 1e-4f || rmsdiff > 1e-5) ok = 0;
+                fprintf(fp, "metal session quant wide tail: %s type=%s n_in=%u n_out=%u maxdiff=%.7g rmsdiff=%.7g\n",
+                    ok ? "ok" : "failed", tensor_type_name(types[i]), n_in, n_out,
+                    maxdiff, rmsdiff);
+            }
+        }
+    }
     if (ok) {
         const qw3_layer_weights *lw0 = &e->weights.layer[0];
         ok = cpu_matvec(&e->model, lw0->ffn_gate, xn, gate) &&

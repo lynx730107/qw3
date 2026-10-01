@@ -161,9 +161,14 @@ tail_checks=$(grep -c "metal session quant tail: ok " "$OUT" || true)
     cat "$OUT" >&2
     fail "dense IQ2/IQ3 odd-row/partial-input tails were not all checked"
 }
+wide_checks=$(grep -c "metal session quant wide tail: ok " "$OUT" || true)
+[ "$wide_checks" -eq 8 ] || {
+    cat "$OUT" >&2
+    fail "large IQ2 odd-row/partial-input tails were not all checked"
+}
 # Check finite values outside the engine's -ffast-math compilation too.
 awk '
-    /^metal session quant (tail|pair type): ok / {
+    /^metal session quant (tail|wide tail|pair type): ok / {
         found++; maxdiff=""; rmsdiff="";
         for (i = 1; i <= NF; i++) {
             split($i, p, "=");
@@ -174,7 +179,7 @@ awk '
         if (maxdiff !~ number || rmsdiff !~ number ||
             maxdiff + 0 > 0.0001 || rmsdiff + 0 > 0.00001) bad = 1;
     }
-    END { if (found != 61 || bad) exit 1; }
+    END { if (found != 69 || bad) exit 1; }
 ' "$OUT" || {
     cat "$OUT" >&2
     fail "dense quantized pair/tail metrics were non-finite or divergent"
