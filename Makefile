@@ -111,6 +111,13 @@ qw3-q5-head-bench: tests/bench_q5_head.m tests/q5_decode_candidates.metal qw3.h 
 qw3-iq3-stream-bench: tests/bench_iq3_stream.m tests/iq3_decode_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_iq3_stream.m $(METAL_LDLIBS)
 
+qw3-decode-trials-bench: tests/bench_decode_trials.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_decode_trials.m $(METAL_LDLIBS)
+
+.PHONY: test-decode-trials-quant
+test-decode-trials-quant: qw3-decode-trials-bench
+	sh tests/test_decode_trials_quant.sh
+
 qw3-prefill-staging-bench: tests/bench_prefill_staging.m tests/prefill_copy_probe.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_prefill_staging.m $(METAL_LDLIBS)
 
@@ -180,7 +187,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-q5-head-bench qw3-iq3-stream-bench qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench:
+qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 endif
@@ -351,6 +358,6 @@ clean:
 	rm -f qw3_runtime_fingerprint.h
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench qw3-decode-ab-bench \
-		qw3-q5-head-bench qw3-iq3-stream-bench qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench \
+		qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench \
 		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test qw3-mtp-acceptance \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o

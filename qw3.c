@@ -849,6 +849,10 @@ typedef struct {
 static int qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
                                                 char *err, size_t errlen,
                                                 int read_logits);
+#ifndef QW3_METAL_DENSE_DECODE_LAYER_DONE
+/* Private scheduling probes may submit a prefix; normal builds do nothing. */
+#define QW3_METAL_DENSE_DECODE_LAYER_DONE(layer, layers) 1
+#endif
 static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                                                char *err, size_t errlen,
                                                int logits_mode);
@@ -15643,6 +15647,10 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                      s->metal, 1.0f, n_embd);
         }
         QW3_DENSE_PROFILE_STAGE(6);
+        if (ok && !profile) {
+            stage = "decode layer prefix submission";
+            ok = QW3_METAL_DENSE_DECODE_LAYER_DONE(il, spec->n_layer);
+        }
     }
     if (ok && logits_mode != QW3_METAL_LOGITS_DEFER) {
         layer = spec->n_layer;

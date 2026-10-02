@@ -261,6 +261,13 @@ and live recurrent/KV state. See [the copy measurements](docs/m5_prefill_copy_20
 for uncertainty and rejected tile geometry changes. This does not establish
 parity with llama.cpp.
 
+Additional [dense decode trials](docs/m5_decode_trials_2026-10-02.md) did not
+justify a production change: IQ4 constant/shuffle tables and IQ3_S word reads
+failed to show a reliable full-model benefit. Private prefix submissions
+saved only about 0.2-0.3%; CPU encoding was roughly 0.35 ms versus over
+110 ms of GPU work. `make test-decode-trials-quant` checks 42 exact/tail cases;
+the optional full benchmark also checks logits, history and live state.
+
 Qwen text IMRoPE now pairs the two halves of the rotated prefix on CPU,
 single-token Metal and batched/fused prefill. Earlier adjacent-pair rotation
 could pass position-zero and greedy-ID checks while drifting from llama.cpp
