@@ -853,6 +853,10 @@ static int qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
 /* Private scheduling probes may submit a prefix; normal builds do nothing. */
 #define QW3_METAL_DENSE_DECODE_LAYER_DONE(layer, layers) 1
 #endif
+#ifndef QW3_METAL_DENSE_REPLAY_RECORD
+/* Private replay probes record projected inputs; production has no log. */
+#define QW3_METAL_DENSE_REPLAY_RECORD(session, slot, count) 1
+#endif
 static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                                                char *err, size_t errlen,
                                                int logits_mode);
@@ -15579,7 +15583,9 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                      beta_offset, NULL);
             if (!ok) break;
             stage = "DeltaNet convolution";
-            ok = qw3_metal_session_conv1d_step_from_scratch(
+            ok = QW3_METAL_DENSE_REPLAY_RECORD(
+                     s, slot, beta_offset + (uint32_t)spec->n_linear_v_heads) &&
+                 qw3_metal_session_conv1d_step_from_scratch(
                 s->metal, lw->linear_conv_weight->offset,
                 slot, n_qkv, NULL, NULL);
             if (!ok) break;

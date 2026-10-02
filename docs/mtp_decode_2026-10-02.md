@@ -122,3 +122,8 @@ The executable does not stop on EOS and is greedy-only. Exact stochastic
 acceptance/resampling, efficient rollback, cancellation, EOS handling and
 CLI/agent integration are still absent. Next priority is correct, fast
 all-row verification before promoting any MTP generation path.
+
+An additional `serial-replay` mode now replaces full-model accepted-prefix
+replay with compact recurrent-input replay. It does not solve the batch
+numerical failures above or enable production speculation. See
+[the compact replay report](mtp_compact_replay_2026-10-02.md).

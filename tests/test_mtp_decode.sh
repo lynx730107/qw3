@@ -3,7 +3,9 @@ set -eu
 
 MODEL="${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}"
 BIN="${QW3_MTP_DECODE_BIN:-./qw3-mtp-decode}"
+MODE="${QW3_MTP_MODE:-serial}"
 fail() { echo "test-mtp-decode: FAIL: $*" >&2; exit 1; }
+case "$MODE" in serial|serial-replay) ;; *) fail 'mode must be serial or serial-replay' ;; esac
 [ -f "$MODEL" ] || fail "model not found: $MODEL"
 [ -x "$BIN" ] || fail "binary not found: $BIN"
 OUT="$(mktemp -t qw3-mtp-decode.XXXXXX)"
@@ -12,8 +14,8 @@ run() {
     label="$1"
     steps="$2"
     shift 2
-    "$BIN" "$MODEL" "$steps" 8 serial "$@" >"$OUT" 2>&1 || { cat "$OUT" >&2; fail "$label"; }
-    awk -v steps="$steps" '
+    "$BIN" "$MODEL" "$steps" 8 "$MODE" "$@" >"$OUT" 2>&1 || { cat "$OUT" >&2; fail "$label"; }
+    awk -v steps="$steps" -v mode="$MODE" '
         /^mtp_summary / {
             found++;
             for (i=1; i<=NF; i++) { split($i,p,"="); value[p[1]]=p[2]; }
@@ -22,6 +24,12 @@ run() {
                 value["all_rows"]+0 < steps || value["max"] != 0 ||
                 value["rms"] != 0 || value["hidden_max"] != 0 || value["hidden_rms"] != 0 ||
                 value["rollback_checks"] != value["rejected_cycles"]) bad=1;
+            if (value["compact_replay"] != (mode == "serial-replay" ? 1 : 0)) bad=1;
+            if (mode == "serial-replay" && value["rejected_cycles"]+0 > 0) {
+                number="^[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?$";
+                if (value["restore_replay_ms"] !~ number || value["restore_replay_ms"]+0 <= 0 ||
+                    value["scalar_restore_reference_ms"] !~ number || value["scalar_restore_reference_ms"]+0 <= 0) bad=1;
+            }
         }
         END { if (found != 1 || bad) exit 1; }
     ' "$OUT" || { cat "$OUT" >&2; fail "$label metrics"; }
@@ -36,7 +44,7 @@ run() {
                 } END {if(found != 1) exit 1;}' || fail "$label boundary"
             ;;
     esac
-    echo "test-mtp-decode: $label"
+    echo "test-mtp-decode: $label mode=$MODE"
     sed -n '/^mtp_summary /p' "$OUT"
 }
 run code 32 'Spiega dettagliatamente come implementare una tabella hash in C.'

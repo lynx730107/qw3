@@ -17,7 +17,7 @@ endif
 	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-gqa-decode test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
-.PHONY: test-rope test-rope-metal test-dense-metal-logits test-mtp-reference test-mtp-decode
+.PHONY: test-rope test-rope-metal test-dense-metal-logits test-mtp-reference test-mtp-decode test-mtp-compact-replay
 .PHONY: test-short-batch-quant test-short-batch
 .PHONY: test-iq3-stream-quant
 
@@ -253,6 +253,9 @@ test-mtp-reference: qw3-mtp-acceptance
 
 test-mtp-decode: qw3-mtp-decode
 	sh tests/test_mtp_decode.sh
+
+test-mtp-compact-replay: qw3-mtp-decode
+	QW3_MTP_MODE=serial-replay sh tests/test_mtp_decode.sh
 
 test-short-batch-quant: qw3-short-batch-bench
 	QW3_BLOCK_QUANT_ONLY=1 ./qw3-short-batch-bench \

@@ -296,6 +296,13 @@ verifier is slower than normal decode. The experimental `batch` verifier
 currently fails a strict intermediate-row comparison; neither path is enabled
 in CLI/agent. See [the MTP decoder status](docs/mtp_decode_2026-10-02.md).
 
+`make test-mtp-compact-replay` tests the experimental `serial-replay` verifier:
+rejections replay only logged convolution/DeltaNet inputs, restore accepted
+KV/tails and reuse saved output rows instead of rerunning the full target.
+The ordinary scalar kernels are retained and the test requires byte-identical
+state, logits, tokens and continuation. This is not yet fast batched MTP or
+an agent option. See [compact rollback scope and measurements](docs/mtp_compact_replay_2026-10-02.md).
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. They do not enable MTP in
 the CLI or agent; the block probe computes **only the last logit row**.
