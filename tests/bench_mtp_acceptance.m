@@ -166,14 +166,15 @@ static int mtp_native_eval(qw3_engine *engine, qw3_metal_session *session,
             lw->ffn_down->offset, lw->ffn_down->type, ff, n, NULL) &&
         qw3_metal_session_scale_x1_add_x0(session, 1.0f, n) &&
         mtp_native_trace("mtp_post_ffn", obj.x0, n) &&
-        mtp_norm(session, lw->nextn_shared_head_norm->offset, n, "h_nextn") &&
-        engine->weights.output->type == QW3_TENSOR_Q5_K &&
+        mtp_norm(session, lw->nextn_shared_head_norm->offset, n, "h_nextn");
+    /* Catch-up needs the hidden and KV, not an unused full vocabulary head. */
+    if (ok && logits) ok = engine->weights.output->type == QW3_TENSOR_Q5_K &&
         qw3_metal_session_matvec_q5_k_x1_to_logits(session,
             engine->weights.output->offset, n, spec->n_vocab, NULL) &&
         mtp_copy(obj.logits, 0, readback, 0, (NSUInteger)spec->n_vocab * sizeof(float));
     const int completed = qw3_metal_synchronize();
     if (!ok || !completed) return 0;
-    memcpy(logits, readback.contents, (size_t)spec->n_vocab * sizeof(float));
+    if (logits) memcpy(logits, readback.contents, (size_t)spec->n_vocab * sizeof(float));
     return 1;
 }
 

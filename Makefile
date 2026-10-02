@@ -17,7 +17,7 @@ endif
 	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-gqa-decode test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
-.PHONY: test-rope test-rope-metal test-dense-metal-logits test-mtp-reference
+.PHONY: test-rope test-rope-metal test-dense-metal-logits test-mtp-reference test-mtp-decode
 .PHONY: test-short-batch-quant test-short-batch
 .PHONY: test-iq3-stream-quant
 
@@ -152,6 +152,13 @@ qw3-mtp-acceptance: tests/bench_mtp_acceptance.m qw3.c qw3.h qw3_metal.m qw3_met
 		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
 		-lllama -lggml-cpu -lggml-base -lggml $(METAL_LDLIBS)
 
+qw3-mtp-decode: tests/bench_mtp_decode.m tests/bench_mtp_acceptance.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only \
+		-I$(LLAMA_CPP)/include -I$(LLAMA_CPP)/ggml/include \
+		-o $@ tests/bench_mtp_decode.m \
+		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
+		-lllama -lggml-cpu -lggml-base -lggml $(METAL_LDLIBS)
+
 qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
 
@@ -183,7 +190,7 @@ qw3-agent: qw3-agent-cpu
 qw3-eval: qw3-eval-cpu
 	cp qw3-eval-cpu qw3-eval
 
-qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-bench qw3-dense-metal-logits-test qw3-rope-metal-test qw3-mtp-acceptance:
+qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-bench qw3-dense-metal-logits-test qw3-rope-metal-test qw3-mtp-acceptance qw3-mtp-decode:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -243,6 +250,9 @@ test-dense-metal-logits: qw3-dense-metal-logits-test
 
 test-mtp-reference: qw3-mtp-acceptance
 	sh tests/test_mtp_reference.sh
+
+test-mtp-decode: qw3-mtp-decode
+	sh tests/test_mtp_decode.sh
 
 test-short-batch-quant: qw3-short-batch-bench
 	QW3_BLOCK_QUANT_ONLY=1 ./qw3-short-batch-bench \
@@ -359,5 +369,5 @@ clean:
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench qw3-decode-ab-bench \
 		qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench \
-		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test qw3-mtp-acceptance \
+		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test qw3-mtp-acceptance qw3-mtp-decode \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o
