@@ -111,7 +111,7 @@ qw3-q5-head-bench: tests/bench_q5_head.m tests/q5_decode_candidates.metal qw3.h 
 qw3-iq3-stream-bench: tests/bench_iq3_stream.m tests/iq3_decode_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_iq3_stream.m $(METAL_LDLIBS)
 
-qw3-decode-trials-bench: tests/bench_decode_trials.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+qw3-decode-trials-bench: tests/bench_decode_trials.m tests/iq4_layout_probe.inc tests/iq4_prefetch_probe.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_decode_trials.m $(METAL_LDLIBS)
 
 .PHONY: test-decode-trials-quant

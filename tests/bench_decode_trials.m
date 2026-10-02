@@ -26,21 +26,28 @@ static int lut_layer_done(int layer,int layers) {
     return !lut_flush_interval || layer+1==layers || (layer+1)%lut_flush_interval || qw3_metal_flush_commands();
 }
 #define QW3_METAL_DENSE_DECODE_LAYER_DONE(layer, layers) lut_layer_done(layer,layers)
+#include "iq4_layout_probe.inc"
+#include "iq4_prefetch_probe.inc"
 #include "../qw3.c"
 #include <inttypes.h>
 
 static id<MTLComputePipelineState> lut_pipeline[3][3]; /* baseline, constant, shuffle */
 static id<MTLComputePipelineState> lut_iq3_base,lut_iq3_words;
-static const char *lut_modes[]={"shared","constant","shuffle","flush16","flush8","flush32","iq3s_words"};
+static const char *lut_modes[]={"shared","constant","shuffle","flush16","flush8","flush32","iq3s_words",
+    "blocks4","blocks16","planes4","planes16","iq4_prefetch","native_copy"};
 static const char *lut_names[]={"qw3_matvec_iq4_xs_fast","qw3_matvec_iq4_xs_pair_fast",
                               "qw3_matvec_iq4_xs_add_x0_fast"};
+static int lut_is_layout(int mode) {return (mode>=7 && mode<=10) || mode==12;}
+static int lut_layout_variant(int mode) {return mode==12 ? 4 : mode-7;}
 static void lut_select(int mode) {
+    layout_selected=lut_is_layout(mode) ? lut_layout_variant(mode) : -1;
     g_matvec_iq3_s_pair_pipeline=mode==6 ? lut_iq3_words : lut_iq3_base;
     lut_flush_interval=mode==3 ? 16 : mode==4 ? 8 : mode==5 ? 32 : 0;
+    const int iq4=mode==11;
     if (mode>2) mode=0;
-    g_matvec_iq4_xs_pipeline=lut_pipeline[mode][0];
-    g_matvec_iq4_xs_pair_pipeline=lut_pipeline[mode][1];
-    g_matvec_iq4_xs_add_x0_pipeline=lut_pipeline[mode][2];
+    g_matvec_iq4_xs_pipeline=iq4 ? prefetch_iq4_pipeline[0] : lut_pipeline[mode][0];
+    g_matvec_iq4_xs_pair_pipeline=iq4 ? prefetch_iq4_pipeline[1] : lut_pipeline[mode][1];
+    g_matvec_iq4_xs_add_x0_pipeline=iq4 ? prefetch_iq4_pipeline[2] : lut_pipeline[mode][2];
 }
 static NSString *lut_extract(NSString *source,NSString *marker,NSString *end_marker) {
     NSRange start=[source rangeOfString:marker];
@@ -140,7 +147,8 @@ static int lut_dispatch(int mode,int kind,id<MTLBuffer> __strong *weights,uint64
     const float scale=-0.25f;
     int owned=0;id<MTLCommandBuffer> cb=qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc=qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:kind==3 ? (mode ? lut_iq3_words : lut_iq3_base) : lut_pipeline[mode][kind]];
+    [enc setComputePipelineState:kind==3 ? (mode ? lut_iq3_words : lut_iq3_base) :
+        mode==11 ? prefetch_iq4_pipeline[kind] : lut_pipeline[mode][kind]];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     if (kind==2) [enc setBytes:&scale length:sizeof(scale) atIndex:1];
     [enc setBuffer:weights[0] offset:offset[0] atIndex:kind==2 ? 2 : 1];
@@ -240,7 +248,7 @@ static int lut_states_equal(qw3_session **s) {
     if (ok) printf("lut_state deltanet=exact conv=exact live_kv=exact tokens=%d\n",s[0]->tokens.len);
     return ok;
 }
-static int lut_micro(qw3_engine *engine) {
+static int lut_micro(qw3_engine *engine,int only_prefetch) {
     const qw3_tensor *weight[2]={NULL,NULL};
     for (int il=0;il<engine->model.spec->n_layer && !weight[0];il++) {
         const qw3_layer_weights *lw=&engine->weights.layer[il];
@@ -257,7 +265,7 @@ static int lut_micro(qw3_engine *engine) {
         if (!weights[0] || !weights[1] || !input) return 0;
         float *x=input.contents;
         for (uint32_t i=0;i<ni+8;i++) x[i]=((int)(i*37%101)-50)/31.0f;
-        for (int kind=0;kind<3;kind++) for (int mode=1;mode<=2;mode++) {
+        for (int kind=0;kind<3;kind++) for (int mode=only_prefetch ? 11 : 1;mode<=(only_prefetch ? 11 : 2);mode++) {
             const uint32_t n=kind==1 ? no*2 : no;
             id<MTLBuffer> output[2];double times[2]={0},gpu[2]={0};
             for (int v=0;v<2;v++) output[v]=[g_device newBufferWithLength:(n+12)*4 options:MTLResourceStorageModeShared];
@@ -295,20 +303,128 @@ static int lut_micro(qw3_engine *engine) {
     }
     return 1;
 }
+static int lut_layout_buffer_guard(id<MTLBuffer> buffer) {
+    if (!buffer || buffer.length<64) return 0;
+    const unsigned char *data=buffer.contents;
+    for (uint32_t i=0;i<32;i++) if (data[i]!=0xa5 || data[buffer.length-32+i]!=0xa5) return 0;
+    return 1;
+}
+static int lut_layout_guards(void) {
+    for (NSNumber *key in layout_weights) if (!lut_layout_buffer_guard(layout_weights[key])) return 0;
+    return 1;
+}
+static int lut_layout_prepare(qw3_engine *engine,int variant) {
+    const double start=qw3_now_sec();
+    layout_weights=[NSMutableDictionary new];layout_shapes=[NSMutableDictionary new];
+    layout_bytes=0;layout_calls=0;
+    for (int il=0;il<engine->model.spec->n_layer;il++) {
+        const qw3_layer_weights *lw=&engine->weights.layer[il];
+        const qw3_tensor *tensors[]={lw->ffn_gate,lw->ffn_up,lw->ffn_down};
+        for (int kind=0;kind<3;kind++) {
+            const qw3_tensor *tensor=tensors[kind];
+            if (!tensor || tensor->type!=23 || layout_weights[@(tensor->offset)]) continue;
+            const uint32_t ni=kind==2 ? engine->model.spec->n_ff_dense : engine->model.spec->n_embd;
+            const uint32_t no=kind==2 ? engine->model.spec->n_embd : engine->model.spec->n_ff_dense;
+            id<MTLBuffer> buffer=layout_pack(tensor->offset,ni,no,variant);
+            if (!buffer || !lut_layout_buffer_guard(buffer)) return 0;
+            layout_weights[@(tensor->offset)]=buffer;layout_shapes[@(tensor->offset)]=@[@(ni),@(no)];
+            layout_bytes+=(uint64_t)ni/256*136*no;
+        }
+    }
+    printf("layout_prepare mode=%s tensors=%lu weight_mib=%.2f seconds=%.3f bytes_exact=1\n",layout_names[variant],(unsigned long)layout_weights.count,layout_bytes/1048576.0,qw3_now_sec()-start);fflush(stdout);
+    return layout_weights.count>0;
+}
+static uint32_t lut_layout_calls_per_token(qw3_engine *engine) {
+    const char *pair=getenv("QW3_METAL_DENSE_IQ4_XS_PAIR");
+    const char *down=getenv("QW3_METAL_DENSE_IQ4_DOWN_ADD");
+    if ((pair && !strcmp(pair,"0")) || (down && !strcmp(down,"0"))) return 0;
+    uint32_t calls=0;
+    for (int il=0;il<engine->model.spec->n_layer;il++) {
+        const qw3_layer_weights *lw=&engine->weights.layer[il];
+        const int gate=lw->ffn_gate->type==23,up=lw->ffn_up->type==23;
+        calls+=(gate && up ? 1 : gate+up)+(lw->ffn_down->type==23);
+    }
+    return calls;
+}
+static int lut_layout_micro(qw3_engine *engine,int variant) {
+    const qw3_tensor *weight[2]={NULL,NULL};
+    for (int il=0;il<engine->model.spec->n_layer && !weight[0];il++) {
+        const qw3_layer_weights *lw=&engine->weights.layer[il];
+        if (lw->ffn_gate->type==23 && lw->ffn_up->type==23) {weight[0]=lw->ffn_gate;weight[1]=lw->ffn_up;}
+    }
+    if (!weight[0]) return 0;
+    const uint32_t shapes[][2]={{256,1},{4352,33},{5120,4097},{5120,4111},{5120,17408},{17408,5120}};
+    for (int shape=0;shape<6;shape++) {
+        const uint32_t ni=shapes[shape][0],no=shapes[shape][1];
+        if ((uint64_t)ni*no>weight[0]->elements || (uint64_t)ni*no>weight[1]->elements) return 0;
+        uint64_t offset[2];id<MTLBuffer> weights[2],packed[2];
+        for (int w=0;w<2;w++) {
+            weights[w]=qw3_metal_model_view_for(weight[w]->offset,(uint64_t)ni/256*136*no,&offset[w]);
+            packed[w]=layout_pack(weight[w]->offset,ni,no,variant);
+            if (!weights[w] || !packed[w]) return 0;
+        }
+        id<MTLBuffer> input=[g_device newBufferWithLength:(ni+8)*4 options:MTLResourceStorageModeShared];
+        if (!input) return 0;
+        float *x=input.contents;
+        for (uint32_t i=0;i<ni+8;i++) x[i]=((int)(i*37%101)-50)/31.f;
+        for (int kind=0;kind<3;kind++) {
+            const uint32_t n=kind==1 ? no*2 : no;
+            id<MTLBuffer> output[2];double times[2]={0},gpu[2]={0};
+            for (int v=0;v<2;v++) output[v]=[g_device newBufferWithLength:(n+12)*4 options:MTLResourceStorageModeShared];
+            if (!output[0] || !output[1]) return 0;
+            for (int repeat=-4;repeat<40;repeat++) for (int order=0;order<2;order++) {
+                const int v=order^(repeat&1);float *out=output[v].contents;
+                for (uint32_t i=0;i<n+12;i++) out[i]=kind==2 && i>=5 && i<no+5 ? (float)(i%17)/13 : 123456;
+                const double start=qw3_now_sec();double device=0;
+                const int ok=v ? layout_dispatch(variant,kind,packed[0],packed[1],32,32,input,16,output[v],20,ni,no,-.25f,&device) :
+                    lut_dispatch(0,kind,weights,offset,input,output[v],ni,no,&device);
+                if (!ok) return 0;
+                if (repeat>=0) {times[v]+=qw3_now_sec()-start;gpu[v]+=device;}
+            }
+            double cpu_max=0;float *a=output[0].contents,*b=output[1].contents;
+            for (int v=0;v<2;v++) {
+                if (!lut_layout_buffer_guard(packed[v])) return 0;
+                float *out=output[v].contents;
+                for (uint32_t i=0;i<n+12;i++) if ((i<5 || i>=n+5) && out[i]!=123456) return 0;
+            }
+            for (uint32_t i=0;i<n;i++) if (!isfinite(a[i+5]) || !isfinite(b[i+5]) || a[i+5]!=b[i+5]) {
+                fprintf(stderr,"layout micro differs mode=%s shape=%d kind=%d row=%u old=%.9g new=%.9g\n",layout_names[variant],shape,kind,i,a[i+5],b[i+5]);return 0;
+            }
+            const uint32_t rows[]={0,no/2,no-1};
+            for (int w=0;w<(kind==1 ? 2 : 1);w++) for (int r=0;r<3;r++) {
+                double reference=lut_cpu_dot(tensor_data(&engine->model,weight[w])+(uint64_t)rows[r]*ni/256*136,x+4,ni);
+                if (kind==2) reference=(float)((rows[r]+5)%17)/13+reference*(-.25);
+                const double d=fabs(reference-b[5+w*no+rows[r]]);
+                if (!isfinite(d)) return 0;cpu_max=fmax(cpu_max,d);
+            }
+            printf("layout_quant mode=%s kind=%d ni=%u no=%u max=0 rms=0 cpu_max=%.9g guards=ok bytes_exact=1\n",layout_names[variant],kind,ni,no,cpu_max);
+            if (cpu_max>1e-4) return 0;
+            printf("layout_micro mode=%s kind=%d ni=%u no=%u baseline_ms=%.4f candidate_ms=%.4f gpu_base_ms=%.4f gpu_candidate_ms=%.4f gain_pct=%.2f\n",layout_names[variant],kind,ni,no,times[0]*25,times[1]*25,gpu[0]*25,gpu[1]*25,(times[0]/times[1]-1)*100);fflush(stdout);
+        }
+    }
+    return 1;
+}
 int main(int argc,char **argv) {
     @autoreleasepool {
-        if (argc!=2 && argc!=4) {fprintf(stderr,"usage: %s MODEL [--full constant|shuffle|flush16|flush8|flush32|iq3s_words]\n",argv[0]);return 1;}
-        int mode=0;
+        if (argc!=2 && argc!=4) {fprintf(stderr,"usage: %s MODEL [--full MODE|--micro blocks4|blocks16|planes4|planes16|iq4_prefetch|native_copy]\n",argv[0]);return 1;}
+        int mode=0,micro=0;
         if (argc==4) {
-            if (strcmp(argv[2],"--full")) return 1;
-            for (int m=1;m<=6;m++) if (!strcmp(argv[3],lut_modes[m])) mode=m;
-            if (!mode) return 1;
+            micro=!strcmp(argv[2],"--micro");
+            if (!micro && strcmp(argv[2],"--full")) return 1;
+            for (int m=1;m<=12;m++) if (!strcmp(argv[3],lut_modes[m])) mode=m;
+            if (!mode || (micro && mode<7)) return 1;
         }
         qw3_engine *engine=NULL;qw3_session *s[2]={NULL,NULL};qw3_tokens prompt={0};
         qw3_engine_options options={.model_path=argv[1],.backend=QW3_BACKEND_METAL};
         float *logits[2]={NULL,NULL};char error[512]={0};int status=1;
         if (qw3_engine_open(&engine,&options)!=0 || engine->model.spec->ffn_kind!=QW3_FFN_DENSE || !lut_initialize()) goto done;
-        if (!mode) {if (lut_micro(engine) && lut_iq3_micro(engine)) status=0;goto done;}
+        if (lut_is_layout(mode) && !layout_initialize()) goto done;
+        if (mode==11 && !prefetch_iq4_initialize()) goto done;
+        if (!mode) {if (lut_micro(engine,0) && lut_iq3_micro(engine)) status=0;goto done;}
+        if (micro) {if (mode==11 ? lut_micro(engine,1) : lut_layout_micro(engine,lut_layout_variant(mode))) status=0;goto done;}
+        if (lut_is_layout(mode) && !lut_layout_prepare(engine,lut_layout_variant(mode))) goto done;
+        const uint32_t layout_expected=lut_is_layout(mode) ? lut_layout_calls_per_token(engine) : 0;
+        if (lut_is_layout(mode) && !layout_expected) goto done;
         const int vocab=engine->model.spec->n_vocab;
         qw3_encode_chat_prompt(engine,NULL,"Spiega dettagliatamente come implementare una tabella hash in C.",QW3_THINK_NONE,&prompt);
         for (int v=0;v<2;v++) {
@@ -335,10 +451,14 @@ int main(int argc,char **argv) {
             hash=(hash^(uint32_t)token[0])*1099511628211ULL;
             for (int order=0;order<2;order++) {
                 const int v=order^(i&1);lut_select(v ? mode : 0);const double start=qw3_now_sec();
+                const uint64_t calls_before=layout_calls;
                 lut_forward_start=lut_clock();lut_observe=1;
                 const int result=qw3_session_eval_gpu_logits(s[v],token[v],error,sizeof(error));
                 lut_observe=0;
                 if (result!=0) goto done;
+                if (lut_is_layout(mode) && layout_calls-calls_before!=(v ? layout_expected : 0)) {
+                    fprintf(stderr,"layout dispatch coverage failed step=%d expected=%u actual=%llu\n",i,v ? layout_expected : 0,(unsigned long long)(layout_calls-calls_before));goto done;
+                }
                 elapsed[v]=qw3_now_sec()-start;
                 if (i>=8) {
                     forward[v]+=elapsed[v];block[v]+=elapsed[v];
@@ -369,11 +489,14 @@ int main(int argc,char **argv) {
             lut_modes[mode],submit[0]/120,submit[1]/120,wait[0]/120,wait[1]/120,gpu[0]/120,gpu[1]/120);
         /* Per-token intervals are descriptive: adjacent steps are correlated. */
         if (!lut_states_equal(s)) goto done;
+        if (lut_is_layout(mode)) printf("layout_full mode=%s calls=%llu weight_mib=%.2f guards=%s\n",lut_modes[mode],(unsigned long long)layout_calls,layout_bytes/1048576.0,lut_layout_guards() ? "ok" : "failed");
+        if (lut_is_layout(mode) && (!layout_calls || !lut_layout_guards())) goto done;
         status=0;
 done:
         if (lut_pipeline[0][0]) lut_select(0);
         if (status) fprintf(stderr,"IQ4 lookup benchmark failed: %s\n",error);
         for (int v=0;v<2;v++) {free(logits[v]);if (s[v]) qw3_session_free(s[v]);}
+        layout_weights=nil;layout_shapes=nil;
         qw3_tokens_free(&prompt);if (engine) qw3_engine_close(engine);
         return status;
     }

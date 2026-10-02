@@ -2,7 +2,9 @@
 #import <Metal/Metal.h>
 #include <stdint.h>
 static uint32_t prefill_columns(id<MTLComputePipelineState> pipeline);
+static uint32_t prefill_threads(id<MTLComputePipelineState> pipeline);
 #define QW3_METAL_STAGED128_COLUMNS(pipeline) prefill_columns(pipeline)
+#define QW3_METAL_STAGED128_THREADS(pipeline) prefill_threads(pipeline)
 #define qw3_metal_session_stage_dense_gqa_projections prefill_blit_gqa
 #define qw3_metal_session_stage_dense_deltanet_projections prefill_blit_dn
 #define qw3_metal_session_copy_batch_scratch_to_x1 prefill_blit_compact
@@ -20,8 +22,12 @@ static id<MTLComputePipelineState> prefill_iq3[2],prefill_iq4[2];
 static const char *prefill_mode="vector_store";
 static uint32_t prefill_tile=64;
 static uint32_t prefill_k=32;
+static uint32_t prefill_simdgroups=4;
 static uint32_t prefill_columns(id<MTLComputePipelineState> pipeline) {
     return pipeline==prefill_iq3[1] || pipeline==prefill_iq4[1] ? prefill_tile : 64u;
+}
+static uint32_t prefill_threads(id<MTLComputePipelineState> pipeline) {
+    return pipeline==prefill_iq3[1] || pipeline==prefill_iq4[1] ? prefill_simdgroups*32u : 128u;
 }
 static int prefill_replace(NSMutableString *source,NSString *old,NSString *replacement,NSUInteger expected) {
     NSUInteger changes=[source replaceOccurrencesOfString:old withString:replacement options:0 range:NSMakeRange(0,source.length)];
@@ -36,6 +42,12 @@ static int prefill_resize(NSMutableString *source,NSString *name) {
     NSRange range=NSMakeRange(start.location,end.location+end.length-start.location);
     NSMutableString *body=[[source substringWithRange:range] mutableCopy];
     if (!prefill_replace(body,@"constexpr int NR0 = 64;",[NSString stringWithFormat:@"constexpr int NR0 = %u;",prefill_tile],1)) return 0;
+    if (prefill_simdgroups!=4) {
+        if (!prefill_replace(body,@"constexpr int ROWS_PER_SG = 32;",[NSString stringWithFormat:@"constexpr int ROWS_PER_SG = %u;",128u/prefill_simdgroups],1) ||
+            !prefill_replace(body,@"(4 * ROWS_PER_SG)",[NSString stringWithFormat:@"(%u * ROWS_PER_SG)",prefill_simdgroups],1) ||
+            !prefill_replace(body,@"if (r0 + row < int(args.n_out))",@"if (row < NR0 && r0 + row < int(args.n_out))",1) ||
+            !prefill_replace(body,@"} else {",@"} else if (row < NR0) {",1)) return 0;
+    }
     if (prefill_tile<64) {
         if (!prefill_replace(body,@"if (r0 + row < int(args.n_out))",@"if (row < NR0 && r0 + row < int(args.n_out))",1) ||
             !prefill_replace(body,@"} else {",@"} else if (row < NR0) {",1)) return 0;
@@ -52,6 +64,31 @@ static int prefill_resize(NSMutableString *source,NSString *name) {
     [source replaceCharactersInRange:range withString:body];
     return 1;
 }
+static int prefill_stage_input(NSMutableString *source,NSString *name,int prefetch,int half_input) {
+    NSRange start=[source rangeOfString:[@"kernel void " stringByAppendingString:name]];
+    if (start.location==NSNotFound) return 0;
+    NSRange end=[source rangeOfString:@"\n}\n" options:0 range:NSMakeRange(start.location,source.length-start.location)];
+    if (end.location==NSNotFound) return 0;
+    NSRange range=NSMakeRange(start.location,end.location+end.length-start.location);
+    NSMutableString *body=[[source substringWithRange:range] mutableCopy];
+    NSString *old=@"auto tB = tensor(ptrB,\n                    dextents<int32_t, 2>(int(args.n_in), int(args.n_tokens)),\n                    array<int, 2>({1, int(args.in_stride)}));";
+    NSString *replacement=@"threadgroup float input_stage[128 * NK];\n    auto tB = tensor(input_stage,\n                    dextents<int32_t, 2>(NK, 128),\n                    array<int, 2>({1, NK}));";
+    if (!prefill_replace(body,old,replacement,1) ||
+        !prefill_replace(body,@"auto mB = tB.slice(int(loop_k),\n                           r1 + int(simd_group) * ROWS_PER_SG);",
+            @"auto mB = tB.slice(0, int(simd_group) * ROWS_PER_SG);",1)) return 0;
+    NSString *load=@"#pragma unroll\n        for (uint slot = 0; slot < 32; ++slot) {\n            const uint index = uint(tid) + slot * 128u;\n            const uint row = index / uint(NK), column = index % uint(NK);\n            input_stage[index] = ptrB[uint64_t(r1 + int(row)) * args.in_stride + loop_k + column];\n        }\n";
+    if (prefetch) {
+        NSString *initial=@"float next_input[32];\n#pragma unroll\n    for (uint slot = 0; slot < 32; ++slot) {\n        const uint index = uint(tid) + slot * 128u;\n        next_input[slot] = ptrB[uint64_t(r1 + int(index / uint(NK))) * args.in_stride + index % uint(NK)];\n    }\n    for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {\n#pragma unroll\n        for (uint slot = 0; slot < 32; ++slot) input_stage[uint(tid) + slot * 128u] = next_input[slot];";
+        NSString *ahead=@"        threadgroup_barrier(mem_flags::mem_threadgroup);\n        if (loop_k + NK < args.n_in) {\n#pragma unroll\n            for (uint slot = 0; slot < 32; ++slot) {\n                const uint index = uint(tid) + slot * 128u;\n                next_input[slot] = ptrB[uint64_t(r1 + int(index / uint(NK))) * args.in_stride + loop_k + NK + index % uint(NK)];\n            }\n        }\n        auto mA";
+        if (!prefill_replace(body,@"for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {",initial,1) ||
+            !prefill_replace(body,@"        threadgroup_barrier(mem_flags::mem_threadgroup);\n        auto mA",ahead,1)) return 0;
+    } else if (!prefill_replace(body,@"for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {",
+        [@"for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {\n" stringByAppendingString:load],1)) return 0;
+    if (half_input && (!prefill_replace(body,@"threadgroup float input_stage",@"threadgroup half input_stage",1) ||
+        (prefetch && !prefill_replace(body,@"float next_input[32]",@"half next_input[32]",1)))) return 0;
+    [source replaceCharactersInRange:range withString:body];
+    return 1;
+}
 static int prefill_initialize(void) {
     if (!qw3_metal_compile_kernels() || !g_metal4_tensor_api_enabled) return 0;
     prefill_iq3[0]=g_matmul_iq3_s_mpp_staged128_pipeline;
@@ -59,9 +96,15 @@ static int prefill_initialize(void) {
     NSMutableString *source=[qw3_metal_kernel_source() mutableCopy];
     NSString *old=@"#pragma unroll\n            for (int i = 0; i < 16; ++i)\n                sa[row * NK + half_k * 16 + i] =\n                    values[i / 4][i & 3];";
     NSString *replacement=@"threadgroup half4 *dst = (threadgroup half4 *)(sa + row * NK + half_k * 16);\n#pragma unroll\n            for (int i = 0; i < 4; ++i) dst[i] = values[i];";
-    if (prefill_tile!=64 || prefill_k!=32) {
+    if (prefill_tile!=64 || prefill_k!=32 || prefill_simdgroups!=4) {
         if (!prefill_resize(source,@"qw3_matmul_iq3_s_mpp_staged128") ||
             !prefill_resize(source,@"qw3_matmul_iq4_xs_mpp_staged128")) return 0;
+    } else if (!strcmp(prefill_mode,"input_stage") || !strcmp(prefill_mode,"input_prefetch") ||
+               !strcmp(prefill_mode,"input_half") || !strcmp(prefill_mode,"input_half_prefetch")) {
+        const int prefetch=!strcmp(prefill_mode,"input_prefetch") || !strcmp(prefill_mode,"input_half_prefetch");
+        const int half_input=!strcmp(prefill_mode,"input_half") || !strcmp(prefill_mode,"input_half_prefetch");
+        if (!prefill_stage_input(source,@"qw3_matmul_iq3_s_mpp_staged128",prefetch,half_input) ||
+            !prefill_stage_input(source,@"qw3_matmul_iq4_xs_mpp_staged128",prefetch,half_input)) return 0;
     } else if (strcmp(prefill_mode,"copies") && strcmp(prefill_mode,"production_copy") && !prefill_replace(source,old,replacement,4)) return 0;
     if (!strcmp(prefill_mode,"vector_dequant")) {
         NSRange start=[source rangeOfString:@"inline half4x4 qw3_iq3s_dequant4x4_expanded("];
@@ -92,7 +135,7 @@ static int prefill_initialize(void) {
     id<MTLFunction> iq4=[library newFunctionWithName:@"qw3_matmul_iq4_xs_mpp_staged128"];
     prefill_iq3[1]=iq3 ? [g_device newComputePipelineStateWithFunction:iq3 error:&error] : nil;
     prefill_iq4[1]=iq4 ? [g_device newComputePipelineStateWithFunction:iq4 error:&error] : nil;
-    if (!prefill_copy_pipeline || !prefill_iq3[1] || !prefill_iq4[1] || prefill_iq3[1].maxTotalThreadsPerThreadgroup<128 || prefill_iq4[1].maxTotalThreadsPerThreadgroup<128) {
+    if (!prefill_copy_pipeline || !prefill_iq3[1] || !prefill_iq4[1] || prefill_iq3[1].maxTotalThreadsPerThreadgroup<prefill_simdgroups*32u || prefill_iq4[1].maxTotalThreadsPerThreadgroup<prefill_simdgroups*32u) {
         fprintf(stderr,"prefill candidate unavailable: %s\n",error ? error.localizedDescription.UTF8String : "");return 0;
     }
     return prefill_copy_selftest(0) && prefill_copy_selftest(1);
@@ -139,14 +182,15 @@ static int prefill_states_equal(qw3_session **s) {
 }
 int main(int argc,char **argv) {
     @autoreleasepool {
-        if (argc!=2 && argc!=3) {fprintf(stderr,"usage: %s MODEL [vector_store|vector_dequant|tile32|tile16|tile128|k64|copies|production_copy]\n",argv[0]);return 1;}
+        if (argc!=2 && argc!=3) {fprintf(stderr,"usage: %s MODEL [vector_store|vector_dequant|tile32|tile16|tile128|k64|sg8|input_stage|input_prefetch|input_half|input_half_prefetch|copies|production_copy]\n",argv[0]);return 1;}
         if (argc==3) {
             prefill_mode=argv[2];
             if (!strcmp(prefill_mode,"tile32")) prefill_tile=32;
             else if (!strcmp(prefill_mode,"tile16")) prefill_tile=16;
             else if (!strcmp(prefill_mode,"tile128")) prefill_tile=128;
             else if (!strcmp(prefill_mode,"k64")) prefill_k=64;
-            else if (strcmp(prefill_mode,"vector_store") && strcmp(prefill_mode,"vector_dequant") && strcmp(prefill_mode,"copies") && strcmp(prefill_mode,"production_copy")) return 1;
+            else if (!strcmp(prefill_mode,"sg8")) prefill_simdgroups=8;
+            else if (strcmp(prefill_mode,"vector_store") && strcmp(prefill_mode,"vector_dequant") && strcmp(prefill_mode,"input_stage") && strcmp(prefill_mode,"input_prefetch") && strcmp(prefill_mode,"input_half") && strcmp(prefill_mode,"input_half_prefetch") && strcmp(prefill_mode,"copies") && strcmp(prefill_mode,"production_copy")) return 1;
         }
         qw3_engine *engine=NULL;qw3_session *sessions[2]={NULL,NULL};qw3_tokens prompt={0};
         qw3_engine_options options={.model_path=argv[1],.backend=QW3_BACKEND_METAL};

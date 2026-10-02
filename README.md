@@ -268,6 +268,13 @@ saved only about 0.2-0.3%; CPU encoding was roughly 0.35 ms versus over
 110 ms of GPU work. `make test-decode-trials-quant` checks 42 exact/tail cases;
 the optional full benchmark also checks logits, history and live state.
 
+Further [M5 weight-layout and activation-staging measurements](docs/m5_layout_staging_2026-10-02.md)
+cover private IQ4_XS repacking, its native-copy allocation control and payload
+prefetch. Repacking showed only +0.4-0.7% decode with about 3 GiB extra buffers;
+payload prefetch was inconclusive. Eight-group and FP32 input-staging prefill
+variants were slower, and FP16 input staging failed exact logits. None is
+enabled in the normal engine.
+
 Qwen text IMRoPE now pairs the two halves of the rotated prefix on CPU,
 single-token Metal and batched/fused prefill. Earlier adjacent-pair rotation
 could pass position-zero and greedy-ID checks while drifting from llama.cpp

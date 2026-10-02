@@ -100,6 +100,9 @@ static int qw3_metal_staged128_enabled(void) {
 #ifndef QW3_METAL_STAGED128_COLUMNS
 #define QW3_METAL_STAGED128_COLUMNS(pipeline) 64u
 #endif
+#ifndef QW3_METAL_STAGED128_THREADS
+#define QW3_METAL_STAGED128_THREADS(pipeline) 128u
+#endif
 
 int qw3_metal_dense_q3_k_batch_enabled(uint32_t n_tokens) {
     const char *env = getenv("QW3_METAL_DENSE_Q3_K_BATCH");
@@ -4716,6 +4719,8 @@ static int qw3_metal_encode_dense_batch_matmul(
             g_matmul_iq4_xs_mpp_pipeline;
         const uint32_t columns = use_staged128 ?
             QW3_METAL_STAGED128_COLUMNS(selected_pipeline) : 64u;
+        const uint32_t threads = use_staged128 ?
+            QW3_METAL_STAGED128_THREADS(selected_pipeline) : 128u;
         [direct setComputePipelineState:selected_pipeline];
         [direct setBytes:&direct_args length:sizeof(direct_args) atIndex:0];
         [direct setBuffer:weights offset:(NSUInteger)inner atIndex:1];
@@ -4726,7 +4731,7 @@ static int qw3_metal_encode_dense_batch_matmul(
             MTLSizeMake(use_staged128 ? n_tokens / 128u :
                         (n_tokens + 63u) / 64u,
                         (n_out + columns - 1u) / columns, 1u)
-            threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
+            threadsPerThreadgroup:MTLSizeMake(threads, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, direct);
         return 1;
     }
@@ -4750,6 +4755,8 @@ static int qw3_metal_encode_dense_batch_matmul(
             g_matmul_iq3_s_mpp_pipeline;
         const uint32_t columns = use_staged128 ?
             QW3_METAL_STAGED128_COLUMNS(selected_pipeline) : 64u;
+        const uint32_t threads = use_staged128 ?
+            QW3_METAL_STAGED128_THREADS(selected_pipeline) : 128u;
         [direct setComputePipelineState:selected_pipeline];
         [direct setBytes:&direct_args length:sizeof(direct_args) atIndex:0];
         [direct setBuffer:weights offset:(NSUInteger)inner atIndex:1];
@@ -4761,7 +4768,7 @@ static int qw3_metal_encode_dense_batch_matmul(
             MTLSizeMake(use_staged128 ? n_tokens / 128u :
                         (n_tokens + 63u) / 64u,
                         (n_out + columns - 1u) / columns, 1u)
-            threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
+            threadsPerThreadgroup:MTLSizeMake(threads, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, direct);
         return 1;
     }
