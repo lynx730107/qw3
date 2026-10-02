@@ -96,6 +96,11 @@ static int qw3_metal_staged128_enabled(void) {
     return !env || !env[0] || strcmp(env, "0") != 0;
 }
 
+/* Private geometry probes can override this without a production runtime knob. */
+#ifndef QW3_METAL_STAGED128_COLUMNS
+#define QW3_METAL_STAGED128_COLUMNS(pipeline) 64u
+#endif
+
 int qw3_metal_dense_q3_k_batch_enabled(uint32_t n_tokens) {
     const char *env = getenv("QW3_METAL_DENSE_Q3_K_BATCH");
     if (env && env[0]) return strcmp(env, "0") != 0;
@@ -233,6 +238,7 @@ static id<MTLComputePipelineState> g_residual_rmsnorm_update_x0_pipeline;
 static id<MTLComputePipelineState> g_residual_rmsnorm_batch_update_x0_pipeline;
 static id<MTLComputePipelineState> g_silu_mul_pipeline;
 static id<MTLComputePipelineState> g_round_f16_inplace_pipeline;
+static id<MTLComputePipelineState> g_copy_rows_pipeline;
 static id<MTLComputePipelineState> g_scale_pipeline;
 static id<MTLComputePipelineState> g_argmax_blocks_pipeline;
 static id<MTLComputePipelineState> g_argmax_penalty_blocks_pipeline;
@@ -2676,6 +2682,11 @@ static int qw3_metal_compile_kernels(void) {
         g_round_f16_inplace_pipeline =
             [g_device newComputePipelineStateWithFunction:fn error:&error];
     }
+    fn = [g_library newFunctionWithName:@"qw3_copy_rows"];
+    if (fn) {
+        g_copy_rows_pipeline =
+            [g_device newComputePipelineStateWithFunction:fn error:&error];
+    }
     fn = [g_library newFunctionWithName:@"qw3_silu_mul"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_silu_mul not found\n");
@@ -4700,9 +4711,12 @@ static int qw3_metal_encode_dense_batch_matmul(
                          0u, n_in, 0u, n_out};
         id<MTLComputeCommandEncoder> direct =
             qw3_metal_compute_encoder(cb);
-        [direct setComputePipelineState:use_staged128 ?
+        id<MTLComputePipelineState> selected_pipeline = use_staged128 ?
             g_matmul_iq4_xs_mpp_staged128_pipeline :
-            g_matmul_iq4_xs_mpp_pipeline];
+            g_matmul_iq4_xs_mpp_pipeline;
+        const uint32_t columns = use_staged128 ?
+            QW3_METAL_STAGED128_COLUMNS(selected_pipeline) : 64u;
+        [direct setComputePipelineState:selected_pipeline];
         [direct setBytes:&direct_args length:sizeof(direct_args) atIndex:0];
         [direct setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [direct setBuffer:src offset:0 atIndex:2];
@@ -4711,7 +4725,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [direct dispatchThreadgroups:
             MTLSizeMake(use_staged128 ? n_tokens / 128u :
                         (n_tokens + 63u) / 64u,
-                        (n_out + 63u) / 64u, 1u)
+                        (n_out + columns - 1u) / columns, 1u)
             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, direct);
         return 1;
@@ -4731,9 +4745,12 @@ static int qw3_metal_encode_dense_batch_matmul(
                          0u, n_in, 0u, n_out};
         id<MTLComputeCommandEncoder> direct =
             qw3_metal_compute_encoder(cb);
-        [direct setComputePipelineState:use_staged128 ?
+        id<MTLComputePipelineState> selected_pipeline = use_staged128 ?
             g_matmul_iq3_s_mpp_staged128_pipeline :
-            g_matmul_iq3_s_mpp_pipeline];
+            g_matmul_iq3_s_mpp_pipeline;
+        const uint32_t columns = use_staged128 ?
+            QW3_METAL_STAGED128_COLUMNS(selected_pipeline) : 64u;
+        [direct setComputePipelineState:selected_pipeline];
         [direct setBytes:&direct_args length:sizeof(direct_args) atIndex:0];
         [direct setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [direct setBuffer:src offset:0 atIndex:2];
@@ -4743,7 +4760,7 @@ static int qw3_metal_encode_dense_batch_matmul(
         [direct dispatchThreadgroups:
             MTLSizeMake(use_staged128 ? n_tokens / 128u :
                         (n_tokens + 63u) / 64u,
-                        (n_out + 63u) / 64u, 1u)
+                        (n_out + columns - 1u) / columns, 1u)
             threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, direct);
         return 1;
@@ -5205,6 +5222,40 @@ int qw3_metal_session_batch_dense_gqa_projections(
                                             "dense GQA batch projections");
 }
 
+static int qw3_metal_dense_gpu_copy_enabled(uint32_t n_tokens) {
+    if (!g_copy_rows_pipeline || n_tokens < 16u) return 0;
+    const char *env = getenv("QW3_METAL_DENSE_GPU_COPY");
+    if (env && env[0]) return strcmp(env, "0") != 0;
+    return n_tokens >= 128u && strcmp(g_device.name.UTF8String, "Apple M5") == 0;
+}
+
+static int qw3_metal_encode_copy_rows(id<MTLCommandBuffer> cb,
+    id<MTLBuffer> src, id<MTLBuffer> dst, uint32_t rows, uint32_t n,
+    uint32_t src_stride, uint32_t dst_stride,
+    uint32_t src_offset, uint32_t dst_offset) {
+    if (!cb || !src || !dst || !rows || !n || !g_copy_rows_pipeline ||
+        src_offset > src_stride || n > src_stride - src_offset ||
+        dst_offset > dst_stride || n > dst_stride - dst_offset ||
+        ((uint64_t)(rows - 1u) * src_stride + src_offset + n) * 4u > src.length ||
+        ((uint64_t)(rows - 1u) * dst_stride + dst_offset + n) * 4u > dst.length)
+        return 0;
+    struct {
+        uint32_t n, rows, src_stride, dst_stride, src_offset, dst_offset;
+    } args = {n, rows, src_stride, dst_stride, src_offset, dst_offset};
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    if (!enc) return 0;
+    [enc setComputePipelineState:g_copy_rows_pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:src offset:0 atIndex:1];
+    [enc setBuffer:dst offset:0 atIndex:2];
+    NSUInteger threads = MIN((NSUInteger)256,
+        g_copy_rows_pipeline.maxTotalThreadsPerThreadgroup);
+    [enc dispatchThreads:MTLSizeMake(n, rows, 1)
+        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    return 1;
+}
+
 int qw3_metal_session_stage_dense_gqa_projections(
     qw3_metal_session *s, uint32_t n_tokens,
     uint32_t qg_n, uint32_t kv_n,
@@ -5227,6 +5278,15 @@ int qw3_metal_session_stage_dense_gqa_projections(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
+    if (qw3_metal_dense_gpu_copy_enabled(n_tokens)) {
+        if (!qw3_metal_encode_copy_rows(cb, obj.denseBatchGqaQ, obj.prefillScratch,
+                n_tokens, qg_n, qg_n, stride, 0u, q_offset) ||
+            !qw3_metal_encode_copy_rows(cb, obj.denseBatchGqaK, obj.prefillScratch,
+                n_tokens, kv_n, kv_n, stride, 0u, k_offset) ||
+            !qw3_metal_encode_copy_rows(cb, obj.denseBatchGqaV, obj.prefillScratch,
+                n_tokens, kv_n, kv_n, stride, 0u, v_offset)) return 0;
+        return qw3_metal_finish_command_buffer(cb, owned, "dense GQA GPU staging");
+    }
     qw3_metal_close_batch_encoder();
     id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
     const NSUInteger q_row_bytes = (NSUInteger)qg_n * sizeof(float);
@@ -5274,6 +5334,13 @@ int qw3_metal_session_stage_dense_deltanet_projections(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
+    if (qw3_metal_dense_gpu_copy_enabled(n_tokens)) {
+        if (!qw3_metal_encode_copy_rows(cb, obj.denseBatchQkv, obj.prefillScratch,
+                n_tokens, n_qkv, n_qkv, stride, 0u, qkv_offset) ||
+            !qw3_metal_encode_copy_rows(cb, obj.denseBatchZ, obj.prefillScratch,
+                n_tokens, n_z, n_z, stride, 0u, z_offset)) return 0;
+        return qw3_metal_finish_command_buffer(cb, owned, "dense DeltaNet GPU staging");
+    }
     qw3_metal_close_batch_encoder();
     id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
     const NSUInteger qkv_row_bytes = (NSUInteger)n_qkv * sizeof(float);
@@ -5312,6 +5379,11 @@ int qw3_metal_session_copy_batch_scratch_to_x1(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     if (!cb) return 0;
+    if (qw3_metal_dense_gpu_copy_enabled(n_tokens)) {
+        if (!qw3_metal_encode_copy_rows(cb, obj.prefillScratch, obj.prefillX1,
+                n_tokens, n, stride, n, src_offset, 0u)) return 0;
+        return qw3_metal_finish_command_buffer(cb, owned, "dense GPU compaction");
+    }
     qw3_metal_close_batch_encoder();
     id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
     const NSUInteger row_bytes = (NSUInteger)n * sizeof(float);

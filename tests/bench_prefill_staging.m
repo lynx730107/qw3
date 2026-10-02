@@ -1,5 +1,16 @@
-/* Paired pp128 vector-store probe. Production shaders stay unchanged. */
+/* Paired pp128 staging/geometry probe. Production shaders stay unchanged. */
+#import <Metal/Metal.h>
+#include <stdint.h>
+static uint32_t prefill_columns(id<MTLComputePipelineState> pipeline);
+#define QW3_METAL_STAGED128_COLUMNS(pipeline) prefill_columns(pipeline)
+#define qw3_metal_session_stage_dense_gqa_projections prefill_blit_gqa
+#define qw3_metal_session_stage_dense_deltanet_projections prefill_blit_dn
+#define qw3_metal_session_copy_batch_scratch_to_x1 prefill_blit_compact
 #include "../qw3_metal.m"
+#undef qw3_metal_session_stage_dense_gqa_projections
+#undef qw3_metal_session_stage_dense_deltanet_projections
+#undef qw3_metal_session_copy_batch_scratch_to_x1
+#include "prefill_copy_probe.inc"
 #define qw3_metal_env_n_gpu_layers qw3_memory_core_env_n_gpu_layers
 #define qw3_metal_llama_split_enabled qw3_memory_core_llama_split_enabled
 #define qw3_metal_llama_split_start qw3_memory_core_llama_split_start
@@ -7,6 +18,40 @@
 
 static id<MTLComputePipelineState> prefill_iq3[2],prefill_iq4[2];
 static const char *prefill_mode="vector_store";
+static uint32_t prefill_tile=64;
+static uint32_t prefill_k=32;
+static uint32_t prefill_columns(id<MTLComputePipelineState> pipeline) {
+    return pipeline==prefill_iq3[1] || pipeline==prefill_iq4[1] ? prefill_tile : 64u;
+}
+static int prefill_replace(NSMutableString *source,NSString *old,NSString *replacement,NSUInteger expected) {
+    NSUInteger changes=[source replaceOccurrencesOfString:old withString:replacement options:0 range:NSMakeRange(0,source.length)];
+    if (changes!=expected) {fprintf(stderr,"unexpected replacement count: %lu expected %lu\n",(unsigned long)changes,(unsigned long)expected);return 0;}
+    return 1;
+}
+static int prefill_resize(NSMutableString *source,NSString *name) {
+    NSRange start=[source rangeOfString:[@"kernel void " stringByAppendingString:name]];
+    if (start.location==NSNotFound) return 0;
+    NSRange end=[source rangeOfString:@"\n}\n" options:0 range:NSMakeRange(start.location,source.length-start.location)];
+    if (end.location==NSNotFound) return 0;
+    NSRange range=NSMakeRange(start.location,end.location+end.length-start.location);
+    NSMutableString *body=[[source substringWithRange:range] mutableCopy];
+    if (!prefill_replace(body,@"constexpr int NR0 = 64;",[NSString stringWithFormat:@"constexpr int NR0 = %u;",prefill_tile],1)) return 0;
+    if (prefill_tile<64) {
+        if (!prefill_replace(body,@"if (r0 + row < int(args.n_out))",@"if (row < NR0 && r0 + row < int(args.n_out))",1) ||
+            !prefill_replace(body,@"} else {",@"} else if (row < NR0) {",1)) return 0;
+    } else if (prefill_tile>64) {
+        if (!prefill_replace(body,@"const int row = int(tid) / 2;",@"for (int row = int(tid) / 2; row < NR0; row += 64) {",1) ||
+            !prefill_replace(body,@"        threadgroup_barrier(mem_flags::mem_threadgroup);\n        auto mA",@"        }\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n        auto mA",1)) return 0;
+    }
+    if (prefill_k==64) {
+        if (!prefill_replace(body,@"constexpr int NK = 32;",@"constexpr int NK = 64;",1) ||
+            !prefill_replace(body,@"const int half_k = int(tid) & 1;",@"const int half_k = int(tid) & 1;\n        for (int part = 0; part < 2; ++part) {",1) ||
+            !prefill_replace(body,@"half_k * 16",@"half_k * 32 + part * 16",3) ||
+            !prefill_replace(body,@"        threadgroup_barrier(mem_flags::mem_threadgroup);\n        auto mA",@"        }\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n        auto mA",1)) return 0;
+    }
+    [source replaceCharactersInRange:range withString:body];
+    return 1;
+}
 static int prefill_initialize(void) {
     if (!qw3_metal_compile_kernels() || !g_metal4_tensor_api_enabled) return 0;
     prefill_iq3[0]=g_matmul_iq3_s_mpp_staged128_pipeline;
@@ -14,8 +59,10 @@ static int prefill_initialize(void) {
     NSMutableString *source=[qw3_metal_kernel_source() mutableCopy];
     NSString *old=@"#pragma unroll\n            for (int i = 0; i < 16; ++i)\n                sa[row * NK + half_k * 16 + i] =\n                    values[i / 4][i & 3];";
     NSString *replacement=@"threadgroup half4 *dst = (threadgroup half4 *)(sa + row * NK + half_k * 16);\n#pragma unroll\n            for (int i = 0; i < 4; ++i) dst[i] = values[i];";
-    const NSUInteger changes=[source replaceOccurrencesOfString:old withString:replacement options:0 range:NSMakeRange(0,source.length)];
-    if (changes!=4) {fprintf(stderr,"unexpected vector-store replacement count: %lu\n",(unsigned long)changes);return 0;}
+    if (prefill_tile!=64 || prefill_k!=32) {
+        if (!prefill_resize(source,@"qw3_matmul_iq3_s_mpp_staged128") ||
+            !prefill_resize(source,@"qw3_matmul_iq4_xs_mpp_staged128")) return 0;
+    } else if (strcmp(prefill_mode,"copies") && strcmp(prefill_mode,"production_copy") && !prefill_replace(source,old,replacement,4)) return 0;
     if (!strcmp(prefill_mode,"vector_dequant")) {
         NSRange start=[source rangeOfString:@"inline half4x4 qw3_iq3s_dequant4x4_expanded("];
         if (start.location==NSNotFound) return 0;
@@ -37,17 +84,22 @@ static int prefill_initialize(void) {
     }
     NSError *error=nil;MTLCompileOptions *options=[MTLCompileOptions new];
     options.preprocessorMacros=@{@"QW3_METAL_HAS_TENSOR":@"1"};
+    [source appendString:prefill_copy_source];
     id<MTLLibrary> library=[g_device newLibraryWithSource:source options:options error:&error];
+    id<MTLFunction> copy=[library newFunctionWithName:@"prefill_copy_rows"];
+    prefill_copy_pipeline=copy ? [g_device newComputePipelineStateWithFunction:copy error:&error] : nil;
     id<MTLFunction> iq3=[library newFunctionWithName:@"qw3_matmul_iq3_s_mpp_staged128"];
     id<MTLFunction> iq4=[library newFunctionWithName:@"qw3_matmul_iq4_xs_mpp_staged128"];
     prefill_iq3[1]=iq3 ? [g_device newComputePipelineStateWithFunction:iq3 error:&error] : nil;
     prefill_iq4[1]=iq4 ? [g_device newComputePipelineStateWithFunction:iq4 error:&error] : nil;
-    if (!prefill_iq3[1] || !prefill_iq4[1] || prefill_iq3[1].maxTotalThreadsPerThreadgroup<128 || prefill_iq4[1].maxTotalThreadsPerThreadgroup<128) {
+    if (!prefill_copy_pipeline || !prefill_iq3[1] || !prefill_iq4[1] || prefill_iq3[1].maxTotalThreadsPerThreadgroup<128 || prefill_iq4[1].maxTotalThreadsPerThreadgroup<128) {
         fprintf(stderr,"prefill candidate unavailable: %s\n",error ? error.localizedDescription.UTF8String : "");return 0;
     }
-    return 1;
+    return prefill_copy_selftest(0) && prefill_copy_selftest(1);
 }
 static void prefill_select(int v) {
+    setenv("QW3_METAL_DENSE_GPU_COPY",v && !strcmp(prefill_mode,"production_copy") ? "1" : "0",1);
+    prefill_copy_enabled=v && !strcmp(prefill_mode,"copies");
     g_matmul_iq3_s_mpp_staged128_pipeline=prefill_iq3[v];
     g_matmul_iq4_xs_mpp_staged128_pipeline=prefill_iq4[v];
 }
@@ -61,10 +113,41 @@ static int memory_logits_equal(qw3_session **s,float **logits,int vocab) {
     return s[0]->tokens.len==s[1]->tokens.len &&
            !memcmp(s[0]->tokens.v,s[1]->tokens.v,s[0]->tokens.len*sizeof(int));
 }
+static int prefill_states_equal(qw3_session **s) {
+    qw3_metal_state_info info={0};
+    if (!qw3_metal_session_get_state_info(s[0]->metal,&info)) return 0;
+    const size_t chunk=4u*1024u*1024u;
+    unsigned char *data[2]={malloc(chunk),malloc(chunk)};
+    int ok=data[0] && data[1];
+    for (int kind=QW3_METAL_STATE_GQA_K;ok && kind<=QW3_METAL_STATE_CONV;kind++) {
+        if (kind==QW3_METAL_STATE_GQA_FLASH_TAIL) continue;
+        const uint64_t bytes=kind==QW3_METAL_STATE_DELTANET ? info.deltanet_bytes :
+            kind==QW3_METAL_STATE_CONV ? info.conv_bytes : info.kv_row_bytes*s[0]->tokens.len;
+        const uint32_t layers=kind<=QW3_METAL_STATE_GQA_V ? info.n_full_layers : 1u;
+        for (uint32_t layer=0;ok && layer<layers;layer++) for (uint64_t offset=0;ok && offset<bytes;offset+=chunk) {
+            const uint64_t size=MIN((uint64_t)chunk,bytes-offset);
+            for (int v=0;ok && v<2;v++) ok=qw3_metal_session_read_state(s[v]->metal,
+                (qw3_metal_state_buffer)kind,layer,offset,data[v],size);
+            if (ok && memcmp(data[0],data[1],size)) {
+                fprintf(stderr,"prefill state mismatch kind=%d layer=%u offset=%llu\n",kind,layer,(unsigned long long)offset);ok=0;
+            }
+        }
+    }
+    free(data[0]);free(data[1]);
+    if (ok) printf("prefill_state deltanet=exact conv=exact live_kv=exact tokens=%d\n",s[0]->tokens.len);
+    return ok;
+}
 int main(int argc,char **argv) {
     @autoreleasepool {
-        if (argc!=2 && argc!=3) {fprintf(stderr,"usage: %s MODEL [vector_store|vector_dequant]\n",argv[0]);return 1;}
-        if (argc==3) {if (strcmp(argv[2],"vector_store") && strcmp(argv[2],"vector_dequant")) return 1;prefill_mode=argv[2];}
+        if (argc!=2 && argc!=3) {fprintf(stderr,"usage: %s MODEL [vector_store|vector_dequant|tile32|tile16|tile128|k64|copies|production_copy]\n",argv[0]);return 1;}
+        if (argc==3) {
+            prefill_mode=argv[2];
+            if (!strcmp(prefill_mode,"tile32")) prefill_tile=32;
+            else if (!strcmp(prefill_mode,"tile16")) prefill_tile=16;
+            else if (!strcmp(prefill_mode,"tile128")) prefill_tile=128;
+            else if (!strcmp(prefill_mode,"k64")) prefill_k=64;
+            else if (strcmp(prefill_mode,"vector_store") && strcmp(prefill_mode,"vector_dequant") && strcmp(prefill_mode,"copies") && strcmp(prefill_mode,"production_copy")) return 1;
+        }
         qw3_engine *engine=NULL;qw3_session *sessions[2]={NULL,NULL};qw3_tokens prompt={0};
         qw3_engine_options options={.model_path=argv[1],.backend=QW3_BACKEND_METAL};
         float *logits[2]={NULL,NULL};char error[512]={0};int status=1;
@@ -118,6 +201,7 @@ int main(int argc,char **argv) {
         for (int i=0;i<8;i++) ss+=(pairs[i]-mean)*(pairs[i]-mean);
         printf("prefill_pp128 mode=%s pairs=8 baseline_tps=%.3f candidate_tps=%.3f gain_pct=%.2f saved_ms=%.3f ci95_ms=%.3f logits_exact=1\n",
                prefill_mode,8*128/elapsed[0],8*128/elapsed[1],(elapsed[0]/elapsed[1]-1)*100,mean,2.365*sqrt(ss/7/8));
+        if (!prefill_states_equal(sessions)) goto done;
         status=0;
 done:
         if (prefill_iq3[0] && prefill_iq4[0]) prefill_select(0);

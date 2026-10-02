@@ -1,3 +1,16 @@
+/* Copy raw FP32 storage without arithmetic, including NaN/zero payload bits. */
+struct qw3_copy_rows_args {
+    uint n, rows, src_stride, dst_stride, src_offset, dst_offset;
+};
+kernel void qw3_copy_rows(constant qw3_copy_rows_args &args [[buffer(0)]],
+                          device const uint *src [[buffer(1)]],
+                          device uint *dst [[buffer(2)]],
+                          uint2 p [[thread_position_in_grid]]) {
+    if (p.x >= args.n || p.y >= args.rows) return;
+    dst[uint64_t(p.y) * args.dst_stride + args.dst_offset + p.x] =
+        src[uint64_t(p.y) * args.src_stride + args.src_offset + p.x];
+}
+
 struct qw3_conv1d_args { uint n_channels; };
 kernel void qw3_deltanet_conv1d_zero(constant qw3_conv1d_args &args,
                                      device const float *w,

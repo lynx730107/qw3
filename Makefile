@@ -111,11 +111,15 @@ qw3-q5-head-bench: tests/bench_q5_head.m tests/q5_decode_candidates.metal qw3.h 
 qw3-iq3-stream-bench: tests/bench_iq3_stream.m tests/iq3_decode_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_iq3_stream.m $(METAL_LDLIBS)
 
-qw3-prefill-staging-bench: tests/bench_prefill_staging.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+qw3-prefill-staging-bench: tests/bench_prefill_staging.m tests/prefill_copy_probe.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_prefill_staging.m $(METAL_LDLIBS)
 
 test-iq3-stream-quant: qw3-iq3-stream-bench
 	sh tests/test_iq3_stream.sh
+
+.PHONY: test-prefill-copy
+test-prefill-copy: qw3-prefill-staging-bench
+	sh tests/test_prefill_copy.sh
 
 qw3-block-cost-bench: tests/bench_verify_blocks.c qw3.c qw3.h qw3_metal.h qw3_runtime_fingerprint.h qw3_metal.o
 	$(CC) $(CFLAGS) -fno-finite-math-only -o $@ tests/bench_verify_blocks.c qw3_metal.o $(METAL_LDLIBS)

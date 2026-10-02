@@ -251,6 +251,16 @@ promoted. The report includes fresh, separately measured pp128/tg32 llama
 references and exact-logit continuation checks. `make test-iq3-stream-quant`
 checks the experimental kernels, not a production performance threshold.
 
+On the measured base M5, full 128-token dense prefill chunks now stage and
+compact projection rows with bit-preserving GPU copies rather than hundreds
+of row blits per layer. Alternating paired runs showed only about +0.5-0.8%
+prefill throughput; one-token decode is unchanged. Smaller chunks and other
+GPUs retain blits, and `QW3_METAL_DENSE_GPU_COPY=0` disables the policy.
+`make test-prefill-copy` checks raw copy tails/guards, full logits, continuation
+and live recurrent/KV state. See [the copy measurements](docs/m5_prefill_copy_2026-10-02.md)
+for uncertainty and rejected tile geometry changes. This does not establish
+parity with llama.cpp.
+
 Qwen text IMRoPE now pairs the two halves of the rotated prefix on CPU,
 single-token Metal and batched/fused prefill. Earlier adjacent-pair rotation
 could pass position-zero and greedy-ID checks while drifting from llama.cpp
