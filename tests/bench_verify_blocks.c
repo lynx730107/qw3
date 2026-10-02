@@ -1,6 +1,8 @@
 /* Diagnostic only: paired dense backbone block cost, NOT speculative decoding.
  * Both sides compute just the last LM head. Production APIs are unchanged. */
+#ifndef QW3_BLOCK_CORE_INCLUDED
 #include "../qw3.c"
+#endif
 #include <inttypes.h>
 
 static int block_argmax(const float *v, int n) {

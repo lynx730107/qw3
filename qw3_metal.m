@@ -4451,6 +4451,17 @@ static int qw3_metal_dense_batch_prepare_map(QW3MetalSessionObj *obj,
     return 1;
 }
 
+#ifndef QW3_METAL_DENSE_SHORT_F32
+/* Private verifier arithmetic probe; production retains its existing policy. */
+#define QW3_METAL_DENSE_SHORT_F32(n_tokens) 0
+#endif
+#ifndef QW3_METAL_DENSE_SHORT_ENCODE
+#define QW3_METAL_DENSE_SHORT_ENCODE(cb, weights, offset, type, nt, ni, no, rb, src, dst) 0
+#endif
+#ifndef QW3_METAL_DENSE_SHORT_GDN_PIPELINE
+#define QW3_METAL_DENSE_SHORT_GDN_PIPELINE(n_tokens, head_dim) nil
+#endif
+
 /* The mapped MoE kernels also handle a single expert with identity pair IDs. */
 static int qw3_metal_encode_dense_batch_matmul(
     QW3MetalSessionObj *obj, id<MTLCommandBuffer> cb,
@@ -4486,6 +4497,31 @@ static int qw3_metal_encode_dense_batch_matmul(
     uint64_t inner = 0;
     id<MTLBuffer> weights = qw3_metal_model_view_for(
         tensor_offset, weight_bytes, &inner);
+    if (QW3_METAL_DENSE_SHORT_F32(n_tokens) &&
+        (tensor_type == 21u || tensor_type == 23u)) {
+        const int handled = QW3_METAL_DENSE_SHORT_ENCODE(cb, weights, inner,
+            tensor_type, n_tokens, n_in, n_out, row_bytes, src, dst);
+        if (handled) return handled > 0;
+        id<MTLComputePipelineState> pipeline = tensor_type == 21u ?
+            g_matvec_iq3_s_pipeline : g_matvec_iq4_xs_pipeline;
+        id<MTLBuffer> grid = tensor_type == 21u ? qw3_metal_iq3s_kgrid_buffer() : nil;
+        if (!weights || !pipeline || (tensor_type == 21u && !grid)) return 0;
+        struct { uint32_t n_in, n_out, row_bytes; } args = {n_in, n_out, (uint32_t)row_bytes};
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
+        if (grid) [enc setBuffer:grid offset:0 atIndex:4];
+        [enc setThreadgroupMemoryLength:32*sizeof(float) atIndex:0];
+        for (uint32_t t = 0; t < n_tokens; t++) {
+            [enc setBuffer:src offset:(NSUInteger)t*n_in*sizeof(float) atIndex:2];
+            [enc setBuffer:dst offset:(NSUInteger)t*n_out*sizeof(float) atIndex:3];
+            [enc dispatchThreadgroups:MTLSizeMake((n_out+(tensor_type == 21u ? 7u : 3u))/(tensor_type == 21u ? 8u : 4u),1,1)
+                threadsPerThreadgroup:MTLSizeMake(64,1,1)];
+        }
+        qw3_metal_end_compute_encoder(cb, enc);
+        return 1;
+    }
     if (tensor_type == 12u || tensor_type == 13u) {
         if (!weights || !g_matmul_q4_q5_k_mpp_pipeline ||
             n_tokens < 16u) return 0;
@@ -5011,6 +5047,7 @@ int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
         !(n_tokens % 128u == 0u && g_matmul_iq3_s_mpp_staged128_pipeline &&
           g_round_f16_inplace_pipeline && qw3_metal_staged128_enabled());
     const int iq3_pair_eligible = gate_batch && up_batch &&
+        !QW3_METAL_DENSE_SHORT_F32(n_tokens) &&
         gate_type == 21u && up_type == 21u &&
         g_moe_iq3_s_prefill_pair_mapped_mpp_pipeline != nil;
     const int paired_iq3_s = iq3_pair_eligible &&
@@ -6306,6 +6343,7 @@ int qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
     };
 
     const int use_tiled =
+        !QW3_METAL_DENSE_SHORT_F32(n_tokens) &&
         getenv("QW3_METAL_BATCH_GDN_LEGACY") == NULL &&
         (head_dim % 4u) == 0u;
     const int use_tiled4 =
@@ -6357,7 +6395,8 @@ int qw3_metal_session_batch_deltanet_fused_gdn_from_scratch(
         return 1;
     }
 
-    [enc setComputePipelineState:g_deltanet_batch_fused_gdn_pipeline];
+    id<MTLComputePipelineState> short_gdn = QW3_METAL_DENSE_SHORT_GDN_PIPELINE(n_tokens, head_dim);
+    [enc setComputePipelineState:short_gdn ? short_gdn : g_deltanet_batch_fused_gdn_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:obj.deltanetState offset:(NSUInteger)state_offset atIndex:1];
     [enc setBuffer:obj.prefillScratch offset:0 atIndex:2];

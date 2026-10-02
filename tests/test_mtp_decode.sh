@@ -5,7 +5,7 @@ MODEL="${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}"
 BIN="${QW3_MTP_DECODE_BIN:-./qw3-mtp-decode}"
 MODE="${QW3_MTP_MODE:-serial}"
 fail() { echo "test-mtp-decode: FAIL: $*" >&2; exit 1; }
-case "$MODE" in serial|serial-replay) ;; *) fail 'mode must be serial or serial-replay' ;; esac
+case "$MODE" in serial|serial-replay|batch-f32) ;; *) fail 'mode must be serial, serial-replay or batch-f32' ;; esac
 [ -f "$MODEL" ] || fail "model not found: $MODEL"
 [ -x "$BIN" ] || fail "binary not found: $BIN"
 OUT="$(mktemp -t qw3-mtp-decode.XXXXXX)"
@@ -20,13 +20,20 @@ run() {
             found++;
             for (i=1; i<=NF; i++) { split($i,p,"="); value[p[1]]=p[2]; }
             if (value["tokens"] != steps || value["matched"] != steps ||
-                value["serial_state_exact"] != 1 || value["continuation"] != 8 ||
-                value["all_rows"]+0 < steps || value["max"] != 0 ||
-                value["rms"] != 0 || value["hidden_max"] != 0 || value["hidden_rms"] != 0 ||
+                value["serial_state_exact"] != (mode == "batch-f32" ? 0 : 1) || value["continuation"] != 8 ||
+                value["all_rows"]+0 < steps ||
                 value["rollback_checks"] != value["rejected_cycles"]) bad=1;
+            number="^[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?$";
+            split("max rms hidden_max hidden_rms continuation_max continuation_rms", fields, " ");
+            for (i=1; i<=6; i++) if (value[fields[i]] !~ number) bad=1;
+            if (value["max"]+0 > 0.005 || value["rms"]+0 > 0.001 ||
+                value["hidden_max"]+0 > 0.001 || value["hidden_rms"]+0 > 0.0001 ||
+                value["continuation_max"]+0 > 0.005 || value["continuation_rms"]+0 > 0.001) bad=1;
+            if (mode != "batch-f32" && (value["max"] != 0 || value["rms"] != 0 ||
+                value["hidden_max"] != 0 || value["hidden_rms"] != 0 ||
+                value["continuation_max"] != 0 || value["continuation_rms"] != 0)) bad=1;
             if (value["compact_replay"] != (mode == "serial-replay" ? 1 : 0)) bad=1;
             if (mode == "serial-replay" && value["rejected_cycles"]+0 > 0) {
-                number="^[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?$";
                 if (value["restore_replay_ms"] !~ number || value["restore_replay_ms"]+0 <= 0 ||
                     value["scalar_restore_reference_ms"] !~ number || value["scalar_restore_reference_ms"]+0 <= 0) bad=1;
             }

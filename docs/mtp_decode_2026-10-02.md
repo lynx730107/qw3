@@ -127,3 +127,9 @@ An additional `serial-replay` mode now replaces full-model accepted-prefix
 replay with compact recurrent-input replay. It does not solve the batch
 numerical failures above or enable production speculation. See
 [the compact replay report](mtp_compact_replay_2026-10-02.md).
+
+A separate opt-in `batch-f32` investigation avoids short F16 projection
+tiles and tiled recurrence reductions, while retaining the strict all-row
+thresholds. The original `batch` mode remains unchanged. See
+[the FP32 verifier report](mtp_f32_verifier_2026-10-02.md); this is not a
+production speculation or agent option.

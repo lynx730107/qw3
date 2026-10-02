@@ -303,6 +303,13 @@ The ordinary scalar kernels are retained and the test requires byte-identical
 state, logits, tokens and continuation. This is not yet fast batched MTP or
 an agent option. See [compact rollback scope and measurements](docs/mtp_compact_replay_2026-10-02.md).
 
+The separate experimental `batch-f32` verifier retains FP32 short IQ3_S/IQ4_XS
+projections and scalar-ordered DeltaNet reductions. `make test-mtp-f32` checks
+every hidden/logit row; `make test-mtp-short-f32-quant` checks 84 kernel/guard
+cases against scalar GPU and independent llama.cpp CPU dequantization.
+This is not enabled in CLI/agent or combined with compact rollback. See
+[precision checks and measured scope](docs/mtp_f32_verifier_2026-10-02.md).
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. They do not enable MTP in
 the CLI or agent; the block probe computes **only the last logit row**.

@@ -857,6 +857,10 @@ static int qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
 /* Private replay probes record projected inputs; production has no log. */
 #define QW3_METAL_DENSE_REPLAY_RECORD(session, slot, count) 1
 #endif
+#ifndef QW3_METAL_DENSE_STATE_TRACE
+/* Private all-row precision probes; production emits no copies or checks. */
+#define QW3_METAL_DENSE_STATE_TRACE(session, layer, site, row, rows) 1
+#endif
 static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                                                char *err, size_t errlen,
                                                int logits_mode);
@@ -15209,6 +15213,8 @@ static int qw3_metal_session_eval_dense_prefill_batch(
             stage = "begin layer commands";
             ok = qw3_metal_begin_commands();
         }
+        if (ok && full_batch_attention)
+            ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 0, -1, ntok);
         const int need_token_loop = !full_batch_attention || !batch_ffn ||
                                     !gate_batch || !up_batch;
         for (uint32_t t = 0; ok && need_token_loop && t < ntok; t++) {
@@ -15330,6 +15336,9 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                     s->metal, lw->ffn_norm->offset,
                     n_embd, QW3_RMS_EPS, NULL);
             if (!ok) break;
+            if (!full_batch_attention)
+                ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 0, t, 1);
+            if (!ok) break;
             if (batch_ffn) {
                 stage = "mixed FFN tokenwise projections";
                 if (!gate_batch) {
@@ -15423,6 +15432,7 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                     (layer_done - attention_done) * 1000.0,
                     (layer_done - layer_start) * 1000.0, ok);
         }
+        if (ok) ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 1, -1, ntok);
         if (ok) qw3_session_progress(s, "layer", il + 1,
                                      spec->n_layer);
     }
@@ -15616,6 +15626,8 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
             s->metal, lw->ffn_norm->offset, n_embd, QW3_RMS_EPS, NULL);
         QW3_DENSE_PROFILE_STAGE(4);
         if (!ok) break;
+        ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 0, -2, 1);
+        if (!ok) break;
         stage = "FFN gate/up";
         if (iq3_pair && lw->ffn_gate->type == QW3_TENSOR_IQ3_S &&
             lw->ffn_up->type == QW3_TENSOR_IQ3_S) {
@@ -15653,6 +15665,7 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                      s->metal, 1.0f, n_embd);
         }
         QW3_DENSE_PROFILE_STAGE(6);
+        if (ok) ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 1, -2, 1);
         if (ok && !profile) {
             stage = "decode layer prefix submission";
             ok = QW3_METAL_DENSE_DECODE_LAYER_DONE(il, spec->n_layer);

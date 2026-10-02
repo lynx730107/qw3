@@ -6,12 +6,128 @@
  * and restores accepted state without embeddings/projections/FFN/head replay.
  * Sampling, EOS stopping, cancellation and public session APIs are absent. */
 #include "../qw3.h"
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 static int decode_replay_record(qw3_session *s, uint32_t slot, uint32_t count);
+static int decode_state_trace(qw3_session *s, int layer, int site, int row, int rows);
+static int decode_short_encode(id<MTLCommandBuffer> cb, id<MTLBuffer> weights,
+    uint64_t offset, uint32_t type, uint32_t nt, uint32_t ni, uint32_t no,
+    uint64_t rb, id<MTLBuffer> src, id<MTLBuffer> dst);
 #define QW3_METAL_DENSE_REPLAY_RECORD(s, slot, count) decode_replay_record(s, slot, count)
+#define QW3_METAL_DENSE_STATE_TRACE(s, layer, site, row, rows) decode_state_trace(s, layer, site, row, rows)
+static int decode_short_f32;
+static int decode_short_vector;
+static id<MTLComputePipelineState> decode_gdn_cached;
+static int decode_cached_gdn;
+#define QW3_METAL_DENSE_SHORT_F32(n) (decode_short_f32 && (n) >= 2u && (n) <= 8u)
+#define QW3_METAL_DENSE_SHORT_ENCODE(cb, w, off, type, nt, ni, no, rb, src, dst) \
+    decode_short_encode(cb, w, off, type, nt, ni, no, rb, src, dst)
+#define QW3_METAL_DENSE_SHORT_GDN_PIPELINE(nt, hd) \
+    (decode_cached_gdn && QW3_METAL_DENSE_SHORT_F32(nt) && (hd) == 128u ? decode_gdn_cached : nil)
 #define main qw3_mtp_teacher_forced_entrypoint
 #include "bench_mtp_acceptance.m"
 #undef main
 #include <inttypes.h>
+
+static id<MTLComputePipelineState> decode_iq3s_short, decode_iq4xs_short;
+#ifndef QW3_MTP_SHORT_SOURCE
+#define QW3_MTP_SHORT_SOURCE "tests/mtp_short_f32.metal"
+#endif
+
+static int decode_short_init(void) {
+    NSError *error = nil;
+    NSString *source = [NSString stringWithContentsOfFile:@QW3_MTP_SHORT_SOURCE
+        encoding:NSUTF8StringEncoding error:&error];
+    MTLCompileOptions *options = [MTLCompileOptions new];
+    if (@available(macOS 15.0, *)) options.mathMode = MTLMathModeFast;
+    id<MTLLibrary> library = source ? [g_device newLibraryWithSource:source options:options error:&error] : nil;
+    if (!library) {
+        fprintf(stderr, "MTP short library failed: %s\n", error.localizedDescription.UTF8String);
+        return 0;
+    }
+    decode_iq3s_short = [g_device newComputePipelineStateWithFunction:
+        [library newFunctionWithName:@"mtp_iq3s_short"] error:&error];
+    decode_iq4xs_short = [g_device newComputePipelineStateWithFunction:
+        [library newFunctionWithName:@"mtp_iq4xs_short"] error:&error];
+    if (decode_cached_gdn) decode_gdn_cached = [g_device newComputePipelineStateWithFunction:
+        [library newFunctionWithName:@"mtp_gdn_cached128"] error:&error];
+    return decode_iq3s_short && decode_iq4xs_short &&
+        decode_iq3s_short.maxTotalThreadsPerThreadgroup >= 128 &&
+        decode_iq4xs_short.maxTotalThreadsPerThreadgroup >= 128;
+}
+
+static int decode_short_encode(id<MTLCommandBuffer> cb, id<MTLBuffer> weights,
+    uint64_t offset, uint32_t type, uint32_t nt, uint32_t ni, uint32_t no,
+    uint64_t rb, id<MTLBuffer> src, id<MTLBuffer> dst) {
+    if (!(decode_short_vector & (type == 21u ? 1 : 2))) return 0;
+    id<MTLComputePipelineState> pipeline = type == 21u ? decode_iq3s_short : decode_iq4xs_short;
+    id<MTLBuffer> grid = type == 21u ? qw3_metal_iq3s_kgrid_buffer() : nil;
+    if (!cb || !weights || !src || !dst || !pipeline || (type == 21u && !grid) ||
+        rb > UINT32_MAX || nt < 2 || nt > 8 || !ni || ni%256u || !no) return -1;
+    struct { uint32_t ni, no, rb, nt, io, is, oo, os; } args = {ni,no,(uint32_t)rb,nt,0,ni,0,no};
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:weights offset:(NSUInteger)offset atIndex:1];
+    [enc setBuffer:src offset:0 atIndex:2];
+    [enc setBuffer:dst offset:0 atIndex:3];
+    if (grid) [enc setBuffer:grid offset:0 atIndex:4];
+    [enc dispatchThreadgroups:MTLSizeMake((no+3u)/4u,(nt+3u)/4u,1)
+        threadsPerThreadgroup:MTLSizeMake(128,1,1)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    return 1;
+}
+
+#include "mtp_short_f32_checks.inc"
+
+/* Opt-in first-cycle all-row trace, never included in throughput evidence. */
+static qw3_session *trace_target, *trace_oracle;
+static int trace_pos, trace_width, trace_active;
+static id<MTLBuffer> trace_buffers[2];
+static uint64_t trace_seen[2][8][2];
+
+static int decode_state_trace(qw3_session *s, int layer, int site, int row, int rows) {
+    if (!trace_active || (s != trace_target && s != trace_oracle)) return 1;
+    const int side = s == trace_oracle;
+    if (layer < 0 || layer >= 64 || site < 0 || site > 1) return 0;
+    QW3MetalSessionObj *o = (__bridge QW3MetalSessionObj *)s->metal->obj;
+    id<MTLBuffer> source = row == -1 ? o.prefillX0 : o.x0;
+    if (row == -2) row = (int)s->kv.pos - trace_pos;
+    else if (row == -1) row = 0;
+    if (row < 0 || rows < 1 || row + rows > trace_width) return 0;
+    const NSUInteger bytes = (NSUInteger)s->engine->model.spec->n_embd * sizeof(float);
+    const NSUInteger dst = ((NSUInteger)layer*2+site)*trace_width*bytes + row*bytes;
+    if (!mtp_copy(source, 0, trace_buffers[side], dst, rows*bytes)) return 0;
+    for (int t = row; t < row+rows; t++) {
+        if (trace_seen[side][t][site] & (1ull << layer)) return 0;
+        trace_seen[side][t][site] |= 1ull << layer;
+    }
+    return 1;
+}
+
+static int decode_trace_report(int layers, int d) {
+    if (!qw3_metal_synchronize()) return 0;
+    const uint64_t mask = layers == 64 ? UINT64_MAX : (1ull << layers)-1;
+    for (int side = 0; side < 2; side++) for (int row = 0; row < trace_width; row++)
+        for (int site = 0; site < 2; site++)
+            if (trace_seen[side][row][site] != mask) return 0;
+    const float *a = trace_buffers[0].contents, *b = trace_buffers[1].contents;
+    for (int layer = 0; layer < layers; layer++) for (int site = 0; site < 2; site++)
+        for (int row = 0; row < trace_width; row++) {
+            const size_t offset = ((size_t)layer*2+site)*trace_width*d+(size_t)row*d;
+            double max = 0, ss = 0;
+            for (int i = 0; i < d; i++) {
+                double diff = (double)a[offset+i]-b[offset+i];
+                if (!isfinite(diff)) return 0;
+                if (fabs(diff) > max) max = fabs(diff);
+                ss += diff*diff;
+            }
+            printf("mtp_trace layer=%d site=%s row=%d max=%.9g rms=%.9g\n",
+                layer, site ? "ffn" : "attention", row, max, sqrt(ss/d));
+        }
+    fflush(stdout);
+    return 1;
+}
 
 /* Private scalar-verifier log. No production session allocations or switches.
  * Projected QKV/Z/alpha/beta are recorded before convolution modifies state. */
@@ -313,15 +429,27 @@ static int decode_int(const char *s, int lo, int hi) {
     return !*s || *end || v < lo || v > hi ? -1 : (int)v;
 }
 
-int main(int argc, char **argv) {
+#ifndef QW3_MTP_DECODE_ENTRYPOINT
+#define QW3_MTP_DECODE_ENTRYPOINT main
+#endif
+int QW3_MTP_DECODE_ENTRYPOINT(int argc, char **argv) {
     @autoreleasepool {
         if (argc < 2 || argc > 7) {
-            fprintf(stderr, "usage: %s MODEL [STEPS=32] [BLOCK=8] [serial|serial-replay|batch] [PROMPT] [FORCE_REJECT_INDEX]\n", argv[0]);
+            fprintf(stderr, "usage: %s MODEL [STEPS=32] [BLOCK=8] [serial|serial-replay|batch|batch-f32|batch-f32-scalar] [PROMPT] [FORCE_REJECT_INDEX]\n", argv[0]);
             return 1;
         }
         const int steps = argc > 2 ? decode_int(argv[2], 1, 128) : 32;
         const int block = argc > 3 ? decode_int(argv[3], 2, 8) : 8;
-        const int batch = argc > 4 && !strcmp(argv[4], "batch");
+        const int batch_f32_scalar = argc > 4 && !strcmp(argv[4], "batch-f32-scalar");
+        const int batch_f32 = batch_f32_scalar || (argc > 4 && !strcmp(argv[4], "batch-f32"));
+        const int batch = batch_f32 || (argc > 4 && !strcmp(argv[4], "batch"));
+        decode_short_f32 = batch_f32;
+        decode_short_vector = batch_f32 && !batch_f32_scalar ? 3 : 0;
+        if (decode_short_vector && getenv("QW3_MTP_SHORT_VECTOR")) {
+            decode_short_vector = decode_int(getenv("QW3_MTP_SHORT_VECTOR"),0,3);
+            if (decode_short_vector < 0) return 1;
+        }
+        decode_cached_gdn = batch_f32 && getenv("QW3_MTP_GDN_CACHED") != NULL;
         const int compact = argc > 4 && !strcmp(argv[4], "serial-replay");
         const int force = argc > 6 ? decode_int(argv[6], 1, block - 1) : -1;
         if (steps < 0 || block < 0 || (argc > 4 && !batch && !compact && strcmp(argv[4], "serial")) ||
@@ -343,9 +471,16 @@ int main(int argc, char **argv) {
         double baseline_time = 0, total = 0, draft_time = 0, verify_time = 0;
         double save_time = 0, restore_time = 0, catchup_time = 0;
         double scalar_restore_time = 0;
+        double continuation_max = 0, continuation_rms = 0;
         double worst_max = 0, worst_rms = 0, hidden_max = 0, hidden_rms = 0;
         qw3_engine_options options = {.model_path = argv[1], .backend = QW3_BACKEND_METAL};
         if (qw3_engine_open(&e, &options) != 0) goto done;
+        if ((decode_short_vector || decode_cached_gdn) && !decode_short_init()) goto done;
+        if (decode_cached_gdn && (!decode_gdn_cached || decode_gdn_cached.maxTotalThreadsPerThreadgroup < 128)) goto done;
+        if (getenv("QW3_MTP_SHORT_QUANT_ONLY")) {
+            if (!decode_short_vector || !decode_short_quant_checks(e)) goto done;
+            status = 0; goto done;
+        }
         const qw3_model_spec *sp = e->model.spec;
         if (!sp || sp->ffn_kind != QW3_FFN_DENSE || sp->n_layer_nextn != 1 ||
             e->weights.token_embd->type != QW3_TENSOR_Q3_K ||
@@ -394,6 +529,16 @@ int main(int argc, char **argv) {
         draft_live = decode_state_buffers(draft);
         draft_backup = decode_backup(draft_live);
         if (!backup || !draft_backup) goto done;
+        if (getenv("QW3_MTP_LAYER_TRACE")) {
+            if (!batch || sp->n_layer > 64) goto done;
+            trace_target = target; trace_oracle = oracle;
+            trace_width = block;
+            const NSUInteger bytes = (NSUInteger)sp->n_layer*2*block*d*sizeof(float);
+            for (int side = 0; side < 2; side++) {
+                trace_buffers[side] = [g_device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+                if (!trace_buffers[side]) goto done;
+            }
+        }
         if (compact) {
             replay_width = block; replay_slots = info.n_linear_layers;
             replay_count = spec_tensor_linear_qkv(sp) + sp->n_linear_inner + 2*sp->n_linear_v_heads;
@@ -421,9 +566,11 @@ int main(int argc, char **argv) {
         }
         baseline_time = qw3_now_sec() - t;
         printf("mtp_decode mode=%s steps=%d block=%d prefix=%d force_reject=%d snapshot_mib=%.2f replay_log_mib=%.2f "
+               "short_f32=%d short_vector=%d cached_gdn=%d layer_trace=%d "
                "greedy_only=1 correctness_instrumented=1 production_enabled=0\n",
-            batch ? "batch" : compact ? "serial-replay" : "serial", steps, block, prompt.len, force, snapshot_bytes / 1048576.0,
-            (replay_inputs.length + replay_kv.length + replay_heads.length) / 1048576.0);
+            batch_f32_scalar ? "batch-f32-scalar" : batch_f32 ? "batch-f32" : batch ? "batch" : compact ? "serial-replay" : "serial", steps, block, prompt.len, force, snapshot_bytes / 1048576.0,
+            (replay_inputs.length + replay_kv.length + replay_heads.length) / 1048576.0,
+            decode_short_f32, decode_short_vector, decode_cached_gdn, trace_target != NULL);
         fflush(stdout);
         uint64_t hash = 1469598103934665603ULL;
         while (produced < steps) {
@@ -450,6 +597,10 @@ int main(int argc, char **argv) {
                 inputs[force] = (inputs[force] + 1) % v;
             }
             t = qw3_now_sec();
+            if (trace_target && cycles == 0) {
+                trace_width = n; trace_pos = pos; trace_active = 1;
+                memset(trace_seen, 0, sizeof(trace_seen));
+            }
             if (compact) {
                 memset(replay_seen, 0, sizeof(replay_seen));
                 replay_capture_session = target;
@@ -469,6 +620,10 @@ int main(int argc, char **argv) {
             for (int i = oracle->tokens.len; i < pos; i++) token_vec_push(&oracle->tokens, target->tokens.v[i]);
             decode_rewind(oracle, pos);
             if (!decode_verify(oracle, inputs, n, 0, log_host, h_host, check, check_hidden, err, sizeof(err))) goto done;
+            if (trace_active) {
+                trace_active = 0;
+                if (!decode_trace_report(sp->n_layer, d)) goto done;
+            }
             for (int i = 0; i < n; i++) {
                 double maximum, rms;
                 if (!decode_compare(rows + (size_t)i*v, check + (size_t)i*v, v, &maximum, &rms)) {
@@ -543,6 +698,8 @@ int main(int argc, char **argv) {
                 !decode_compare(rows, check, v, &maximum, &rms)) {
                 snprintf(err, sizeof(err), "serial continuation differs at %d", i); goto done;
             }
+            if (maximum > continuation_max) continuation_max = maximum;
+            if (rms > continuation_rms) continuation_rms = rms;
             if (i == 8) break;
             const int next = decode_top(check, v);
             if (qw3_session_eval_gpu_logits(target, next, err, sizeof(err)) != 0 ||
@@ -552,17 +709,22 @@ int main(int argc, char **argv) {
                "rejected_cycles=%d rollback_checks=%d all_rows=%d max=%.9g rms=%.9g hidden_max=%.9g hidden_rms=%.9g continuation=8 serial_state_exact=%d "
                "baseline_tps=%.3f experimental_tps=%.3f ratio=%.3f "
                "save_ms=%.3f draft_ms=%.3f verify_ms=%.3f restore_replay_ms=%.3f catchup_ms=%.3f scalar_restore_reference_ms=%.3f compact_replay=%d "
-               "not_promotion_benchmark=1\n",
+               "continuation_max=%.9g continuation_rms=%.9g not_promotion_benchmark=1\n",
                produced, steps, hash, cycles, accepted_drafts, rejected, rollback_checks,
                checked_rows, worst_max, worst_rms, hidden_max, hidden_rms, !batch, steps/baseline_time, steps/total,
                baseline_time/total, save_time*1000, draft_time*1000, verify_time*1000,
-               restore_time*1000, catchup_time*1000, scalar_restore_time*1000, compact);
+               restore_time*1000, catchup_time*1000, scalar_restore_time*1000, compact,
+               continuation_max, continuation_rms);
         status = 0;
 done:
         if (status) fprintf(stderr, "MTP decode probe failed: %s\n", err);
         /* A failed graph can leave an encoded command batch in flight. */
         if (e) (void)qw3_metal_synchronize();
         replay_capture_session = NULL;
+        decode_iq3s_short = nil; decode_iq4xs_short = nil;
+        decode_gdn_cached = nil;
+        trace_active = 0; trace_target = NULL; trace_oracle = NULL;
+        trace_buffers[0] = nil; trace_buffers[1] = nil;
         replay_inputs = nil; replay_kv = nil; replay_heads = nil;
         if (draft) qw3_metal_session_free(draft);
         if (oracle) qw3_session_free(oracle);
