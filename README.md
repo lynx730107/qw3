@@ -310,6 +310,14 @@ cases against scalar GPU and independent llama.cpp CPU dequantization.
 This is not enabled in CLI/agent or combined with compact rollback. See
 [precision checks and measured scope](docs/mtp_f32_verifier_2026-10-02.md).
 
+`make test-mtp-head-quant` checks an optional FP32 Q5_K head that shares
+weights across four token rows; `make test-mtp-batch-head` runs the complete
+MTP regression with it. `qw3-mtp-head-bench` alternates serial/shared heads
+with the same precise backbone and checks every output row. The head-only
+gain is much larger than the small/noisy full-verifier difference. This
+remains opt-in (`QW3_MTP_BATCH_HEAD=1`), not an agent speedup. See
+[shared-head measurements and limitations](docs/mtp_shared_head_2026-10-03.md).
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. They do not enable MTP in
 the CLI or agent; the block probe computes **only the last logit row**.

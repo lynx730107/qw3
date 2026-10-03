@@ -19,6 +19,8 @@ static int decode_short_f32;
 static int decode_short_vector;
 static id<MTLComputePipelineState> decode_gdn_cached;
 static int decode_cached_gdn;
+static int decode_batch_head;
+static uint32_t decode_head_group = 4;
 #define QW3_METAL_DENSE_SHORT_F32(n) (decode_short_f32 && (n) >= 2u && (n) <= 8u)
 #define QW3_METAL_DENSE_SHORT_ENCODE(cb, w, off, type, nt, ni, no, rb, src, dst) \
     decode_short_encode(cb, w, off, type, nt, ni, no, rb, src, dst)
@@ -30,6 +32,7 @@ static int decode_cached_gdn;
 #include <inttypes.h>
 
 static id<MTLComputePipelineState> decode_iq3s_short, decode_iq4xs_short;
+static id<MTLComputePipelineState> decode_q5k_head;
 #ifndef QW3_MTP_SHORT_SOURCE
 #define QW3_MTP_SHORT_SOURCE "tests/mtp_short_f32.metal"
 #endif
@@ -49,9 +52,12 @@ static int decode_short_init(void) {
         [library newFunctionWithName:@"mtp_iq3s_short"] error:&error];
     decode_iq4xs_short = [g_device newComputePipelineStateWithFunction:
         [library newFunctionWithName:@"mtp_iq4xs_short"] error:&error];
+    if (decode_batch_head) decode_q5k_head = [g_device newComputePipelineStateWithFunction:
+        [library newFunctionWithName:[NSString stringWithFormat:@"mtp_q5k_head_short%u",decode_head_group]] error:&error];
     if (decode_cached_gdn) decode_gdn_cached = [g_device newComputePipelineStateWithFunction:
         [library newFunctionWithName:@"mtp_gdn_cached128"] error:&error];
-    return decode_iq3s_short && decode_iq4xs_short &&
+    return (!decode_batch_head || (decode_q5k_head && decode_q5k_head.maxTotalThreadsPerThreadgroup >= 64)) &&
+        decode_iq3s_short && decode_iq4xs_short &&
         decode_iq3s_short.maxTotalThreadsPerThreadgroup >= 128 &&
         decode_iq4xs_short.maxTotalThreadsPerThreadgroup >= 128;
 }
@@ -79,6 +85,34 @@ static int decode_short_encode(id<MTLCommandBuffer> cb, id<MTLBuffer> weights,
 }
 
 #include "mtp_short_f32_checks.inc"
+
+static int decode_head_encode(qw3_engine *e, id<MTLBuffer> src, id<MTLBuffer> dst,
+                               uint32_t ni, uint32_t no, uint32_t nt,
+                               uint32_t io, uint32_t is, uint32_t oo, uint32_t os) {
+    const uint64_t rb = (uint64_t)ni/256u*176u;
+    if (!decode_q5k_head || !ni || ni%256u || !no || !nt || nt > 15 ||
+        rb > UINT32_MAX || (uint64_t)ni*no > e->weights.output->elements ||
+        !src || !dst || src.length < ((uint64_t)(nt-1)*is+io+ni)*sizeof(float) ||
+        dst.length < ((uint64_t)(nt-1)*os+oo+no)*sizeof(float)) return 0;
+    uint64_t offset = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(e->weights.output->offset,rb*no,&offset);
+    if (!wb) return 0;
+    struct {uint32_t ni,no,rb,nt,io,is,oo,os;} args = {ni,no,(uint32_t)rb,nt,io,is,oo,os};
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:decode_q5k_head];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wb offset:(NSUInteger)offset atIndex:1];
+    [enc setBuffer:src offset:0 atIndex:2];
+    [enc setBuffer:dst offset:0 atIndex:3];
+    [enc dispatchThreadgroups:MTLSizeMake((no+1u)/2u,(nt+decode_head_group-1u)/decode_head_group,1)
+        threadsPerThreadgroup:MTLSizeMake(64,1,1)];
+    qw3_metal_end_compute_encoder(cb,enc);
+    return qw3_metal_finish_command_buffer(cb,owned,"MTP shared Q5 head");
+}
+
+#include "mtp_head_checks.inc"
 
 /* Opt-in first-cycle all-row trace, never included in throughput evidence. */
 static qw3_session *trace_target, *trace_oracle;
@@ -341,8 +375,7 @@ static int decode_hidden(qw3_metal_session *s, id<MTLBuffer> host, float *out, i
     return 1;
 }
 
-/* Serial heads intentionally retain the ordinary FP32 GEMV arithmetic.
- * Head batching is a subsequent optimization, not hidden in the cost probe. */
+/* The optional private shared head keeps scalar RMSNorm/reduction order. */
 static int decode_verify(qw3_session *s, const int *tokens, int n, int batch,
                           id<MTLBuffer> log_host, id<MTLBuffer> h_host,
                           float *logits, float *hidden, char *err, size_t errlen) {
@@ -352,6 +385,37 @@ static int decode_verify(qw3_session *s, const int *tokens, int n, int batch,
     if (batch && n > 1 && qw3_metal_session_eval_dense_prefill_batch(
             s, tokens, n, err, errlen, QW3_METAL_LOGITS_DEFER) != 0) return 0;
     if (batch && n > 1 && !qw3_metal_begin_commands()) return 0;
+    if (batch && n > 1 && decode_batch_head) {
+        uint64_t offset = 0;
+        id<MTLBuffer> wb = qw3_metal_model_view_for(s->engine->weights.output_norm->offset,
+            (uint64_t)d*sizeof(float),&offset);
+        if (!wb) return 0;
+        int owned = 0;
+        id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        struct {uint32_t n; float eps;} args = {d,QW3_RMS_EPS};
+        [enc setComputePipelineState:g_rmsnorm_weight_f32_pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:wb offset:(NSUInteger)offset atIndex:2];
+        [enc setThreadgroupMemoryLength:32*sizeof(float) atIndex:0];
+        NSUInteger threads = MIN(g_rmsnorm_weight_f32_pipeline.maxTotalThreadsPerThreadgroup,256u);
+        if (threads < 32) threads = 32;
+        for (int i = 0; i < n; i++) {
+            [enc setBuffer:o.prefillX0 offset:(NSUInteger)i*d*sizeof(float) atIndex:1];
+            [enc setBuffer:h_host offset:(NSUInteger)i*d*sizeof(float) atIndex:3];
+            [enc dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(threads,1,1)];
+        }
+        qw3_metal_end_compute_encoder(cb,enc);
+        if (!decode_head_encode(s->engine,h_host,log_host,d,v,n,0,d,0,v) ||
+            !mtp_copy(o.prefillX0,(NSUInteger)(n-1)*d*sizeof(float),o.x0,0,(NSUInteger)d*sizeof(float)) ||
+            !mtp_copy(h_host,(NSUInteger)(n-1)*d*sizeof(float),o.x1,0,(NSUInteger)d*sizeof(float)) ||
+            !mtp_copy(log_host,(NSUInteger)(n-1)*v*sizeof(float),o.logits,0,(NSUInteger)v*sizeof(float)) ||
+            !qw3_metal_synchronize()) return 0;
+        memcpy(logits,log_host.contents,(size_t)n*v*sizeof(float));
+        memcpy(hidden,h_host.contents,(size_t)n*d*sizeof(float));
+        s->cpu_logits_valid = false;
+        return 1;
+    }
     for (int i = 0; i < n; i++) {
         if (s == replay_capture_session) {
             if (batch || i >= (int)replay_width) return 0;
@@ -450,6 +514,13 @@ int QW3_MTP_DECODE_ENTRYPOINT(int argc, char **argv) {
             if (decode_short_vector < 0) return 1;
         }
         decode_cached_gdn = batch_f32 && getenv("QW3_MTP_GDN_CACHED") != NULL;
+        decode_batch_head = getenv("QW3_MTP_BATCH_HEAD") ? decode_int(getenv("QW3_MTP_BATCH_HEAD"),0,1) : 0;
+        if (decode_batch_head < 0 || (decode_batch_head && !batch_f32)) return 1;
+        if (getenv("QW3_MTP_HEAD_GROUP")) {
+            const int group=decode_int(getenv("QW3_MTP_HEAD_GROUP"),1,4);
+            if (group!=1 && group!=2 && group!=4) return 1;
+            decode_head_group=(uint32_t)group;
+        }
         const int compact = argc > 4 && !strcmp(argv[4], "serial-replay");
         const int force = argc > 6 ? decode_int(argv[6], 1, block - 1) : -1;
         if (steps < 0 || block < 0 || (argc > 4 && !batch && !compact && strcmp(argv[4], "serial")) ||
@@ -475,7 +546,11 @@ int QW3_MTP_DECODE_ENTRYPOINT(int argc, char **argv) {
         double worst_max = 0, worst_rms = 0, hidden_max = 0, hidden_rms = 0;
         qw3_engine_options options = {.model_path = argv[1], .backend = QW3_BACKEND_METAL};
         if (qw3_engine_open(&e, &options) != 0) goto done;
-        if ((decode_short_vector || decode_cached_gdn) && !decode_short_init()) goto done;
+        if ((decode_short_vector || decode_cached_gdn || decode_batch_head) && !decode_short_init()) goto done;
+        if (getenv("QW3_MTP_HEAD_ONLY")) {
+            if (!decode_batch_head || !decode_head_checks(e)) goto done;
+            status = 0; goto done;
+        }
         if (decode_cached_gdn && (!decode_gdn_cached || decode_gdn_cached.maxTotalThreadsPerThreadgroup < 128)) goto done;
         if (getenv("QW3_MTP_SHORT_QUANT_ONLY")) {
             if (!decode_short_vector || !decode_short_quant_checks(e)) goto done;
@@ -566,11 +641,11 @@ int QW3_MTP_DECODE_ENTRYPOINT(int argc, char **argv) {
         }
         baseline_time = qw3_now_sec() - t;
         printf("mtp_decode mode=%s steps=%d block=%d prefix=%d force_reject=%d snapshot_mib=%.2f replay_log_mib=%.2f "
-               "short_f32=%d short_vector=%d cached_gdn=%d layer_trace=%d "
+               "short_f32=%d short_vector=%d cached_gdn=%d layer_trace=%d batch_head=%d head_group=%u "
                "greedy_only=1 correctness_instrumented=1 production_enabled=0\n",
             batch_f32_scalar ? "batch-f32-scalar" : batch_f32 ? "batch-f32" : batch ? "batch" : compact ? "serial-replay" : "serial", steps, block, prompt.len, force, snapshot_bytes / 1048576.0,
             (replay_inputs.length + replay_kv.length + replay_heads.length) / 1048576.0,
-            decode_short_f32, decode_short_vector, decode_cached_gdn, trace_target != NULL);
+            decode_short_f32, decode_short_vector, decode_cached_gdn, trace_target != NULL, decode_batch_head, decode_head_group);
         fflush(stdout);
         uint64_t hash = 1469598103934665603ULL;
         while (produced < steps) {
@@ -722,6 +797,7 @@ done:
         if (e) (void)qw3_metal_synchronize();
         replay_capture_session = NULL;
         decode_iq3s_short = nil; decode_iq4xs_short = nil;
+        decode_q5k_head = nil;
         decode_gdn_cached = nil;
         trace_active = 0; trace_target = NULL; trace_oracle = NULL;
         trace_buffers[0] = nil; trace_buffers[1] = nil;

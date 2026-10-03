@@ -137,3 +137,7 @@ The diagnostic still uses greedy proposals, fixed output counts, conservative
 full snapshots and scalar heads. It lacks production sampling/EOS/cancellation
 and public MTP session integration. Correctness progress must not be presented
 as a speedup over ordinary decoding or llama.cpp.
+
+The subsequent optional shared Q5_K head and all-row paired head-cost probe
+are documented in [the October 3 experiment](mtp_shared_head_2026-10-03.md).
+This report's original scalar-head timings remain historical controls.

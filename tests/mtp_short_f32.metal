@@ -64,6 +64,86 @@ struct mtp_short_args {
     uint ni, no, rb, nt, io, is, oo, os;
 };
 
+/* Match ordinary Q5_K GEMV's per-token FP32 accumulation order, while
+ * decoding each weight once for up to four token rows. No half tiles. */
+template <uint Tokens>
+inline void mtp_q5k_head_rows(constant mtp_short_args &a,
+    device const uchar *weights, device const float *x, device float *y,
+    uint2 group, ushort sg, ushort lane) {
+    const uint row = group.x*2u+sg, t0 = group.y*Tokens;
+    if (row >= a.no || t0 >= a.nt) return;
+    const uint count = min(Tokens,a.nt-t0);
+    const uint tid = uint(lane)/4u, ix = uint(lane)&3u;
+    const uint iq = tid/4u, ir = tid&3u, l0 = ir*8u;
+    const uint qoff = 32u*iq+l0, xoff = 64u*iq+l0;
+    const uchar hm1 = uchar(1u<<(2u*iq)), hm2 = uchar(uint(hm1)<<1u);
+    const uchar hm3 = uchar(uint(hm1)<<4u), hm4 = uchar(uint(hm2)<<4u);
+    float4 sums = float4(0.0f);
+    for (uint ib = ix; ib < a.ni/256u; ib += 4u) {
+        device const uchar *b = weights+uint64_t(row)*a.rb+uint64_t(ib)*176ull;
+        device const uchar *q1 = b+48u+qoff, *q2 = q1+64u, *qh = b+16u+l0;
+        device const ushort *sc = (device const ushort *)(b+4u)+iq;
+        ushort sc16[4];
+        sc16[0] = sc[0]&0x3f3f;
+        sc16[1] = sc[2]&0x3f3f;
+        sc16[2] = (sc[4]&0x0f0f)|((sc[0]&0xc0c0)>>2u);
+        sc16[3] = ((sc[4]>>4u)&0x0f0f)|((sc[2]&0xc0c0)>>2u);
+        thread const uchar *sc8 = (thread const uchar *)sc16;
+        const float d = float(*((device const half *)b));
+        const float dm = float(*((device const half *)(b+2u)));
+        uchar high[8], low[8], upper[8];
+        #pragma unroll
+        for (uint l = 0; l < 8u; l++) { high[l]=qh[l]; low[l]=q1[l]; upper[l]=q2[l]; }
+        #pragma unroll
+        for (uint r = 0; r < Tokens; r++) if (r < count) {
+            device const float *p = x+uint64_t(t0+r)*a.is+a.io+ib*256u+xoff;
+            float yl[16], yh[16];
+            float4 sumx=float4(0), acc1=float4(0), acc2=float4(0);
+            #pragma unroll
+            for (uint l = 0; l < 8u; l++) {
+                yl[l]=p[l]; sumx.x+=yl[l];
+                yl[l+8u]=p[l+32u]; sumx.y+=yl[l+8u];
+                yh[l]=p[l+128u]; sumx.z+=yh[l];
+                yh[l+8u]=p[l+160u]; sumx.w+=yh[l+8u];
+            }
+            #pragma unroll
+            for (uint l = 0; l < 8u; l++) {
+                const uchar h=high[l];
+                acc1.x+=yl[l]*float(low[l]&15u);
+                acc1.y+=yl[l+8u]*float(low[l]&240u);
+                acc1.z+=yh[l]*float(upper[l]&15u);
+                acc1.w+=yh[l+8u]*float(upper[l]&240u);
+                acc2.x+=(h&hm1) ? yl[l] : 0.0f;
+                acc2.y+=(h&hm2) ? yl[l+8u] : 0.0f;
+                acc2.z+=(h&hm3) ? yh[l] : 0.0f;
+                acc2.w+=(h&hm4) ? yh[l+8u] : 0.0f;
+            }
+            sums[r] += d*(float(sc8[0])*(acc1.x+16.0f*acc2.x)+
+                float(sc8[1])*(acc1.y*(1.0f/16.0f)+16.0f*acc2.y)+
+                float(sc8[4])*(acc1.z+16.0f*acc2.z)+
+                float(sc8[5])*(acc1.w*(1.0f/16.0f)+16.0f*acc2.w))-
+                dm*(sumx.x*float(sc8[2])+sumx.y*float(sc8[3])+
+                    sumx.z*float(sc8[6])+sumx.w*float(sc8[7]));
+        }
+    }
+    sums.x=simd_sum(sums.x); sums.y=simd_sum(sums.y);
+    sums.z=simd_sum(sums.z); sums.w=simd_sum(sums.w);
+    if (lane == 0) for (uint r = 0; r < count; r++)
+        y[uint64_t(t0+r)*a.os+a.oo+row] = sums[r];
+}
+
+#define MTP_HEAD_KERNEL(T) \
+kernel void mtp_q5k_head_short##T(constant mtp_short_args &a [[buffer(0)]], \
+    device const uchar *w [[buffer(1)]], device const float *x [[buffer(2)]], \
+    device float *y [[buffer(3)]], uint2 g [[threadgroup_position_in_grid]], \
+    ushort sg [[simdgroup_index_in_threadgroup]], ushort l [[thread_index_in_simdgroup]]) { \
+    mtp_q5k_head_rows<T>(a,w,x,y,g,sg,l); \
+}
+MTP_HEAD_KERNEL(1)
+MTP_HEAD_KERNEL(2)
+MTP_HEAD_KERNEL(4)
+#undef MTP_HEAD_KERNEL
+
 kernel void mtp_iq3s_short(
     constant mtp_short_args &a [[buffer(0)]],
     device const uchar *weights [[buffer(1)]],

@@ -27,6 +27,7 @@ qw3-rope-metal-test
 qw3-mtp-acceptance
 qw3-mtp-decode
 qw3-mtp-short-bench
+qw3-mtp-head-bench
 qw3-bench-cpu
 qw3-eval
 qw3-eval-cpu

@@ -4,6 +4,7 @@ set -eu
 MODEL="${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}"
 BIN="${QW3_MTP_DECODE_BIN:-./qw3-mtp-decode}"
 MODE="${QW3_MTP_MODE:-serial}"
+HEAD="${QW3_MTP_BATCH_HEAD:-0}"
 fail() { echo "test-mtp-decode: FAIL: $*" >&2; exit 1; }
 case "$MODE" in serial|serial-replay|batch-f32) ;; *) fail 'mode must be serial, serial-replay or batch-f32' ;; esac
 [ -f "$MODEL" ] || fail "model not found: $MODEL"
@@ -15,7 +16,12 @@ run() {
     steps="$2"
     shift 2
     "$BIN" "$MODEL" "$steps" 8 "$MODE" "$@" >"$OUT" 2>&1 || { cat "$OUT" >&2; fail "$label"; }
-    awk -v steps="$steps" -v mode="$MODE" '
+    awk -v steps="$steps" -v mode="$MODE" -v head="$HEAD" '
+        /^mtp_decode / {
+            header++;
+            for (i=1; i<=NF; i++) {split($i,p,"="); config[p[1]]=p[2];}
+            if (config["batch_head"] != head) bad=1;
+        }
         /^mtp_summary / {
             found++;
             for (i=1; i<=NF; i++) { split($i,p,"="); value[p[1]]=p[2]; }
@@ -38,7 +44,7 @@ run() {
                     value["scalar_restore_reference_ms"] !~ number || value["scalar_restore_reference_ms"]+0 <= 0) bad=1;
             }
         }
-        END { if (found != 1 || bad) exit 1; }
+        END { if (header != 1 || found != 1 || bad) exit 1; }
     ' "$OUT" || { cat "$OUT" >&2; fail "$label metrics"; }
     case "$label" in
         reject-*)
