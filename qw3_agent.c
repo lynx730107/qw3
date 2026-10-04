@@ -11,6 +11,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -18,6 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/file.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -25,6 +28,7 @@
 #include <unistd.h>
 
 #include "qw3.h"
+#include "qw3_agent_unicode.h"
 #include "linenoise.h"
 
 int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
@@ -87,8 +91,15 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_INPUT_INITIAL_BUFLEN 4096
 #define QW3_AGENT_INPUT_MAX_BUFLEN (1024 * 1024)
 #define QW3_AGENT_STATUS_REDRAW_INTERVAL_SEC 0.200
-#define QW3_AGENT_STATUS_STYLE_START "\033[7m"
+#define QW3_AGENT_STATUS_STYLE_START "\033[0;48;5;235;38;5;252m"
 #define QW3_AGENT_STATUS_STYLE_END "\033[0m"
+#define QW3_AGENT_STATUS_TEXT "\033[22;38;5;252m"
+#define QW3_AGENT_STATUS_MUTED "\033[22;38;5;245m"
+#define QW3_AGENT_STATUS_READY "\033[1;38;5;114m"
+#define QW3_AGENT_STATUS_BUSY "\033[1;38;5;147m"
+#define QW3_AGENT_STATUS_TOOL "\033[1;38;5;180m"
+#define QW3_AGENT_STATUS_PROGRESS "\033[1;38;5;117m"
+#define QW3_AGENT_STATUS_MAX 768
 #define QW3_AGENT_PREFIX_CACHE_KEEP 4
 #define QW3_AGENT_PREFIX_CACHE_VERSION 1u
 
@@ -106,6 +117,8 @@ typedef struct {
     int repeat_last_n;
     uint64_t rng;
 } sample_opts;
+
+typedef enum { AGENT_EXPERT_OFF, AGENT_EXPERT_AUTO, AGENT_EXPERT_MANUAL } agent_expert_mode;
 
 typedef struct {
     char *p;
@@ -158,13 +171,32 @@ typedef struct {
     bool metal_n_gpu_layers_set;
     int max_tool_rounds;
     bool tools_enabled;
+    bool read_only;
     bool compact_tools;
     bool dump_prompt;
     bool prefix_cache;
     qw3_backend backend;
     qw3_think_mode think_mode;
     sample_opts sample;
+    const char *expert_model;
+    char *expert_model_owned;
+    agent_expert_mode expert_mode;
+    bool expert_mode_set;
+    int expert_ctx, expert_timeout, expert_tokens, expert_rounds;
+    qw3_think_mode expert_think;
+    bool expert_kv_f32;
+    int hybrid_fd;
+    bool hybrid_dense, hybrid_color;
+    const char *hybrid_job;
+    const char *hybrid_lock;
 } agent_config;
+
+typedef struct {
+    int round, guard_retry_credits, empty_retry_credits, verification_guard_credits;
+    agent_tool_history tool_history;
+    int dense_tool_rounds;
+    bool delegated;
+} agent_turn_state;
 
 typedef void (*agent_output_fn)(void *ud, const char *s, size_t n);
 typedef bool (*agent_interrupt_fn)(void *ud);
@@ -255,7 +287,27 @@ typedef struct {
     int compact_retry_after_tokens;
     FILE *trace_fp;
     uint64_t trace_seq;
+    agent_turn_state turn;
+    char *turn_request;
+    bool hybrid_resume, hybrid_cancelled, hybrid_forced, hybrid_result_commit;
+    double hybrid_deadline;
+    int hybrid_generated;
+    void *hybrid_supervisor;
+    char *hybrid_job_owned;
 } agent_state;
+
+static int agent_hybrid_main(agent_state *a, const char *executable);
+static int agent_hybrid_worker_loop(agent_state *a);
+static int agent_hybrid_run(agent_state *a, const char *request);
+static int agent_hybrid_command(agent_state *a, char *line, char **message);
+static int agent_hybrid_pause(agent_state *a, const tool_call_list *calls);
+static bool agent_hybrid_tool_budget(agent_state *a);
+static void agent_hybrid_generation(agent_state *a);
+static void agent_hybrid_restore(agent_state *a);
+static bool agent_hybrid_before_tool(agent_state *a, const tool_call *call);
+static void agent_hybrid_after_tool(agent_state *a, const tool_call *call, const char *out);
+static bool agent_hybrid_checkpoint(agent_state *a);
+static char *hybrid_absolute(const char *path);
 
 typedef struct {
     qw3_engine *engine;
@@ -403,6 +455,17 @@ static void agent_write_fd_crlf(int fd, const char *s, size_t n) {
 
 static bool agent_stdout_is_tty(void) {
     return isatty(STDOUT_FILENO) || getenv("LINENOISE_ASSUME_TTY");
+}
+
+static bool agent_ui_color_enabled(void) {
+    const char *term = getenv("TERM");
+    return agent_stdout_is_tty() && !getenv("NO_COLOR") &&
+           (!term || strcmp(term, "dumb"));
+}
+
+static const char *agent_editor_prompt(void) {
+    return agent_ui_color_enabled() ?
+        "\033[1;38;5;117mqw3\033[0m \033[38;5;80m›\033[0m " : "qw3> ";
 }
 
 static int agent_set_nonblock_mode(int fd, bool on, int *old_flags) {
@@ -690,7 +753,7 @@ static char *native_tool_call_text(const tool_call_list *calls) {
     return sb.p ? sb.p : agent_strdup("");
 }
 
-static char *native_tool_declarations(bool compact_tools) {
+static char *native_tool_declarations(bool compact_tools, bool read_only) {
     strbuf sb;
     sb_init(&sb);
 #define TOOL_DECL(NAME, DESC, PARAMS) \
@@ -714,6 +777,7 @@ static char *native_tool_declarations(bool compact_tools) {
     TOOL_DECL("get_function", "Return the exact source for one function or method using codenav. Prefer this over read after get_skeleton or semantic_search.",
               TOOL_PARAM("function_name", "Exact function/method name") ","
               TOOL_PARAM("path", "Optional source file path"));
+    if (!read_only) {
     TOOL_DECL("semantic_search", "Search code by meaning with colgrep. Use this before broad read/search when you do not know exact names.",
               TOOL_PARAM("query", "Natural-language code search query") ","
               TOOL_PARAM("path", "Optional file or directory path; default current directory") ","
@@ -727,11 +791,13 @@ static char *native_tool_declarations(bool compact_tools) {
               TOOL_PARAM("query", "Web search query"));
     TOOL_DECL("visit_url", "Fetch a URL and return up to 8000 characters of readable text with HTML tags removed.",
               TOOL_PARAM("url", "URL to fetch"));
+    }
     TOOL_DECL("search", "Search text files for a literal pattern.",
               TOOL_PARAM("pattern", "Literal pattern") ","
               TOOL_PARAM("path", "Root path") ","
               TOOL_PARAM("max", "Maximum matches"));
     }
+    if (!read_only) {
     TOOL_DECL("write", "Create or overwrite a text file.",
               TOOL_PARAM("path", "Path to write") ","
               TOOL_PARAM("content", "File content"));
@@ -743,6 +809,7 @@ static char *native_tool_declarations(bool compact_tools) {
               TOOL_PARAM("mode", "replace, replace_all, insert_before, insert_after, append, or prepend"));
     TOOL_DECL("bash", "Run a time-bounded shell command with combined stdout/stderr. Large results retain their head and tail and provide a path to the complete output.",
               TOOL_PARAM("cmd", "Shell command"));
+    }
 #undef TOOL_PARAM
 #undef TOOL_DECL
     return sb.p;
@@ -1528,7 +1595,7 @@ static int store_save(agent_state *a, const char *name) {
     if (rc == 0) rc = store_write_messages_path(messages_path, &a->messages);
     int checkpoint_rc = 1;
     char checkpoint_err[256] = {0};
-    if (rc == 0 && !a->session_stripped) {
+    if (rc == 0 && !a->session_stripped && !a->hybrid_result_commit) {
         checkpoint_rc = store_write_checkpoint_path(
             a, checkpoint_path, &a->transcript,
             checkpoint_err, sizeof(checkpoint_err));
@@ -1546,7 +1613,7 @@ static int store_save(agent_state *a, const char *name) {
     agent_trace_begin(a, "checkpoint_save");
     agent_trace_string(a, "session", id);
     agent_trace_string(a, "result",
-                       checkpoint_rc == 0 ? "saved" :
+                       a->hybrid_result_commit ? "transcript_only" : checkpoint_rc == 0 ? "saved" :
                        (a->session_stripped ? "stripped" : "fallback"));
     agent_trace_i64(a, "tokens", a->transcript.len);
     agent_trace_end(a);
@@ -2195,6 +2262,7 @@ static void infer_tool_name_from_params(tool_call *call) {
 }
 
 static const char *native_shorthand_tools[] = {
+    "delegate_dense",
     "read", "more", "list", "get_skeleton", "get_function", "get_fucttion",
     "semantic_search", "search_web", "visit_url", "search", "write",
     "edit", "bash",
@@ -4405,9 +4473,17 @@ static void agent_note_tool_result(agent_state *a, const tool_call *call,
 }
 
 static char *execute_one_tool(agent_state *a, const tool_call *call) {
+    if (a->cfg.read_only && strcmp(call->name, "read") && strcmp(call->name, "more") &&
+        strcmp(call->name, "list") && strcmp(call->name, "search") &&
+        strcmp(call->name, "get_skeleton") && strcmp(call->name, "get_function") &&
+        strcmp(call->name, "get_fucttion"))
+        return agent_strdup("error: tool disabled in read-only mode; inspect with local read tools and provide a counterexample without modifying or executing code.");
+    if (!agent_hybrid_before_tool(a, call))
+        return agent_strdup("error: hybrid recovery/journal guard blocked this tool; nothing was executed. Inspect recorded changes and use a fresh, read-only verification instead of replaying an operation.");
     agent_set_activity(a, "tool", call ? call->name : NULL);
     char *out = execute_one_tool_raw(a, call);
     agent_note_tool_result(a, call, out);
+    agent_hybrid_after_tool(a, call, out);
     agent_set_activity(a, "processing", NULL);
     return out;
 }
@@ -4622,6 +4698,7 @@ static bool execute_native_tools_append(agent_state *a,
         }
         free(response);
         free(out);
+        if (a->cfg.hybrid_fd >= 0 && !agent_hybrid_checkpoint(a)) return false;
     }
     if (all_guard_rejected) *all_guard_rejected = all_rejected;
     return true;
@@ -5185,8 +5262,8 @@ static bool token_window_equal_with_next(const qw3_tokens *tokens, int next,
     return true;
 }
 
-static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next) {
-    if (!tokens || tokens->len < 8) return false;
+static int agent_repeated_token_ngram_size(const qw3_tokens *tokens, int next) {
+    if (!tokens || tokens->len < 8) return 0;
     const int total = tokens->len + 1;
     const int max_n = total / 4 < 16 ? total / 4 : 16;
     for (int n = 1; n <= max_n; n++) {
@@ -5201,7 +5278,7 @@ static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next) {
                 break;
             }
         }
-        if (same) return true;
+        if (same) return n;
     }
 
     /* Catch paragraph-sized loops after their second contiguous copy. */
@@ -5211,11 +5288,98 @@ static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next) {
         const int previous = total - 2 * n;
         const int last = total - n;
         if (token_window_equal_with_next(tokens, next, previous, last, n)) {
-            return true;
+            return n;
         }
+    }
+    return 0;
+}
+
+static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next) {
+    return agent_repeated_token_ngram_size(tokens, next) != 0;
+}
+
+static bool agent_is_formatting_cp(uint32_t cp) {
+    if (cp == '\t' || cp == '\n' || cp == '\r') return true;
+    size_t lo = 0, hi = sizeof(agent_unicode_format_ranges) /
+                          sizeof(agent_unicode_format_ranges[0]);
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (cp < agent_unicode_format_ranges[mid][0]) hi = mid;
+        else if (cp > agent_unicode_format_ranges[mid][1]) lo = mid + 1;
+        else return true;
     }
     return false;
 }
+
+/* Permit bounded Unicode non-word formatting runs, not repeated prose.
+ * Limits apply in code points, so ASCII and multibyte diagrams have the
+ * same allowance. Partial UTF-8 at the streaming edge is counted once;
+ * invalid complete sequences never get the formatting exemption. */
+static size_t agent_formatting_suffix(const char *text, size_t len,
+                                       bool *bounded) {
+    size_t end = len, chars = 0, line = 0;
+    *bounded = true;
+    while (end) {
+        size_t start = end - 1;
+        while (start && ((unsigned char)text[start] & 0xc0) == 0x80) start--;
+        unsigned char lead = (unsigned char)text[start];
+        size_t need = agent_utf8_expected_len(lead), have = end - start;
+        if ((lead >= 0x80 && (lead < 0xc2 || lead > 0xf4 || need == 1)) || have > need) break;
+        bool valid = true;
+        for (size_t i = start + 1; i < end; i++) {
+            if (((unsigned char)text[i] & 0xc0) != 0x80) valid = false;
+        }
+        if (!valid) break;
+        uint32_t cp = 0;
+        if (have < need) {
+            if (end != len) break;
+        } else {
+            size_t pos = start;
+            if (!utf8_read_cp(text, end, &pos, &cp) || pos != end ||
+                (need == 2 && cp < 0x80) || (need == 3 && cp < 0x800) ||
+                (need == 4 && cp < 0x10000) || cp > 0x10ffff ||
+                (cp >= 0xd800 && cp <= 0xdfff) || !agent_is_formatting_cp(cp)) break;
+        }
+        chars++;
+        if (cp == '\n' || cp == '\r' || cp == 0x2028 || cp == 0x2029) line = 0;
+        else line++;
+        end = start;
+        if (line > 256 || chars > 1024) {
+            *bounded = false;
+            break;
+        }
+    }
+    return len - end;
+}
+
+static bool agent_token_repeat_is_formatting(qw3_engine *engine,
+                                              const agent_emit_ctx *emit,
+                                              int next, int ngram) {
+    const int total = emit->generated.len + 1;
+    size_t pattern_bytes = 0, next_len = 0;
+    char *next_text = NULL;
+    for (int i = total - ngram; i < total; i++) {
+        size_t n = 0;
+        int token = i == total - 1 ? next : emit->generated.v[i];
+        char *piece = token_decoded_text(engine, token, &n);
+        if (!piece) { free(next_text); return false; }
+        pattern_bytes += n;
+        if (i == total - 1) { next_text = piece; next_len = n; }
+        else free(piece);
+    }
+    strbuf combined = {0};
+    sb_append_n(&combined, emit->text.p ? emit->text.p : "", emit->text.len);
+    sb_append_n(&combined, next_text, next_len);
+    free(next_text);
+    bool bounded = false;
+    size_t formatting_bytes = agent_formatting_suffix(combined.p, combined.len, &bounded);
+    int reps = ngram == 1 ? 8 : ngram == 2 ? 5 : ngram <= 16 ? 4 : 2;
+    bool result = pattern_bytes && bounded && formatting_bytes >= pattern_bytes * (size_t)reps;
+    sb_free(&combined);
+    return result;
+}
+
+static bool agent_text_has_repeated_suffix(const char *text, size_t len);
 
 static int agent_repeat_guard_selftest(void) {
     int storage[96];
@@ -5254,6 +5418,76 @@ static int agent_repeat_guard_selftest(void) {
     if (!agent_tool_history_add(&history, &calls, repeated,
                                 sizeof(repeated))) return 7;
 
+    /* Stream the box border: checking only the completed line would miss
+     * false positives before its closing corner arrives. */
+    strbuf border = {0};
+    sb_append(&border, "Analisi del progetto\n\n┌");
+    for (int i = 0; i < 80; i++) {
+        sb_append(&border, "─");
+        if (agent_text_has_repeated_suffix(border.p, border.len)) {
+            sb_free(&border);
+            return 8;
+        }
+    }
+    sb_append(&border, "┐\n│ Moduli del progetto │\n└");
+    for (int i = 0; i < 80; i++) sb_append(&border, "─");
+    sb_append(&border, "┘\n");
+    if (agent_text_has_repeated_suffix(border.p, border.len)) {
+        sb_free(&border);
+        return 9;
+    }
+    sb_free(&border);
+
+    const char *decorations[] = {"=", "*", "+-", "#", ".", "═", "●", "→", "✦", "　", "⚠️", "👩‍💻"};
+    for (size_t d = 0; d < sizeof(decorations) / sizeof(decorations[0]); d++) {
+        strbuf text = {0};
+        sb_append(&text, "Diagramma:\n");
+        for (int i = 0; i < 80; i++) {
+            /* Token decoding can split UTF-8: exercise each byte boundary. */
+            for (size_t j = 0; j < strlen(decorations[d]); j++) {
+                sb_append_n(&text, decorations[d] + j, 1);
+                if (agent_text_has_repeated_suffix(text.p, text.len)) {
+                    sb_free(&text);
+                    return 10;
+                }
+            }
+        }
+        bool bounded = false;
+        size_t bytes = agent_formatting_suffix(text.p, text.len, &bounded);
+        if (!bounded || bytes < strlen(decorations[d]) * 80) {
+            sb_free(&text);
+            return 11;
+        }
+        for (int i = 0; i < 256; i++) sb_append(&text, decorations[d]);
+        if (!agent_text_has_repeated_suffix(text.p, text.len)) {
+            sb_free(&text);
+            return 12;
+        }
+        sb_free(&text);
+    }
+    const char *prose[] = {"risposta ripetuta senza senso. ", "é", "é", "中", "7"};
+    for (size_t p = 0; p < sizeof(prose) / sizeof(prose[0]); p++) {
+        strbuf text = {0};
+        for (int i = 0; i < 128; i++) sb_append(&text, prose[p]);
+        if (!agent_text_has_repeated_suffix(text.p, text.len)) {
+            sb_free(&text);
+            return 13;
+        }
+        sb_free(&text);
+    }
+    strbuf rows = {0};
+    for (int r = 0; r < 8; r++) {
+        for (int i = 0; i < 80; i++) sb_append(&rows, "=");
+        sb_append(&rows, "\n");
+    }
+    if (agent_text_has_repeated_suffix(rows.p, rows.len)) { sb_free(&rows); return 14; }
+    for (int r = 0; r < 8; r++) {
+        for (int i = 0; i < 80; i++) sb_append(&rows, "=");
+        sb_append(&rows, "\n");
+    }
+    if (!agent_text_has_repeated_suffix(rows.p, rows.len)) { sb_free(&rows); return 15; }
+    sb_free(&rows);
+
     return 0;
 }
 
@@ -5266,6 +5500,8 @@ static bool text_slice_has_nonspace(const char *s, size_t n) {
 
 static bool agent_text_has_repeated_suffix(const char *text, size_t len) {
     if (!text || len < 96) return false;
+    bool bounded = false;
+    size_t formatting_bytes = agent_formatting_suffix(text, len, &bounded);
     const size_t max_pat = len / 4 < 96 ? len / 4 : 96;
     for (size_t pat = 8; pat <= max_pat; pat++) {
         if (!text_slice_has_nonspace(text + len - pat, pat)) continue;
@@ -5273,7 +5509,10 @@ static bool agent_text_has_repeated_suffix(const char *text, size_t len) {
         while (len >= pat * (reps + 1) &&
                !memcmp(text + len - pat, text + len - pat * (reps + 1), pat)) {
             reps++;
-            if (reps >= 4 && pat * reps >= 80) return true;
+            if (reps >= 4 && pat * reps >= 80) {
+                if (bounded && pat * reps <= formatting_bytes) break;
+                return true;
+            }
         }
     }
     return false;
@@ -5839,6 +6078,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     int think_end_id = agent_single_rendered_token_id(a->engine, "</think>");
     char eval_err[160] = {0};
     for (int i = 0; i < summary_max; i++) {
+        if (a->cfg.hybrid_dense && a->hybrid_generated >= a->cfg.expert_tokens) break;
         if (agent_should_interrupt(a)) {
             snprintf(err, err_len, "compaction interrupted");
             qw3_session_invalidate(a->session);
@@ -5850,6 +6090,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         }
         int token = qw3_session_argmax(a->session);
         if (token < 0 || token == eos || token == think_end_id) break;
+        if (a->cfg.hybrid_dense) { a->hybrid_generated++; agent_hybrid_generation(a); }
 
         size_t text_len = 0;
         char *text = token_decoded_text(a->engine, token, &text_len);
@@ -6057,7 +6298,7 @@ static int generate_once(agent_state *a, char **assistant_text,
                         suppress_output ? NULL :
                             (a->output_write ? a->output_ud : stdout),
                         !suppress_output && a->output_color &&
-                            isatty(STDOUT_FILENO),
+                            (isatty(STDOUT_FILENO) || a->cfg.hybrid_color),
                         qw3_think_mode_enabled(a->cfg.think_mode));
 
     int rc = -1;
@@ -6095,8 +6336,12 @@ static int generate_once(agent_state *a, char **assistant_text,
         agent_set_activity(a, "generating", NULL);
         const int eos = qw3_token_eos(a->engine);
         int n_generated = 0;
+        bool response_complete = false;
         const double t_gen0 = agent_now_sec();
         int max_tokens = a->cfg.n_predict;
+        if (a->cfg.hybrid_dense && max_tokens > a->cfg.expert_tokens - a->hybrid_generated)
+            max_tokens = a->cfg.expert_tokens - a->hybrid_generated;
+        if (a->cfg.hybrid_dense && max_tokens <= 0) rc = -1;
         int room = qw3_session_ctx(a->session) - qw3_session_pos(a->session);
         if (room <= 1) {
             max_tokens = 0;
@@ -6154,13 +6399,16 @@ static int generate_once(agent_state *a, char **assistant_text,
                 rc = -1;
                 break;
             }
-            if (token == eos) break;
-            if (agent_would_repeat_token_ngram(&emit.generated, token)) {
+            if (token == eos) { response_complete = true; break; }
+            int repeat_ngram = agent_repeated_token_ngram_size(&emit.generated, token);
+            if (repeat_ngram && !agent_token_repeat_is_formatting(a->engine, &emit,
+                                                                 token, repeat_ngram)) {
                 agent_statusf(a, "agent: stopped repeated token loop\n");
                 break;
             }
             agent_emit_token(&emit, token);
             n_generated++;
+            if (a->cfg.hybrid_dense) { a->hybrid_generated++; agent_hybrid_generation(a); }
             if (agent_text_has_repeated_suffix(emit.text.p, emit.text.len)) {
                 agent_statusf(a, "agent: stopped repeated text loop\n");
                 break;
@@ -6172,12 +6420,21 @@ static int generate_once(agent_state *a, char **assistant_text,
                 break;
             }
             if (generated_has_complete_tool_call(emit.text.p)) {
+                response_complete = true;
                 break;
             }
         }
         free(repeat_buf);
         const double t_gen1 = agent_now_sec();
         agent_emit_done(&emit);
+        if (a->cfg.hybrid_dense && rc == 0 && !response_complete && !agent_should_interrupt(a)) {
+            agent_statusf(a, "agent: expert stopped before a complete response; task incomplete\n");
+            rc = -1;
+        }
+        if (a->cfg.hybrid_dense && a->hybrid_generated >= a->cfg.expert_tokens) {
+            agent_statusf(a, "agent: expert total token budget exhausted; task incomplete\n");
+            rc = -1;
+        }
 
         const int prefill_tokens = a->transcript.len - cached;
         const double prefill_s = t_prefill1 - t_prefill0;
@@ -6230,6 +6487,17 @@ static int generate_once(agent_state *a, char **assistant_text,
 }
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
+    bool resuming = a->hybrid_resume;
+    a->hybrid_resume = false;
+    if (!resuming) {
+        memset(&a->turn, 0, sizeof(a->turn));
+        a->turn.guard_retry_credits = 2;
+        a->turn.empty_retry_credits = 2;
+        a->turn.verification_guard_credits = 3;
+        free(a->turn_request);
+        a->turn_request = agent_strdup(user_message ? user_message : "");
+    }
+    if (!resuming) {
     agent_trace_begin(a, "user_turn");
     agent_trace_i64(a, "context_tokens", a ? a->transcript.len : 0);
     agent_trace_i64(a, "input_bytes",
@@ -6254,29 +6522,28 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     if (!agent_append_message(a, AGENT_MESSAGE_USER,
                               "user", user_message)) return -1;
 
+    }
+    user_message = a->turn_request;
     const int final_attempts = 3;
     const int verification_attempts = 3;
-    int guard_retry_credits = 2;
-    int empty_retry_credits = 2;
-    int verification_guard_credits = verification_attempts;
-    agent_tool_history tool_history = {0};
-    for (int round = 0;
-         round < a->cfg.max_tool_rounds + final_attempts +
+    char compact_err[160] = {0};
+    for (;
+         a->turn.round < a->cfg.max_tool_rounds + final_attempts +
                      verification_attempts;
-         round++) {
+         a->turn.round++) {
         const bool verification_extension =
             a->edit_verification_pending &&
-            round >= a->cfg.max_tool_rounds;
-        const bool final_only = round >= a->cfg.max_tool_rounds &&
+            a->turn.round >= a->cfg.max_tool_rounds;
+        const bool final_only = a->turn.round >= a->cfg.max_tool_rounds &&
                                 !verification_extension;
-        if (round > 0 &&
+        if (a->turn.round > 0 &&
             !agent_compact_if_needed(a, "soft limit before tool continuation",
                                      compact_err, sizeof(compact_err))) {
             agent_statusf(a, "agent: %s\n",
                           compact_err[0] ? compact_err : "context compaction failed");
             return -1;
         }
-        if (round == a->cfg.max_tool_rounds &&
+        if (a->turn.round == a->cfg.max_tool_rounds &&
             !a->edit_verification_pending) {
             static const char budget_control_intro[] =
                 "Internal qw3-agent control: the tool-call budget for this "
@@ -6366,7 +6633,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 continue;
             }
             char repeat_name[64] = {0};
-            if (!agent_tool_history_add(&tool_history, &native_calls,
+            if (!agent_tool_history_add(&a->turn.tool_history, &native_calls,
                                         repeat_name, sizeof(repeat_name))) {
                 free_tool_calls(&native_calls);
                 free(assistant);
@@ -6380,15 +6647,25 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 }
                 continue;
             }
+            int delegation = agent_hybrid_pause(a, &native_calls);
+            if (delegation) {
+                free_tool_calls(&native_calls);
+                free(assistant);
+                if (delegation == 2) return 2;
+                continue;
+            }
+            if (!agent_hybrid_tool_budget(a)) {
+                free_tool_calls(&native_calls); free(assistant); return -1;
+            }
             bool all_guard_rejected = false;
             bool ok = execute_native_tools_append(a, &native_calls,
                                                   &all_guard_rejected);
             free_tool_calls(&native_calls);
             free(assistant);
             if (!ok) return -1;
-            if (all_guard_rejected && guard_retry_credits > 0) {
-                guard_retry_credits--;
-                round--;
+            if (all_guard_rejected && a->turn.guard_retry_credits > 0) {
+                a->turn.guard_retry_credits--;
+                a->turn.round--;
             }
             continue;
         }
@@ -6404,7 +6681,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                               transcript_before_generation);
                 qw3_session_invalidate(a->session);
                 free(assistant);
-                if (verification_guard_credits-- <= 0) {
+                if (a->turn.verification_guard_credits-- <= 0) {
                     agent_statusf(a,
                                   "agent: refusing to finish with unverified "
                                   "file changes\n");
@@ -6452,13 +6729,13 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 free(assistant);
 
                 agent_trace_begin(a, "empty_response");
-                agent_trace_i64(a, "round", round);
-                agent_trace_i64(a, "retries_left", empty_retry_credits);
+                agent_trace_i64(a, "round", a->turn.round);
+                agent_trace_i64(a, "retries_left", a->turn.empty_retry_credits);
                 agent_trace_bool(a, "final_only", final_only);
                 agent_trace_string(a, "kind", malformed_tool ? "malformed_tool" :
                                    thought_only ? "reasoning_only" : "empty");
                 agent_trace_end(a);
-                if (empty_retry_credits-- > 0) {
+                if (a->turn.empty_retry_credits-- > 0) {
                     const char *retry_control = final_only ?
                         "Internal qw3-agent control: your previous final "
                         "response contained no usable answer. Do not call tools. Answer the "
@@ -6494,8 +6771,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                   malformed_tool ? "malformed tool call" :
                                   thought_only ? "reasoning without answer or tool" :
                                   "empty response",
-                                  empty_retry_credits);
-                    round--;
+                                  a->turn.empty_retry_credits);
+                    a->turn.round--;
                     continue;
                 }
                 agent_statusf(a,
@@ -6536,7 +6813,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             continue;
         }
         char repeat_name[64] = {0};
-        if (!agent_tool_history_add(&tool_history, &dsml_calls,
+        if (!agent_tool_history_add(&a->turn.tool_history, &dsml_calls,
                                     repeat_name, sizeof(repeat_name))) {
             free_tool_calls(&dsml_calls);
             free(assistant);
@@ -6547,6 +6824,16 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 return -1;
             }
             continue;
+        }
+        int delegation = agent_hybrid_pause(a, &dsml_calls);
+        if (delegation) {
+            free_tool_calls(&dsml_calls);
+            free(assistant);
+            if (delegation == 2) return 2;
+            continue;
+        }
+        if (!agent_hybrid_tool_budget(a)) {
+            free_tool_calls(&dsml_calls); free(assistant); return -1;
         }
         bool all_guard_rejected = false;
         char *tool_result = execute_tools(a, &dsml_calls,
@@ -6587,19 +6874,20 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         free(response);
         free(tool_result);
         free(assistant);
-        if (all_guard_rejected && guard_retry_credits > 0) {
-            guard_retry_credits--;
-            round--;
+        if (a->cfg.hybrid_fd >= 0 && !agent_hybrid_checkpoint(a)) return -1;
+        if (all_guard_rejected && a->turn.guard_retry_credits > 0) {
+            a->turn.guard_retry_credits--;
+            a->turn.round--;
         }
     }
     agent_statusf(a,
                   "agent: unable to produce a final answer after tool budget "
                   "was exhausted\n");
-    return 0;
+    return a->cfg.hybrid_dense ? -1 : 0;
 }
 
 static char *build_system_prompt(const char *user_system, bool tools_enabled,
-                                 bool compact_tools) {
+                                 bool compact_tools, bool read_only) {
     strbuf sb;
     sb_init(&sb);
     if (tools_enabled) {
@@ -6607,7 +6895,7 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
             "# Tools\n\n"
             "You have access to the following functions:\n\n"
             "<tools>\n");
-        char *tools = native_tool_declarations(compact_tools);
+        char *tools = native_tool_declarations(compact_tools, read_only);
         sb_append(&sb, tools ? tools : "");
         free(tools);
         sb_append(&sb,
@@ -6687,6 +6975,10 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
         sb_append(&sb, user_system);
         sb_append(&sb, "\n");
     }
+    if (read_only) sb_append(&sb,
+        "\nRead-only analysis: write, edit, bash, semantic indexing and web tools are disabled by the executor. "
+        "Inspect code with get_function/read/search. Provide a concrete counterexample and distinguish inference "
+        "from an executed test. Never modify the project or claim to have executed a verification.\n");
     return sb.p;
 }
 
@@ -6719,11 +7011,20 @@ static void print_help(void) {
         "  --cpu                Use CPU backend\n"
         "  --metal              Use Metal backend\n"
         "  --nothink            Disable thinking mode\n"
+        "  --read-only          Diagnose with local read tools; no writes, shell or indexing\n"
         "  --store-dir PATH     Conversation store directory\n"
         "  --conversation NAME  Load/save a named conversation\n"
         "  --chdir PATH         Change working directory before loading/running\n"
         "  --trace PATH         Append machine-readable JSONL agent events\n"
         "  --no-prefix-cache   Disable the reusable Metal system-prompt cache\n"
+        "  --expert-model PATH Dense model for sequential delegated tasks\n"
+        "  --expert-mode MODE  auto, manual, off (auto with an expert model)\n"
+        "  --expert-ctx N      Dense context size (default: 8192)\n"
+        "  --expert-timeout N  Dense wall time in seconds (default: 1200)\n"
+        "  --expert-max-tokens N Total dense generation budget (default: 8192)\n"
+        "  --expert-max-tool-rounds N Dense tool budget (default: 12)\n"
+        "  --expert-kv TYPE     Dense KV: f16 (default) or f32\n"
+        "  --expert-think MODE none, on, high (default: on)\n"
         "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
         "  --compact-tools      Advertise only read, write, edit, and bash\n"
@@ -6742,10 +7043,23 @@ static void print_help(void) {
         QW3_AGENT_REPEAT_LAST_N_DEFAULT);
 }
 
+static bool agent_positive_int(const char *text, int *out) {
+    char *end = NULL; errno = 0;
+    long n = strtol(text, &end, 10);
+    if (errno || end == text || *end || n <= 0 || n > INT_MAX) return false;
+    *out = (int)n; return true;
+}
+
 static int parse_args(agent_config *cfg, int argc, char **argv) {
     memset(cfg, 0, sizeof(*cfg));
     cfg->model_path = "./qw3.gguf";
     cfg->n_predict = 2048;
+    cfg->hybrid_fd = -1;
+    cfg->expert_ctx = 8192;
+    cfg->expert_timeout = 1200;
+    cfg->expert_tokens = 8192;
+    cfg->expert_rounds = 12;
+    cfg->expert_think = QW3_THINK_ON;
     cfg->ctx_size = 32768;
     cfg->max_tool_rounds = QW3_AGENT_MAX_TOOL_ROUNDS;
     cfg->tools_enabled = true;
@@ -6770,6 +7084,54 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
             print_help();
             exit(0);
+        } else if (!strcmp(argv[i], "--expert-model") && i + 1 < argc) {
+            cfg->expert_model = argv[++i];
+        } else if (!strcmp(argv[i], "--expert-mode") && i + 1 < argc) {
+            const char *mode = argv[++i];
+            cfg->expert_mode_set = true;
+            if (!strcmp(mode, "auto")) cfg->expert_mode = AGENT_EXPERT_AUTO;
+            else if (!strcmp(mode, "manual")) cfg->expert_mode = AGENT_EXPERT_MANUAL;
+            else if (!strcmp(mode, "off")) cfg->expert_mode = AGENT_EXPERT_OFF;
+            else { fprintf(stderr, "agent: invalid expert mode\n"); return -1; }
+        } else if (!strcmp(argv[i], "--expert-ctx") && i + 1 < argc) {
+            if (!agent_positive_int(argv[++i], &cfg->expert_ctx)) {
+                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
+            }
+        } else if (!strcmp(argv[i], "--expert-timeout") && i + 1 < argc) {
+            if (!agent_positive_int(argv[++i], &cfg->expert_timeout)) {
+                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
+            }
+        } else if (!strcmp(argv[i], "--expert-max-tokens") && i + 1 < argc) {
+            if (!agent_positive_int(argv[++i], &cfg->expert_tokens)) {
+                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
+            }
+        } else if (!strcmp(argv[i], "--expert-max-tool-rounds") && i + 1 < argc) {
+            if (!agent_positive_int(argv[++i], &cfg->expert_rounds)) {
+                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
+            }
+        } else if (!strcmp(argv[i], "--expert-kv") && i + 1 < argc) {
+            const char *kv = argv[++i];
+            if (!strcmp(kv, "f16")) cfg->expert_kv_f32 = false;
+            else if (!strcmp(kv, "f32")) cfg->expert_kv_f32 = true;
+            else { fprintf(stderr, "agent: expert KV must be f16 or f32\n"); return -1; }
+        } else if (!strcmp(argv[i], "--expert-think") && i + 1 < argc) {
+            const char *mode = argv[++i];
+            if (!strcmp(mode, "on")) cfg->expert_think = QW3_THINK_ON;
+            else if (!strcmp(mode, "none")) cfg->expert_think = QW3_THINK_NONE;
+            else if (!strcmp(mode, "high")) cfg->expert_think = QW3_THINK_HIGH;
+            else { fprintf(stderr, "agent: invalid expert thinking mode\n"); return -1; }
+        } else if (!strcmp(argv[i], "--hybrid-worker-fd") && i + 1 < argc) {
+            cfg->hybrid_fd = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--hybrid-job") && i + 1 < argc) {
+            cfg->hybrid_job = argv[++i];
+        } else if (!strcmp(argv[i], "--hybrid-lock") && i + 1 < argc) {
+            cfg->hybrid_lock = argv[++i];
+        } else if (!strcmp(argv[i], "--hybrid-dense")) {
+            cfg->hybrid_dense = true;
+        } else if (!strcmp(argv[i], "--read-only")) {
+            cfg->read_only = true;
+        } else if (!strcmp(argv[i], "--hybrid-color")) {
+            cfg->hybrid_color = true;
         } else if (!strcmp(argv[i], "-m") && i + 1 < argc) {
             cfg->model_path = argv[++i];
         } else if (!strcmp(argv[i], "-p") && i + 1 < argc) {
@@ -6937,6 +7299,22 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             return -1;
         }
     }
+    if (cfg->expert_ctx < 2048 || cfg->expert_ctx > 32768 || cfg->expert_timeout <= 0 ||
+        cfg->expert_tokens <= 0 || cfg->expert_rounds <= 0 || cfg->expert_rounds > 128) {
+        fprintf(stderr, "agent: invalid expert budget (ctx 2048..32768, positive budgets required)\n");
+        return -1;
+    }
+    if (cfg->hybrid_dense) {
+        cfg->think_mode = cfg->expert_think;
+        /* The expert has its own cumulative budget. A small primary -n must
+         * not silently truncate its reasoning and report an unfinished answer. */
+        cfg->n_predict = cfg->expert_tokens;
+        if (!cfg->metal_n_gpu_layers_set) unsetenv("QW3_METAL_NGL");
+    }
+    if (cfg->expert_model && !cfg->expert_mode_set) cfg->expert_mode = AGENT_EXPERT_AUTO;
+    if (!cfg->expert_model && cfg->expert_mode != AGENT_EXPERT_OFF) {
+        fprintf(stderr, "agent: --expert-mode requires --expert-model\n"); return -1;
+    }
     if (!cfg->store_dir) cfg->store_dir = default_store_dir();
     if (!cfg->store_dir || ensure_dir(cfg->store_dir) != 0) {
         fprintf(stderr, "agent: cannot create store directory\n");
@@ -6944,12 +7322,39 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     }
     cfg->system_prompt = build_system_prompt(cfg->user_system,
                                              cfg->tools_enabled,
-                                             cfg->compact_tools);
+                                             cfg->compact_tools, cfg->read_only);
     if (!cfg->system_prompt) return -1;
+    if (cfg->expert_model && cfg->tools_enabled && !cfg->hybrid_dense) {
+        strbuf extended = {0};
+        const char *end_tools = strstr(cfg->system_prompt, "</tools>");
+        if (end_tools) {
+            sb_append_n(&extended, cfg->system_prompt, (size_t)(end_tools - cfg->system_prompt));
+            sb_append(&extended,
+                "{\"type\":\"function\",\"function\":{\"name\":\"delegate_dense\","
+                "\"description\":\"Delegate one difficult task to the dense coding agent.\","
+                "\"parameters\":{\"type\":\"object\",\"properties\":{"
+                "\"task\":{\"type\":\"string\"},\"reason\":{\"type\":\"string\"},"
+                "\"context\":{\"type\":\"string\"},\"criteria\":{\"type\":\"string\"}},"
+                "\"required\":[\"task\",\"reason\",\"context\",\"criteria\"]}}}\n");
+            sb_append(&extended, end_tools);
+        } else sb_append(&extended, cfg->system_prompt);
+        sb_append(&extended,
+            "\nAdditional tool: delegate_dense(task, reason, context, criteria), all string parameters. "
+            "Call using the same native <tool_call><function=delegate_dense> XML format. "
+            "A dense specialist can read, edit and verify files, then return control. "
+            "Delegate at most once per user turn, as the only call in its batch. "
+            "Use it for difficult correctness, unresolved failed checks, diagnosis or architecture. "
+            "Do routine reads, searches and simple edits yourself. Explain the concrete difficulty; "
+            "confidence alone is not a reason. Include facts, failed attempts, file paths and completion criteria. "
+            "Only delegate when automatic expert mode is enabled or the user explicitly requests it.\n");
+        free(cfg->system_prompt);
+        cfg->system_prompt = extended.p;
+    }
     return 0;
 }
 
 static void free_config(agent_config *cfg) {
+    free(cfg->expert_model_owned);
     free(cfg->model_path_owned);
     free(cfg->prompt_owned);
     free(cfg->user_system_owned);
@@ -6972,6 +7377,11 @@ static void agent_absolutize_env_path(const char *name) {
 
 static int agent_prepare_chdir_paths(agent_config *cfg) {
     if (!cfg || !cfg->chdir_path) return 0;
+    if (cfg->expert_model) {
+        cfg->expert_model_owned = hybrid_absolute(cfg->expert_model);
+        if (!cfg->expert_model_owned) return -1;
+        cfg->expert_model = cfg->expert_model_owned;
+    }
     if (!cfg->tool_dsml && !cfg->tool_native) {
         cfg->model_path_owned = realpath(cfg->model_path, NULL);
         if (!cfg->model_path_owned) {
@@ -7014,6 +7424,10 @@ static int agent_validate_model_config(const agent_config *cfg,
     if (!cfg || !engine) return -1;
     const int n_layers = qw3_engine_layer_count(engine);
     if (n_layers <= 0) return -1;
+    if (cfg->hybrid_fd >= 0 && qw3_engine_is_dense(engine) != cfg->hybrid_dense) {
+        fprintf(stderr, "agent: hybrid roles require MoE primary and dense expert models\n");
+        return -1;
+    }
     if (cfg->backend != QW3_BACKEND_METAL) return 0;
 
     int ngl = n_layers;
@@ -7108,7 +7522,7 @@ static void interactive_help(void) {
 static char *read_line_agent(agent_state *a) {
     (void)a;
     if (isatty(STDIN_FILENO)) {
-        char *line = linenoise("qw3-agent> ");
+        char *line = linenoise(agent_editor_prompt());
         if (line && line[0]) linenoiseHistoryAdd(line);
         return line;
     }
@@ -7157,6 +7571,8 @@ static void handle_chdir_command(agent_state *a, char *arg) {
 }
 
 static int handle_command(agent_state *a, char *line, char **message_out) {
+    if (a->cfg.expert_model && a->cfg.hybrid_fd < 0)
+        return agent_hybrid_command(a, line, message_out);
     *message_out = NULL;
     if (line[0] != '/') {
         *message_out = agent_strdup(line);
@@ -7502,9 +7918,10 @@ static void *agent_worker_main(void *ud) {
         snprintf(w->activity, sizeof(w->activity), "starting");
         pthread_mutex_unlock(&w->mu);
 
-        int rc = run_agent_turn(w->agent, job);
+        int rc = w->agent->cfg.expert_model && w->agent->cfg.hybrid_fd < 0 ?
+            agent_hybrid_run(w->agent, job) : run_agent_turn(w->agent, job);
         free(job);
-        if (rc == 0 && w->agent->cfg.conversation) {
+        if (rc == 0 && w->agent->cfg.conversation && !w->agent->hybrid_supervisor) {
             store_save(w->agent, w->agent->cfg.conversation);
         }
 
@@ -7538,7 +7955,7 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     a->output_ud = w;
     a->status_write = agent_worker_output_write;
     a->status_ud = w;
-    a->output_color = isatty(STDOUT_FILENO);
+    a->output_color = agent_ui_color_enabled();
     a->should_interrupt = agent_worker_should_interrupt;
     a->interrupt_ud = w;
     a->progress_update = agent_worker_progress_update;
@@ -7606,7 +8023,7 @@ static void agent_queue_free(agent_input_queue *q) {
 typedef struct {
     struct linenoiseState edit;
     char prompt[80];
-    char status[240];
+    char status[QW3_AGENT_STATUS_MAX];
     char *input;
     int old_stdin_flags;
     bool active;
@@ -7830,8 +8247,8 @@ static int agent_editor_start(agent_editor *ed, const char *prompt,
         return -1;
     }
     linenoiseEditSetStatus(&ed->edit, ed->status,
-                           agent_stdout_is_tty() ? QW3_AGENT_STATUS_STYLE_START : "",
-                           agent_stdout_is_tty() && ed->status[0] ?
+                           agent_ui_color_enabled() ? QW3_AGENT_STATUS_STYLE_START : "",
+                           agent_ui_color_enabled() && ed->status[0] ?
                                QW3_AGENT_STATUS_STYLE_END : "");
     linenoiseEditSetLayoutCallback(&ed->edit,
                                    agent_editor_linenoise_layout_changed, ed);
@@ -7965,8 +8382,8 @@ static void agent_editor_stop(agent_editor *ed) {
 static void agent_editor_update_status(agent_editor *ed, const char *status) {
     snprintf(ed->status, sizeof(ed->status), "%s", status ? status : "");
     linenoiseEditSetStatus(&ed->edit, ed->status,
-                           agent_stdout_is_tty() ? QW3_AGENT_STATUS_STYLE_START : "",
-                           agent_stdout_is_tty() && ed->status[0] ?
+                           agent_ui_color_enabled() ? QW3_AGENT_STATUS_STYLE_START : "",
+                           agent_ui_color_enabled() && ed->status[0] ?
                                QW3_AGENT_STATUS_STYLE_END : "");
 }
 
@@ -8095,7 +8512,7 @@ static void agent_editor_cancel_input(agent_editor *ed,
     if (!ed->active) return;
     if (ed->hidden) agent_editor_show(ed);
     linenoiseEditClear(&ed->edit);
-    const char *msg = agent_stdout_is_tty() ?
+    const char *msg = agent_ui_color_enabled() ?
         "\033[1;33mpress Ctrl+D to exit\033[0m\n" :
         "press Ctrl+D to exit\n";
     agent_editor_write_async(ed, msg, strlen(msg), prompt, status, true);
@@ -8108,9 +8525,9 @@ static void agent_build_editor_status(agent_worker *w,
 static char *agent_format_user_prompt_echo(const char *text) {
     strbuf out;
     sb_init(&out);
-    const bool color = agent_stdout_is_tty();
+    const bool color = agent_ui_color_enabled();
     sb_append(&out, "\n");
-    if (color) sb_append(&out, "\033[2;97myou>\033[0m ");
+    if (color) sb_append(&out, "\033[1;38;5;117myou>\033[0m ");
     else sb_append(&out, "you> ");
     const char *p = text ? text : "";
     while (*p) {
@@ -8134,11 +8551,22 @@ static void agent_editor_echo_user_prompt(agent_editor *ed,
     if (!line || !line[0]) return;
     char *echo = agent_format_user_prompt_echo(line);
     if (!echo) return;
-    char status[240];
+    char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(w, q, status, sizeof(status));
-    agent_editor_write_async(ed, echo, strlen(echo), "qw3-agent> ",
+    agent_editor_write_async(ed, echo, strlen(echo), agent_editor_prompt(),
                              status, true);
     free(echo);
+}
+
+static void agent_status_segment(strbuf *out, bool color,
+                                  const char *style, const char *text) {
+    if (color) sb_append(out, style);
+    sb_append(out, text);
+    if (color) sb_append(out, QW3_AGENT_STATUS_TEXT);
+}
+
+static void agent_status_separator(strbuf *out, bool color) {
+    agent_status_segment(out, color, QW3_AGENT_STATUS_MUTED, "  │  ");
 }
 
 static void agent_build_editor_status(agent_worker *w,
@@ -8164,45 +8592,68 @@ static void agent_build_editor_status(agent_worker *w,
                                  &timing_prefill_tps,
                                  &timing_gen_tokens, NULL,
                                  &timing_gen_tps);
-    char timing[96] = "";
-    if (has_timing) {
-        snprintf(timing, sizeof(timing), " | pp %d@%.0f/s tg %d@%.0f/s",
-                 timing_prefill_tokens, timing_prefill_tps,
-                 timing_gen_tokens, timing_gen_tps);
-    }
+    const bool color = agent_ui_color_enabled();
+    strbuf out = {0};
+    char field[192];
+    sb_append(&out, " ");
     if (busy && progress_active && progress_total > 0) {
         int pct = (int)((100.0 * (double)progress_current /
                          (double)progress_total) + 0.5);
         if (pct < 0) pct = 0;
         if (pct > 100) pct = 100;
-        char bar[19];
-        int fill = (int)((18.0 * (double)progress_current /
+        int fill = (int)((12.0 * (double)progress_current /
                           (double)progress_total) + 0.5);
         if (fill < 0) fill = 0;
-        if (fill > 18) fill = 18;
-        for (int i = 0; i < 18; i++) bar[i] = i < fill ? '=' : '.';
-        bar[18] = '\0';
-        snprintf(status, status_len,
-                 "state=prefill [%s] %d/%d %d%% %.0f/s queued=%d%s",
-                 bar, progress_current, progress_total, pct, progress_tps,
-                 q ? q->len : 0, timing);
-    } else if (busy) {
-        snprintf(status, status_len,
-                 "state=%s queued=%d ctx=%d/%d tools=%s think=%s%s",
-                 activity, q ? q->len : 0,
-                 w->agent->transcript.len, w->agent->cfg.ctx_size,
-                 w->agent->cfg.tools_enabled ? "on" : "off",
-                 qw3_think_mode_name(w->agent->cfg.think_mode),
-                 timing);
+        if (fill > 12) fill = 12;
+        if (w->agent->cfg.expert_model) {
+            snprintf(field, sizeof(field), "● %.63s", activity);
+            agent_status_segment(&out, color, QW3_AGENT_STATUS_PROGRESS, field);
+        } else agent_status_segment(&out, color, QW3_AGENT_STATUS_PROGRESS, "● prefill");
+        sb_append(&out, "  ");
+        if (color) sb_append(&out, QW3_AGENT_STATUS_PROGRESS);
+        for (int i = 0; i < 12; i++) {
+            if (color && i == fill) sb_append(&out, QW3_AGENT_STATUS_MUTED);
+            sb_append(&out, i < fill ? "━" : "─");
+        }
+        if (color) sb_append(&out, QW3_AGENT_STATUS_TEXT);
+        snprintf(field, sizeof(field), " %d%%  %d/%d  %.0f tok/s",
+                 pct, progress_current, progress_total, progress_tps);
+        sb_append(&out, field);
     } else {
-        snprintf(status, status_len,
-                 "state=ready queued=%d ctx=%d/%d tools=%s think=%s%s",
-                 q ? q->len : 0, w->agent->transcript.len,
-                 w->agent->cfg.ctx_size,
-                 w->agent->cfg.tools_enabled ? "on" : "off",
-                 qw3_think_mode_name(w->agent->cfg.think_mode),
-                 timing);
+        snprintf(field, sizeof(field), "● %s", busy ? activity : w->agent->cfg.expert_model ? "ready · MoE" : "ready");
+        agent_status_segment(&out, color,
+                             !busy ? QW3_AGENT_STATUS_READY :
+                             !strncmp(activity, "tool:", 5) ? QW3_AGENT_STATUS_TOOL :
+                             QW3_AGENT_STATUS_BUSY, field);
+        agent_status_separator(&out, color);
+        bool dense_active = busy && w->agent->cfg.expert_model && !strncmp(activity, "dense", 5);
+        snprintf(field, sizeof(field), "ctx %d/%d",
+                 w->agent->transcript.len, dense_active ? w->agent->cfg.expert_ctx : w->agent->cfg.ctx_size);
+        sb_append(&out, field);
+        agent_status_separator(&out, color);
+        snprintf(field, sizeof(field), "tools %s", w->agent->cfg.tools_enabled ? "on" : "off");
+        sb_append(&out, field);
+        qw3_think_mode active_think = dense_active ? w->agent->cfg.expert_think : w->agent->cfg.think_mode;
+        if (active_think != QW3_THINK_NONE) {
+            agent_status_separator(&out, color);
+            snprintf(field, sizeof(field), "think %s", qw3_think_mode_name(active_think));
+            sb_append(&out, field);
+        }
     }
+    if (q && q->len > 0) {
+        agent_status_separator(&out, color);
+        snprintf(field, sizeof(field), "queued %d", q->len);
+        agent_status_segment(&out, color, QW3_AGENT_STATUS_TOOL, field);
+    }
+    if (has_timing) {
+        agent_status_separator(&out, color);
+        snprintf(field, sizeof(field), "pp %d@%.0f/s  tg %d@%.1f/s",
+                 timing_prefill_tokens, timing_prefill_tps,
+                 timing_gen_tokens, timing_gen_tps);
+        sb_append(&out, field);
+    }
+    snprintf(status, status_len, "%s", out.p ? out.p : "");
+    sb_free(&out);
 }
 
 static int agent_status_line_selftest(void) {
@@ -8217,10 +8668,10 @@ static int agent_status_line_selftest(void) {
     worker.busy = true;
     snprintf(worker.activity, sizeof(worker.activity), "tool:visit_url");
     agent_input_queue queue = {.len = 2};
-    char status[240];
+    char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
-    if (!strstr(status, "state=tool:visit_url") ||
-        !strstr(status, "queued=2")) {
+    if (!strstr(status, "tool:visit_url") ||
+        !strstr(status, "queued 2")) {
         pthread_mutex_destroy(&worker.mu);
         return 1;
     }
@@ -8230,7 +8681,7 @@ static int agent_status_line_selftest(void) {
     worker.progress_total = 1024;
     worker.progress_tps = 300.0;
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
-    if (!strstr(status, "state=prefill") ||
+    if (!strstr(status, "prefill") ||
         !strstr(status, "256/1024")) {
         pthread_mutex_destroy(&worker.mu);
         return 2;
@@ -8240,16 +8691,16 @@ static int agent_status_line_selftest(void) {
     worker.progress_active = false;
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
     pthread_mutex_destroy(&worker.mu);
-    return strstr(status, "state=ready") ? 0 : 3;
+    return strstr(status, "ready") ? 0 : 3;
 }
 
 static void agent_redraw_editor(agent_editor *edit,
                                 agent_worker *w,
                                 const agent_input_queue *q) {
     if (!edit) return;
-    char status[240];
+    char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(w, q, status, sizeof(status));
-    agent_editor_set_prompt_status(edit, "qw3-agent> ", status);
+    agent_editor_set_prompt_status(edit, agent_editor_prompt(), status);
 }
 
 static int agent_submit_or_queue(agent_worker *w, agent_input_queue *q,
@@ -8282,13 +8733,13 @@ static void agent_display_worker_output(agent_worker *w,
     int rc = 0;
     agent_worker_collect(w, &out, &out_len, &done, &rc);
     bool busy_now = agent_worker_is_busy(w);
-    char status[240];
+    char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(w, q, status, sizeof(status));
     bool had_out = out != NULL;
     if (out) {
         if (edit) {
             bool force_show = !busy_now || done;
-            agent_editor_write_async(edit, out, out_len, "qw3-agent> ",
+            agent_editor_write_async(edit, out, out_len, agent_editor_prompt(),
                                      status, force_show);
         } else {
             agent_write_fd_crlf(STDOUT_FILENO, out, out_len);
@@ -8375,9 +8826,9 @@ static int interactive_loop_worker(agent_state *a) {
     bool edit_active = false;
     bool streaming_output = false;
     linenoiseSetMultiLine(1);
-    char status[240];
+    char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
-    if (agent_editor_start(&edit, "qw3-agent> ", status, NULL) != 0) {
+    if (agent_editor_start(&edit, agent_editor_prompt(), status, NULL) != 0) {
         rc = 1;
         done = true;
     } else {
@@ -8402,7 +8853,7 @@ static int interactive_loop_worker(agent_state *a) {
                 agent_statusf(a, "\nagent: interrupt requested\n");
             } else {
                 agent_build_editor_status(&worker, &queue, status, sizeof(status));
-                agent_editor_cancel_input(&edit, "qw3-agent> ", status);
+                agent_editor_cancel_input(&edit, agent_editor_prompt(), status);
             }
         }
         if (pr < 0) {
@@ -8418,7 +8869,7 @@ static int interactive_loop_worker(agent_state *a) {
                 agent_worker_interrupt(&worker);
             } else {
                 agent_build_editor_status(&worker, &queue, status, sizeof(status));
-                agent_editor_cancel_input(&edit, "qw3-agent> ", status);
+                agent_editor_cancel_input(&edit, agent_editor_prompt(), status);
             }
         }
         if (fds[1].revents & POLLIN) {
@@ -8440,7 +8891,7 @@ static int interactive_loop_worker(agent_state *a) {
 
         if (edit_active && !edit.hidden) {
             agent_build_editor_status(&worker, &queue, status, sizeof(status));
-            agent_editor_set_prompt_status(&edit, "qw3-agent> ", status);
+            agent_editor_set_prompt_status(&edit, agent_editor_prompt(), status);
         }
 
         if (edit_active && linenoiseEditQueuedInput(&edit.edit) > 0) {
@@ -8485,7 +8936,7 @@ static int interactive_loop_worker(agent_state *a) {
 
             if (!done) {
                 agent_build_editor_status(&worker, &queue, status, sizeof(status));
-                if (agent_editor_start(&edit, "qw3-agent> ", status, NULL) != 0) {
+                if (agent_editor_start(&edit, agent_editor_prompt(), status, NULL) != 0) {
                     rc = 1;
                     done = true;
                 } else {
@@ -8541,13 +8992,14 @@ static int interactive_loop_blocking(agent_state *a) {
         linenoiseFree(line);
         if (action < 0) break;
         if (action == 0) continue;
-        if (run_agent_turn(a, message) != 0) {
+        int turn_rc = a->hybrid_supervisor ? agent_hybrid_run(a, message) : run_agent_turn(a, message);
+        if (turn_rc != 0) {
             free(message);
             rc = 1;
             break;
         }
         free(message);
-        if (a->cfg.conversation) store_save(a, a->cfg.conversation);
+        if (a->cfg.conversation && !a->hybrid_supervisor) store_save(a, a->cfg.conversation);
     }
     if (hist) {
         linenoiseHistorySave(hist);
@@ -8597,6 +9049,8 @@ static void agent_direct_progress_update(void *ud, const char *phase,
     fflush(stderr);
     p->active = true;
 }
+
+#include "qw3_agent_hybrid.inc"
 
 int main(int argc, char **argv) {
     if (getenv("QW3_AGENT_TOOL_PARSE_SELFTEST")) {
@@ -8654,8 +9108,16 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    if (getenv("QW3_AGENT_HYBRID_SELFTEST")) {
+        int rc = agent_hybrid_selftest();
+        fprintf(stderr, "test-agent-hybrid: %s (%d)\n", rc ? "FAIL" : "ok", rc);
+        return rc ? 1 : 0;
+    }
+
     agent_state a;
     memset(&a, 0, sizeof(a));
+    char executable_path[PATH_MAX];
+    const char *executable = realpath(argv[0], executable_path) ? executable_path : argv[0];
     if (parse_args(&a.cfg, argc, argv) != 0) {
         free_config(&a.cfg);
         return 1;
@@ -8664,7 +9126,8 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return 1;
     }
-    a.output_color = isatty(STDOUT_FILENO) || isatty(STDERR_FILENO);
+    a.output_color = !getenv("NO_COLOR") &&
+                     (isatty(STDOUT_FILENO) || isatty(STDERR_FILENO));
     if (a.cfg.chdir_path && chdir(a.cfg.chdir_path) != 0) {
         fprintf(stderr, "agent: cannot chdir to %s: %s\n",
                 a.cfg.chdir_path, strerror(errno));
@@ -8700,6 +9163,22 @@ int main(int argc, char **argv) {
         agent_trace_close(&a);
         free_config(&a.cfg);
         return rc;
+    }
+
+    if (a.cfg.expert_model && a.cfg.hybrid_fd < 0 && !a.cfg.dump_prompt) {
+        int rc = agent_hybrid_main(&a, executable);
+        agent_trace_close(&a);
+        free_config(&a.cfg);
+        return rc;
+    }
+    int hybrid_lock_fd = -1;
+    if (a.cfg.hybrid_fd >= 0) {
+        signal(SIGPIPE, SIG_IGN);
+        hybrid_lock_fd = agent_hybrid_acquire_lock(&a);
+        if (hybrid_lock_fd < 0) {
+            hybrid_send(a.cfg.hybrid_fd, H_ERROR, "model ownership lock unavailable", 32);
+            agent_trace_close(&a); free_config(&a.cfg); return 1;
+        }
     }
 
     qw3_log(stderr, QW3_LOG_OK,
@@ -8748,6 +9227,7 @@ int main(int argc, char **argv) {
 
     agent_init_transcript(&a);
     if (a.cfg.conversation) {
+        if (a.cfg.hybrid_fd >= 0) agent_hybrid_restore(&a);
         (void)store_load(&a, a.cfg.conversation);
     }
     (void)agent_prepare_prefix_cache(&a);
@@ -8767,7 +9247,9 @@ int main(int argc, char **argv) {
 
     int rc = 0;
     agent_direct_progress direct_progress = {0};
-    if (a.cfg.prompt) {
+    if (a.cfg.hybrid_fd >= 0) {
+        rc = agent_hybrid_worker_loop(&a);
+    } else if (a.cfg.prompt) {
         if (agent_direct_progress_enabled()) {
             a.progress_update = agent_direct_progress_update;
             a.progress_ud = &direct_progress;
@@ -8789,6 +9271,9 @@ int main(int argc, char **argv) {
     qw3_tokens_free(&a.transcript);
     qw3_session_free(a.session);
     qw3_engine_close(a.engine);
+    free(a.turn_request);
+    free(a.hybrid_job_owned);
+    if (hybrid_lock_fd >= 0) close(hybrid_lock_fd);
     agent_trace_begin(&a, "session_end");
     agent_trace_i64(&a, "status", rc);
     agent_trace_end(&a);

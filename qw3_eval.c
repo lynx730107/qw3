@@ -1193,7 +1193,6 @@ typedef struct {
 
 typedef struct {
     const char *model_path;
-    const char *mtp_path;
     const char *trace_path;
     const char *regrade_trace_path;
     qw3_backend backend;
@@ -1579,7 +1578,6 @@ static void usage(FILE *fp) {
         "\n"
         "Model and backend:\n"
         "  -m, --model FILE       GGUF model path. Default: ds4flash.gguf\n"
-        "  --mtp FILE             Optional MTP support GGUF.\n"
         "  --metal | --cuda | --cpu | --backend NAME\n"
         "  -t, --threads N        CPU helper threads.\n"
         "  --quality              Prefer exact kernels where applicable.\n"
@@ -1637,8 +1635,6 @@ static eval_config parse_options(int argc, char **argv) {
             exit(0);
         } else if (!strcmp(arg, "-m") || !strcmp(arg, "--model")) {
             c.model_path = need_arg(&i, argc, argv, arg);
-        } else if (!strcmp(arg, "--mtp")) {
-            c.mtp_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "-n") || !strcmp(arg, "--tokens")) {
             c.max_tokens = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--questions")) {

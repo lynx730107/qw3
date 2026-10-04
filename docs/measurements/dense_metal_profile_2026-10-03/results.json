@@ -1,0 +1,1142 @@
+{
+  "started_utc": "2026-10-03T12:32:49.620850+00:00",
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "device": "Apple M5",
+  "context": 512,
+  "kv": "f16",
+  "gpu_layers": 64,
+  "warmup_excluded": true,
+  "source_sha256": {
+    "qw3.c": "4b97fe8578df18af62738623144783ebfae0a9c328a380fdc2117a759106ae7e",
+    "qw3_metal.m": "f1774c2e721a5b15d3aa05c8e1d435e2642a59db969d05e60c735d088fc91ec2",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "Makefile": "552a3f04eb67410cf1c9c3d583ce7fd9f68967e360e91b7bfdb3cb987f38a4e2"
+  },
+  "limitations": [
+    "Decode profiling synchronizes after every stage in every layer.",
+    "Prefill profiling disables combined layer command batching and separates attention/FFN submissions.",
+    "CPU submission, waits and GPU work are mixed; stage fractions are diagnostic, not production GPU fractions.",
+    "Synthetic input tokens, no greedy or sampling throughput comparison."
+  ],
+  "jobs": {
+    "pp128": {
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "1",
+        "-t",
+        "4"
+      ],
+      "profile_environment": {
+        "QW3_METAL_DENSE_PREFILL_PROFILE": "1",
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0"
+      },
+      "profile_rows_with_warmup": 128,
+      "measured_rows": [
+        {
+          "layer": 0.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 11.719,
+          "ffn_batch_ms": 8.317,
+          "ms": 20.036,
+          "ok": 1.0
+        },
+        {
+          "layer": 1.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 11.171,
+          "ffn_batch_ms": 7.539,
+          "ms": 18.71,
+          "ok": 1.0
+        },
+        {
+          "layer": 2.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.008,
+          "ffn_batch_ms": 7.185,
+          "ms": 16.193,
+          "ok": 1.0
+        },
+        {
+          "layer": 3.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 7.37,
+          "ffn_batch_ms": 7.342,
+          "ms": 14.712,
+          "ok": 1.0
+        },
+        {
+          "layer": 4.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.78,
+          "ffn_batch_ms": 8.436,
+          "ms": 18.216,
+          "ok": 1.0
+        },
+        {
+          "layer": 5.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.189,
+          "ffn_batch_ms": 7.325,
+          "ms": 16.514,
+          "ok": 1.0
+        },
+        {
+          "layer": 6.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.791,
+          "ffn_batch_ms": 7.387,
+          "ms": 16.178,
+          "ok": 1.0
+        },
+        {
+          "layer": 7.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 7.249,
+          "ffn_batch_ms": 7.402,
+          "ms": 14.651,
+          "ok": 1.0
+        },
+        {
+          "layer": 8.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.633,
+          "ffn_batch_ms": 7.415,
+          "ms": 17.048,
+          "ok": 1.0
+        },
+        {
+          "layer": 9.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.384,
+          "ffn_batch_ms": 8.106,
+          "ms": 16.49,
+          "ok": 1.0
+        },
+        {
+          "layer": 10.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.977,
+          "ffn_batch_ms": 8.019,
+          "ms": 16.996,
+          "ok": 1.0
+        },
+        {
+          "layer": 11.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.375,
+          "ffn_batch_ms": 8.63,
+          "ms": 15.005,
+          "ok": 1.0
+        },
+        {
+          "layer": 12.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.35,
+          "ffn_batch_ms": 9.208,
+          "ms": 17.558,
+          "ok": 1.0
+        },
+        {
+          "layer": 13.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.899,
+          "ffn_batch_ms": 8.692,
+          "ms": 17.591,
+          "ok": 1.0
+        },
+        {
+          "layer": 14.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.227,
+          "ffn_batch_ms": 8.945,
+          "ms": 18.172,
+          "ok": 1.0
+        },
+        {
+          "layer": 15.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.816,
+          "ffn_batch_ms": 9.13,
+          "ms": 15.946,
+          "ok": 1.0
+        },
+        {
+          "layer": 16.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.682,
+          "ffn_batch_ms": 8.277,
+          "ms": 17.959,
+          "ok": 1.0
+        },
+        {
+          "layer": 17.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.544,
+          "ffn_batch_ms": 8.405,
+          "ms": 17.949,
+          "ok": 1.0
+        },
+        {
+          "layer": 18.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.16,
+          "ffn_batch_ms": 8.786,
+          "ms": 17.946,
+          "ok": 1.0
+        },
+        {
+          "layer": 19.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.748,
+          "ffn_batch_ms": 8.159,
+          "ms": 14.907,
+          "ok": 1.0
+        },
+        {
+          "layer": 20.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.819,
+          "ffn_batch_ms": 7.531,
+          "ms": 17.35,
+          "ok": 1.0
+        },
+        {
+          "layer": 21.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.985,
+          "ffn_batch_ms": 8.517,
+          "ms": 18.502,
+          "ok": 1.0
+        },
+        {
+          "layer": 22.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.152,
+          "ffn_batch_ms": 8.243,
+          "ms": 17.395,
+          "ok": 1.0
+        },
+        {
+          "layer": 23.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.757,
+          "ffn_batch_ms": 7.592,
+          "ms": 14.349,
+          "ok": 1.0
+        },
+        {
+          "layer": 24.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.832,
+          "ffn_batch_ms": 8.378,
+          "ms": 17.21,
+          "ok": 1.0
+        },
+        {
+          "layer": 25.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.107,
+          "ffn_batch_ms": 7.658,
+          "ms": 16.765,
+          "ok": 1.0
+        },
+        {
+          "layer": 26.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.384,
+          "ffn_batch_ms": 7.459,
+          "ms": 16.843,
+          "ok": 1.0
+        },
+        {
+          "layer": 27.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.885,
+          "ffn_batch_ms": 7.5,
+          "ms": 14.385,
+          "ok": 1.0
+        },
+        {
+          "layer": 28.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.801,
+          "ffn_batch_ms": 7.813,
+          "ms": 17.614,
+          "ok": 1.0
+        },
+        {
+          "layer": 29.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 10.247,
+          "ffn_batch_ms": 8.011,
+          "ms": 18.258,
+          "ok": 1.0
+        },
+        {
+          "layer": 30.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.819,
+          "ffn_batch_ms": 7.726,
+          "ms": 16.545,
+          "ok": 1.0
+        },
+        {
+          "layer": 31.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.593,
+          "ffn_batch_ms": 7.854,
+          "ms": 14.447,
+          "ok": 1.0
+        },
+        {
+          "layer": 32.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.521,
+          "ffn_batch_ms": 7.9,
+          "ms": 17.421,
+          "ok": 1.0
+        },
+        {
+          "layer": 33.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.235,
+          "ffn_batch_ms": 8.121,
+          "ms": 17.356,
+          "ok": 1.0
+        },
+        {
+          "layer": 34.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.058,
+          "ffn_batch_ms": 8.077,
+          "ms": 17.135,
+          "ok": 1.0
+        },
+        {
+          "layer": 35.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.986,
+          "ffn_batch_ms": 7.492,
+          "ms": 14.478,
+          "ok": 1.0
+        },
+        {
+          "layer": 36.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.507,
+          "ffn_batch_ms": 7.716,
+          "ms": 17.223,
+          "ok": 1.0
+        },
+        {
+          "layer": 37.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.671,
+          "ffn_batch_ms": 7.812,
+          "ms": 17.483,
+          "ok": 1.0
+        },
+        {
+          "layer": 38.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.083,
+          "ffn_batch_ms": 7.588,
+          "ms": 16.671,
+          "ok": 1.0
+        },
+        {
+          "layer": 39.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 7.251,
+          "ffn_batch_ms": 7.754,
+          "ms": 15.005,
+          "ok": 1.0
+        },
+        {
+          "layer": 40.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.412,
+          "ffn_batch_ms": 7.312,
+          "ms": 16.724,
+          "ok": 1.0
+        },
+        {
+          "layer": 41.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 10.845,
+          "ffn_batch_ms": 9.41,
+          "ms": 20.255,
+          "ok": 1.0
+        },
+        {
+          "layer": 42.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 12.457,
+          "ffn_batch_ms": 10.102,
+          "ms": 22.559,
+          "ok": 1.0
+        },
+        {
+          "layer": 43.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.651,
+          "ffn_batch_ms": 10.186,
+          "ms": 19.837,
+          "ok": 1.0
+        },
+        {
+          "layer": 44.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 11.077,
+          "ffn_batch_ms": 8.175,
+          "ms": 19.252,
+          "ok": 1.0
+        },
+        {
+          "layer": 45.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.394,
+          "ffn_batch_ms": 7.837,
+          "ms": 17.231,
+          "ok": 1.0
+        },
+        {
+          "layer": 46.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.395,
+          "ffn_batch_ms": 7.72,
+          "ms": 17.115,
+          "ok": 1.0
+        },
+        {
+          "layer": 47.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 7.076,
+          "ffn_batch_ms": 7.915,
+          "ms": 14.991,
+          "ok": 1.0
+        },
+        {
+          "layer": 48.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.39,
+          "ffn_batch_ms": 7.772,
+          "ms": 17.162,
+          "ok": 1.0
+        },
+        {
+          "layer": 49.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.476,
+          "ffn_batch_ms": 8.052,
+          "ms": 17.528,
+          "ok": 1.0
+        },
+        {
+          "layer": 50.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.183,
+          "ffn_batch_ms": 7.436,
+          "ms": 16.619,
+          "ok": 1.0
+        },
+        {
+          "layer": 51.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.885,
+          "ffn_batch_ms": 7.355,
+          "ms": 14.24,
+          "ok": 1.0
+        },
+        {
+          "layer": 52.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 10.138,
+          "ffn_batch_ms": 7.517,
+          "ms": 17.655,
+          "ok": 1.0
+        },
+        {
+          "layer": 53.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.599,
+          "ffn_batch_ms": 7.37,
+          "ms": 16.969,
+          "ok": 1.0
+        },
+        {
+          "layer": 54.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.758,
+          "ffn_batch_ms": 8.137,
+          "ms": 16.895,
+          "ok": 1.0
+        },
+        {
+          "layer": 55.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.138,
+          "ffn_batch_ms": 7.86,
+          "ms": 13.998,
+          "ok": 1.0
+        },
+        {
+          "layer": 56.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.985,
+          "ffn_batch_ms": 10.253,
+          "ms": 19.238,
+          "ok": 1.0
+        },
+        {
+          "layer": 57.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.073,
+          "ffn_batch_ms": 7.396,
+          "ms": 16.469,
+          "ok": 1.0
+        },
+        {
+          "layer": 58.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 9.006,
+          "ffn_batch_ms": 7.402,
+          "ms": 16.408,
+          "ok": 1.0
+        },
+        {
+          "layer": 59.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.188,
+          "ffn_batch_ms": 8.966,
+          "ms": 15.154,
+          "ok": 1.0
+        },
+        {
+          "layer": 60.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.379,
+          "ffn_batch_ms": 8.24,
+          "ms": 16.619,
+          "ok": 1.0
+        },
+        {
+          "layer": 61.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.584,
+          "ffn_batch_ms": 7.985,
+          "ms": 16.569,
+          "ok": 1.0
+        },
+        {
+          "layer": 62.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 8.916,
+          "ffn_batch_ms": 8.393,
+          "ms": 17.309,
+          "ok": 1.0
+        },
+        {
+          "layer": 63.0,
+          "tokens": 128.0,
+          "batch_ffn": 1.0,
+          "attention_ms": 6.94,
+          "ffn_batch_ms": 12.256,
+          "ms": 19.196,
+          "ok": 1.0
+        }
+      ],
+      "summary": {
+        "layer_totals_ms": {
+          "attention_ms": 566.7099999999999,
+          "ffn_batch_ms": 520.494,
+          "ms": 1087.204
+        },
+        "attention_totals_ms_by_kind": {
+          "gqa": 111.90799999999999,
+          "deltanet": 454.8019999999999
+        }
+      }
+    },
+    "tg32_d128": {
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "1",
+        "-t",
+        "4"
+      ],
+      "profile_environment": {
+        "QW3_METAL_DENSE_PROFILE": "1",
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0"
+      },
+      "profile_rows_with_warmup": 33,
+      "measured_rows": [
+        {
+          "pos": 128.0,
+          "token": 199148.0,
+          "ok": 1.0,
+          "embed": 0.139,
+          "attn_norm": 13.867,
+          "gqa": 17.599,
+          "deltanet": 44.872,
+          "ffn_norm": 14.273,
+          "ffn_gateup": 69.069,
+          "ffn_down": 41.12,
+          "logits": 7.01,
+          "total": 207.949
+        },
+        {
+          "pos": 129.0,
+          "token": 207451.0,
+          "ok": 1.0,
+          "embed": 0.155,
+          "attn_norm": 14.252,
+          "gqa": 17.527,
+          "deltanet": 45.086,
+          "ffn_norm": 13.639,
+          "ffn_gateup": 63.852,
+          "ffn_down": 40.154,
+          "logits": 8.547,
+          "total": 203.212
+        },
+        {
+          "pos": 130.0,
+          "token": 8702.0,
+          "ok": 1.0,
+          "embed": 0.188,
+          "attn_norm": 13.54,
+          "gqa": 16.496,
+          "deltanet": 42.811,
+          "ffn_norm": 13.69,
+          "ffn_gateup": 61.88,
+          "ffn_down": 39.813,
+          "logits": 7.99,
+          "total": 196.408
+        },
+        {
+          "pos": 131.0,
+          "token": 186693.0,
+          "ok": 1.0,
+          "embed": 0.165,
+          "attn_norm": 14.025,
+          "gqa": 17.52,
+          "deltanet": 42.106,
+          "ffn_norm": 13.494,
+          "ffn_gateup": 59.553,
+          "ffn_down": 36.529,
+          "logits": 7.381,
+          "total": 190.773
+        },
+        {
+          "pos": 132.0,
+          "token": 71136.0,
+          "ok": 1.0,
+          "embed": 0.221,
+          "attn_norm": 13.751,
+          "gqa": 15.534,
+          "deltanet": 39.434,
+          "ffn_norm": 13.354,
+          "ffn_gateup": 60.557,
+          "ffn_down": 37.916,
+          "logits": 6.888,
+          "total": 187.655
+        },
+        {
+          "pos": 133.0,
+          "token": 136639.0,
+          "ok": 1.0,
+          "embed": 0.15,
+          "attn_norm": 14.061,
+          "gqa": 15.808,
+          "deltanet": 40.124,
+          "ffn_norm": 13.853,
+          "ffn_gateup": 60.84,
+          "ffn_down": 35.864,
+          "logits": 8.071,
+          "total": 188.771
+        },
+        {
+          "pos": 134.0,
+          "token": 199186.0,
+          "ok": 1.0,
+          "embed": 0.179,
+          "attn_norm": 14.098,
+          "gqa": 15.231,
+          "deltanet": 39.287,
+          "ffn_norm": 12.531,
+          "ffn_gateup": 59.809,
+          "ffn_down": 35.272,
+          "logits": 8.247,
+          "total": 184.654
+        },
+        {
+          "pos": 135.0,
+          "token": 9289.0,
+          "ok": 1.0,
+          "embed": 0.178,
+          "attn_norm": 13.047,
+          "gqa": 15.111,
+          "deltanet": 39.085,
+          "ffn_norm": 12.823,
+          "ffn_gateup": 58.713,
+          "ffn_down": 35.329,
+          "logits": 7.764,
+          "total": 182.05
+        },
+        {
+          "pos": 136.0,
+          "token": 88340.0,
+          "ok": 1.0,
+          "embed": 0.154,
+          "attn_norm": 12.893,
+          "gqa": 15.525,
+          "deltanet": 40.337,
+          "ffn_norm": 12.162,
+          "ffn_gateup": 57.22,
+          "ffn_down": 35.04,
+          "logits": 6.96,
+          "total": 180.291
+        },
+        {
+          "pos": 137.0,
+          "token": 35683.0,
+          "ok": 1.0,
+          "embed": 0.17,
+          "attn_norm": 13.31,
+          "gqa": 15.089,
+          "deltanet": 39.5,
+          "ffn_norm": 12.705,
+          "ffn_gateup": 57.191,
+          "ffn_down": 35.513,
+          "logits": 6.983,
+          "total": 180.461
+        },
+        {
+          "pos": 138.0,
+          "token": 50022.0,
+          "ok": 1.0,
+          "embed": 0.141,
+          "attn_norm": 12.949,
+          "gqa": 14.825,
+          "deltanet": 41.22,
+          "ffn_norm": 12.767,
+          "ffn_gateup": 57.773,
+          "ffn_down": 35.617,
+          "logits": 6.954,
+          "total": 182.246
+        },
+        {
+          "pos": 139.0,
+          "token": 209805.0,
+          "ok": 1.0,
+          "embed": 0.147,
+          "attn_norm": 13.67,
+          "gqa": 15.059,
+          "deltanet": 40.609,
+          "ffn_norm": 12.739,
+          "ffn_gateup": 59.169,
+          "ffn_down": 36.082,
+          "logits": 7.009,
+          "total": 184.484
+        },
+        {
+          "pos": 140.0,
+          "token": 132488.0,
+          "ok": 1.0,
+          "embed": 0.173,
+          "attn_norm": 13.35,
+          "gqa": 15.169,
+          "deltanet": 39.263,
+          "ffn_norm": 12.461,
+          "ffn_gateup": 59.487,
+          "ffn_down": 35.63,
+          "logits": 6.966,
+          "total": 182.499
+        },
+        {
+          "pos": 141.0,
+          "token": 86855.0,
+          "ok": 1.0,
+          "embed": 0.148,
+          "attn_norm": 13.639,
+          "gqa": 14.832,
+          "deltanet": 41.058,
+          "ffn_norm": 13.188,
+          "ffn_gateup": 57.874,
+          "ffn_down": 36.627,
+          "logits": 7.012,
+          "total": 184.378
+        },
+        {
+          "pos": 142.0,
+          "token": 200698.0,
+          "ok": 1.0,
+          "embed": 0.145,
+          "attn_norm": 14.201,
+          "gqa": 15.775,
+          "deltanet": 39.907,
+          "ffn_norm": 13.084,
+          "ffn_gateup": 59.311,
+          "ffn_down": 36.655,
+          "logits": 8.227,
+          "total": 187.305
+        },
+        {
+          "pos": 143.0,
+          "token": 60177.0,
+          "ok": 1.0,
+          "embed": 0.152,
+          "attn_norm": 13.857,
+          "gqa": 15.352,
+          "deltanet": 40.424,
+          "ffn_norm": 12.655,
+          "ffn_gateup": 60.593,
+          "ffn_down": 36.998,
+          "logits": 8.004,
+          "total": 188.035
+        },
+        {
+          "pos": 144.0,
+          "token": 221500.0,
+          "ok": 1.0,
+          "embed": 0.182,
+          "attn_norm": 13.916,
+          "gqa": 17.833,
+          "deltanet": 42.306,
+          "ffn_norm": 14.219,
+          "ffn_gateup": 61.829,
+          "ffn_down": 38.337,
+          "logits": 7.808,
+          "total": 196.43
+        },
+        {
+          "pos": 145.0,
+          "token": 25451.0,
+          "ok": 1.0,
+          "embed": 0.198,
+          "attn_norm": 14.048,
+          "gqa": 17.05,
+          "deltanet": 42.446,
+          "ffn_norm": 13.756,
+          "ffn_gateup": 60.485,
+          "ffn_down": 38.77,
+          "logits": 6.951,
+          "total": 193.704
+        },
+        {
+          "pos": 146.0,
+          "token": 53198.0,
+          "ok": 1.0,
+          "embed": 0.149,
+          "attn_norm": 13.552,
+          "gqa": 15.07,
+          "deltanet": 40.367,
+          "ffn_norm": 12.83,
+          "ffn_gateup": 58.052,
+          "ffn_down": 36.105,
+          "logits": 6.937,
+          "total": 183.062
+        },
+        {
+          "pos": 147.0,
+          "token": 9941.0,
+          "ok": 1.0,
+          "embed": 0.147,
+          "attn_norm": 13.865,
+          "gqa": 15.073,
+          "deltanet": 40.029,
+          "ffn_norm": 12.87,
+          "ffn_gateup": 58.773,
+          "ffn_down": 35.372,
+          "logits": 7.682,
+          "total": 183.811
+        },
+        {
+          "pos": 148.0,
+          "token": 138800.0,
+          "ok": 1.0,
+          "embed": 0.155,
+          "attn_norm": 13.79,
+          "gqa": 15.278,
+          "deltanet": 41.376,
+          "ffn_norm": 13.374,
+          "ffn_gateup": 58.383,
+          "ffn_down": 35.119,
+          "logits": 7.057,
+          "total": 184.532
+        },
+        {
+          "pos": 149.0,
+          "token": 169423.0,
+          "ok": 1.0,
+          "embed": 0.152,
+          "attn_norm": 13.844,
+          "gqa": 15.217,
+          "deltanet": 39.826,
+          "ffn_norm": 13.222,
+          "ffn_gateup": 59.199,
+          "ffn_down": 36.172,
+          "logits": 7.721,
+          "total": 185.353
+        },
+        {
+          "pos": 150.0,
+          "token": 215778.0,
+          "ok": 1.0,
+          "embed": 0.164,
+          "attn_norm": 14.138,
+          "gqa": 16.435,
+          "deltanet": 42.001,
+          "ffn_norm": 12.749,
+          "ffn_gateup": 58.452,
+          "ffn_down": 36.062,
+          "logits": 7.253,
+          "total": 187.254
+        },
+        {
+          "pos": 151.0,
+          "token": 83673.0,
+          "ok": 1.0,
+          "embed": 0.169,
+          "attn_norm": 13.88,
+          "gqa": 18.312,
+          "deltanet": 47.301,
+          "ffn_norm": 14.639,
+          "ffn_gateup": 68.321,
+          "ffn_down": 41.702,
+          "logits": 8.435,
+          "total": 212.759
+        },
+        {
+          "pos": 152.0,
+          "token": 173156.0,
+          "ok": 1.0,
+          "embed": 0.153,
+          "attn_norm": 14.144,
+          "gqa": 18.527,
+          "deltanet": 45.885,
+          "ffn_norm": 15.131,
+          "ffn_gateup": 66.514,
+          "ffn_down": 40.972,
+          "logits": 6.942,
+          "total": 208.268
+        },
+        {
+          "pos": 153.0,
+          "token": 235123.0,
+          "ok": 1.0,
+          "embed": 0.167,
+          "attn_norm": 13.523,
+          "gqa": 18.423,
+          "deltanet": 43.395,
+          "ffn_norm": 14.196,
+          "ffn_gateup": 65.618,
+          "ffn_down": 41.486,
+          "logits": 7.392,
+          "total": 204.2
+        },
+        {
+          "pos": 154.0,
+          "token": 185142.0,
+          "ok": 1.0,
+          "embed": 0.252,
+          "attn_norm": 14.396,
+          "gqa": 18.651,
+          "deltanet": 43.951,
+          "ffn_norm": 14.277,
+          "ffn_gateup": 62.928,
+          "ffn_down": 39.84,
+          "logits": 8.3,
+          "total": 202.595
+        },
+        {
+          "pos": 155.0,
+          "token": 9501.0,
+          "ok": 1.0,
+          "embed": 0.149,
+          "attn_norm": 13.055,
+          "gqa": 17.198,
+          "deltanet": 44.118,
+          "ffn_norm": 13.552,
+          "ffn_gateup": 61.758,
+          "ffn_down": 36.327,
+          "logits": 7.066,
+          "total": 193.223
+        },
+        {
+          "pos": 156.0,
+          "token": 26584.0,
+          "ok": 1.0,
+          "embed": 0.16,
+          "attn_norm": 13.654,
+          "gqa": 17.474,
+          "deltanet": 43.202,
+          "ffn_norm": 12.965,
+          "ffn_gateup": 60.695,
+          "ffn_down": 39.118,
+          "logits": 7.056,
+          "total": 194.324
+        },
+        {
+          "pos": 157.0,
+          "token": 41815.0,
+          "ok": 1.0,
+          "embed": 0.135,
+          "attn_norm": 13.522,
+          "gqa": 15.932,
+          "deltanet": 38.662,
+          "ffn_norm": 12.26,
+          "ffn_gateup": 57.423,
+          "ffn_down": 36.046,
+          "logits": 7.11,
+          "total": 181.09
+        },
+        {
+          "pos": 158.0,
+          "token": 121546.0,
+          "ok": 1.0,
+          "embed": 0.161,
+          "attn_norm": 12.939,
+          "gqa": 15.744,
+          "deltanet": 39.442,
+          "ffn_norm": 12.976,
+          "ffn_gateup": 60.325,
+          "ffn_down": 35.246,
+          "logits": 6.933,
+          "total": 183.766
+        },
+        {
+          "pos": 159.0,
+          "token": 126881.0,
+          "ok": 1.0,
+          "embed": 0.145,
+          "attn_norm": 13.066,
+          "gqa": 15.469,
+          "deltanet": 40.327,
+          "ffn_norm": 13.336,
+          "ffn_gateup": 59.845,
+          "ffn_down": 37.434,
+          "logits": 6.883,
+          "total": 186.505
+        }
+      ],
+      "summary": {
+        "mean_ms_per_forward": {
+          "embed": 0.16384375,
+          "attn_norm": 13.6825625,
+          "gqa": 16.2543125,
+          "deltanet": 41.55490625,
+          "ffn_norm": 13.3053125,
+          "ffn_gateup": 60.67159375,
+          "ffn_down": 37.32084375,
+          "logits": 7.4230937500000005,
+          "total": 190.37646875000002
+        },
+        "min_max_total_ms": [
+          180.291,
+          212.759
+        ]
+      }
+    }
+  },
+  "completed_utc": "2026-10-03T12:33:01.204737+00:00"
+}

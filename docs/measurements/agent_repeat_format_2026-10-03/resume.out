@@ -1,0 +1,12 @@
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf backend=Metal ctx=8192 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 223.8 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.00 s
+agent: switched to repeat-format (1874 tokens, KV resumed)
+SESSION_FORMAT_OK
+agent: saved repeat-format (1903 tokens, KV ready)

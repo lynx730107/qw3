@@ -1,0 +1,109 @@
+<|im_start|>system
+# Tools
+
+You have access to the following functions:
+
+<tools>
+{"type":"function","function":{"name":"read","description":"Read a precise numbered line range from a text file. Broad source-file reads are blocked.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Path to read"},"start":{"type":"string","description":"Required first 1-based line for source files"},"lines":{"type":"string","description":"Maximum lines to return; source files are capped by context guard"}}}}}
+{"type":"function","function":{"name":"more","description":"Continue the previous read.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Optional path"},"lines":{"type":"string","description":"Maximum lines to return; default 160"}}}}}
+{"type":"function","function":{"name":"list","description":"List files below a path.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Directory path"},"depth":{"type":"string","description":"Maximum recursion depth"},"max":{"type":"string","description":"Maximum entries"}}}}}
+{"type":"function","function":{"name":"get_skeleton","description":"Return a compact codenav semantic outline of a source file. Use this before any line reads on source files.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Source file path"}}}}}
+{"type":"function","function":{"name":"get_function","description":"Return the exact source for one function or method using codenav. Prefer this over read after get_skeleton or semantic_search.","parameters":{"type":"object","properties":{"function_name":{"type":"string","description":"Exact function/method name"},"path":{"type":"string","description":"Optional source file path"}}}}}
+{"type":"function","function":{"name":"semantic_search","description":"Search code by meaning with colgrep. Use this before broad read/search when you do not know exact names.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Natural-language code search query"},"path":{"type":"string","description":"Optional file or directory path; default current directory"},"results":{"type":"string","description":"Maximum results, 1-50; default 10"},"include":{"type":"string","description":"Optional include glob, for example *.c"},"exclude":{"type":"string","description":"Optional exclude glob"},"code_only":{"type":"string","description":"true/false; default true"},"semantic_only":{"type":"string","description":"true/false; default false"},"content":{"type":"string","description":"true/false; default false"}}}}}
+{"type":"function","function":{"name":"search_web","description":"Search the web with DuckDuckGo and return up to five results with title, URL, and snippet.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Web search query"}}}}}
+{"type":"function","function":{"name":"visit_url","description":"Fetch a URL and return up to 8000 characters of readable text with HTML tags removed.","parameters":{"type":"object","properties":{"url":{"type":"string","description":"URL to fetch"}}}}}
+{"type":"function","function":{"name":"search","description":"Search text files for a literal pattern.","parameters":{"type":"object","properties":{"pattern":{"type":"string","description":"Literal pattern"},"path":{"type":"string","description":"Root path"},"max":{"type":"string","description":"Maximum matches"}}}}}
+{"type":"function","function":{"name":"write","description":"Create or overwrite a text file.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Path to write"},"content":{"type":"string","description":"File content"}}}}}
+{"type":"function","function":{"name":"edit","description":"Edit a text file without shell scripts. Default mode replaces the first exact old text. Modes: replace, replace_all, insert_before, insert_after, append, prepend.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Path to edit"},"old":{"type":"string","description":"Old exact text for replace modes; also accepted as anchor for insert modes"},"anchor":{"type":"string","description":"Exact anchor text for insert_before/insert_after"},"new":{"type":"string","description":"Replacement or inserted text"},"mode":{"type":"string","description":"replace, replace_all, insert_before, insert_after, append, or prepend"}}}}}
+{"type":"function","function":{"name":"bash","description":"Run a time-bounded shell command with combined stdout/stderr. Large results retain their head and tail and provide a path to the complete output.","parameters":{"type":"object","properties":{"cmd":{"type":"string","description":"Shell command"}}}}}
+</tools>
+
+If you choose to call a function ONLY reply in the following format with NO suffix:
+
+<tool_call>
+<function=example_function_name>
+<parameter=example_parameter_1>
+value_1
+</parameter>
+<parameter=example_parameter_2>
+This is the value for the second parameter
+that can span
+multiple lines
+</parameter>
+</function>
+</tool_call>
+
+<IMPORTANT>
+Reminder:
+- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags
+- Required parameters MUST be specified
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls
+- When a task requires current, external, or project information, call the appropriate function; do not merely say that you will use it
+</IMPORTANT>
+
+Context discipline:
+- Do not use read(path) to inspect source files broadly; broad source reads are rejected by the context guard.
+- Do not walk source files with repeated read chunks; each turn has a small per-source read budget.
+- Use get_skeleton before any source line reads when inspecting file structure.
+- Prefer get_function when you need one function or method body.
+- Prefer semantic_search when you know the intent but not the exact symbol name.
+- Use read only for small non-source files or precise source line ranges with explicit start and lines.
+- After write or edit succeeds, run the narrowest relevant build, test, syntax check, or git diff --check with bash before giving the final answer. A read-back alone is not verification.
+
+Current local date: Saturday 2026-10-03 CEST. For date questions, use the weekday and date from this line exactly; do not recompute the weekday from memory. Use the bash/date tool when exact seconds are needed.
+You are qw3-agent, a local coding assistant. Work in the current project, be concise, and be careful with file changes.<|im_end|>
+<|im_start|>user
+Analizza il progetto nella cartella corrente. Prima usa read per leggere README.md. Nella risposta finale riporta esattamente il diagramma e il separatore contenuti nel README, poi scrivi AGENT_DIAGRAM_OK. Non modificare file e non chiamare altri tool.<|im_end|>
+<|im_start|>user
+Internal qw3-agent control: your previous output contained malformed or incomplete tool markup and was not shown. Retry the tool call using the complete native XML format, including all closing tags.<|im_end|>
+<|im_start|>user
+Internal qw3-agent control: your previous output contained malformed or incomplete tool markup and was not shown. Retry the tool call using the complete native XML format, including all closing tags.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+<read>
+<parameter=path>
+README.md
+</parameter>
+</function><|im_end|>
+<|im_start|>user
+<tool_response>
+read path=README.md start=1 lines=512
+    1  # Progetto di prova
+    2  Core coordina i tool e genera la risposta.
+    3  
+    4  Diagramma da riportare nella risposta:
+    5  ┌────────────────────────────────────────────────────────────────────────────────┐
+    6  │ Core -> Tools -> Risposta │
+    7  └────────────────────────────────────────────────────────────────────────────────┘
+    8  
+    9  Separatore da riportare nella risposta:
+   10  ========================================================================================================================
+</tool_response><|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+## Analisi del progetto
+
+Il progetto è un semplice **progetto di prova** con un unico file `README.md` che descrive l'architettura di base.
+
+### Contenuto del README
+
+**Diagramma:**
+```
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Core -> Tools -> Risposta │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Separatore:**
+```
+========================================================================================================================
+```
+
+AGENT_DIAGRAM_OK<|im_end|>

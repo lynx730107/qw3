@@ -1,0 +1,20 @@
+qw3: loaded ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.006s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+private candidate ffn_sg8=0 gdn_gates=0
+quant_exact kind=pair n=256 m=1 guards=1
+quant_exact kind=add n=256 m=1 guards=1
+quant_exact kind=pair n=4352 m=33 guards=1
+quant_exact kind=add n=4352 m=33 guards=1
+quant_exact kind=pair n=5120 m=4097 guards=1
+quant_exact kind=add n=5120 m=4097 guards=1
+quant_exact kind=pair n=5120 m=4111 guards=1
+quant_exact kind=add n=5120 m=4111 guards=1
+quant_exact kind=pair n=5120 m=17408 guards=1
+quant_exact kind=add n=5120 m=17408 guards=1
+quant_exact kind=pair n=17408 m=5120 guards=1
+quant_exact kind=add n=17408 m=5120 guards=1
+full_exact mode=ffn prefix=128 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+PASS mode=ffn pair_calls=454 add_calls=1030 gdn_calls=0

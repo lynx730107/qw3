@@ -207,7 +207,7 @@ boundaries with non-constant K/V input. See
 [the dated measurement record](docs/dense_metal_perf_2026-09-30.md) for A/B
 results, current llama.cpp comparisons, and rejected experiments.
 FP32 activations/accumulators and the existing numerical test thresholds are
-retained. This does not enable the model's optional NextN/MTP block.
+retained. Inference uses the model's 64-layer trunk; extra GGUF blocks are ignored.
 
 A further decode pass splits IQ3_XXS and IQ2_XXS/XS/S quant blocks into
 32-value lane units, uses vector dot products, and reuses activations across
@@ -281,46 +281,31 @@ could pass position-zero and greedy-ID checks while drifting from llama.cpp
 in the full logit vector at later positions. `make test-rope test-rope-metal`
 checks nonzero positions without a model; `make test-dense-metal-logits`
 compares multi-token prefixes against sequential llama.cpp evaluation with
-matching KV precision. See [the correction and MTP probe](docs/mtp_probe_2026-10-01.md).
+matching KV precision. See [the text IMRoPE correction](docs/text_imrope_2026-10-01.md).
 
-`make test-mtp-reference` builds an optional, separate native Metal MTP probe
-against the local `LLAMA_CPP` build. It measures teacher-forced greedy
-agreement and checks every logit against llama.cpp MTP; it does **not** enable
-speculation in the agent or measure a generation speedup.
+MTP was removed from qw3 after the local comparison showed no compelling
+benefit. The existing Qwen3.8 GGUF remains supported: only its 64 trunk
+layers are bound and executed. The historical
+[llama.cpp benchmark](docs/llama_mtp_benchmark_2026-10-03.md) and its raw
+measurements are retained; `tools/bench_llama_mtp.py` measures the external
+llama.cpp server only.
 
-`make test-mtp-decode` exercises an optional correctness-first MTP decoder:
-autonomous draft chains, every verification hidden/logit row, GPU snapshots,
-rejection/replay and ordinary-decode continuation. It checks code, arithmetic,
-story and injected first/middle/last proposal failures. Its default serial
-verifier is slower than normal decode. The experimental `batch` verifier
-currently fails a strict intermediate-row comparison; neither path is enabled
-in CLI/agent. See [the MTP decoder status](docs/mtp_decode_2026-10-02.md).
+The local [DFlash2 evaluation](docs/dflash2_evaluation_2026-10-03.md) found
+a promising short code result with one proposal, but no stable benefit
+across the tested workloads. It remains an external measurement tool;
+qw3 has no `--dflash` option. The subsequent
+[ordinary Metal cost profile](docs/dense_metal_profile_2026-10-03.md)
+points to FFN projections and DeltaNet prefill for further optimization.
 
-`make test-mtp-compact-replay` tests the experimental `serial-replay` verifier:
-rejections replay only logged convolution/DeltaNet inputs, restore accepted
-KV/tails and reuse saved output rows instead of rerunning the full target.
-The ordinary scalar kernels are retained and the test requires byte-identical
-state, logits, tokens and continuation. This is not yet fast batched MTP or
-an agent option. See [compact rollback scope and measurements](docs/mtp_compact_replay_2026-10-02.md).
-
-The separate experimental `batch-f32` verifier retains FP32 short IQ3_S/IQ4_XS
-projections and scalar-ordered DeltaNet reductions. `make test-mtp-f32` checks
-every hidden/logit row; `make test-mtp-short-f32-quant` checks 84 kernel/guard
-cases against scalar GPU and independent llama.cpp CPU dequantization.
-This is not enabled in CLI/agent or combined with compact rollback. See
-[precision checks and measured scope](docs/mtp_f32_verifier_2026-10-02.md).
-
-`make test-mtp-head-quant` checks an optional FP32 Q5_K head that shares
-weights across four token rows; `make test-mtp-batch-head` runs the complete
-MTP regression with it. `qw3-mtp-head-bench` alternates serial/shared heads
-with the same precise backbone and checks every output row. The head-only
-gain is much larger than the small/noisy full-verifier difference. This
-remains opt-in (`QW3_MTP_BATCH_HEAD=1`), not an agent speedup. See
-[shared-head measurements and limitations](docs/mtp_shared_head_2026-10-03.md).
+The subsequent [ordinary optimization trials](docs/ordinary_optimization_2026-10-03.md)
+established stable pp128/tg32 controls and tested wider IQ4_XS FFN workgroups
+and precomputed DeltaNet prefill gates. Both passed exact private correctness
+checks, but neither met the 5% end-to-end improvement gate. Both remain
+optional diagnostic prototypes; normal inference dispatch is unchanged.
 
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
-LM-head geometry and short-block backbone cost. They do not enable MTP in
-the CLI or agent; the block probe computes **only the last logit row**.
+LM-head geometry and short-block backbone cost. The block probe computes
+**only the last logit row**.
 See [the measured limitations](docs/decode_block_cost_2026-10-01.md).
 
 On the base M5, large IQ3_XXS/IQ2_S projections now use FP32 vector kernels
@@ -392,6 +377,89 @@ before sequential file reads.
 For performance or tool-loop diagnostics, `--trace PATH` appends private JSONL
 events with prefill/decode timing, cache reuse, tool-result sizes, and context
 compaction decisions. The regular terminal output is unchanged.
+
+Repetition guards allow bounded decorative runs of Unicode punctuation,
+symbols, spacing and combining marks, including diagram borders. The allowance
+is shared by the token and text guards and is limited to 256 code points per
+line and 1024 per contiguous non-word run. Repeated words, numbers and prose
+retain their existing stop thresholds; excessively long decorative loops also
+stop. `make test-agent-repeat` checks these boundaries without loading a model.
+`make test-agent-repeat-format` checks a real 35B tool continuation and saved
+session with `--no-prefix-cache` (override the GGUF with `QW3_MODEL`). See the
+[regression report](docs/agent_repeat_format_2026-10-03.md).
+
+The interactive footer uses a charcoal background with sage for ready, lavender
+for generation, sky blue for prefill and amber for tools or queued prompts. The
+compact `qw3 ›` prompt uses the same accents. Empty queue and disabled thinking
+labels are omitted to leave room for context and throughput. Set `NO_COLOR=1`
+to use the plain presentation.
+An [illustrated footer preview](docs/agent_tui_preview_2026-10-03.png) shows the
+four activity states using status strings emitted by the agent formatter.
+
+### Optional dense expert
+
+Configure a second model to let the MoE delegate a difficult task:
+
+```sh
+./qw3-agent --metal -m /path/to/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
+  --expert-model /path/to/Qwen3.8-27B-UD-Q3_K_XL.gguf \
+  --expert-mode manual
+```
+
+Inside the agent, `/expert run TASK` forces one dense assignment. For example:
+
+```text
+/expert run Find the functional bug in module.c; give a concrete counterexample and verify the proposed fix.
+/expert status
+/expert mode auto
+/expert mode manual
+/expert mode off
+```
+
+`manual` accepts explicit `/expert run` requests; `auto` also exposes
+`delegate_dense` to the MoE. Routine exploration stays with the MoE, and there
+can be at most one delegation per user turn. `off` rejects both kinds of
+delegation. Without `--expert-model`, the ordinary agent path is used.
+
+The supervisor saves and closes the MoE process, waits for its exit, starts
+the dense expert, and then restores the MoE's own session to finish the same
+turn. The models never share token IDs, KV, DeltaNet state or a Metal engine.
+Both models retain the existing tools and verification guards. This alternation
+reduces simultaneous memory use; it does not make dense inference faster.
+
+Expert defaults are `--expert-ctx 8192`, `--expert-think on`,
+`--expert-kv f16`, full offload, `--expert-timeout 1200`,
+`--expert-max-tokens 8192` and `--expert-max-tool-rounds 12`. The token budget
+includes reasoning and compaction; the timeout includes loading and tools.
+`--expert-think high|on|none` and the other flags are configurable. For a review
+requiring several large functions at once, a larger expert context may avoid
+expensive compaction. The initial packet is measured with the dense tokenizer
+and limited to 4096 tokens including instructions. Supplemental evidence can
+be abbreviated with its complete file path retained; an oversized original
+request is rejected explicitly.
+
+`--read-only` enforces local reading/navigation only in both models, including
+the executor: writes, edits, shell commands, semantic indexing and network tools
+are rejected. It is useful for diagnosis on an existing project.
+
+Hybrid sessions live under `STORE/hybrid/moe-MODEL_PROFILE`; each assignment
+has its own `job-*` directory, request, tool journal and result. Mutating tools
+are journaled before execution. Ctrl+C, a deadline, or expert failure restores
+the MoE with the edits retained and verification still pending when appropriate.
+A supervisor restart recovers the recorded result or interruption without
+automatically rerunning saved tools. Recorded interrupted shell commands are
+blocked on recovery; `/new` explicitly starts a fresh conversation. Recovery
+does not undo edits or certify checks that were interrupted.
+
+`--trace PATH` distinguishes model starts/exits, delegation, prefill, generation,
+checkpoints and return. The TUI shows the active model and expert time/token
+budgets. `make test-agent-hybrid` runs model-free IPC/state/guard checks;
+`python3 tests/test_agent_hybrid.py --output /tmp/hybrid-safety` runs sequential
+real-model recovery fixtures. The frozen eight-task evaluation is available as
+`python3 tools/bench_hybrid_agent.py --output /tmp/hybrid-pilot`; it records
+separate prefill/generation timings, total wall time, RSS, physical footprint
+and machine-wide swap. A quality advantage requires evidence from that pilot;
+successful handoff alone does not establish it.
 
 Useful interactive commands:
 

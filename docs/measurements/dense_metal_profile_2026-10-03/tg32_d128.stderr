@@ -1,0 +1,39 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.043s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-bench: context buffers 182.93 MiB (ctx=512, backend=Metal, gqa_kv=32.00 MiB, deltanet=144.00 MiB, scratch=6.93 MiB)
+qw3 dense profile pos=128 token=199148 ok=1 embed=0.181 attn_norm=13.289 gqa=14.523 deltanet=39.662 ffn_norm=14.030 ffn_gateup=58.563 ffn_down=36.694 logits=7.609 total=184.551 ms
+qw3 dense profile pos=128 token=199148 ok=1 embed=0.139 attn_norm=13.867 gqa=17.599 deltanet=44.872 ffn_norm=14.273 ffn_gateup=69.069 ffn_down=41.120 logits=7.010 total=207.949 ms
+qw3 dense profile pos=129 token=207451 ok=1 embed=0.155 attn_norm=14.252 gqa=17.527 deltanet=45.086 ffn_norm=13.639 ffn_gateup=63.852 ffn_down=40.154 logits=8.547 total=203.212 ms
+qw3 dense profile pos=130 token=8702 ok=1 embed=0.188 attn_norm=13.540 gqa=16.496 deltanet=42.811 ffn_norm=13.690 ffn_gateup=61.880 ffn_down=39.813 logits=7.990 total=196.408 ms
+qw3 dense profile pos=131 token=186693 ok=1 embed=0.165 attn_norm=14.025 gqa=17.520 deltanet=42.106 ffn_norm=13.494 ffn_gateup=59.553 ffn_down=36.529 logits=7.381 total=190.773 ms
+qw3 dense profile pos=132 token=71136 ok=1 embed=0.221 attn_norm=13.751 gqa=15.534 deltanet=39.434 ffn_norm=13.354 ffn_gateup=60.557 ffn_down=37.916 logits=6.888 total=187.655 ms
+qw3 dense profile pos=133 token=136639 ok=1 embed=0.150 attn_norm=14.061 gqa=15.808 deltanet=40.124 ffn_norm=13.853 ffn_gateup=60.840 ffn_down=35.864 logits=8.071 total=188.771 ms
+qw3 dense profile pos=134 token=199186 ok=1 embed=0.179 attn_norm=14.098 gqa=15.231 deltanet=39.287 ffn_norm=12.531 ffn_gateup=59.809 ffn_down=35.272 logits=8.247 total=184.654 ms
+qw3 dense profile pos=135 token=9289 ok=1 embed=0.178 attn_norm=13.047 gqa=15.111 deltanet=39.085 ffn_norm=12.823 ffn_gateup=58.713 ffn_down=35.329 logits=7.764 total=182.050 ms
+qw3 dense profile pos=136 token=88340 ok=1 embed=0.154 attn_norm=12.893 gqa=15.525 deltanet=40.337 ffn_norm=12.162 ffn_gateup=57.220 ffn_down=35.040 logits=6.960 total=180.291 ms
+qw3 dense profile pos=137 token=35683 ok=1 embed=0.170 attn_norm=13.310 gqa=15.089 deltanet=39.500 ffn_norm=12.705 ffn_gateup=57.191 ffn_down=35.513 logits=6.983 total=180.461 ms
+qw3 dense profile pos=138 token=50022 ok=1 embed=0.141 attn_norm=12.949 gqa=14.825 deltanet=41.220 ffn_norm=12.767 ffn_gateup=57.773 ffn_down=35.617 logits=6.954 total=182.246 ms
+qw3 dense profile pos=139 token=209805 ok=1 embed=0.147 attn_norm=13.670 gqa=15.059 deltanet=40.609 ffn_norm=12.739 ffn_gateup=59.169 ffn_down=36.082 logits=7.009 total=184.484 ms
+qw3 dense profile pos=140 token=132488 ok=1 embed=0.173 attn_norm=13.350 gqa=15.169 deltanet=39.263 ffn_norm=12.461 ffn_gateup=59.487 ffn_down=35.630 logits=6.966 total=182.499 ms
+qw3 dense profile pos=141 token=86855 ok=1 embed=0.148 attn_norm=13.639 gqa=14.832 deltanet=41.058 ffn_norm=13.188 ffn_gateup=57.874 ffn_down=36.627 logits=7.012 total=184.378 ms
+qw3 dense profile pos=142 token=200698 ok=1 embed=0.145 attn_norm=14.201 gqa=15.775 deltanet=39.907 ffn_norm=13.084 ffn_gateup=59.311 ffn_down=36.655 logits=8.227 total=187.305 ms
+qw3 dense profile pos=143 token=60177 ok=1 embed=0.152 attn_norm=13.857 gqa=15.352 deltanet=40.424 ffn_norm=12.655 ffn_gateup=60.593 ffn_down=36.998 logits=8.004 total=188.035 ms
+qw3 dense profile pos=144 token=221500 ok=1 embed=0.182 attn_norm=13.916 gqa=17.833 deltanet=42.306 ffn_norm=14.219 ffn_gateup=61.829 ffn_down=38.337 logits=7.808 total=196.430 ms
+qw3 dense profile pos=145 token=25451 ok=1 embed=0.198 attn_norm=14.048 gqa=17.050 deltanet=42.446 ffn_norm=13.756 ffn_gateup=60.485 ffn_down=38.770 logits=6.951 total=193.704 ms
+qw3 dense profile pos=146 token=53198 ok=1 embed=0.149 attn_norm=13.552 gqa=15.070 deltanet=40.367 ffn_norm=12.830 ffn_gateup=58.052 ffn_down=36.105 logits=6.937 total=183.062 ms
+qw3 dense profile pos=147 token=9941 ok=1 embed=0.147 attn_norm=13.865 gqa=15.073 deltanet=40.029 ffn_norm=12.870 ffn_gateup=58.773 ffn_down=35.372 logits=7.682 total=183.811 ms
+qw3 dense profile pos=148 token=138800 ok=1 embed=0.155 attn_norm=13.790 gqa=15.278 deltanet=41.376 ffn_norm=13.374 ffn_gateup=58.383 ffn_down=35.119 logits=7.057 total=184.532 ms
+qw3 dense profile pos=149 token=169423 ok=1 embed=0.152 attn_norm=13.844 gqa=15.217 deltanet=39.826 ffn_norm=13.222 ffn_gateup=59.199 ffn_down=36.172 logits=7.721 total=185.353 ms
+qw3 dense profile pos=150 token=215778 ok=1 embed=0.164 attn_norm=14.138 gqa=16.435 deltanet=42.001 ffn_norm=12.749 ffn_gateup=58.452 ffn_down=36.062 logits=7.253 total=187.254 ms
+qw3 dense profile pos=151 token=83673 ok=1 embed=0.169 attn_norm=13.880 gqa=18.312 deltanet=47.301 ffn_norm=14.639 ffn_gateup=68.321 ffn_down=41.702 logits=8.435 total=212.759 ms
+qw3 dense profile pos=152 token=173156 ok=1 embed=0.153 attn_norm=14.144 gqa=18.527 deltanet=45.885 ffn_norm=15.131 ffn_gateup=66.514 ffn_down=40.972 logits=6.942 total=208.268 ms
+qw3 dense profile pos=153 token=235123 ok=1 embed=0.167 attn_norm=13.523 gqa=18.423 deltanet=43.395 ffn_norm=14.196 ffn_gateup=65.618 ffn_down=41.486 logits=7.392 total=204.200 ms
+qw3 dense profile pos=154 token=185142 ok=1 embed=0.252 attn_norm=14.396 gqa=18.651 deltanet=43.951 ffn_norm=14.277 ffn_gateup=62.928 ffn_down=39.840 logits=8.300 total=202.595 ms
+qw3 dense profile pos=155 token=9501 ok=1 embed=0.149 attn_norm=13.055 gqa=17.198 deltanet=44.118 ffn_norm=13.552 ffn_gateup=61.758 ffn_down=36.327 logits=7.066 total=193.223 ms
+qw3 dense profile pos=156 token=26584 ok=1 embed=0.160 attn_norm=13.654 gqa=17.474 deltanet=43.202 ffn_norm=12.965 ffn_gateup=60.695 ffn_down=39.118 logits=7.056 total=194.324 ms
+qw3 dense profile pos=157 token=41815 ok=1 embed=0.135 attn_norm=13.522 gqa=15.932 deltanet=38.662 ffn_norm=12.260 ffn_gateup=57.423 ffn_down=36.046 logits=7.110 total=181.090 ms
+qw3 dense profile pos=158 token=121546 ok=1 embed=0.161 attn_norm=12.939 gqa=15.744 deltanet=39.442 ffn_norm=12.976 ffn_gateup=60.325 ffn_down=35.246 logits=6.933 total=183.766 ms
+qw3 dense profile pos=159 token=126881 ok=1 embed=0.145 attn_norm=13.066 gqa=15.469 deltanet=40.327 ffn_norm=13.336 ffn_gateup=59.845 ffn_down=37.434 logits=6.883 total=186.505 ms

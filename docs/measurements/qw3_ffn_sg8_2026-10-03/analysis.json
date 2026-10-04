@@ -1,0 +1,43 @@
+{
+  "source_results": "results.json",
+  "baseline_stable": true,
+  "bracketed_comparisons": [
+    {
+      "block": 1,
+      "job": "pp128",
+      "off_blocks": [
+        0,
+        2
+      ],
+      "gain_pct": -0.03282876516091937
+    },
+    {
+      "block": 1,
+      "job": "tg32_d128",
+      "off_blocks": [
+        0,
+        2
+      ],
+      "gain_pct": -0.17533541830414556
+    },
+    {
+      "block": 3,
+      "job": "pp128",
+      "off_blocks": [
+        2,
+        4
+      ],
+      "gain_pct": -0.1985731272294955
+    },
+    {
+      "block": 3,
+      "job": "tg32_d128",
+      "off_blocks": [
+        2,
+        4
+      ],
+      "gain_pct": -0.14141997196338574
+    }
+  ],
+  "decision": "reject: repeatable tg32 improvement of at least 5% not demonstrated"
+}

@@ -1,0 +1,13 @@
+qw3: model=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf  backend=Metal  ctx=256  think=none
+qw3: loaded ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.003s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3: Qwen3.6-35B-A3B  layers=40  embd=2048  vocab=248320
+qw3: full_attn_layers=10 (GQA: 16 Q-heads, 2 KV-heads, dim=256)
+qw3: linear_layers=30 (DeltaNet: 16 QK-heads, 32 V-heads, dim=128)
+qw3: moe: 256 experts, top-8 routing + 1 shared, ff_dim=512
+qw3: memory estimate: total=68.8 MB (gqa_kv=5.0 MB  deltanet=60.0 MB  scratch=3.8 MB)
+session roundtrip: bytes=69683704 pos=78 logits=exact decode_steps=4 maxdiff=0 rmsdiff=0 corrupt=rejected incompatible=3
+test-metal-session-roundtrip: ok

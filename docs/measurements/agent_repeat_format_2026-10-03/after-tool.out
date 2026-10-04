@@ -1,0 +1,45 @@
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf backend=Metal ctx=8192 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.012s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 223.8 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.01 s
+agent: malformed tool call; retrying (1 left)
+agent: malformed tool call; retrying (0 left)
+
+[tool] read
+read path=README.md start=1 lines=512
+    1  # Progetto di prova
+    2  Core coordina i tool e genera la risposta.
+    3  
+    4  Diagramma da riportare nella risposta:
+    5  ┌────────────────────────────────────────────────────────────────────────────────┐
+    6  │ Core -> Tools -> Risposta │
+    7  └────────────────────────────────────────────────────────────────────────────────┘
+    8  
+    9  Separatore da riportare nella risposta:
+   10  ========================================================================================================================
+
+## Analisi del progetto
+
+Il progetto è un semplice **progetto di prova** con un unico file README.md che descrive l'architettura di base.
+
+### Contenuto del README
+
+**Diagramma:**
+
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Core -> Tools -> Risposta │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+
+**Separatore:**
+
+========================================================================================================================
+
+
+AGENT_DIAGRAM_OK
+agent: saved repeat-format (1874 tokens, KV ready)

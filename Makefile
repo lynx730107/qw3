@@ -17,8 +17,8 @@ endif
 	test-dense-forward test-dense-logits test-dense-session test-dense-metal-bringup test-dense-gqa-decode test-dense-agent test-metal-session-roundtrip test-runtime-fingerprint test-runtime-regression test-prefill-bench test-regression test-regression-full \
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
-.PHONY: test-rope test-rope-metal test-dense-metal-logits test-mtp-reference test-mtp-decode test-mtp-compact-replay
-.PHONY: test-mtp-f32 test-mtp-short-f32-quant test-mtp-batch-head test-mtp-head-quant
+.PHONY: test-rope test-rope-metal test-dense-metal-logits
+.PHONY: test-agent-repeat-format
 .PHONY: test-short-batch-quant test-short-batch
 .PHONY: test-iq3-stream-quant
 
@@ -35,7 +35,7 @@ qw3_cpu_cli.o: qw3_cli.c qw3.h
 qw3_cpu_cli_test.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_cpu_agent.o: qw3_agent.c qw3.h linenoise.h
+qw3_cpu_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h qw3_agent_hybrid.inc linenoise.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
 
 qw3_eval_cpu.o: qw3_eval.c qw3.h
@@ -80,7 +80,7 @@ qw3_metal_cli.o: qw3_cli.c qw3.h
 qw3_metal_cli_test.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_metal_agent.o: qw3_agent.c qw3.h linenoise.h
+qw3_metal_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h qw3_agent_hybrid.inc linenoise.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_agent.c
 
 qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h
@@ -115,6 +115,12 @@ qw3-iq3-stream-bench: tests/bench_iq3_stream.m tests/iq3_decode_candidates.metal
 qw3-decode-trials-bench: tests/bench_decode_trials.m tests/iq4_layout_probe.inc tests/iq4_prefetch_probe.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_decode_trials.m $(METAL_LDLIBS)
 
+qw3-dense-candidates-bench: tests/bench_dense_candidates.m tests/dense_candidates.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_dense_candidates.m $(METAL_LDLIBS)
+
+qw3-dense-candidates-test: tests/test_dense_candidates.m tests/dense_candidates.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_dense_candidates.m $(METAL_LDLIBS)
+
 .PHONY: test-decode-trials-quant
 test-decode-trials-quant: qw3-decode-trials-bench
 	sh tests/test_decode_trials_quant.sh
@@ -144,38 +150,6 @@ qw3-dense-metal-logits-test: tests/test_dense_logits.c qw3.h qw3_metal_core.o qw
 
 qw3-rope-metal-test: tests/test_rope.c qw3.c qw3.h qw3_metal.h qw3_runtime_fingerprint.h qw3_metal.o
 	$(CC) $(CFLAGS) -fno-finite-math-only -o $@ tests/test_rope.c qw3_metal.o $(METAL_LDLIBS)
-
-# Standalone diagnostic includes both private translation units; no production MTP API.
-qw3-mtp-acceptance: tests/bench_mtp_acceptance.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
-	$(CC) $(OBJCFLAGS) -fno-finite-math-only \
-		-I$(LLAMA_CPP)/include -I$(LLAMA_CPP)/ggml/include \
-		-o $@ tests/bench_mtp_acceptance.m \
-		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
-		-lllama -lggml-cpu -lggml-base -lggml $(METAL_LDLIBS)
-
-qw3-mtp-decode: tests/bench_mtp_decode.m tests/mtp_short_f32.metal tests/mtp_short_f32_checks.inc tests/mtp_head_checks.inc tests/bench_mtp_acceptance.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
-	$(CC) $(OBJCFLAGS) -fno-finite-math-only \
-		-DQW3_MTP_SHORT_SOURCE='"$(abspath tests/mtp_short_f32.metal)"' \
-		-I$(LLAMA_CPP)/include -I$(LLAMA_CPP)/ggml/include \
-		-o $@ tests/bench_mtp_decode.m \
-		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
-		-lllama -lggml-cpu -lggml-base -lggml $(METAL_LDLIBS)
-
-qw3-mtp-short-bench: tests/bench_mtp_short_cost.m tests/bench_verify_blocks.c tests/bench_mtp_decode.m tests/mtp_short_f32.metal tests/mtp_short_f32_checks.inc tests/mtp_head_checks.inc tests/bench_mtp_acceptance.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
-	$(CC) $(OBJCFLAGS) -fno-finite-math-only \
-		-DQW3_MTP_SHORT_SOURCE='"$(abspath tests/mtp_short_f32.metal)"' \
-		-I$(LLAMA_CPP)/include -I$(LLAMA_CPP)/ggml/include \
-		-o $@ tests/bench_mtp_short_cost.m \
-		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
-		-lllama -lggml-cpu -lggml-base -lggml $(METAL_LDLIBS)
-
-qw3-mtp-head-bench: tests/bench_mtp_head_cost.m tests/bench_mtp_decode.m tests/mtp_short_f32.metal tests/mtp_short_f32_checks.inc tests/mtp_head_checks.inc tests/bench_mtp_acceptance.m qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
-	$(CC) $(OBJCFLAGS) -fno-finite-math-only \
-		-DQW3_MTP_SHORT_SOURCE='"$(abspath tests/mtp_short_f32.metal)"' \
-		-I$(LLAMA_CPP)/include -I$(LLAMA_CPP)/ggml/include \
-		-o $@ tests/bench_mtp_head_cost.m \
-		-L$(GGML_LIB_DIR) -Wl,-rpath,$(abspath $(GGML_LIB_DIR)) \
-		-lllama -lggml-cpu -lggml-base -lggml $(METAL_LDLIBS)
 
 qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
@@ -208,11 +182,11 @@ qw3-agent: qw3-agent-cpu
 qw3-eval: qw3-eval-cpu
 	cp qw3-eval-cpu qw3-eval
 
-qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-bench qw3-dense-metal-logits-test qw3-rope-metal-test qw3-mtp-acceptance qw3-mtp-decode:
+qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-bench qw3-dense-metal-logits-test qw3-rope-metal-test:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench qw3-mtp-short-bench qw3-mtp-head-bench:
+qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-dense-candidates-bench qw3-dense-candidates-test qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 endif
@@ -265,29 +239,6 @@ test-dense-metal-logits: qw3-dense-metal-logits-test
 		$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} 66 30057 14578 1789
 	QW3_DENSE_METAL=1 ./qw3-dense-metal-logits-test \
 		$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} 66 561 1118 321 2018 41131 314 279
-
-test-mtp-reference: qw3-mtp-acceptance
-	sh tests/test_mtp_reference.sh
-
-test-mtp-decode: qw3-mtp-decode
-	sh tests/test_mtp_decode.sh
-
-test-mtp-compact-replay: qw3-mtp-decode
-	QW3_MTP_MODE=serial-replay sh tests/test_mtp_decode.sh
-
-test-mtp-f32: qw3-mtp-decode
-	QW3_MTP_MODE=batch-f32 sh tests/test_mtp_decode.sh
-
-test-mtp-batch-head: qw3-mtp-decode
-	QW3_MTP_BATCH_HEAD=1 QW3_MTP_MODE=batch-f32 sh tests/test_mtp_decode.sh
-
-test-mtp-head-quant: qw3-mtp-decode
-	QW3_MTP_BATCH_HEAD=1 QW3_MTP_HEAD_ONLY=1 ./qw3-mtp-decode \
-		$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} 8 8 batch-f32
-
-test-mtp-short-f32-quant: qw3-mtp-decode
-	QW3_MTP_SHORT_QUANT_ONLY=1 ./qw3-mtp-decode \
-		$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} 8 8 batch-f32
 
 test-short-batch-quant: qw3-short-batch-bench
 	QW3_BLOCK_QUANT_ONLY=1 ./qw3-short-batch-bench \
@@ -344,6 +295,9 @@ test-agent-web-think: qw3-agent
 
 test-agent-repeat: qw3-agent
 	QW3_AGENT_REPEAT_GUARD_SELFTEST=1 ./qw3-agent
+
+test-agent-repeat-format: qw3-agent
+	python3 tests/test_agent_repeat_format.py
 
 test-agent-status: qw3-agent
 	QW3_AGENT_STATUS_SELFTEST=1 ./qw3-agent
@@ -403,6 +357,11 @@ clean:
 	rm -f qw3_runtime_fingerprint.h
 	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench qw3-decode-ab-bench \
-		qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench qw3-mtp-short-bench qw3-mtp-head-bench \
-		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test qw3-mtp-acceptance qw3-mtp-decode \
+		qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-dense-candidates-bench qw3-dense-candidates-test qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench \
+		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o
+
+.PHONY: test-agent-hybrid
+test-agent-hybrid: qw3-agent qw3-agent-cpu
+	QW3_AGENT_HYBRID_SELFTEST=1 ./qw3-agent
+	QW3_AGENT_HYBRID_SELFTEST=1 ./qw3-agent-cpu

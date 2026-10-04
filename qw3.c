@@ -13,8 +13,7 @@
  *   - All 40 layers use MoE FFN: 256 experts, top-8 routing + 1 shared
  *
  * Qwen3.8-27B reuses the hybrid attention layout over a 64-layer trunk, uses
- * dense SwiGLU FFNs, and carries one additional NextN/MTP block outside the
- * standard generation pass.
+ * dense SwiGLU FFNs. Inference binds and executes only the trunk.
  *
  * This file is deliberately vertical: it owns GGUF loading, the explicit
  * model profiles and tensor layouts, CPU reference kernels, the whole-model
@@ -99,8 +98,8 @@ enum {
     QW3_FULL_ATTN_INTERVAL = 4,
     QW3_EXPECTED_TENSORS   = 733,
 
-    /* Largest explicitly supported profile, including optional MTP blocks. */
-    QW3_MAX_LAYER          = 65,
+    /* Largest supported inference trunk. */
+    QW3_MAX_LAYER          = 64,
 };
 
 typedef enum {
@@ -112,9 +111,8 @@ typedef struct {
     const char *name;
     const char *architecture;
     qw3_ffn_kind ffn_kind;
-    int n_layer_all;
+    int gguf_block_count;
     int n_layer;
-    int n_layer_nextn;
     int n_embd;
     int n_vocab;
     int n_head;
@@ -140,9 +138,8 @@ static const qw3_model_spec qw3_spec_qwen36_moe = {
     .name = "Qwen3.6-35B-A3B",
     .architecture = "qwen35moe",
     .ffn_kind = QW3_FFN_MOE,
-    .n_layer_all = 40,
+    .gguf_block_count = 40,
     .n_layer = 40,
-    .n_layer_nextn = 0,
     .n_embd = 2048,
     .n_vocab = 248320,
     .n_head = 16,
@@ -168,9 +165,8 @@ static const qw3_model_spec qw3_spec_qwen38_dense = {
     .name = "Qwen3.8-27B",
     .architecture = "qwen35",
     .ffn_kind = QW3_FFN_DENSE,
-    .n_layer_all = 65,
+    .gguf_block_count = 65,
     .n_layer = 64,
-    .n_layer_nextn = 1,
     .n_embd = 5120,
     .n_vocab = 248320,
     .n_head = 24,
@@ -644,16 +640,10 @@ typedef struct {
     qw3_tensor *ffn_up_shared;      /* blk.X.ffn_up_shexp.weight */
     qw3_tensor *ffn_down_shared;    /* blk.X.ffn_down_shexp.weight */
 
-    /* === Dense FFN weights — qwen35 dense trunk and optional MTP === */
+    /* === Dense FFN weights — qwen35 dense trunk === */
     qw3_tensor *ffn_gate;           /* blk.X.ffn_gate.weight */
     qw3_tensor *ffn_up;             /* blk.X.ffn_up.weight */
     qw3_tensor *ffn_down;           /* blk.X.ffn_down.weight */
-
-    /* === NextN/MTP tensors — loaded but not executed in the main pass === */
-    qw3_tensor *nextn_eh_proj;
-    qw3_tensor *nextn_enorm;
-    qw3_tensor *nextn_hnorm;
-    qw3_tensor *nextn_shared_head_norm;
 } qw3_layer_weights;
 
 typedef struct {
@@ -852,14 +842,6 @@ static int qw3_metal_session_eval_token_slow_ex(qw3_session *s, int token,
 #ifndef QW3_METAL_DENSE_DECODE_LAYER_DONE
 /* Private scheduling probes may submit a prefix; normal builds do nothing. */
 #define QW3_METAL_DENSE_DECODE_LAYER_DONE(layer, layers) 1
-#endif
-#ifndef QW3_METAL_DENSE_REPLAY_RECORD
-/* Private replay probes record projected inputs; production has no log. */
-#define QW3_METAL_DENSE_REPLAY_RECORD(session, slot, count) 1
-#endif
-#ifndef QW3_METAL_DENSE_STATE_TRACE
-/* Private all-row precision probes; production emits no copies or checks. */
-#define QW3_METAL_DENSE_STATE_TRACE(session, layer, site, row, rows) 1
 #endif
 static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                                                char *err, size_t errlen,
@@ -1479,7 +1461,7 @@ static void metadata_validate(qw3_model *m) {
         exit(1);
     }
     const qw3_model_spec *spec = m->spec;
-    CHECK_I64(block_count, spec->n_layer_all);
+    CHECK_I64(block_count, spec->gguf_block_count);
     CHECK_I64(embedding_length, spec->n_embd);
     CHECK_I64(head_count, spec->n_head);
     CHECK_I64(head_count_kv, spec->n_head_kv);
@@ -1502,7 +1484,8 @@ static void metadata_validate(qw3_model *m) {
         CHECK_I64(expert_shared_ffn_length, spec->n_ff_shared);
     } else {
         CHECK_I64(feed_forward_length, spec->n_ff_dense);
-        CHECK_I64(nextn_predict_layers, spec->n_layer_nextn);
+        /* Extra GGUF blocks are metadata only; inference binds the trunk. */
+        CHECK_I64(nextn_predict_layers, spec->gguf_block_count - spec->n_layer);
     }
 
     if (m->n_tensors != (uint32_t)spec->expected_tensors) {
@@ -1692,11 +1675,9 @@ static void require_optional_tensor(const qw3_model *m, const char *name,
 
 static void weights_bind_attention(const qw3_model *m,
                                    const qw3_model_spec *spec,
-                                   qw3_layer_weights *lw, int il,
-                                   bool force_full) {
+                                   qw3_layer_weights *lw, int il) {
     char name[128];
-    const bool is_full = force_full ||
-        qw3_spec_layer_is_full_attention(spec, (uint32_t)il);
+    const bool is_full = qw3_spec_layer_is_full_attention(spec, (uint32_t)il);
 
     snprintf(name, sizeof(name), "blk.%d.attn_norm.weight", il);
     require_tensor(m, name, QW3_TENSOR_F32, 1,
@@ -1843,33 +1824,12 @@ static void weights_bind(qw3_engine *e) {
 
     for (int il = 0; il < spec->n_layer; il++) {
         qw3_layer_weights *lw = &w->layer[il];
-        weights_bind_attention(m, spec, lw, il, false);
+        weights_bind_attention(m, spec, lw, il);
         if (spec->ffn_kind == QW3_FFN_DENSE) {
             weights_bind_dense_ffn(m, spec, lw, il);
         } else {
             weights_bind_moe_ffn(m, spec, lw, il);
         }
-    }
-
-    for (int il = spec->n_layer; il < spec->n_layer_all; il++) {
-        char name[128];
-        qw3_layer_weights *lw = &w->layer[il];
-        weights_bind_attention(m, spec, lw, il, true);
-        weights_bind_dense_ffn(m, spec, lw, il);
-        snprintf(name, sizeof(name), "blk.%d.nextn.eh_proj.weight", il);
-        require_tensor(m, name, QW3_TENSOR_ANY, 2,
-                       (uint64_t)spec->n_embd * 2ull,
-                       (uint64_t)spec->n_embd, 0, &lw->nextn_eh_proj);
-        snprintf(name, sizeof(name), "blk.%d.nextn.enorm.weight", il);
-        require_tensor(m, name, QW3_TENSOR_F32, 1,
-                       (uint64_t)spec->n_embd, 0, 0, &lw->nextn_enorm);
-        snprintf(name, sizeof(name), "blk.%d.nextn.hnorm.weight", il);
-        require_tensor(m, name, QW3_TENSOR_F32, 1,
-                       (uint64_t)spec->n_embd, 0, 0, &lw->nextn_hnorm);
-        snprintf(name, sizeof(name), "blk.%d.nextn.shared_head_norm.weight", il);
-        require_tensor(m, name, QW3_TENSOR_F32, 1,
-                       (uint64_t)spec->n_embd, 0, 0,
-                       &lw->nextn_shared_head_norm);
     }
 }
 
@@ -3208,7 +3168,7 @@ static bool cpu_dense_ffn_layer(qw3_engine *e, int il, const float *x,
                                 float *out) {
     if (!e || !e->model.spec || !x || !out) return false;
     const qw3_model_spec *spec = e->model.spec;
-    if (spec->ffn_kind != QW3_FFN_DENSE || il < 0 || il >= spec->n_layer_all)
+    if (spec->ffn_kind != QW3_FFN_DENSE || il < 0 || il >= spec->n_layer)
         return false;
     const qw3_layer_weights *lw = &e->weights.layer[il];
     if (!lw->ffn_gate || !lw->ffn_up || !lw->ffn_down) return false;
@@ -4508,16 +4468,9 @@ void qw3_engine_summary(qw3_engine *e) {
         if (qw3_spec_layer_is_full_attention(spec, (uint32_t)il)) n_full++;
     }
     const int n_linear = spec->n_layer - n_full;
-    if (spec->n_layer_nextn > 0) {
-        qw3_log(stderr, QW3_LOG_OK,
-                "qw3: %s  layers=%d + %d NextN/MTP  embd=%d  vocab=%d\n",
-                spec->name, spec->n_layer, spec->n_layer_nextn,
-                spec->n_embd, spec->n_vocab);
-    } else {
-        qw3_log(stderr, QW3_LOG_OK,
-                "qw3: %s  layers=%d  embd=%d  vocab=%d\n",
-                spec->name, spec->n_layer, spec->n_embd, spec->n_vocab);
-    }
+    qw3_log(stderr, QW3_LOG_OK,
+            "qw3: %s  layers=%d  embd=%d  vocab=%d\n",
+            spec->name, spec->n_layer, spec->n_embd, spec->n_vocab);
     qw3_log(stderr, QW3_LOG_OK,
             "qw3: full_attn_layers=%d (GQA: %d Q-heads, %d KV-heads, dim=%d)\n",
             n_full, spec->n_head, spec->n_head_kv, spec->n_head_dim);
@@ -4543,10 +4496,10 @@ void qw3_engine_inspect(qw3_engine *e, FILE *fp) {
             (int)m->meta.architecture.len, m->meta.architecture.ptr);
     fprintf(fp, "gguf: kv=%" PRIu64 " tensors=%u data_offset=%" PRIu64 "\n",
             m->n_kv, m->n_tensors, m->tensor_data_offset);
-    fprintf(fp, "profile: %s ffn=%s trunk_layers=%d nextn_layers=%d\n",
+    fprintf(fp, "profile: %s ffn=%s trunk_layers=%d\n",
             spec ? spec->name : "unknown",
             spec && spec->ffn_kind == QW3_FFN_DENSE ? "dense" : "moe",
-            spec ? spec->n_layer : 0, spec ? spec->n_layer_nextn : 0);
+            spec ? spec->n_layer : 0);
     fprintf(fp, "shape: blocks=%" PRId64 " embd=%" PRId64
                 " ctx=%" PRId64 " vocab=%" PRId64 "\n",
             m->meta.block_count, m->meta.embedding_length,
@@ -4603,18 +4556,15 @@ void qw3_engine_inspect(qw3_engine *e, FILE *fp) {
 void qw3_engine_layer_types(qw3_engine *e, int layer, FILE *fp) {
     if (!e || !fp) return;
     const qw3_model_spec *spec = e->model.spec;
-    if (!spec || layer < 0 || layer >= spec->n_layer_all) {
+    if (!spec || layer < 0 || layer >= spec->n_layer) {
         fprintf(fp, "layer-types: layer %d is outside 0..%d\n",
-                layer, spec ? spec->n_layer_all - 1 : -1);
+                layer, spec ? spec->n_layer - 1 : -1);
         return;
     }
 
     const qw3_layer_weights *lw = &e->weights.layer[layer];
-    const bool is_mtp = layer >= spec->n_layer;
-    const bool is_full = is_mtp ||
-        qw3_spec_layer_is_full_attention(spec, (uint32_t)layer);
-    fprintf(fp, "layer %d: kind=%s%s\n", layer,
-            is_full ? "gqa" : "deltanet", is_mtp ? " nextn/mtp" : "");
+    const bool is_full = qw3_spec_layer_is_full_attention(spec, (uint32_t)layer);
+    fprintf(fp, "layer %d: kind=%s\n", layer, is_full ? "gqa" : "deltanet");
     if (spec->ffn_kind == QW3_FFN_DENSE) {
         fprintf(fp, "layer %d dense_ffn: gate=%s up=%s down=%s\n", layer,
                 lw->ffn_gate ? tensor_type_name(lw->ffn_gate->type) : "none",
@@ -15213,8 +15163,7 @@ static int qw3_metal_session_eval_dense_prefill_batch(
             stage = "begin layer commands";
             ok = qw3_metal_begin_commands();
         }
-        if (ok && full_batch_attention)
-            ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 0, -1, ntok);
+
         const int need_token_loop = !full_batch_attention || !batch_ffn ||
                                     !gate_batch || !up_batch;
         for (uint32_t t = 0; ok && need_token_loop && t < ntok; t++) {
@@ -15336,9 +15285,7 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                     s->metal, lw->ffn_norm->offset,
                     n_embd, QW3_RMS_EPS, NULL);
             if (!ok) break;
-            if (!full_batch_attention)
-                ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 0, t, 1);
-            if (!ok) break;
+
             if (batch_ffn) {
                 stage = "mixed FFN tokenwise projections";
                 if (!gate_batch) {
@@ -15432,7 +15379,7 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                     (layer_done - attention_done) * 1000.0,
                     (layer_done - layer_start) * 1000.0, ok);
         }
-        if (ok) ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 1, -1, ntok);
+
         if (ok) qw3_session_progress(s, "layer", il + 1,
                                      spec->n_layer);
     }
@@ -15593,9 +15540,7 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                      beta_offset, NULL);
             if (!ok) break;
             stage = "DeltaNet convolution";
-            ok = QW3_METAL_DENSE_REPLAY_RECORD(
-                     s, slot, beta_offset + (uint32_t)spec->n_linear_v_heads) &&
-                 qw3_metal_session_conv1d_step_from_scratch(
+            ok = qw3_metal_session_conv1d_step_from_scratch(
                 s->metal, lw->linear_conv_weight->offset,
                 slot, n_qkv, NULL, NULL);
             if (!ok) break;
@@ -15626,8 +15571,7 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
             s->metal, lw->ffn_norm->offset, n_embd, QW3_RMS_EPS, NULL);
         QW3_DENSE_PROFILE_STAGE(4);
         if (!ok) break;
-        ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 0, -2, 1);
-        if (!ok) break;
+
         stage = "FFN gate/up";
         if (iq3_pair && lw->ffn_gate->type == QW3_TENSOR_IQ3_S &&
             lw->ffn_up->type == QW3_TENSOR_IQ3_S) {
@@ -15665,7 +15609,7 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
                      s->metal, 1.0f, n_embd);
         }
         QW3_DENSE_PROFILE_STAGE(6);
-        if (ok) ok = QW3_METAL_DENSE_STATE_TRACE(s, il, 1, -2, 1);
+
         if (ok && !profile) {
             stage = "decode layer prefix submission";
             ok = QW3_METAL_DENSE_DECODE_LAYER_DONE(il, spec->n_layer);
