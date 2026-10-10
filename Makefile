@@ -148,6 +148,27 @@ qw3-gdn-cache-test: tests/test_gdn_cache.m tests/gdn_cache_candidates.inc tests/
 qw3-native-gdn-cache-test: tests/test_native_gdn_cache.m tests/native_prefill_validation.inc tests/.gdn_cache/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_native_gdn_cache.m $(METAL_LDLIBS)
 
+tests/.weight_tracking/quality.inc: tests/prepare_weight_tracking.py tests/test_native_prefill.m
+	python3 tests/prepare_weight_tracking.py
+
+tests/.weight_tracking/native_core.inc: tests/prepare_weight_tracking_native.py qw3_metal.m
+	python3 tests/prepare_weight_tracking_native.py
+
+qw3-weight-tracking-native-bench: tests/bench_weight_tracking_native.m tests/.weight_tracking/native_core.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_weight_tracking_native.m $(METAL_LDLIBS)
+
+qw3-weight-tracking-bench: tests/bench_weight_tracking.m tests/weight_tracking_candidates.inc tests/.weight_tracking/quality.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_weight_tracking.m $(METAL_LDLIBS)
+
+qw3-weight-tracking-test: tests/test_weight_tracking.m tests/weight_tracking_candidates.inc tests/.weight_tracking/quality.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_weight_tracking.m $(METAL_LDLIBS)
+
+tests/.hazard_tracking/quality.inc: tests/prepare_hazard_tracking.py tests/test_native_prefill.m tests/native_prefill_validation.inc qw3_metal.m
+	python3 tests/prepare_hazard_tracking.py
+
+qw3-hazard-tracking-test: tests/test_hazard_tracking.m tests/.hazard_tracking/quality.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_hazard_tracking.m $(METAL_LDLIBS)
+
 qw3-model-residency-bench: tests/bench_model_residency.m tests/model_residency_candidates.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_model_residency.m $(METAL_LDLIBS)
 
@@ -369,7 +390,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-gdn-two-columns-test qw3-gdn-two-columns-bench qw3-gdn-local-gates-test qw3-gdn-local-gates-bench qw3-gdn-windows-test qw3-gdn-windows-bench qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
+qw3-weight-tracking-native-bench qw3-weight-tracking-bench qw3-weight-tracking-test qw3-hazard-tracking-test qw3-gdn-two-columns-test qw3-gdn-two-columns-bench qw3-gdn-local-gates-test qw3-gdn-local-gates-bench qw3-gdn-windows-test qw3-gdn-windows-bench qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -545,7 +566,7 @@ clean:
 	rm -f qw3-gdn-local-gates-test qw3-gdn-local-gates-bench
 	rm -f qw3-gdn-windows-test qw3-gdn-windows-bench
 	rm -f qw3-model-residency-bench
-	rm -f qw3-model-residency-test
+	rm -f qw3-model-residency-test qw3-hazard-tracking-test qw3-weight-tracking-test qw3-weight-tracking-bench qw3-weight-tracking-native-bench
 	rm -f qw3-native-gdn-cache-test
 	rm -f qw3-gdn-cache-test qw3-gdn-cache-bench
 	rm -f qw3-iq3-groups-test qw3-iq3-groups-bench

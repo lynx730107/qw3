@@ -407,6 +407,12 @@ Its cache32/48/64 variants fail exact numerical checks before timing. Explicit
 FMA recovers state in the guarded case but not every normalized output;
 production keeps the adopted scalar cache64.
 
+The [Metal hazard-tracking probes](docs/m5_hazard_tracking_2026-10-10.md)
+keep shaders and precision unchanged. Disabling tracking for session buffers
+fails the first numerical check. Read-only GGUF views pass full-state and
+checkpoint checks, but ordinary native controls show a neutral decode
+effect despite positive paired screenings. Neither tracking change is adopted.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

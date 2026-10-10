@@ -1,0 +1,41 @@
+{
+  "start_utc": "2026-10-10T15:42:28.778999+00:00",
+  "source_sha256_before": {
+    "Makefile": "ce9b1d47e56cff9501c11279dd09e2f287a9afddb1e4ccd8d2512b742b828a62",
+    "tests/prepare_hazard_tracking.py": "b324c509cff9e441e471232e1ae250ee5ba23c02fb750d296b1c58fdbafb3d63",
+    "tests/test_hazard_tracking.m": "e5087f2e58661468ed5c04dea16d0399110d3016248b5f0d7a5a47f466763f4b",
+    "tests/native_prefill_validation.inc": "5074b43ef6c284ee770c62f8b945838a30c6985d4708f4b23abd56964fded043",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "6b33b763a389b6d56997af7b7844ac86bc1ef8f816afbde6817b81e98ad0efbd",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_runtime_fingerprint.h": "0c9fef2a03c35c25184ef2121b4446525e31f65b2d079808926d7b5a6ace8378",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "tests/.hazard_tracking/core.inc": "5d0e1c79b4a8af3a08c1e419a6ab41f0161010ef8af4007e338887091421a0a5",
+    "tests/.hazard_tracking/validation.inc": "62a8b8ecb4b5bdb0dee6c2a9350a85a86c63ab92990cef58549285917ebb7f6e",
+    "tests/.hazard_tracking/quality.inc": "d4bb24e29f2e03441bdaf7e4276a86a98cca67b19b8c78a6a13004ff26e94c21"
+  },
+  "binary_sha256": "3ab2cfb414237df2188669f8f9dcb7880d94d58951d216392a00a76d359cbe46",
+  "command": [
+    "./qw3-hazard-tracking-test",
+    "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "all"
+  ],
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_NGL": "64"
+  },
+  "scope": "Only allocations through qw3_metal_new_private_buffer; no weights or shared buffers changed.",
+  "exit_code": 1,
+  "end_utc": "2026-10-10T15:43:48.723337+00:00",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "result": "Rejected: first prefix (1 token) logit 0 mismatch; no completed prefix, benchmark or checkpoint checks."
+}

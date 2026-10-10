@@ -48,7 +48,8 @@ def main():
                 (name == 'QW3_PRIVATE_PACKED8_SCRATCH' and value == '1') or
                 (name == 'QW3_PRIVATE_MICRO' and value in ('prefill', 'decode', 'pair', 'conv', 'all')) or
                 (name in ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64',
-                          'QW3_METAL_DENSE_GDN_CACHE', 'QW3_PRIVATE_MODEL_RESIDENCY') and value == '1') or
+                          'QW3_METAL_DENSE_GDN_CACHE', 'QW3_PRIVATE_MODEL_RESIDENCY',
+                          'QW3_PRIVATE_WEIGHT_UNTRACKED') and value == '1') or
                 (name in ('QW3_PRIVATE_IQ3_METADATA', 'QW3_PRIVATE_METADATA_COMBINED', 'QW3_PRIVATE_RESTORE_COPIES') and value == '1') or
                 (name in ('QW3_PRIVATE_Q3_METADATA', 'QW3_PRIVATE_IQ_METADATA', 'QW3_PRIVATE_STAGE_PROFILE') and value == '1')):
             parser.error('use one documented private candidate setting')
@@ -71,6 +72,8 @@ def main():
                                         + sorted((root / 'metal').glob('*.metal'))
                                         + [root / n for n in ('qw3.h', 'qw3_metal.h',
                                              'qw3_runtime_fingerprint.h', 'tools/bench_qw3_candidates.py', 'Makefile',
+                                             'tests/prepare_weight_tracking_native.py', 'tests/bench_weight_tracking_native.m',
+                                             'tests/.weight_tracking/native_core.inc',
                                              'tests/model_residency_candidates.inc', 'tests/bench_model_residency.m',
                                              'tests/test_model_residency.m', 'tests/prepare_model_residency.py',
                                              'tests/.model_residency/quality.inc',
@@ -137,6 +140,10 @@ def main():
                     resident = re.search(r' residency_requests=(\d+) residency_views=(\d+) residency_bytes=(\d+)', run.stderr)
                     if not resident or any(bool(int(v)) != (mode == 'candidate') for v in resident.groups()):
                         raise ValueError('model residency activation mismatch')
+                if 'QW3_PRIVATE_WEIGHT_UNTRACKED' in candidate_env:
+                    weights = re.search(r' weight_untracked=(\d+) weight_views=(\d+) weight_bytes=(\d+)', run.stderr)
+                    if not weights or int(weights[1]) != (mode == 'candidate') or int(weights[2]) != 1 or int(weights[3]) <= 0:
+                        raise ValueError('weight view tracking activation mismatch')
                 if mode == 'off' and (pair or add or gdn):
                     raise ValueError('candidate dispatched during an OFF control')
                 if 'QW3_PRIVATE_MICRO' in candidate_env:

@@ -1,0 +1,7 @@
+{
+  "source_sha256": "25a7740525808cb2556d41fd45ac638731959f634c6788e33f4a7ac712919a06",
+  "observed_device": "Apple M5",
+  "default_private_buffer_actual_mode": 2,
+  "explicit_untracked_private_buffer_actual_mode": 1,
+  "note": "Values observed before the full-session numerical test; this probe only allocates two 4096-byte buffers."
+}

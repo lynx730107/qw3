@@ -1,0 +1,89 @@
+{
+  "started_utc": "2026-10-10T15:46:43.867725+00:00",
+  "source_sha256": {
+    "Makefile": "777e04442ae9069149c723a2ba3ceaa77d6c1b17ec797d9cdda4a11e1c7639e0",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "6b33b763a389b6d56997af7b7844ac86bc1ef8f816afbde6817b81e98ad0efbd",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "0c9fef2a03c35c25184ef2121b4446525e31f65b2d079808926d7b5a6ace8378",
+    "tests/weight_tracking_candidates.inc": "8817b8c2a7b9fdd79c60e99eafc64e5a0a5b94b0bd491c113c02e8c4a273a735",
+    "tests/prepare_weight_tracking.py": "b9be081172ac9ea75108d9655b0f1601f7144aac93d6939ab30fa4731af3c25f",
+    "tests/test_weight_tracking.m": "07a3f8d293c42a5b503a7a76dfe3412355b357b1cf4c60e1d6fca480fc3d318d",
+    "tests/bench_weight_tracking.m": "cb1529960bfbb78d4b56eaa0151feaf065c7856e95f9b9523642ccd33cb09b52",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tools/bench_weight_tracking.py": "6d6f2313bb700fd8687d88d6091e936f548c58f5f525ec77473d386f61958270",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.weight_tracking/quality.inc": "878287d27f529c8dbe20735bf0877e331c7864db7742e7a2cb96c551c9e623d2"
+  },
+  "binary_sha256": "28027fbba75444181fb17da33751da40c7ef10fa9ebfe3fb43624bbaf0294d85",
+  "binary": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-weight-tracking-bench",
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "method": "Two replicas; each has depth128, ctx512, 8 warmup and 64 timed greedy AB/BA pairs. Full vocabulary finite and bit exact per forward; final canonical state exact. Private screening, not ordinary native throughput.",
+  "cooldown_seconds": 60.0,
+  "runs": [
+    {
+      "replica": 1,
+      "command": [
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-weight-tracking-bench",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "exit_code": 0,
+      "samples": 64,
+      "gain_pct": 3.837762893382979,
+      "baseline_tps": 6.205408925297834,
+      "candidate_tps": 6.443557806415589,
+      "saved_ms": 5.955968749999999,
+      "descriptive_95_halfwidth_ms": 3.640550793976207,
+      "positive_blocks": 7,
+      "block_means_ms": [
+        10.7445,
+        9.460624999999999,
+        10.498374999999998,
+        4.949250000000001,
+        7.107624999999995,
+        -0.30474999999999675,
+        0.0683750000000014,
+        5.123749999999999
+      ]
+    },
+    {
+      "replica": 2,
+      "command": [
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-weight-tracking-bench",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "exit_code": 0,
+      "samples": 64,
+      "gain_pct": 4.362309421490762,
+      "baseline_tps": 6.207141024789285,
+      "candidate_tps": 6.477915722518887,
+      "saved_ms": 6.734125,
+      "descriptive_95_halfwidth_ms": 3.997615152132445,
+      "positive_blocks": 7,
+      "block_means_ms": [
+        6.529625000000001,
+        11.987125000000002,
+        6.652499999999996,
+        10.945000000000006,
+        11.609749999999998,
+        6.043250000000004,
+        -0.7062500000000007,
+        0.8119999999999923
+      ]
+    }
+  ],
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "model_metadata_unchanged": true,
+  "ended_utc": "2026-10-10T15:49:33.910298+00:00"
+}

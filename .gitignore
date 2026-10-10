@@ -103,3 +103,10 @@ tests/.gdn_local_gates/
 /qw3-gdn-two-columns-test
 /qw3-gdn-two-columns-bench
 tests/.gdn_two_columns/
+
+/qw3-hazard-tracking-test
+tests/.hazard_tracking/
+/qw3-weight-tracking-test
+tests/.weight_tracking/
+/qw3-weight-tracking-bench
+/qw3-weight-tracking-native-bench
