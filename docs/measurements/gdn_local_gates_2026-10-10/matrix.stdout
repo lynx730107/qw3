@@ -1,0 +1,5 @@
+matrix_exact head_dim=128 v_heads=3 variant=1 state=exact inner=native_cache64_exact cpu_norm_max=2.8453538e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=3 variant=2 state=exact inner=native_cache64_exact cpu_norm_max=2.8453538e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=7 variant=1 state=exact inner=native_cache64_exact cpu_norm_max=2.77193305e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=7 variant=2 state=exact inner=native_cache64_exact cpu_norm_max=2.77193305e-07 guards=ok inputs=unchanged
+PASS matrix_cases=4

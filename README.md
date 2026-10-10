@@ -396,6 +396,11 @@ cache. All ten guarded matrix cases and 448 timed greedy forward pairs pass
 whole-logit and state checks. The small gains of middle/last64 do not survive
 replication; none replaces the native cache64.
 
+The [DeltaNet local-gate trials](docs/m5_gdn_local_gates_2026-10-10.md)
+remove the first threadgroup barrier by computing gates per thread or per
+SIMD group. Both preserve exact outputs and states, including extreme gate
+inputs, but their measured decode gains are neutral; neither is adopted.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

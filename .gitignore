@@ -97,3 +97,6 @@ tests/.model_residency/
 /qw3-gdn-windows-test
 /qw3-gdn-windows-bench
 tests/.gdn_windows/
+/qw3-gdn-local-gates-test
+/qw3-gdn-local-gates-bench
+tests/.gdn_local_gates/

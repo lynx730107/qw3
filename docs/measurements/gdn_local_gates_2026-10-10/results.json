@@ -1,0 +1,1014 @@
+{
+  "started_utc": "2026-10-10T14:12:44.679646+00:00",
+  "source_sha256": {
+    "Makefile": "cd60a46963b3400be6111108b5c68952161aaf549997194fafd39f617024d30e",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "6b33b763a389b6d56997af7b7844ac86bc1ef8f816afbde6817b81e98ad0efbd",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "0c9fef2a03c35c25184ef2121b4446525e31f65b2d079808926d7b5a6ace8378",
+    "tests/gdn_local_gates_candidates.inc": "7d47330c91d2b90175b90616764d817d55e3373ccc605c2406b9c1ca816c99c9",
+    "tests/prepare_gdn_local_gates.py": "2c447945f78e94cd8d24c91d3bd0a3a48d5ba796225345ad34e5ec1a313de796",
+    "tests/test_gdn_local_gates.m": "8ccfeb298fc62396a11ba60027cec017c0d4e7773712762780a534bc6dfa48c2",
+    "tests/bench_gdn_local_gates.m": "dc7e220a88c9f4a6e7b4f026c5e9db5efc419138436f77f0f6180563a53d499e",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/test_gdn_cache.m": "2258ac5c70f653fa0410f2b6e49450a533eb6b98ecf1869d5a6b423f4f0ca621",
+    "tests/bench_iq3_groups.m": "5dcfdba95ba25a426b6bb0837b2605111f38b007ae20ef81457511be8b2f99bc",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.gdn_local_gates/bench.inc": "a088266126507bf8a669be2648a9b6c0a6d8b953cbcb8e0425236f41401e2be4",
+    "tests/.gdn_local_gates/kernels.metal": "a96e90ab129f46de88a47700a2836950a709cc2a49045db78cbe156cc8dce19c",
+    "tests/.gdn_local_gates/matrix.inc": "7c315a067815d932a82aeae0d916706c84c8ac0c73a1a1dd7a42c55cd5320c1e",
+    "tests/.gdn_local_gates/quality.inc": "44c3092da6eed2618fa3723b6c7cf1b81ffffc43f25e640290a3be38adda0c9d"
+  },
+  "binary_sha256": {
+    "qw3-gdn-local-gates-test": "58963ac208850fcc44ae951088848fd5003d7c8e50aa016378a8c1a4879939d1",
+    "qw3-gdn-local-gates-bench": "5ed4f74484a5fadf1f542984f3d78e5a7c021adf1f77d959e2b934136a5b0087"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "kv": "f16",
+  "context": 512,
+  "gpu_layers": 64,
+  "threads": 4,
+  "cooldown_seconds": 60,
+  "method": "Paired greedy decode against native cache64. First threadgroup gate barrier removed: variant1 computes per thread, variant2 lane0 computes then shuffles within SIMD. 8 untimed warmups, 64 timed forwards AB/BA; whole logits and final canonical states exact. Two sessions estimate relative effects, not single-session throughput.",
+  "runs": [
+    {
+      "name": "matrix",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-local-gates-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 0,
+      "seconds": 1.109424
+    },
+    {
+      "name": "paired1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-local-gates-bench",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "1"
+      ],
+      "rc": 0,
+      "seconds": 18.26714154199999,
+      "samples": [
+        {
+          "token": "8",
+          "order": "AB",
+          "baseline_ms": "108.509000000",
+          "candidate_ms": "108.441000000",
+          "saved_ms": "0.068000000"
+        },
+        {
+          "token": "9",
+          "order": "BA",
+          "baseline_ms": "108.508000000",
+          "candidate_ms": "109.247000000",
+          "saved_ms": "-0.739000000"
+        },
+        {
+          "token": "10",
+          "order": "AB",
+          "baseline_ms": "108.689000000",
+          "candidate_ms": "109.521000000",
+          "saved_ms": "-0.832000000"
+        },
+        {
+          "token": "11",
+          "order": "BA",
+          "baseline_ms": "108.761000000",
+          "candidate_ms": "108.716000000",
+          "saved_ms": "0.045000000"
+        },
+        {
+          "token": "12",
+          "order": "AB",
+          "baseline_ms": "108.904000000",
+          "candidate_ms": "109.005000000",
+          "saved_ms": "-0.101000000"
+        },
+        {
+          "token": "13",
+          "order": "BA",
+          "baseline_ms": "109.099000000",
+          "candidate_ms": "108.597000000",
+          "saved_ms": "0.502000000"
+        },
+        {
+          "token": "14",
+          "order": "AB",
+          "baseline_ms": "108.779000000",
+          "candidate_ms": "108.971000000",
+          "saved_ms": "-0.192000000"
+        },
+        {
+          "token": "15",
+          "order": "BA",
+          "baseline_ms": "108.557000000",
+          "candidate_ms": "108.892000000",
+          "saved_ms": "-0.335000000"
+        },
+        {
+          "token": "16",
+          "order": "AB",
+          "baseline_ms": "108.955000000",
+          "candidate_ms": "109.374000000",
+          "saved_ms": "-0.419000000"
+        },
+        {
+          "token": "17",
+          "order": "BA",
+          "baseline_ms": "108.749000000",
+          "candidate_ms": "109.134000000",
+          "saved_ms": "-0.385000000"
+        },
+        {
+          "token": "18",
+          "order": "AB",
+          "baseline_ms": "109.229000000",
+          "candidate_ms": "109.071000000",
+          "saved_ms": "0.158000000"
+        },
+        {
+          "token": "19",
+          "order": "BA",
+          "baseline_ms": "109.204000000",
+          "candidate_ms": "108.824000000",
+          "saved_ms": "0.380000000"
+        },
+        {
+          "token": "20",
+          "order": "AB",
+          "baseline_ms": "108.657000000",
+          "candidate_ms": "108.938000000",
+          "saved_ms": "-0.281000000"
+        },
+        {
+          "token": "21",
+          "order": "BA",
+          "baseline_ms": "109.204000000",
+          "candidate_ms": "109.399000000",
+          "saved_ms": "-0.195000000"
+        },
+        {
+          "token": "22",
+          "order": "AB",
+          "baseline_ms": "109.119000000",
+          "candidate_ms": "109.279000000",
+          "saved_ms": "-0.160000000"
+        },
+        {
+          "token": "23",
+          "order": "BA",
+          "baseline_ms": "109.140000000",
+          "candidate_ms": "109.088000000",
+          "saved_ms": "0.052000000"
+        },
+        {
+          "token": "24",
+          "order": "AB",
+          "baseline_ms": "110.136000000",
+          "candidate_ms": "109.769000000",
+          "saved_ms": "0.367000000"
+        },
+        {
+          "token": "25",
+          "order": "BA",
+          "baseline_ms": "113.327000000",
+          "candidate_ms": "111.663000000",
+          "saved_ms": "1.664000000"
+        },
+        {
+          "token": "26",
+          "order": "AB",
+          "baseline_ms": "109.275000000",
+          "candidate_ms": "109.166000000",
+          "saved_ms": "0.109000000"
+        },
+        {
+          "token": "27",
+          "order": "BA",
+          "baseline_ms": "109.784000000",
+          "candidate_ms": "109.592000000",
+          "saved_ms": "0.192000000"
+        },
+        {
+          "token": "28",
+          "order": "AB",
+          "baseline_ms": "109.447000000",
+          "candidate_ms": "109.929000000",
+          "saved_ms": "-0.482000000"
+        },
+        {
+          "token": "29",
+          "order": "BA",
+          "baseline_ms": "109.394000000",
+          "candidate_ms": "109.734000000",
+          "saved_ms": "-0.340000000"
+        },
+        {
+          "token": "30",
+          "order": "AB",
+          "baseline_ms": "109.973000000",
+          "candidate_ms": "109.531000000",
+          "saved_ms": "0.442000000"
+        },
+        {
+          "token": "31",
+          "order": "BA",
+          "baseline_ms": "109.729000000",
+          "candidate_ms": "109.387000000",
+          "saved_ms": "0.342000000"
+        },
+        {
+          "token": "32",
+          "order": "AB",
+          "baseline_ms": "109.733000000",
+          "candidate_ms": "109.578000000",
+          "saved_ms": "0.155000000"
+        },
+        {
+          "token": "33",
+          "order": "BA",
+          "baseline_ms": "109.604000000",
+          "candidate_ms": "109.557000000",
+          "saved_ms": "0.047000000"
+        },
+        {
+          "token": "34",
+          "order": "AB",
+          "baseline_ms": "109.531000000",
+          "candidate_ms": "109.840000000",
+          "saved_ms": "-0.309000000"
+        },
+        {
+          "token": "35",
+          "order": "BA",
+          "baseline_ms": "109.748000000",
+          "candidate_ms": "110.429000000",
+          "saved_ms": "-0.681000000"
+        },
+        {
+          "token": "36",
+          "order": "AB",
+          "baseline_ms": "109.595000000",
+          "candidate_ms": "110.139000000",
+          "saved_ms": "-0.544000000"
+        },
+        {
+          "token": "37",
+          "order": "BA",
+          "baseline_ms": "110.109000000",
+          "candidate_ms": "109.963000000",
+          "saved_ms": "0.146000000"
+        },
+        {
+          "token": "38",
+          "order": "AB",
+          "baseline_ms": "109.652000000",
+          "candidate_ms": "109.901000000",
+          "saved_ms": "-0.249000000"
+        },
+        {
+          "token": "39",
+          "order": "BA",
+          "baseline_ms": "110.748000000",
+          "candidate_ms": "109.729000000",
+          "saved_ms": "1.019000000"
+        },
+        {
+          "token": "40",
+          "order": "AB",
+          "baseline_ms": "109.870000000",
+          "candidate_ms": "109.663000000",
+          "saved_ms": "0.207000000"
+        },
+        {
+          "token": "41",
+          "order": "BA",
+          "baseline_ms": "109.980000000",
+          "candidate_ms": "110.480000000",
+          "saved_ms": "-0.500000000"
+        },
+        {
+          "token": "42",
+          "order": "AB",
+          "baseline_ms": "110.436000000",
+          "candidate_ms": "112.110000000",
+          "saved_ms": "-1.674000000"
+        },
+        {
+          "token": "43",
+          "order": "BA",
+          "baseline_ms": "111.703000000",
+          "candidate_ms": "110.951000000",
+          "saved_ms": "0.752000000"
+        },
+        {
+          "token": "44",
+          "order": "AB",
+          "baseline_ms": "114.676000000",
+          "candidate_ms": "110.354000000",
+          "saved_ms": "4.322000000"
+        },
+        {
+          "token": "45",
+          "order": "BA",
+          "baseline_ms": "110.525000000",
+          "candidate_ms": "109.883000000",
+          "saved_ms": "0.642000000"
+        },
+        {
+          "token": "46",
+          "order": "AB",
+          "baseline_ms": "110.290000000",
+          "candidate_ms": "110.969000000",
+          "saved_ms": "-0.679000000"
+        },
+        {
+          "token": "47",
+          "order": "BA",
+          "baseline_ms": "110.597000000",
+          "candidate_ms": "110.544000000",
+          "saved_ms": "0.053000000"
+        },
+        {
+          "token": "48",
+          "order": "AB",
+          "baseline_ms": "110.482000000",
+          "candidate_ms": "110.993000000",
+          "saved_ms": "-0.511000000"
+        },
+        {
+          "token": "49",
+          "order": "BA",
+          "baseline_ms": "110.228000000",
+          "candidate_ms": "110.501000000",
+          "saved_ms": "-0.273000000"
+        },
+        {
+          "token": "50",
+          "order": "AB",
+          "baseline_ms": "111.206000000",
+          "candidate_ms": "110.524000000",
+          "saved_ms": "0.682000000"
+        },
+        {
+          "token": "51",
+          "order": "BA",
+          "baseline_ms": "110.483000000",
+          "candidate_ms": "110.795000000",
+          "saved_ms": "-0.312000000"
+        },
+        {
+          "token": "52",
+          "order": "AB",
+          "baseline_ms": "110.588000000",
+          "candidate_ms": "110.490000000",
+          "saved_ms": "0.098000000"
+        },
+        {
+          "token": "53",
+          "order": "BA",
+          "baseline_ms": "110.296000000",
+          "candidate_ms": "111.039000000",
+          "saved_ms": "-0.743000000"
+        },
+        {
+          "token": "54",
+          "order": "AB",
+          "baseline_ms": "110.995000000",
+          "candidate_ms": "111.024000000",
+          "saved_ms": "-0.029000000"
+        },
+        {
+          "token": "55",
+          "order": "BA",
+          "baseline_ms": "110.840000000",
+          "candidate_ms": "110.462000000",
+          "saved_ms": "0.378000000"
+        },
+        {
+          "token": "56",
+          "order": "AB",
+          "baseline_ms": "110.849000000",
+          "candidate_ms": "110.736000000",
+          "saved_ms": "0.113000000"
+        },
+        {
+          "token": "57",
+          "order": "BA",
+          "baseline_ms": "111.194000000",
+          "candidate_ms": "110.733000000",
+          "saved_ms": "0.461000000"
+        },
+        {
+          "token": "58",
+          "order": "AB",
+          "baseline_ms": "110.630000000",
+          "candidate_ms": "110.754000000",
+          "saved_ms": "-0.124000000"
+        },
+        {
+          "token": "59",
+          "order": "BA",
+          "baseline_ms": "110.743000000",
+          "candidate_ms": "111.431000000",
+          "saved_ms": "-0.688000000"
+        },
+        {
+          "token": "60",
+          "order": "AB",
+          "baseline_ms": "111.697000000",
+          "candidate_ms": "112.376000000",
+          "saved_ms": "-0.679000000"
+        },
+        {
+          "token": "61",
+          "order": "BA",
+          "baseline_ms": "112.812000000",
+          "candidate_ms": "111.219000000",
+          "saved_ms": "1.593000000"
+        },
+        {
+          "token": "62",
+          "order": "AB",
+          "baseline_ms": "111.111000000",
+          "candidate_ms": "110.887000000",
+          "saved_ms": "0.224000000"
+        },
+        {
+          "token": "63",
+          "order": "BA",
+          "baseline_ms": "111.031000000",
+          "candidate_ms": "111.124000000",
+          "saved_ms": "-0.093000000"
+        },
+        {
+          "token": "64",
+          "order": "AB",
+          "baseline_ms": "110.960000000",
+          "candidate_ms": "112.083000000",
+          "saved_ms": "-1.123000000"
+        },
+        {
+          "token": "65",
+          "order": "BA",
+          "baseline_ms": "111.128000000",
+          "candidate_ms": "111.276000000",
+          "saved_ms": "-0.148000000"
+        },
+        {
+          "token": "66",
+          "order": "AB",
+          "baseline_ms": "111.654000000",
+          "candidate_ms": "111.471000000",
+          "saved_ms": "0.183000000"
+        },
+        {
+          "token": "67",
+          "order": "BA",
+          "baseline_ms": "111.560000000",
+          "candidate_ms": "111.138000000",
+          "saved_ms": "0.422000000"
+        },
+        {
+          "token": "68",
+          "order": "AB",
+          "baseline_ms": "111.354000000",
+          "candidate_ms": "111.361000000",
+          "saved_ms": "-0.007000000"
+        },
+        {
+          "token": "69",
+          "order": "BA",
+          "baseline_ms": "111.539000000",
+          "candidate_ms": "111.401000000",
+          "saved_ms": "0.138000000"
+        },
+        {
+          "token": "70",
+          "order": "AB",
+          "baseline_ms": "111.397000000",
+          "candidate_ms": "112.257000000",
+          "saved_ms": "-0.860000000"
+        },
+        {
+          "token": "71",
+          "order": "BA",
+          "baseline_ms": "111.474000000",
+          "candidate_ms": "111.600000000",
+          "saved_ms": "-0.126000000"
+        }
+      ],
+      "baseline_tps": 9.070068547043045,
+      "candidate_tps": 9.071538006980264,
+      "gain_pct": 0.016201199909349207,
+      "saved_ms": 0.017859374999999997,
+      "block_saved_ms": [
+        -0.198,
+        -0.10625,
+        0.28675,
+        -0.052000000000000025,
+        0.390375,
+        -0.08875,
+        0.100875,
+        -0.190125
+      ],
+      "positive_blocks": 3,
+      "block_ci95_radius_ms": 0.18413385376253616
+    },
+    {
+      "name": "paired2",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-local-gates-bench",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "rc": 0,
+      "seconds": 17.866241666999997,
+      "samples": [
+        {
+          "token": "8",
+          "order": "AB",
+          "baseline_ms": "109.250000000",
+          "candidate_ms": "108.823000000",
+          "saved_ms": "0.427000000"
+        },
+        {
+          "token": "9",
+          "order": "BA",
+          "baseline_ms": "109.526000000",
+          "candidate_ms": "108.729000000",
+          "saved_ms": "0.797000000"
+        },
+        {
+          "token": "10",
+          "order": "AB",
+          "baseline_ms": "108.960000000",
+          "candidate_ms": "108.878000000",
+          "saved_ms": "0.082000000"
+        },
+        {
+          "token": "11",
+          "order": "BA",
+          "baseline_ms": "109.504000000",
+          "candidate_ms": "108.993000000",
+          "saved_ms": "0.511000000"
+        },
+        {
+          "token": "12",
+          "order": "AB",
+          "baseline_ms": "108.556000000",
+          "candidate_ms": "109.484000000",
+          "saved_ms": "-0.928000000"
+        },
+        {
+          "token": "13",
+          "order": "BA",
+          "baseline_ms": "108.894000000",
+          "candidate_ms": "109.258000000",
+          "saved_ms": "-0.364000000"
+        },
+        {
+          "token": "14",
+          "order": "AB",
+          "baseline_ms": "108.952000000",
+          "candidate_ms": "108.769000000",
+          "saved_ms": "0.183000000"
+        },
+        {
+          "token": "15",
+          "order": "BA",
+          "baseline_ms": "109.126000000",
+          "candidate_ms": "108.887000000",
+          "saved_ms": "0.239000000"
+        },
+        {
+          "token": "16",
+          "order": "AB",
+          "baseline_ms": "108.861000000",
+          "candidate_ms": "108.705000000",
+          "saved_ms": "0.156000000"
+        },
+        {
+          "token": "17",
+          "order": "BA",
+          "baseline_ms": "109.895000000",
+          "candidate_ms": "109.085000000",
+          "saved_ms": "0.810000000"
+        },
+        {
+          "token": "18",
+          "order": "AB",
+          "baseline_ms": "108.936000000",
+          "candidate_ms": "108.942000000",
+          "saved_ms": "-0.006000000"
+        },
+        {
+          "token": "19",
+          "order": "BA",
+          "baseline_ms": "109.185000000",
+          "candidate_ms": "109.137000000",
+          "saved_ms": "0.048000000"
+        },
+        {
+          "token": "20",
+          "order": "AB",
+          "baseline_ms": "109.356000000",
+          "candidate_ms": "109.362000000",
+          "saved_ms": "-0.006000000"
+        },
+        {
+          "token": "21",
+          "order": "BA",
+          "baseline_ms": "109.144000000",
+          "candidate_ms": "108.851000000",
+          "saved_ms": "0.293000000"
+        },
+        {
+          "token": "22",
+          "order": "AB",
+          "baseline_ms": "110.019000000",
+          "candidate_ms": "109.438000000",
+          "saved_ms": "0.581000000"
+        },
+        {
+          "token": "23",
+          "order": "BA",
+          "baseline_ms": "109.403000000",
+          "candidate_ms": "109.057000000",
+          "saved_ms": "0.346000000"
+        },
+        {
+          "token": "24",
+          "order": "AB",
+          "baseline_ms": "109.512000000",
+          "candidate_ms": "109.459000000",
+          "saved_ms": "0.053000000"
+        },
+        {
+          "token": "25",
+          "order": "BA",
+          "baseline_ms": "109.386000000",
+          "candidate_ms": "110.440000000",
+          "saved_ms": "-1.054000000"
+        },
+        {
+          "token": "26",
+          "order": "AB",
+          "baseline_ms": "109.419000000",
+          "candidate_ms": "110.360000000",
+          "saved_ms": "-0.941000000"
+        },
+        {
+          "token": "27",
+          "order": "BA",
+          "baseline_ms": "109.480000000",
+          "candidate_ms": "109.624000000",
+          "saved_ms": "-0.144000000"
+        },
+        {
+          "token": "28",
+          "order": "AB",
+          "baseline_ms": "109.615000000",
+          "candidate_ms": "109.906000000",
+          "saved_ms": "-0.291000000"
+        },
+        {
+          "token": "29",
+          "order": "BA",
+          "baseline_ms": "110.289000000",
+          "candidate_ms": "109.969000000",
+          "saved_ms": "0.320000000"
+        },
+        {
+          "token": "30",
+          "order": "AB",
+          "baseline_ms": "109.779000000",
+          "candidate_ms": "109.662000000",
+          "saved_ms": "0.117000000"
+        },
+        {
+          "token": "31",
+          "order": "BA",
+          "baseline_ms": "109.523000000",
+          "candidate_ms": "110.315000000",
+          "saved_ms": "-0.792000000"
+        },
+        {
+          "token": "32",
+          "order": "AB",
+          "baseline_ms": "109.662000000",
+          "candidate_ms": "109.926000000",
+          "saved_ms": "-0.264000000"
+        },
+        {
+          "token": "33",
+          "order": "BA",
+          "baseline_ms": "110.157000000",
+          "candidate_ms": "109.876000000",
+          "saved_ms": "0.281000000"
+        },
+        {
+          "token": "34",
+          "order": "AB",
+          "baseline_ms": "109.679000000",
+          "candidate_ms": "110.113000000",
+          "saved_ms": "-0.434000000"
+        },
+        {
+          "token": "35",
+          "order": "BA",
+          "baseline_ms": "110.586000000",
+          "candidate_ms": "110.120000000",
+          "saved_ms": "0.466000000"
+        },
+        {
+          "token": "36",
+          "order": "AB",
+          "baseline_ms": "109.791000000",
+          "candidate_ms": "109.940000000",
+          "saved_ms": "-0.149000000"
+        },
+        {
+          "token": "37",
+          "order": "BA",
+          "baseline_ms": "110.546000000",
+          "candidate_ms": "110.110000000",
+          "saved_ms": "0.436000000"
+        },
+        {
+          "token": "38",
+          "order": "AB",
+          "baseline_ms": "110.421000000",
+          "candidate_ms": "110.040000000",
+          "saved_ms": "0.381000000"
+        },
+        {
+          "token": "39",
+          "order": "BA",
+          "baseline_ms": "110.154000000",
+          "candidate_ms": "110.117000000",
+          "saved_ms": "0.037000000"
+        },
+        {
+          "token": "40",
+          "order": "AB",
+          "baseline_ms": "111.277000000",
+          "candidate_ms": "110.112000000",
+          "saved_ms": "1.165000000"
+        },
+        {
+          "token": "41",
+          "order": "BA",
+          "baseline_ms": "110.488000000",
+          "candidate_ms": "110.236000000",
+          "saved_ms": "0.252000000"
+        },
+        {
+          "token": "42",
+          "order": "AB",
+          "baseline_ms": "110.340000000",
+          "candidate_ms": "110.688000000",
+          "saved_ms": "-0.348000000"
+        },
+        {
+          "token": "43",
+          "order": "BA",
+          "baseline_ms": "110.836000000",
+          "candidate_ms": "111.310000000",
+          "saved_ms": "-0.474000000"
+        },
+        {
+          "token": "44",
+          "order": "AB",
+          "baseline_ms": "110.779000000",
+          "candidate_ms": "111.538000000",
+          "saved_ms": "-0.759000000"
+        },
+        {
+          "token": "45",
+          "order": "BA",
+          "baseline_ms": "110.629000000",
+          "candidate_ms": "110.790000000",
+          "saved_ms": "-0.161000000"
+        },
+        {
+          "token": "46",
+          "order": "AB",
+          "baseline_ms": "110.806000000",
+          "candidate_ms": "110.733000000",
+          "saved_ms": "0.073000000"
+        },
+        {
+          "token": "47",
+          "order": "BA",
+          "baseline_ms": "111.112000000",
+          "candidate_ms": "110.975000000",
+          "saved_ms": "0.137000000"
+        },
+        {
+          "token": "48",
+          "order": "AB",
+          "baseline_ms": "110.698000000",
+          "candidate_ms": "111.044000000",
+          "saved_ms": "-0.346000000"
+        },
+        {
+          "token": "49",
+          "order": "BA",
+          "baseline_ms": "110.604000000",
+          "candidate_ms": "111.113000000",
+          "saved_ms": "-0.509000000"
+        },
+        {
+          "token": "50",
+          "order": "AB",
+          "baseline_ms": "110.364000000",
+          "candidate_ms": "110.896000000",
+          "saved_ms": "-0.532000000"
+        },
+        {
+          "token": "51",
+          "order": "BA",
+          "baseline_ms": "111.057000000",
+          "candidate_ms": "110.714000000",
+          "saved_ms": "0.343000000"
+        },
+        {
+          "token": "52",
+          "order": "AB",
+          "baseline_ms": "110.487000000",
+          "candidate_ms": "111.263000000",
+          "saved_ms": "-0.776000000"
+        },
+        {
+          "token": "53",
+          "order": "BA",
+          "baseline_ms": "111.288000000",
+          "candidate_ms": "110.615000000",
+          "saved_ms": "0.673000000"
+        },
+        {
+          "token": "54",
+          "order": "AB",
+          "baseline_ms": "110.743000000",
+          "candidate_ms": "110.785000000",
+          "saved_ms": "-0.042000000"
+        },
+        {
+          "token": "55",
+          "order": "BA",
+          "baseline_ms": "111.012000000",
+          "candidate_ms": "111.044000000",
+          "saved_ms": "-0.032000000"
+        },
+        {
+          "token": "56",
+          "order": "AB",
+          "baseline_ms": "111.286000000",
+          "candidate_ms": "110.729000000",
+          "saved_ms": "0.557000000"
+        },
+        {
+          "token": "57",
+          "order": "BA",
+          "baseline_ms": "111.145000000",
+          "candidate_ms": "111.387000000",
+          "saved_ms": "-0.242000000"
+        },
+        {
+          "token": "58",
+          "order": "AB",
+          "baseline_ms": "111.948000000",
+          "candidate_ms": "111.117000000",
+          "saved_ms": "0.831000000"
+        },
+        {
+          "token": "59",
+          "order": "BA",
+          "baseline_ms": "111.640000000",
+          "candidate_ms": "110.906000000",
+          "saved_ms": "0.734000000"
+        },
+        {
+          "token": "60",
+          "order": "AB",
+          "baseline_ms": "111.438000000",
+          "candidate_ms": "111.688000000",
+          "saved_ms": "-0.250000000"
+        },
+        {
+          "token": "61",
+          "order": "BA",
+          "baseline_ms": "112.262000000",
+          "candidate_ms": "111.974000000",
+          "saved_ms": "0.288000000"
+        },
+        {
+          "token": "62",
+          "order": "AB",
+          "baseline_ms": "111.466000000",
+          "candidate_ms": "112.337000000",
+          "saved_ms": "-0.871000000"
+        },
+        {
+          "token": "63",
+          "order": "BA",
+          "baseline_ms": "111.619000000",
+          "candidate_ms": "111.550000000",
+          "saved_ms": "0.069000000"
+        },
+        {
+          "token": "64",
+          "order": "AB",
+          "baseline_ms": "112.012000000",
+          "candidate_ms": "111.718000000",
+          "saved_ms": "0.294000000"
+        },
+        {
+          "token": "65",
+          "order": "BA",
+          "baseline_ms": "111.825000000",
+          "candidate_ms": "111.614000000",
+          "saved_ms": "0.211000000"
+        },
+        {
+          "token": "66",
+          "order": "AB",
+          "baseline_ms": "111.346000000",
+          "candidate_ms": "111.405000000",
+          "saved_ms": "-0.059000000"
+        },
+        {
+          "token": "67",
+          "order": "BA",
+          "baseline_ms": "111.352000000",
+          "candidate_ms": "112.009000000",
+          "saved_ms": "-0.657000000"
+        },
+        {
+          "token": "68",
+          "order": "AB",
+          "baseline_ms": "111.451000000",
+          "candidate_ms": "111.808000000",
+          "saved_ms": "-0.357000000"
+        },
+        {
+          "token": "69",
+          "order": "BA",
+          "baseline_ms": "111.816000000",
+          "candidate_ms": "111.820000000",
+          "saved_ms": "-0.004000000"
+        },
+        {
+          "token": "70",
+          "order": "AB",
+          "baseline_ms": "111.545000000",
+          "candidate_ms": "111.358000000",
+          "saved_ms": "0.187000000"
+        },
+        {
+          "token": "71",
+          "order": "BA",
+          "baseline_ms": "111.760000000",
+          "candidate_ms": "112.248000000",
+          "saved_ms": "-0.488000000"
+        }
+      ],
+      "baseline_tps": 9.060026497746247,
+      "candidate_tps": 9.060152190737721,
+      "gain_pct": 0.0013873358042149064,
+      "saved_ms": 0.0015312500000000018,
+      "block_saved_ms": [
+        0.118375,
+        0.27775,
+        -0.3415,
+        0.09425,
+        -0.01437499999999999,
+        -0.15262499999999998,
+        0.1395,
+        -0.109125
+      ],
+      "positive_blocks": 4,
+      "block_ci95_radius_ms": 0.16467705409936023
+    }
+  ],
+  "sources_unchanged": true,
+  "binaries_unchanged": true,
+  "samples_discarded": 0,
+  "completed_utc": "2026-10-10T14:15:21.944209+00:00"
+}
