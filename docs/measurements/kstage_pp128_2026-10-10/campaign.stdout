@@ -1,0 +1,28 @@
+KSTAGE_BEGIN 0 0
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,153.68,7.65,834.63,44.11,174664400
+KSTAGE_END 0 0 0
+KSTAGE_BEGIN 1 1
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,160.70,0.90,796.56,4.50,174664400
+KSTAGE_END 1 1 0
+KSTAGE_BEGIN 2 0
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,159.60,0.75,802.02,3.76,174664400
+KSTAGE_END 2 0 0
+KSTAGE_BEGIN 3 1
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,160.30,0.86,798.53,4.24,174664400
+KSTAGE_END 3 1 0
+KSTAGE_BEGIN 4 0
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,160.67,0.66,796.66,3.28,174664400
+KSTAGE_END 4 0 0
+KSTAGE_BEGIN 5 1
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,162.25,0.41,788.90,1.98,174664400
+KSTAGE_END 5 1 0
+KSTAGE_BEGIN 6 0
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,161.32,0.31,793.46,1.52,174664400
+KSTAGE_END 6 0 0

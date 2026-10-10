@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-10",
+  "command": [
+    "caffeinate",
+    "-disu",
+    "./qw3-kstage-prefill-test",
+    "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "iq3",
+    "64"
+  ],
+  "rc": 0,
+  "seconds": 85.811105417,
+  "source_sha256": {
+    "tests/kstage_candidates.inc": "0c5769e9a7f1ef5ce781c17354af4cf208ff78efb80ac70624a75ee04c508544",
+    "tests/prepare_kstage_candidates.py": "bd34fd5cfc01bfb8a68d2246583571a6cdb24e197486ee0742656ff4098d015c",
+    "tests/test_kstage_prefill.m": "338f727c4093a5bb0bc299c6d7c32a1f06746361516bf4fd30bbe4daa8899955",
+    "tests/.kstage_candidates/quality.inc": "e77609e8488e3d1da83b4cded188f2dfb4e24446a63d819ac8f7aa7569602ab3",
+    "tests/.kstage_candidates/kernels.metal": "19f0c59af8c64984fbb7c060f8277a12be7c421af9f9bbde4416a420cd94d992",
+    "tests/.kstage_candidates/bridge.inc": "7896f97de64b22eb278d522687ca820f18c780f4be5306cedb5c36334102d0d7",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603"
+  },
+  "binary_sha256": "36e0737caa511b97fb1c8df6ac82568a74e27abf12e1b183e5019e0d4f406419",
+  "sources_unchanged": true,
+  "snapshot_origin": "Copied after validation from the private pp128 campaign archive, after checking every file against the original full-quality manifest hashes."
+}

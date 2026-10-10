@@ -1,0 +1,7 @@
+matrix_exact groups=8 n_in=256 n_out=1 guards=ok input=unchanged
+matrix_exact groups=8 n_in=4352 n_out=33 guards=ok input=unchanged
+matrix_exact groups=8 n_in=5120 n_out=4097 guards=ok input=unchanged
+matrix_exact groups=8 n_in=5120 n_out=4111 guards=ok input=unchanged
+matrix_exact groups=8 n_in=5120 n_out=17408 guards=ok input=unchanged
+matrix_exact groups=8 n_in=17408 n_out=5120 guards=ok input=unchanged
+PASS groups=8 matrix_cases=6

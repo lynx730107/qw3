@@ -1,0 +1,426 @@
+{
+  "started_utc": "2026-10-10T11:19:45.909857+00:00",
+  "command": [
+    "caffeinate",
+    "-disu",
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-kstage-prefill-bench",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "64",
+    "iq3",
+    "pp128",
+    "5",
+    "60"
+  ],
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "dbf4709e87dd45216ec45a9c72cdd299705586557f8bd60a28a064c59040ab88",
+    "Makefile": "f1878cd4d3ae3bbc8cf120c881e8cfb235ab8c7bacab1e340d132e02fb717763",
+    "tests/kstage_candidates.inc": "0c5769e9a7f1ef5ce781c17354af4cf208ff78efb80ac70624a75ee04c508544",
+    "tests/prepare_kstage_candidates.py": "bd34fd5cfc01bfb8a68d2246583571a6cdb24e197486ee0742656ff4098d015c",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/test_kstage_prefill.m": "338f727c4093a5bb0bc299c6d7c32a1f06746361516bf4fd30bbe4daa8899955",
+    "tests/test_kstage_matrix.m": "ab1b7b3d6d5d274c02b4a224e269fffe2206e57a2a498508eb42059054cacea4",
+    "tests/bench_kstage_prefill.m": "ea9a7f976e85103802e6013caa24c57d59500eb39efecb52b87c184bc748f45c",
+    "tools/run_kstage_campaign.py": "e3ca567517c97185d4b4ee5a04ebddec39998152ef3ff52b4f878812d60958d2",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.kstage_candidates/bridge.inc": "7896f97de64b22eb278d522687ca820f18c780f4be5306cedb5c36334102d0d7",
+    "tests/.kstage_candidates/kernels.metal": "19f0c59af8c64984fbb7c060f8277a12be7c421af9f9bbde4416a420cd94d992",
+    "tests/.kstage_candidates/matrix.inc": "7bc2cc88511bd9fc1ded797da87c1053da49438f261d78291ae6664ec55f07ec",
+    "tests/.kstage_candidates/quality.inc": "e77609e8488e3d1da83b4cded188f2dfb4e24446a63d819ac8f7aa7569602ab3"
+  },
+  "binary_sha256": "4c3281b8f796a5f310428a9a81c1b363de423a6947dc8189103cf6df8329572b",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "repetitions": 5,
+  "cooldown_seconds": 60,
+  "stage_k": 64,
+  "mode": "iq3",
+  "job": "pp128",
+  "context": 512,
+  "kv": "f16",
+  "gpu_layers": 64,
+  "threads": 4,
+  "seed": 1,
+  "warmup": true,
+  "method": "one engine; fresh session per block; native run_llama_style_case",
+  "runs": [
+    {
+      "block": 0,
+      "candidate": 0,
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "153.68",
+        "stdev_tps": "7.65",
+        "avg_ms": "834.63",
+        "stdev_ms": "44.11",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "iq3": 0,
+        "iq4": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 158.245,
+          "ms": 808.87
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.591,
+          "ms": 807.109
+        },
+        {
+          "repetition": 3,
+          "tok_s": 140.423,
+          "ms": 911.529
+        },
+        {
+          "repetition": 4,
+          "tok_s": 153.843,
+          "ms": 832.017
+        },
+        {
+          "repetition": 5,
+          "tok_s": 157.32,
+          "ms": 813.628
+        }
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2576.94M  free = 1519.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2576.94M  free = 1519.06M  (encrypted)"
+    },
+    {
+      "block": 1,
+      "candidate": 1,
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "160.70",
+        "stdev_tps": "0.90",
+        "avg_ms": "796.56",
+        "stdev_ms": "4.50",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "iq3": 666,
+        "iq4": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 160.619,
+          "ms": 796.918
+        },
+        {
+          "repetition": 2,
+          "tok_s": 159.162,
+          "ms": 804.211
+        },
+        {
+          "repetition": 3,
+          "tok_s": 161.384,
+          "ms": 793.14
+        },
+        {
+          "repetition": 4,
+          "tok_s": 161.209,
+          "ms": 793.999
+        },
+        {
+          "repetition": 5,
+          "tok_s": 161.103,
+          "ms": 794.522
+        }
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2560.94M  free = 1535.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2560.94M  free = 1535.06M  (encrypted)"
+    },
+    {
+      "block": 2,
+      "candidate": 0,
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "159.60",
+        "stdev_tps": "0.75",
+        "avg_ms": "802.02",
+        "stdev_ms": "3.76",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "iq3": 0,
+        "iq4": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 160.431,
+          "ms": 797.85
+        },
+        {
+          "repetition": 2,
+          "tok_s": 159.197,
+          "ms": 804.033
+        },
+        {
+          "repetition": 3,
+          "tok_s": 158.673,
+          "ms": 806.692
+        },
+        {
+          "repetition": 4,
+          "tok_s": 159.398,
+          "ms": 803.023
+        },
+        {
+          "repetition": 5,
+          "tok_s": 160.297,
+          "ms": 798.518
+        }
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2544.94M  free = 1551.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2544.94M  free = 1551.06M  (encrypted)"
+    },
+    {
+      "block": 3,
+      "candidate": 1,
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "160.30",
+        "stdev_tps": "0.86",
+        "avg_ms": "798.53",
+        "stdev_ms": "4.24",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "iq3": 666,
+        "iq4": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.906,
+          "ms": 800.472
+        },
+        {
+          "repetition": 2,
+          "tok_s": 159.773,
+          "ms": 801.135
+        },
+        {
+          "repetition": 3,
+          "tok_s": 159.599,
+          "ms": 802.008
+        },
+        {
+          "repetition": 4,
+          "tok_s": 161.698,
+          "ms": 791.599
+        },
+        {
+          "repetition": 5,
+          "tok_s": 160.517,
+          "ms": 797.423
+        }
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2520.94M  free = 1575.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2520.94M  free = 1575.06M  (encrypted)"
+    },
+    {
+      "block": 4,
+      "candidate": 0,
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "160.67",
+        "stdev_tps": "0.66",
+        "avg_ms": "796.66",
+        "stdev_ms": "3.28",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "iq3": 0,
+        "iq4": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 161.61,
+          "ms": 792.032
+        },
+        {
+          "repetition": 2,
+          "tok_s": 160.893,
+          "ms": 795.56
+        },
+        {
+          "repetition": 3,
+          "tok_s": 160.456,
+          "ms": 797.727
+        },
+        {
+          "repetition": 4,
+          "tok_s": 160.613,
+          "ms": 796.945
+        },
+        {
+          "repetition": 5,
+          "tok_s": 159.793,
+          "ms": 801.038
+        }
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2512.94M  free = 1583.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 3072.00M  used = 2268.69M  free = 803.31M  (encrypted)"
+    },
+    {
+      "block": 5,
+      "candidate": 1,
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "162.25",
+        "stdev_tps": "0.41",
+        "avg_ms": "788.90",
+        "stdev_ms": "1.98",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "iq3": 666,
+        "iq4": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 162.755,
+          "ms": 786.458
+        },
+        {
+          "repetition": 2,
+          "tok_s": 162.427,
+          "ms": 788.044
+        },
+        {
+          "repetition": 3,
+          "tok_s": 162.405,
+          "ms": 788.155
+        },
+        {
+          "repetition": 4,
+          "tok_s": 161.914,
+          "ms": 790.544
+        },
+        {
+          "repetition": 5,
+          "tok_s": 161.762,
+          "ms": 791.288
+        }
+      ],
+      "swap_before": "vm.swapusage: total = 3072.00M  used = 2084.62M  free = 987.38M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 3072.00M  used = 2084.62M  free = 987.38M  (encrypted)"
+    },
+    {
+      "block": 6,
+      "candidate": 0,
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "161.32",
+        "stdev_tps": "0.31",
+        "avg_ms": "793.46",
+        "stdev_ms": "1.52",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "iq3": 0,
+        "iq4": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 161.808,
+          "ms": 791.06
+        },
+        {
+          "repetition": 2,
+          "tok_s": 161.408,
+          "ms": 793.023
+        },
+        {
+          "repetition": 3,
+          "tok_s": 161.258,
+          "ms": 793.76
+        },
+        {
+          "repetition": 4,
+          "tok_s": 161.072,
+          "ms": 794.678
+        },
+        {
+          "repetition": 5,
+          "tok_s": 161.049,
+          "ms": 794.791
+        }
+      ],
+      "swap_before": "vm.swapusage: total = 3072.00M  used = 2084.62M  free = 987.38M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 3072.00M  used = 2084.62M  free = 987.38M  (encrypted)"
+    }
+  ],
+  "swap_before": "vm.swapusage: total = 9216.00M  used = 4446.50M  free = 4769.50M  (encrypted)",
+  "summary": {
+    "off_tps": 158.67260449303794,
+    "candidate_tps": 161.074501151431,
+    "pooled_gain_pct": 1.5137437657037234,
+    "off_spread_pct": 5.1886673556322815
+  },
+  "bracketed_comparisons": [
+    {
+      "block": 1,
+      "gain_pct": 2.732374209099131
+    },
+    {
+      "block": 3,
+      "gain_pct": 0.10143638936546129
+    },
+    {
+      "block": 5,
+      "gain_pct": 0.7808340727595287
+    }
+  ],
+  "completed_utc": "2026-10-10T11:27:21.730683+00:00",
+  "sources_unchanged": true,
+  "binary_unchanged": true,
+  "samples_discarded": 0
+}

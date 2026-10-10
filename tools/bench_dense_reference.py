@@ -69,6 +69,7 @@ def main():
                                     + [root / n for n in ('tests/scratch_candidates.inc', 'tests/scratch_matmul.inc',
                                         'tests/gdn_prefill_dispatch.inc', 'tests/gdn_prefill_candidates.metal',
                                         'tests/bench_packed8_scratch.m', 'tests/bench_scratch_prefill.m',
+                                        'qw3.h', 'qw3_metal.h', 'qw3_runtime_fingerprint.h',
                                         'tools/bench_dense_reference.py') if (root / n).exists()])},
         "llama_checkout_revision": run(["git", "-C", str(root / '../../llama.cpp'), 'rev-parse', 'HEAD']).stdout.strip(),
         "qw3_variant": "packed8+direct_scratch" if args.qw3_packed8_scratch else "ordinary",
@@ -130,6 +131,12 @@ def main():
                             raise ValueError('unexpected candidate dispatch during ordinary depth-zero decode')
                     seconds = float(rows[0]["avg_ms"]) / 1000
                     raw = rows[0]
+                    matches = re.findall(r'qw3-bench: sample (\d+)/(\d+) ([\d.]+) tok/s ([\d.]+) ms', result.stderr)
+                    if len(matches) != args.repetitions or any(int(i) != n or int(total) != args.repetitions
+                            for n, (i, total, _, _) in enumerate(matches, 1)):
+                        raise ValueError('missing qw3 repetitions')
+                    samples = [{'repetition': int(i), 'tok_s': float(t), 'ms': float(ms)}
+                               for i, _, t, ms in matches]
                 else:
                     rows = json.loads(result.stdout)
                     if len(rows) != 1:
@@ -149,11 +156,16 @@ def main():
                     if not re.search(r"n_ctx\s*=\s*256\b", result.stderr):
                         raise ValueError("llama ctx256 allocation was not confirmed")
                     seconds = float(raw["avg_ns"]) / 1e9
+                    if len(raw['samples_ns']) != args.repetitions or len(raw['samples_ts']) != args.repetitions:
+                        raise ValueError('missing llama repetitions')
+                    samples = [{'repetition': i, 'tok_s': float(t), 'ms': float(ns) / 1e6}
+                               for i, (t, ns) in enumerate(zip(raw['samples_ts'], raw['samples_ns']), 1)]
                 if not math.isfinite(seconds) or seconds <= 0:
                     raise ValueError("non-finite or non-positive timing")
                 timings[engine].append(seconds)
                 data["runs"].append({"job": label, "pair": pair, "engine": engine,
                                      "command": command, "seconds": seconds, "raw": raw,
+                                     "samples": samples,
                                      'swap_before': swap_before, 'swap_after': swap_after,
                                      'environment': {k: v for k, v in run_env.items() if k.startswith('QW3_')}})
                 manifest.write_text(json.dumps(data, indent=2) + "\n")
@@ -171,6 +183,12 @@ def main():
         }
         manifest.write_text(json.dumps(data, indent=2) + "\n")
         print(json.dumps({label: data["summary"][label]}), flush=True)
+    if any(hashlib.sha256(Path(f).read_bytes()).hexdigest() != h
+           for f, h in data['binary_sha256'].items()) or any(
+           hashlib.sha256((root / f).read_bytes()).hexdigest() != h
+           for f, h in data['source_sha256'].items()):
+        raise ValueError('sources or executable changed during comparison')
+    data.update(sources_unchanged=True, binaries_unchanged=True, samples_discarded=0)
     data["completed_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     manifest.write_text(json.dumps(data, indent=2) + "\n")
 

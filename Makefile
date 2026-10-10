@@ -133,6 +133,33 @@ qw3-scratch-prefill-test: tests/test_scratch_prefill.m tests/scratch_candidates.
 qw3-scratch-matmul-test: tests/test_scratch_matmul.m tests/scratch_candidates.inc tests/scratch_matmul.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_scratch_matmul.m $(METAL_LDLIBS)
 
+tests/.kstage_candidates/kernels.metal: tests/prepare_kstage_candidates.py tests/test_native_prefill.m tests/test_register_iq4.m metal/qw3_core_moe.metal qw3_metal.m
+	python3 tests/prepare_kstage_candidates.py
+
+tests/.iq3_groups/wrapper.inc: tests/prepare_iq3_groups.py tests/test_native_prefill.m qw3_metal.m
+	python3 tests/prepare_iq3_groups.py
+
+qw3-iq3-groups-test: tests/test_iq3_groups.m tests/iq3_groups_candidates.inc tests/.iq3_groups/wrapper.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_groups.m $(METAL_LDLIBS)
+
+qw3-iq3-groups-bench: tests/bench_iq3_groups.m tests/iq3_groups_candidates.inc tests/.iq3_groups/wrapper.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_groups.m $(METAL_LDLIBS)
+
+qw3-kstage-matrix-test: tests/test_kstage_matrix.m tests/kstage_candidates.inc tests/.kstage_candidates/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_kstage_matrix.m $(METAL_LDLIBS)
+
+qw3-native-kstage-test: tests/test_native_kstage.m tests/native_prefill_validation.inc tests/.kstage_candidates/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_native_kstage.m $(METAL_LDLIBS)
+
+qw3-kstage-prefill-test: tests/test_kstage_prefill.m tests/kstage_candidates.inc tests/.kstage_candidates/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_kstage_prefill.m $(METAL_LDLIBS)
+
+qw3-kstage-prefill-bench: tests/bench_kstage_prefill.m tests/kstage_candidates.inc tests/.kstage_candidates/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_kstage_prefill.m $(METAL_LDLIBS)
+
+qw3-kstage-paired-bench: tests/bench_kstage_paired.m tests/kstage_candidates.inc tests/.kstage_candidates/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_kstage_paired.m $(METAL_LDLIBS)
+
 tests/.combination_candidates/core.inc: tests/prepare_combination_candidates.py tests/test_native_prefill.m qw3.c qw3_metal.m
 	python3 tests/prepare_combination_candidates.py
 
@@ -294,7 +321,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
+qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -466,6 +493,9 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-iq3-groups-test qw3-iq3-groups-bench
+	rm -f qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-kstage-paired-bench
+	rm -f qw3-native-kstage-test
 	rm -f qw3-register-iq4-test
 	rm -f qw3-register-iq4-cached-test
 	rm -f qw3-epilogue-matrix-test qw3-sum8-matrix-test

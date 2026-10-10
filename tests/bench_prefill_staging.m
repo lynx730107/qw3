@@ -141,6 +141,8 @@ static int prefill_initialize(void) {
     return prefill_copy_selftest(0) && prefill_copy_selftest(1);
 }
 static void prefill_select(int v) {
+    /* This experiment compares its own K32 pipelines. */
+    setenv("QW3_METAL_DENSE_PREFILL_K64", "0", 1);
     setenv("QW3_METAL_DENSE_GPU_COPY",v && !strcmp(prefill_mode,"production_copy") ? "1" : "0",1);
     prefill_copy_enabled=v && !strcmp(prefill_mode,"copies");
     g_matmul_iq3_s_mpp_staged128_pipeline=prefill_iq3[v];

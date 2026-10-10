@@ -126,6 +126,8 @@ static __attribute__((unused)) id probe_all_devices(void) { return MTLCopyAllDev
 #include "../qw3.c"
 #undef qw3_engine_open
 static void probe_select(int mode) {
+    /* Keep the original K32 baseline and private IQ3 pipeline selectable. */
+    setenv("QW3_METAL_DENSE_PREFILL_K64", "0", 1);
     g_matmul_q3_k_mpp_staged128_pipeline=(mode==1 || mode==5) ? probe_q3_candidate : probe_q3_base;
     g_matmul_iq3_s_mpp_staged128_pipeline=(mode==2 || mode==4 || mode==5) ? probe_iq3_candidate : probe_iq3_base;
     g_matmul_iq4_xs_mpp_staged128_pipeline=mode==2 ? probe_iq4_candidate : probe_iq4_base;

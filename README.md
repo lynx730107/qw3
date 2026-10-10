@@ -371,6 +371,22 @@ retained GPU timing samples show a large slowdown. These isolated matrix
 results are not full-model tok/s; neither prototype is adopted. Optional
 `qw3-register-iq4-test` and `qw3-register-iq4-cached-test` retain the experiments.
 
+The [M5 K64 staging trial](docs/m5_kstage_prefill_2026-10-10.md) stages two
+IQ3_S K32 tiles before their original TensorOps matmuls. It preserves FP32
+accumulation order and passes bit-identical full logits, live state,
+checkpoint continuation and native strided matrix checks. An eight-pair
+private replication observes about +0.97% pp128; the production-binary
+confirmation measures +1.34%, with stable OFF controls and all three nearby
+comparisons positive. The optional native M5
+kernel can be disabled with `QW3_METAL_DENSE_PREFILL_K64=0`, retaining
+packed8 and direct scratch. Single-token decode uses its existing path;
+matching or beating llama.cpp in both phases remains the objective.
+
+The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
+shares the existing FP32 lookup table across four or eight SIMD groups.
+Guarded matrices and paired full-vocabulary/state checks pass, but neither
+variant shows a convincing decode gain. Both remain private diagnostics.
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. The block probe computes
 **only the last logit row**.

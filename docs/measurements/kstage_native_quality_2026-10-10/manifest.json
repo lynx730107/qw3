@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-10",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "0142c7c669219c43a0f904474a2b175668abe2c24d5d9090f3539fc05d443f22",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "tests/native_prefill_validation.inc": "e2d538c0227ed006348f69898fb68cf252641de381a363cc97cdbec490967421",
+    "tests/test_native_kstage.m": "c8f8a8e385be80068e06cbab2a7aa40dfc21a6009e27e78ebdcdcba274a92321",
+    "tests/prepare_kstage_candidates.py": "d998bda599d6fc7b02a6edd69c8fce4c5970a1dbf1828e87667f906a7b7c92a4",
+    "tests/.kstage_candidates/native_quality.inc": "68aafa1d4a51197c940216588647f6408f7bc2d3751101bbc4f9136d6f4a3c2b",
+    "tests/test_native_prefill_matmul.m": "37d3dc186cec6af8587a7a7ff18aa9329c090dea3c2f2b79c6907e124a038546",
+    "Makefile": "d23f21e0c137e8554d0ea83395cdb980206901ad7038bb4b1af0e31fb6eaab96",
+    "qw3_runtime_fingerprint.h": "e8bd93854ced2f9ed29c62e378757e2a3fffa2d795d3e32147b47023aff215e0",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813"
+  },
+  "runs": [
+    {
+      "name": "full",
+      "command": [
+        "./qw3-native-kstage-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all"
+      ],
+      "rc": 0,
+      "seconds": 79.083354583
+    },
+    {
+      "name": "matrix",
+      "command": [
+        "./qw3-native-prefill-matmul-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 0,
+      "seconds": 1.1021447089999867
+    },
+    {
+      "name": "fingerprint",
+      "command": [
+        "make",
+        "test-runtime-fingerprint"
+      ],
+      "rc": 0,
+      "seconds": 0.34198937500001136
+    },
+    {
+      "name": "checkpoint",
+      "command": [
+        "make",
+        "test-agent-checkpoint-compatibility"
+      ],
+      "rc": 2,
+      "seconds": 0.4218947079999964,
+      "reason": "Harness applied dense QW3_METAL_NGL=64 to the default 40-layer MoE model; rejected before inference."
+    },
+    {
+      "name": "checkpoint_corrected",
+      "command": [
+        "make",
+        "test-agent-checkpoint-compatibility"
+      ],
+      "rc": 0,
+      "seconds": 11.83420525,
+      "environment": "No inherited QW3_/GGML_ options; test selects its own model/precision/layer count."
+    }
+  ],
+  "sources_unchanged": true
+}

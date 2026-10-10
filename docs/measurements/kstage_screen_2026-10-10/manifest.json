@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-10",
+  "scope": "Guarded exact matrices, then isolated microbenchmark screening only. No end-to-end throughput or promotion claim.",
+  "source_sha256": {
+    "tests/prepare_kstage_candidates.py": "bd34fd5cfc01bfb8a68d2246583571a6cdb24e197486ee0742656ff4098d015c",
+    "tests/kstage_candidates.inc": "0c5769e9a7f1ef5ce781c17354af4cf208ff78efb80ac70624a75ee04c508544",
+    "tests/test_kstage_matrix.m": "ab1b7b3d6d5d274c02b4a224e269fffe2206e57a2a498508eb42059054cacea4",
+    "tests/test_kstage_prefill.m": "338f727c4093a5bb0bc299c6d7c32a1f06746361516bf4fd30bbe4daa8899955",
+    "tests/bench_kstage_prefill.m": "ea9a7f976e85103802e6013caa24c57d59500eb39efecb52b87c184bc748f45c",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "Makefile": "f1878cd4d3ae3bbc8cf120c881e8cfb235ab8c7bacab1e340d132e02fb717763",
+    "qw3_runtime_fingerprint.h": "dbf4709e87dd45216ec45a9c72cdd299705586557f8bd60a28a064c59040ab88",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.kstage_candidates/bridge.inc": "7896f97de64b22eb278d522687ca820f18c780f4be5306cedb5c36334102d0d7",
+    "tests/.kstage_candidates/kernels.metal": "19f0c59af8c64984fbb7c060f8277a12be7c421af9f9bbde4416a420cd94d992",
+    "tests/.kstage_candidates/matrix.inc": "7bc2cc88511bd9fc1ded797da87c1053da49438f261d78291ae6664ec55f07ec",
+    "tests/.kstage_candidates/quality.inc": "e77609e8488e3d1da83b4cded188f2dfb4e24446a63d819ac8f7aa7569602ab3"
+  },
+  "binary_sha256": {
+    "qw3-kstage-matrix-test": "dd54034d9f5ea5491ac773564affb3ef36d24306122e78a63ffeea4224b8b50e",
+    "qw3-kstage-prefill-test": "36e0737caa511b97fb1c8df6ac82568a74e27abf12e1b183e5019e0d4f406419",
+    "qw3-kstage-prefill-bench": "4c3281b8f796a5f310428a9a81c1b363de423a6947dc8189103cf6df8329572b"
+  },
+  "runs": [
+    {
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-kstage-matrix-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "64",
+        "quality"
+      ],
+      "rc": 0,
+      "seconds": 1.873448083
+    },
+    {
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-kstage-matrix-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "128",
+        "quality"
+      ],
+      "rc": 0,
+      "seconds": 0.515238125
+    },
+    {
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-kstage-matrix-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "64",
+        "micro"
+      ],
+      "rc": 0,
+      "seconds": 3.233008417
+    },
+    {
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-kstage-matrix-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "128",
+        "micro"
+      ],
+      "rc": 0,
+      "seconds": 3.068515959
+    }
+  ],
+  "sources_unchanged": true
+}

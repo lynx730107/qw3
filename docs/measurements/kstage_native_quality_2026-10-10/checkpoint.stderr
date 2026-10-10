@@ -1,0 +1,9 @@
+qw3-agent: model=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf backend=Metal ctx=4096 think=none tools=on
+qw3: loaded ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.011s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+agent: --ngl must be in the range 0..40 for this model
+test-agent-checkpoint-compatibility: FAIL: initial conversation failed
+make: *** [test-agent-checkpoint-compatibility] Error 1

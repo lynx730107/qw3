@@ -1,0 +1,54 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.004s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+KSTAGE_BEGIN block=0 candidate=0 cooldown=60
+qw3-bench: sample 1/5 158.245 tok/s 808.870 ms
+qw3-bench: sample 2/5 158.591 tok/s 807.109 ms
+qw3-bench: sample 3/5 140.423 tok/s 911.529 ms
+qw3-bench: sample 4/5 153.843 tok/s 832.017 ms
+qw3-bench: sample 5/5 157.320 tok/s 813.628 ms
+KSTAGE_END block=0 candidate=0 rc=0 iq3=0 iq4=0
+KSTAGE_BEGIN block=1 candidate=1 cooldown=60
+qw3-bench: sample 1/5 160.619 tok/s 796.918 ms
+qw3-bench: sample 2/5 159.162 tok/s 804.211 ms
+qw3-bench: sample 3/5 161.384 tok/s 793.140 ms
+qw3-bench: sample 4/5 161.209 tok/s 793.999 ms
+qw3-bench: sample 5/5 161.103 tok/s 794.522 ms
+KSTAGE_END block=1 candidate=1 rc=0 iq3=666 iq4=0
+KSTAGE_BEGIN block=2 candidate=0 cooldown=60
+qw3-bench: sample 1/5 160.431 tok/s 797.850 ms
+qw3-bench: sample 2/5 159.197 tok/s 804.033 ms
+qw3-bench: sample 3/5 158.673 tok/s 806.692 ms
+qw3-bench: sample 4/5 159.398 tok/s 803.023 ms
+qw3-bench: sample 5/5 160.297 tok/s 798.518 ms
+KSTAGE_END block=2 candidate=0 rc=0 iq3=0 iq4=0
+KSTAGE_BEGIN block=3 candidate=1 cooldown=60
+qw3-bench: sample 1/5 159.906 tok/s 800.472 ms
+qw3-bench: sample 2/5 159.773 tok/s 801.135 ms
+qw3-bench: sample 3/5 159.599 tok/s 802.008 ms
+qw3-bench: sample 4/5 161.698 tok/s 791.599 ms
+qw3-bench: sample 5/5 160.517 tok/s 797.423 ms
+KSTAGE_END block=3 candidate=1 rc=0 iq3=666 iq4=0
+KSTAGE_BEGIN block=4 candidate=0 cooldown=60
+qw3-bench: sample 1/5 161.610 tok/s 792.032 ms
+qw3-bench: sample 2/5 160.893 tok/s 795.560 ms
+qw3-bench: sample 3/5 160.456 tok/s 797.727 ms
+qw3-bench: sample 4/5 160.613 tok/s 796.945 ms
+qw3-bench: sample 5/5 159.793 tok/s 801.038 ms
+KSTAGE_END block=4 candidate=0 rc=0 iq3=0 iq4=0
+KSTAGE_BEGIN block=5 candidate=1 cooldown=60
+qw3-bench: sample 1/5 162.755 tok/s 786.458 ms
+qw3-bench: sample 2/5 162.427 tok/s 788.044 ms
+qw3-bench: sample 3/5 162.405 tok/s 788.155 ms
+qw3-bench: sample 4/5 161.914 tok/s 790.544 ms
+qw3-bench: sample 5/5 161.762 tok/s 791.288 ms
+KSTAGE_END block=5 candidate=1 rc=0 iq3=666 iq4=0
+KSTAGE_BEGIN block=6 candidate=0 cooldown=60
+qw3-bench: sample 1/5 161.808 tok/s 791.060 ms
+qw3-bench: sample 2/5 161.408 tok/s 793.023 ms
+qw3-bench: sample 3/5 161.258 tok/s 793.760 ms
+qw3-bench: sample 4/5 161.072 tok/s 794.678 ms
+qw3-bench: sample 5/5 161.049 tok/s 794.791 ms
+KSTAGE_END block=6 candidate=0 rc=0 iq3=0 iq4=0

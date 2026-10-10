@@ -47,7 +47,7 @@ def main():
                 (name == 'QW3_PRIVATE_DIRECT_SCRATCH' and value in ('projections', 'output', 'all')) or
                 (name == 'QW3_PRIVATE_PACKED8_SCRATCH' and value == '1') or
                 (name == 'QW3_PRIVATE_MICRO' and value in ('prefill', 'decode', 'pair', 'conv', 'all')) or
-                (name == 'QW3_METAL_DENSE_PREFILL_FAST' and value == '1') or
+                (name in ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64') and value == '1') or
                 (name in ('QW3_PRIVATE_IQ3_METADATA', 'QW3_PRIVATE_METADATA_COMBINED', 'QW3_PRIVATE_RESTORE_COPIES') and value == '1') or
                 (name in ('QW3_PRIVATE_Q3_METADATA', 'QW3_PRIVATE_IQ_METADATA', 'QW3_PRIVATE_STAGE_PROFILE') and value == '1')):
             parser.error('use one documented private candidate setting')
@@ -68,7 +68,9 @@ def main():
             'source_sha256': {str(f.relative_to(root)): hashlib.sha256(f.read_bytes()).hexdigest()
                               for f in ([root / n for n in ('qw3.c', 'qw3_metal.m', 'qw3_bench.c')]
                                         + sorted((root / 'metal').glob('*.metal'))
-                                        + [root / n for n in ('tests/dense_candidates.inc',
+                                        + [root / n for n in ('qw3.h', 'qw3_metal.h',
+                                             'qw3_runtime_fingerprint.h', 'tools/bench_qw3_candidates.py',
+                                             'tests/dense_candidates.inc',
                                              'tests/bench_dense_candidates.m', 'tests/gdn_prefill_candidates.inc',
                                              'tests/gdn_prefill_dispatch.inc',
                                              'tests/gdn_prefill_candidates.metal', 'tests/bench_gdn_prefill.m',
@@ -106,6 +108,8 @@ def main():
             run_env = dict(env, **(candidate_env if mode == 'candidate' else {}))
             if 'QW3_METAL_DENSE_PREFILL_FAST' in candidate_env and mode == 'off':
                 run_env['QW3_METAL_DENSE_PREFILL_FAST'] = '0'
+            if 'QW3_METAL_DENSE_PREFILL_K64' in candidate_env and mode == 'off':
+                run_env['QW3_METAL_DENSE_PREFILL_K64'] = '0'
             swap_before = subprocess.check_output(['sysctl', 'vm.swapusage'], text=True).strip()
             run = subprocess.run(command, env=run_env, capture_output=True, text=True, check=True)
             swap_after = subprocess.check_output(['sysctl', 'vm.swapusage'], text=True).strip()
@@ -113,7 +117,8 @@ def main():
             stem.with_suffix('.stdout').write_text(run.stdout)
             stem.with_suffix('.stderr').write_text(run.stderr)
             calls = re.search(r'private dispatches pair=(\d+) add=(\d+) gdn=(\d+)', run.stderr)
-            if candidate_env and 'QW3_METAL_DENSE_PREFILL_FAST' not in candidate_env:
+            if candidate_env and not any(k in candidate_env for k in
+                    ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64')):
                 if not calls:
                     raise ValueError('missing private dispatch counters')
                 pair, add, gdn = map(int, calls.groups())
@@ -194,7 +199,13 @@ def main():
             expected = dict(n_prompt=prompt, n_gen=generated, n_depth=depth, reps=args.repetitions)
             if any(int(row[k]) != v for k, v in expected.items()):
                 raise ValueError('unexpected counts')
+            samples = re.findall(r'qw3-bench: sample (\d+)/(\d+) ([\d.]+) tok/s ([\d.]+) ms', run.stderr)
+            if len(samples) != args.repetitions or any(int(i) != n or int(total) != args.repetitions
+                    for n, (i, total, _, _) in enumerate(samples, 1)):
+                raise ValueError('missing benchmark repetitions')
             data['runs'].append({'block': block, 'mode': mode, 'job': job,
+                                 'samples': [{'repetition': int(i), 'tok_s': float(t), 'ms': float(ms)}
+                                             for i, _, t, ms in samples],
                                  'command': command, 'swap_before': swap_before, 'swap_after': swap_after, 'environment': {k: v for k, v in run_env.items()
                                      if k.startswith('QW3_')}, 'metrics': row})
             save()
@@ -230,6 +241,11 @@ def main():
             'off_blocks': [left['block'], right['block']], 'baseline_mean_ms': baseline_ms,
             'candidate_ms': float(row['metrics']['avg_ms']),
             'gain_pct': 100 * (baseline_ms / float(row['metrics']['avg_ms']) - 1)})
+    if hashlib.sha256(binary.read_bytes()).hexdigest() != data['binary_sha256'] or any(
+            hashlib.sha256((root / f).read_bytes()).hexdigest() != h
+            for f, h in data['source_sha256'].items()):
+        raise ValueError('sources or executable changed during campaign')
+    data.update(sources_unchanged=True, binary_unchanged=True, samples_discarded=0)
     data['completed_utc'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     save()
     print(json.dumps(data['summary'], indent=2), flush=True)

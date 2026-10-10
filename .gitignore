@@ -78,3 +78,12 @@ tests/.register_iq4/
 /qw3-register-iq4-test
 tests/.register_iq4_cached/
 /qw3-register-iq4-cached-test
+tests/.kstage_candidates/
+/qw3-kstage-matrix-test
+/qw3-kstage-prefill-test
+/qw3-kstage-prefill-bench
+/qw3-kstage-paired-bench
+/qw3-native-kstage-test
+qw3-iq3-groups-test
+qw3-iq3-groups-bench
+tests/.iq3_groups/

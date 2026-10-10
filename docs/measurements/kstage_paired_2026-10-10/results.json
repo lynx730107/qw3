@@ -1,0 +1,90 @@
+{
+  "date": "2026-10-10",
+  "command": [
+    "caffeinate",
+    "-disu",
+    "/tmp/qw3-kstage-paired-bench",
+    "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "64",
+    "iq3"
+  ],
+  "rc": 0,
+  "source_sha256": {
+    "tests/bench_kstage_paired.m": "5c27f062123a58fbf990b653a19fe4f058f6ea4fc304d67c08a5b074ba558c32",
+    "tests/kstage_candidates.inc": "0c5769e9a7f1ef5ce781c17354af4cf208ff78efb80ac70624a75ee04c508544",
+    "tests/.kstage_candidates/kernels.metal": "19f0c59af8c64984fbb7c060f8277a12be7c421af9f9bbde4416a420cd94d992",
+    "tests/.kstage_candidates/bridge.inc": "7896f97de64b22eb278d522687ca820f18c780f4be5306cedb5c36334102d0d7",
+    "tests/.kstage_candidates/quality.inc": "e77609e8488e3d1da83b4cded188f2dfb4e24446a63d819ac8f7aa7569602ab3",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6"
+  },
+  "binary_sha256": "ab4427a60b334b357eb6758e0b73c8f78f75dbdd397cc7974c2569c93871ff21",
+  "scope": "two sessions, adjacent AB/BA effect; absolute throughput is not an ordinary single-session claim",
+  "cooldown_before_seconds": 60,
+  "warmup_pairs": 1,
+  "swap_after": "vm.swapusage: total = 3072.00M  used = 2020.56M  free = 1051.44M  (encrypted)",
+  "samples": [
+    {
+      "trial": "0",
+      "order": "AB",
+      "baseline_ms": "793.753000000",
+      "candidate_ms": "787.194000000",
+      "saved_ms": "6.559000000"
+    },
+    {
+      "trial": "1",
+      "order": "BA",
+      "baseline_ms": "796.943000000",
+      "candidate_ms": "789.272000000",
+      "saved_ms": "7.671000000"
+    },
+    {
+      "trial": "2",
+      "order": "AB",
+      "baseline_ms": "796.133000000",
+      "candidate_ms": "791.115000000",
+      "saved_ms": "5.018000000"
+    },
+    {
+      "trial": "3",
+      "order": "BA",
+      "baseline_ms": "801.849000000",
+      "candidate_ms": "791.002000000",
+      "saved_ms": "10.847000000"
+    },
+    {
+      "trial": "4",
+      "order": "AB",
+      "baseline_ms": "800.118000000",
+      "candidate_ms": "791.488000000",
+      "saved_ms": "8.630000000"
+    },
+    {
+      "trial": "5",
+      "order": "BA",
+      "baseline_ms": "800.548000000",
+      "candidate_ms": "793.705000000",
+      "saved_ms": "6.843000000"
+    },
+    {
+      "trial": "6",
+      "order": "AB",
+      "baseline_ms": "803.799000000",
+      "candidate_ms": "797.193000000",
+      "saved_ms": "6.606000000"
+    },
+    {
+      "trial": "7",
+      "order": "BA",
+      "baseline_ms": "804.573000000",
+      "candidate_ms": "795.069000000",
+      "saved_ms": "9.504000000"
+    }
+  ],
+  "pooled_gain_pct": 0.973447444601816,
+  "paired_saved_ms": 7.709750000000014,
+  "paired_ci95_radius_ms": 1.5626809085155873,
+  "positive_pairs": 8,
+  "sources_unchanged": true
+}

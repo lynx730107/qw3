@@ -147,6 +147,7 @@ static id<MTLComputePipelineState> g_matvec_iq3_s_pair_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq4_xs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_staged128_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_staged128_k64_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq4_xs_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_moe_iq3_s_pair_batch_pipeline;
 static id<MTLComputePipelineState> g_moe_down_iq4_xs_batch_pipeline;
@@ -1829,6 +1830,15 @@ static int qw3_metal_compile_kernels(void) {
         if (fn) {
             g_matmul_iq3_s_mpp_staged128_pipeline =
                 [g_device newComputePipelineStateWithFunction:fn error:&error];
+        }
+        /* Optional: keep the original staged128 path for external libraries
+         * without the new kernel and for devices outside the validated M5. */
+        if (strcmp(g_device_name, "Apple M5") == 0) {
+            fn = [g_library newFunctionWithName:@"qw3_matmul_iq3_s_mpp_staged128_k64"];
+            if (fn) g_matmul_iq3_s_mpp_staged128_k64_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+            if (g_matmul_iq3_s_mpp_staged128_k64_pipeline.maxTotalThreadsPerThreadgroup < 128u)
+                g_matmul_iq3_s_mpp_staged128_k64_pipeline = nil;
         }
         fn = [g_library newFunctionWithName:@"qw3_moe_iq3_s_prefill_mapped_mpp"];
         if (fn) {
@@ -4799,6 +4809,11 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
         id<MTLComputePipelineState> selected_pipeline = use_staged128 ?
             g_matmul_iq3_s_mpp_staged128_pipeline :
             g_matmul_iq3_s_mpp_pipeline;
+        const char *k64_env = getenv("QW3_METAL_DENSE_PREFILL_K64");
+        if (use_staged128 && g_matmul_iq3_s_mpp_staged128_k64_pipeline &&
+            qw3_metal_dense_prefill_fast_enabled(n_tokens) &&
+            (!k64_env || strcmp(k64_env, "0") != 0))
+            selected_pipeline = g_matmul_iq3_s_mpp_staged128_k64_pipeline;
         const uint32_t columns = use_staged128 ?
             QW3_METAL_STAGED128_COLUMNS(selected_pipeline) : 64u;
         const uint32_t threads = use_staged128 ?
@@ -13042,6 +13057,7 @@ void qw3_metal_cleanup(void) {
     g_matmul_iq3_s_mpp_pipeline = nil;
     g_matmul_iq4_xs_mpp_pipeline = nil;
     g_matmul_iq3_s_mpp_staged128_pipeline = nil;
+    g_matmul_iq3_s_mpp_staged128_k64_pipeline = nil;
     g_matmul_iq4_xs_mpp_staged128_pipeline = nil;
     g_moe_iq3_s_pair_batch_pipeline = nil;
     g_moe_down_iq4_xs_batch_pipeline = nil;
