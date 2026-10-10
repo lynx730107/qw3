@@ -1,0 +1,53 @@
+{
+  "purpose": "Diagnose scalar FMA contraction choices after a one-ULP state mismatch. No performance measurement.",
+  "started_utc": "2026-10-10T15:07:39.646174+00:00",
+  "runs": [
+    {
+      "name": "sv_left",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "0a5ab64e660b5243e38e0915670f360e0ec426d55a55fa390681af59480bf74e"
+    },
+    {
+      "name": "sv_right",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "3c69f09e4a0e4097fc2133f2e9b9fa6d26a1ecd58241ee46ba758f594ee54b64"
+    },
+    {
+      "name": "all_left",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "a080de2ac89a087a07ec6793d018fba037d10b6246502cd5db7d12f5b7a1e37e"
+    },
+    {
+      "name": "all_right",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "3e53f0d57f1e23ed868772be4b19c969421ec59e3e5903b7c47ee4844a35d858"
+    }
+  ],
+  "binary_sha256": "37d101540836c3b569ae1998cd651f266119fef4442f0b05d2882ccefc87789b",
+  "completed_utc": "2026-10-10T15:07:42.448861+00:00",
+  "generated_source_restored": true
+}

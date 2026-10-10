@@ -401,6 +401,12 @@ remove the first threadgroup barrier by computing gates per thread or per
 SIMD group. Both preserve exact outputs and states, including extreme gate
 inputs, but their measured decode gains are neutral; neither is adopted.
 
+The [two-column DeltaNet trial](docs/m5_gdn_two_columns_2026-10-10.md)
+uses 64 threads per head and shares q/k loads across two independent columns.
+Its cache32/48/64 variants fail exact numerical checks before timing. Explicit
+FMA recovers state in the guarded case but not every normalized output;
+production keeps the adopted scalar cache64.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

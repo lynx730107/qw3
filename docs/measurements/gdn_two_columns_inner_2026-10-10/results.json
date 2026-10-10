@@ -1,0 +1,53 @@
+{
+  "purpose": "Preserve native FP32 rounding after explicit FMA corrects state; no throughput measurement.",
+  "started_utc": "2026-10-10T15:27:52.556445+00:00",
+  "runs": [
+    {
+      "name": "core_volatile",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "6bdd149273095d1c020740ed67f799284efeccec7c2ef5a62108bf13de33cca3"
+    },
+    {
+      "name": "product_volatile",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "c54aec98a3f8d00d3cbd926025facf7377ae2b432326b8bd530f317f74a9ae71"
+    },
+    {
+      "name": "all_volatile",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "f39032fe0de8fa48c5ba07bb4ee1bafe6f4695651a334a2f0188260064bb0f6a"
+    },
+    {
+      "name": "separate_reductions",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "68988af1b43c369d449c403ee7607feb1c8866a96653d714d95c2cca850db06b"
+    }
+  ],
+  "completed_utc": "2026-10-10T15:27:55.798026+00:00",
+  "generated_source_restored": true,
+  "binary_sha256": "63d963bb03aa7c86fd51beefc525c06f79eb5ac6e80616c3ea56d272fb1f0e1c"
+}

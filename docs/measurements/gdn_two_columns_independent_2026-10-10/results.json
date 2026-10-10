@@ -1,0 +1,109 @@
+{
+  "purpose": "Independent variant checks; one failure cannot suppress checks of other cache extents. No timing.",
+  "runs": [
+    {
+      "name": "original-1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "1"
+      ],
+      "rc": 1,
+      "kernel_sha256": "6150e29bdaaa13655f1593ad48563b0114e3ed18d0d5808287632f90d1faec22"
+    },
+    {
+      "name": "original-2",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "rc": 1,
+      "kernel_sha256": "6150e29bdaaa13655f1593ad48563b0114e3ed18d0d5808287632f90d1faec22"
+    },
+    {
+      "name": "original-3",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "3"
+      ],
+      "rc": 1,
+      "kernel_sha256": "6150e29bdaaa13655f1593ad48563b0114e3ed18d0d5808287632f90d1faec22"
+    },
+    {
+      "name": "fma_right-1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "1"
+      ],
+      "rc": 1,
+      "kernel_sha256": "3e53f0d57f1e23ed868772be4b19c969421ec59e3e5903b7c47ee4844a35d858"
+    },
+    {
+      "name": "fma_right-2",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "rc": 1,
+      "kernel_sha256": "3e53f0d57f1e23ed868772be4b19c969421ec59e3e5903b7c47ee4844a35d858"
+    },
+    {
+      "name": "fma_right-3",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "3"
+      ],
+      "rc": 1,
+      "kernel_sha256": "3e53f0d57f1e23ed868772be4b19c969421ec59e3e5903b7c47ee4844a35d858"
+    }
+  ],
+  "completed_utc": "2026-10-10T15:33:50.030471+00:00",
+  "generated_source_restored": true,
+  "source_sha256_after": {
+    "Makefile": "45e8a34b936cdf5e82c58dcef5c24f5400fee9e041c32d3707283d97640a6db0",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "6b33b763a389b6d56997af7b7844ac86bc1ef8f816afbde6817b81e98ad0efbd",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "0c9fef2a03c35c25184ef2121b4446525e31f65b2d079808926d7b5a6ace8378",
+    "tests/gdn_two_columns_candidates.inc": "b8e2ddda676f6f11cee8b75b76083f4134d0c88a59ad687b1e2effffeab22856",
+    "tests/prepare_gdn_two_columns.py": "c817efa1c3f34a222f82637c9c8c22c8ae523ac9bc620cfcde244a23bec74fd3",
+    "tests/test_gdn_two_columns.m": "8c7d92e5a44ed6122a2116032ae37824ae772b351470381fd629966e1d53d5cb",
+    "tests/bench_gdn_two_columns.m": "b3208c698a1f27eff8cc0876705ed7463818ebb22fbfe819bb2d2f729ee7017e",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/test_gdn_cache.m": "2258ac5c70f653fa0410f2b6e49450a533eb6b98ecf1869d5a6b423f4f0ca621",
+    "tests/bench_iq3_groups.m": "5dcfdba95ba25a426b6bb0837b2605111f38b007ae20ef81457511be8b2f99bc",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.gdn_two_columns/bench.inc": "4264e3b2d11432a181f05ba0fd8b96bd52c21ee4a39a50c64db13a6d722af87f",
+    "tests/.gdn_two_columns/core.inc": "1dd07b96a16a60c17ea0a9274073b1632a83e9adcf4ea51a0c6619defc8f2269",
+    "tests/.gdn_two_columns/kernels.metal": "6150e29bdaaa13655f1593ad48563b0114e3ed18d0d5808287632f90d1faec22",
+    "tests/.gdn_two_columns/matrix.inc": "6da7244a18581732839051e90011febd60c563c6c51c1e3b4230cca511ab6068",
+    "tests/.gdn_two_columns/quality.inc": "dbfa4b5b00d26402f8afe2c6f303b2ace0b136cffd198603f030cf2cc25db8b0"
+  },
+  "binary_sha256": "11a5a0fccfd4fcd8b20890100e7888541bfa496d2a20d21e98c016c6ecb56df4",
+  "source_capture": "After the six diagnostic runs; shader hashes recorded separately for each run. This snapshot reproduces the current variant filter and diagnostic prints."
+}

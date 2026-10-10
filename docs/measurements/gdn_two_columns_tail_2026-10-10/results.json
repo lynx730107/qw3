@@ -1,0 +1,29 @@
+{
+  "purpose": "Test a scalar output loop instead of two adjacent output expressions; no timing.",
+  "runs": [
+    {
+      "name": "scalar_loop",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "ba121892c8abb9116e06cb3792f1dfaaef2bf1bf6b9ad2ffc63d1048756ad306"
+    },
+    {
+      "name": "volatile_scalar_loop",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-two-columns-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 1,
+      "kernel_sha256": "bb7e2bd7358217732e32d7a9a0231d7b294595ce5869b441e1765521bde78858"
+    }
+  ],
+  "completed_utc": "2026-10-10T15:32:53.009202+00:00",
+  "generated_source_restored": true
+}
