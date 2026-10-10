@@ -1,0 +1,142 @@
+{
+  "read_bytes_scope": "sum of bound per-token tensors; one read assumption, not measured DRAM transactions",
+  "runs": [
+    {
+      "file": "bandwidth_long.json",
+      "sizes": [
+        {
+          "mib": 128,
+          "gb_s": 127.27012673484572,
+          "within_spread_pct": 12.508120425105007,
+          "bytes": 134217728
+        },
+        {
+          "mib": 256,
+          "gb_s": 127.77132104207855,
+          "within_spread_pct": 1.325398553795587,
+          "bytes": 268435456
+        },
+        {
+          "mib": 512,
+          "gb_s": 128.74117142962265,
+          "within_spread_pct": 3.462594362697735,
+          "bytes": 536870912
+        },
+        {
+          "mib": 1024,
+          "gb_s": 113.78263365418312,
+          "within_spread_pct": 7.027322217374099,
+          "bytes": 1073741824
+        }
+      ]
+    },
+    {
+      "file": "bandwidth_long_repeat0.json",
+      "sizes": [
+        {
+          "mib": 128,
+          "gb_s": 127.42882540748398,
+          "within_spread_pct": 8.073614131917871,
+          "bytes": 134217728
+        },
+        {
+          "mib": 256,
+          "gb_s": 129.57208522212642,
+          "within_spread_pct": 0.23714404838703906,
+          "bytes": 268435456
+        },
+        {
+          "mib": 512,
+          "gb_s": 129.8504636196229,
+          "within_spread_pct": 2.8685727779094394,
+          "bytes": 536870912
+        },
+        {
+          "mib": 1024,
+          "gb_s": 128.10491617385705,
+          "within_spread_pct": 3.741515859354605,
+          "bytes": 1073741824
+        }
+      ]
+    },
+    {
+      "file": "bandwidth_long_repeat1.json",
+      "sizes": [
+        {
+          "mib": 128,
+          "gb_s": 127.57486497160569,
+          "within_spread_pct": 7.647941863001284,
+          "bytes": 134217728
+        },
+        {
+          "mib": 256,
+          "gb_s": 129.64748551755025,
+          "within_spread_pct": 1.577161073858635,
+          "bytes": 268435456
+        },
+        {
+          "mib": 512,
+          "gb_s": 129.18015061086194,
+          "within_spread_pct": 2.7365701216626626,
+          "bytes": 536870912
+        },
+        {
+          "mib": 1024,
+          "gb_s": 126.61238470649522,
+          "within_spread_pct": 5.189033103286667,
+          "bytes": 1073741824
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "128": {
+      "mean_gb_s": 127.42460570464513,
+      "run_gb_s": [
+        127.27012673484572,
+        127.42882540748398,
+        127.57486497160569
+      ],
+      "across_spread_pct": 0.23944207849722066,
+      "all_within_5pct": false,
+      "idealized_weights_only_tps": 10.4121349222953
+    },
+    "256": {
+      "mean_gb_s": 128.99696392725173,
+      "run_gb_s": [
+        127.77132104207855,
+        129.57208522212642,
+        129.64748551755025
+      ],
+      "across_spread_pct": 1.4683768314908585,
+      "all_within_5pct": true,
+      "idealized_weights_only_tps": 10.540615649148853
+    },
+    "512": {
+      "mean_gb_s": 129.2572618867025,
+      "run_gb_s": [
+        128.74117142962265,
+        129.8504636196229,
+        129.18015061086194
+      ],
+      "across_spread_pct": 0.8616452512292483,
+      "all_within_5pct": true,
+      "idealized_weights_only_tps": 10.56188514775795
+    },
+    "1024": {
+      "mean_gb_s": 122.8333115115118,
+      "run_gb_s": [
+        113.78263365418312,
+        128.10491617385705,
+        126.61238470649522
+      ],
+      "across_spread_pct": 12.587406407908697,
+      "all_within_5pct": false,
+      "idealized_weights_only_tps": 10.036970531222654
+    }
+  },
+  "active_weight_bytes": 12238086296,
+  "reference_tg_tps": 8.732750543522755,
+  "equivalent_weight_gb_s": 106.87215475307237,
+  "advertised_153gb_s_ideal_tps": 12.50195466018309
+}

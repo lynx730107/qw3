@@ -1,0 +1,61 @@
+block=0 mode=off cooling 40s
+off pp128 152.15 tokens/s 841.38 ms
+off tg32_d128 8.71 tokens/s 3674.16 ms
+block=1 mode=candidate cooling 40s
+candidate pp128 155.54 tokens/s 822.92 ms
+candidate tg32_d128 8.76 tokens/s 3654.56 ms
+block=2 mode=off cooling 40s
+off pp128 152.95 tokens/s 837.01 ms
+off tg32_d128 8.76 tokens/s 3651.43 ms
+block=3 mode=candidate cooling 40s
+candidate pp128 155.23 tokens/s 824.65 ms
+candidate tg32_d128 8.96 tokens/s 3570.34 ms
+block=4 mode=off cooling 40s
+off pp128 154.16 tokens/s 830.35 ms
+off tg32_d128 8.90 tokens/s 3596.48 ms
+{
+  "pp128": {
+    "modes": {
+      "off": {
+        "mean_tps": 153.06488516147547,
+        "ms_samples": [
+          841.38,
+          837.01,
+          830.35
+        ]
+      },
+      "candidate": {
+        "mean_tps": 155.38034802770142,
+        "ms_samples": [
+          822.92,
+          824.65
+        ]
+      }
+    },
+    "baseline_spread_pct": 1.3283555127355795,
+    "stable_baseline_5pct": true,
+    "pooled_gain_pct": 1.5127328934936513
+  },
+  "tg32_d128": {
+    "modes": {
+      "off": {
+        "mean_tps": 8.789542641642106,
+        "ms_samples": [
+          3674.16,
+          3651.43,
+          3596.48
+        ]
+      },
+      "candidate": {
+        "mean_tps": 8.858254093482262,
+        "ms_samples": [
+          3654.56,
+          3570.34
+        ]
+      }
+    },
+    "baseline_spread_pct": 2.159889669899462,
+    "stable_baseline_5pct": true,
+    "pooled_gain_pct": 0.7817409237498074
+  }
+}

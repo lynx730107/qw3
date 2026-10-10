@@ -1,0 +1,1258 @@
+{
+  "started_utc": "2026-10-06T16:46:49.194122+00:00",
+  "command": [
+    "caffeinate",
+    "-disu",
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-combination-campaign",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "off,residual,off,round,off,both,off,logits,off,all,off,all,off,logits,off,both,off,round,off,residual,off",
+    "pp128",
+    "5",
+    "60"
+  ],
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "dbf4709e87dd45216ec45a9c72cdd299705586557f8bd60a28a064c59040ab88",
+    "Makefile": "23149403ebe21f06c0245a3bd817147e1d02485f300342a9284b158dc518ff0f",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/prepare_combination_candidates.py": "07af2be6e17863514df9c750406a7f0b7a5dcebb23f6466e0eed05a5a79b7044",
+    "tests/combination_candidates.inc": "6834902ed01025e54bf4b9bca5897a383fe57a527c2df200068a398ba267fed7",
+    "tests/combination_candidates.metal": "3573334a5ab30f222afe1789f71fdd1ec097513827a2b3b1a6429686c264606a",
+    "tests/prepare_sum8_candidates.py": "2d3fcb987854046d691c8eee767006073dd5bb9de286111b7db15b7c15507b93",
+    "tests/sum8_dispatch.inc": "5459ba2bf6688e5941c469ad92733bcbfabb71ee5c34a1ac06cf85897060ddce",
+    "tests/bench_combination_campaign.m": "0685c575f998d33b9cbdf635a6d05b1abff4087abd2e6244f55ae5fd8d0dc699",
+    "tools/run_combination_campaign.py": "bed9a2063a504194ed06ce07ca51dd0c11d71c90500054fbb15601c8db7fe6d8",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.combination_candidates/bridge.inc": "cce13545c7fd4d0b6e479bd42498ec0ed6f11f23d6d9a314162fb3c395c10b88",
+    "tests/.combination_candidates/core.inc": "7c1958dd779b18dae161e8d6f4f443d24c70eea928843a788f8dec0c33a45ecd",
+    "tests/.combination_candidates/manifest.json": "b1764f066ce9c564c512f03b03b9b6fab75413f4c54964066f03d43f4eb6799e",
+    "tests/.combination_candidates/quality.inc": "cf6c2d6d9adab351302d55b94f6741d8d6eb846305987553ef0ac416dab52dab",
+    "tests/.sum8_candidates/candidates.inc": "63f14b113e8888b935c6b0026031090285dd268bb9e0b6ec906b2f945091ed3b",
+    "tests/.sum8_candidates/head.inc": "3bf60d1ef3d677233d0d9adee30382af315182fec3e717ed51935589df8acfd5",
+    "tests/.sum8_candidates/kernels.metal": "e8d936e7c5e37e5e11480a40d87f236f8edccd54954771f078715acc21c5a60f",
+    "tests/.sum8_candidates/quality.inc": "21bafd5ee95677ccafbf9459f0d9d90bdad3ad030a5a6b84225644ac26a376c0"
+  },
+  "binary_sha256": "756e15ee51b702cc4c33369f3aee493e894bc288b45e3a3b30b5cea21e33538f",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "method": "one loaded engine; native run_llama_style_case; one fresh session per block",
+  "phase": "pp128",
+  "device": "Apple M5",
+  "context": 512,
+  "kv": "f16",
+  "gpu_layers": 64,
+  "threads": 4,
+  "seed": 1,
+  "repetitions": 5,
+  "cooldown_seconds": 60,
+  "warmup": true,
+  "order": [
+    "off",
+    "residual",
+    "off",
+    "round",
+    "off",
+    "both",
+    "off",
+    "logits",
+    "off",
+    "all",
+    "off",
+    "all",
+    "off",
+    "logits",
+    "off",
+    "both",
+    "off",
+    "round",
+    "off",
+    "residual",
+    "off"
+  ],
+  "runs": [
+    {
+      "block": 0,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "158.03",
+        "stdev_tps": "0.66",
+        "avg_ms": "809.99",
+        "stdev_ms": "3.42",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 158.376,
+          "ms": 808.201
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.665,
+          "ms": 806.732
+        },
+        {
+          "repetition": 3,
+          "tok_s": 158.252,
+          "ms": 808.837
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.903,
+          "ms": 810.625
+        },
+        {
+          "repetition": 5,
+          "tok_s": 156.946,
+          "ms": 815.569
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3293.81M  free = 802.19M  (encrypted)"
+    },
+    {
+      "block": 1,
+      "mode": "residual",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "158.49",
+        "stdev_tps": "0.62",
+        "avg_ms": "807.63",
+        "stdev_ms": "3.13",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 384,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.348,
+          "ms": 803.271
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.719,
+          "ms": 806.459
+        },
+        {
+          "repetition": 3,
+          "tok_s": 158.524,
+          "ms": 807.45
+        },
+        {
+          "repetition": 4,
+          "tok_s": 158.159,
+          "ms": 809.31
+        },
+        {
+          "repetition": 5,
+          "tok_s": 157.706,
+          "ms": 811.636
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3277.81M  free = 818.19M  (encrypted)"
+    },
+    {
+      "block": 2,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "158.00",
+        "stdev_tps": "0.84",
+        "avg_ms": "810.17",
+        "stdev_ms": "4.29",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 158.916,
+          "ms": 805.458
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.349,
+          "ms": 808.342
+        },
+        {
+          "repetition": 3,
+          "tok_s": 158.497,
+          "ms": 807.587
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.096,
+          "ms": 814.788
+        },
+        {
+          "repetition": 5,
+          "tok_s": 157.121,
+          "ms": 814.661
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3253.81M  free = 842.19M  (encrypted)"
+    },
+    {
+      "block": 3,
+      "mode": "round",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "158.37",
+        "stdev_tps": "0.28",
+        "avg_ms": "808.26",
+        "stdev_ms": "1.44",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 114,
+        "round_saved": 114,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 158.592,
+          "ms": 807.101
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.576,
+          "ms": 807.183
+        },
+        {
+          "repetition": 3,
+          "tok_s": 158.534,
+          "ms": 807.4
+        },
+        {
+          "repetition": 4,
+          "tok_s": 158.132,
+          "ms": 809.448
+        },
+        {
+          "repetition": 5,
+          "tok_s": 157.994,
+          "ms": 810.155
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3229.81M  free = 866.19M  (encrypted)"
+    },
+    {
+      "block": 4,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "160.30",
+        "stdev_tps": "0.34",
+        "avg_ms": "798.50",
+        "stdev_ms": "1.69",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 160.832,
+          "ms": 795.86
+        },
+        {
+          "repetition": 2,
+          "tok_s": 160.428,
+          "ms": 797.864
+        },
+        {
+          "repetition": 3,
+          "tok_s": 160.17,
+          "ms": 799.149
+        },
+        {
+          "repetition": 4,
+          "tok_s": 160.107,
+          "ms": 799.466
+        },
+        {
+          "repetition": 5,
+          "tok_s": 159.97,
+          "ms": 800.148
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3213.81M  free = 882.19M  (encrypted)"
+    },
+    {
+      "block": 5,
+      "mode": "both",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "156.42",
+        "stdev_tps": "1.57",
+        "avg_ms": "818.37",
+        "stdev_ms": "8.29",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 384,
+        "round_norm": 114,
+        "round_saved": 114,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 157.446,
+          "ms": 812.977
+        },
+        {
+          "repetition": 2,
+          "tok_s": 155.887,
+          "ms": 821.109
+        },
+        {
+          "repetition": 3,
+          "tok_s": 157.604,
+          "ms": 812.162
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.281,
+          "ms": 813.832
+        },
+        {
+          "repetition": 5,
+          "tok_s": 153.89,
+          "ms": 831.762
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3197.81M  free = 898.19M  (encrypted)"
+    },
+    {
+      "block": 6,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "157.20",
+        "stdev_tps": "2.52",
+        "avg_ms": "814.42",
+        "stdev_ms": "13.23",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 153.181,
+          "ms": 835.611
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.703,
+          "ms": 806.538
+        },
+        {
+          "repetition": 3,
+          "tok_s": 156.239,
+          "ms": 819.26
+        },
+        {
+          "repetition": 4,
+          "tok_s": 159.09,
+          "ms": 804.576
+        },
+        {
+          "repetition": 5,
+          "tok_s": 158.783,
+          "ms": 806.131
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3157.81M  free = 938.19M  (encrypted)"
+    },
+    {
+      "block": 7,
+      "mode": "logits",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "156.09",
+        "stdev_tps": "1.92",
+        "avg_ms": "820.16",
+        "stdev_ms": "10.06",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 6
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 158.957,
+          "ms": 805.249
+        },
+        {
+          "repetition": 2,
+          "tok_s": 153.756,
+          "ms": 832.489
+        },
+        {
+          "repetition": 3,
+          "tok_s": 155.114,
+          "ms": 825.197
+        },
+        {
+          "repetition": 4,
+          "tok_s": 156.503,
+          "ms": 817.878
+        },
+        {
+          "repetition": 5,
+          "tok_s": 156.103,
+          "ms": 819.974
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3141.81M  free = 954.19M  (encrypted)"
+    },
+    {
+      "block": 8,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "156.18",
+        "stdev_tps": "2.67",
+        "avg_ms": "819.77",
+        "stdev_ms": "13.99",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.657,
+          "ms": 801.721
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.13,
+          "ms": 809.462
+        },
+        {
+          "repetition": 3,
+          "tok_s": 155.075,
+          "ms": 825.406
+        },
+        {
+          "repetition": 4,
+          "tok_s": 155.033,
+          "ms": 825.633
+        },
+        {
+          "repetition": 5,
+          "tok_s": 152.994,
+          "ms": 836.633
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3069.81M  free = 1026.19M  (encrypted)"
+    },
+    {
+      "block": 9,
+      "mode": "all",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "158.60",
+        "stdev_tps": "0.38",
+        "avg_ms": "807.06",
+        "stdev_ms": "1.92",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 384,
+        "round_norm": 114,
+        "round_saved": 114,
+        "sum8_head": 6
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.119,
+          "ms": 804.43
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.794,
+          "ms": 806.075
+        },
+        {
+          "repetition": 3,
+          "tok_s": 158.507,
+          "ms": 807.536
+        },
+        {
+          "repetition": 4,
+          "tok_s": 158.467,
+          "ms": 807.74
+        },
+        {
+          "repetition": 5,
+          "tok_s": 158.115,
+          "ms": 809.537
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3045.81M  free = 1050.19M  (encrypted)"
+    },
+    {
+      "block": 10,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "155.73",
+        "stdev_tps": "0.52",
+        "avg_ms": "821.96",
+        "stdev_ms": "2.75",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 156.538,
+          "ms": 817.695
+        },
+        {
+          "repetition": 2,
+          "tok_s": 155.667,
+          "ms": 822.268
+        },
+        {
+          "repetition": 3,
+          "tok_s": 155.08,
+          "ms": 825.378
+        },
+        {
+          "repetition": 4,
+          "tok_s": 155.647,
+          "ms": 822.372
+        },
+        {
+          "repetition": 5,
+          "tok_s": 155.7,
+          "ms": 822.093
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3037.81M  free = 1058.19M  (encrypted)"
+    },
+    {
+      "block": 11,
+      "mode": "all",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "157.23",
+        "stdev_tps": "1.32",
+        "avg_ms": "814.16",
+        "stdev_ms": "6.79",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 384,
+        "round_norm": 114,
+        "round_saved": 114,
+        "sum8_head": 6
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.211,
+          "ms": 803.963
+        },
+        {
+          "repetition": 2,
+          "tok_s": 156.36,
+          "ms": 818.624
+        },
+        {
+          "repetition": 3,
+          "tok_s": 155.816,
+          "ms": 821.481
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.041,
+          "ms": 815.075
+        },
+        {
+          "repetition": 5,
+          "tok_s": 157.705,
+          "ms": 811.643
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2981.81M  free = 1114.19M  (encrypted)"
+    },
+    {
+      "block": 12,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "157.80",
+        "stdev_tps": "2.23",
+        "avg_ms": "811.27",
+        "stdev_ms": "11.50",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.917,
+          "ms": 800.415
+        },
+        {
+          "repetition": 2,
+          "tok_s": 160.143,
+          "ms": 799.284
+        },
+        {
+          "repetition": 3,
+          "tok_s": 157.116,
+          "ms": 814.684
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.026,
+          "ms": 815.151
+        },
+        {
+          "repetition": 5,
+          "tok_s": 154.814,
+          "ms": 826.8
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2973.81M  free = 1122.19M  (encrypted)"
+    },
+    {
+      "block": 13,
+      "mode": "logits",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "155.84",
+        "stdev_tps": "3.21",
+        "avg_ms": "821.62",
+        "stdev_ms": "17.24",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 6
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 154.785,
+          "ms": 826.951
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.489,
+          "ms": 807.629
+        },
+        {
+          "repetition": 3,
+          "tok_s": 157.724,
+          "ms": 811.544
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.547,
+          "ms": 812.454
+        },
+        {
+          "repetition": 5,
+          "tok_s": 150.669,
+          "ms": 849.544
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2973.81M  free = 1122.19M  (encrypted)"
+    },
+    {
+      "block": 14,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "157.84",
+        "stdev_tps": "1.30",
+        "avg_ms": "810.98",
+        "stdev_ms": "6.68",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.695,
+          "ms": 801.53
+        },
+        {
+          "repetition": 2,
+          "tok_s": 157.193,
+          "ms": 814.287
+        },
+        {
+          "repetition": 3,
+          "tok_s": 157.12,
+          "ms": 814.662
+        },
+        {
+          "repetition": 4,
+          "tok_s": 156.523,
+          "ms": 817.77
+        },
+        {
+          "repetition": 5,
+          "tok_s": 158.676,
+          "ms": 806.673
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2973.81M  free = 1122.19M  (encrypted)"
+    },
+    {
+      "block": 15,
+      "mode": "both",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "159.23",
+        "stdev_tps": "1.11",
+        "avg_ms": "803.92",
+        "stdev_ms": "5.60",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 384,
+        "round_norm": 114,
+        "round_saved": 114,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 157.754,
+          "ms": 811.389
+        },
+        {
+          "repetition": 2,
+          "tok_s": 159.716,
+          "ms": 801.421
+        },
+        {
+          "repetition": 3,
+          "tok_s": 160.089,
+          "ms": 799.554
+        },
+        {
+          "repetition": 4,
+          "tok_s": 160.216,
+          "ms": 798.92
+        },
+        {
+          "repetition": 5,
+          "tok_s": 158.355,
+          "ms": 808.311
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2973.81M  free = 1122.19M  (encrypted)"
+    },
+    {
+      "block": 16,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "158.75",
+        "stdev_tps": "1.33",
+        "avg_ms": "806.33",
+        "stdev_ms": "6.82",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 159.7,
+          "ms": 801.501
+        },
+        {
+          "repetition": 2,
+          "tok_s": 159.278,
+          "ms": 803.625
+        },
+        {
+          "repetition": 3,
+          "tok_s": 159.304,
+          "ms": 803.493
+        },
+        {
+          "repetition": 4,
+          "tok_s": 159.069,
+          "ms": 804.681
+        },
+        {
+          "repetition": 5,
+          "tok_s": 156.41,
+          "ms": 818.36
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2965.81M  free = 1130.19M  (encrypted)"
+    },
+    {
+      "block": 17,
+      "mode": "round",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "160.54",
+        "stdev_tps": "0.74",
+        "avg_ms": "797.32",
+        "stdev_ms": "3.69",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 114,
+        "round_saved": 114,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 161.517,
+          "ms": 792.485
+        },
+        {
+          "repetition": 2,
+          "tok_s": 160.818,
+          "ms": 795.932
+        },
+        {
+          "repetition": 3,
+          "tok_s": 159.539,
+          "ms": 802.313
+        },
+        {
+          "repetition": 4,
+          "tok_s": 160.683,
+          "ms": 796.599
+        },
+        {
+          "repetition": 5,
+          "tok_s": 160.151,
+          "ms": 799.246
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2925.81M  free = 1170.19M  (encrypted)"
+    },
+    {
+      "block": 18,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "156.83",
+        "stdev_tps": "2.12",
+        "avg_ms": "816.28",
+        "stdev_ms": "11.10",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 158.981,
+          "ms": 805.127
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.721,
+          "ms": 806.447
+        },
+        {
+          "repetition": 3,
+          "tok_s": 153.917,
+          "ms": 831.619
+        },
+        {
+          "repetition": 4,
+          "tok_s": 156.879,
+          "ms": 815.916
+        },
+        {
+          "repetition": 5,
+          "tok_s": 155.664,
+          "ms": 822.284
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2917.81M  free = 1178.19M  (encrypted)"
+    },
+    {
+      "block": 19,
+      "mode": "residual",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "157.88",
+        "stdev_tps": "0.44",
+        "avg_ms": "810.73",
+        "stdev_ms": "2.27",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 384,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 158.386,
+          "ms": 808.152
+        },
+        {
+          "repetition": 2,
+          "tok_s": 158.093,
+          "ms": 809.649
+        },
+        {
+          "repetition": 3,
+          "tok_s": 157.962,
+          "ms": 810.323
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.774,
+          "ms": 811.285
+        },
+        {
+          "repetition": 5,
+          "tok_s": 157.202,
+          "ms": 814.24
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2909.81M  free = 1186.19M  (encrypted)"
+    },
+    {
+      "block": 20,
+      "mode": "off",
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "5",
+        "avg_tps": "157.51",
+        "stdev_tps": "0.43",
+        "avg_ms": "812.65",
+        "stdev_ms": "2.22",
+        "session_bytes": "174664400"
+      },
+      "dispatch_counters": {
+        "residual_norm": 0,
+        "round_norm": 0,
+        "round_saved": 0,
+        "sum8_head": 0
+      },
+      "samples": [
+        {
+          "repetition": 1,
+          "tok_s": 157.93,
+          "ms": 810.486
+        },
+        {
+          "repetition": 2,
+          "tok_s": 157.462,
+          "ms": 812.895
+        },
+        {
+          "repetition": 3,
+          "tok_s": 156.838,
+          "ms": 816.128
+        },
+        {
+          "repetition": 4,
+          "tok_s": 157.479,
+          "ms": 812.807
+        },
+        {
+          "repetition": 5,
+          "tok_s": 157.84,
+          "ms": 810.949
+        }
+      ],
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2909.81M  free = 1186.19M  (encrypted)"
+    }
+  ],
+  "swap_before": "vm.swapusage: total = 4096.00M  used = 3309.81M  free = 786.19M  (encrypted)",
+  "baseline_spread_pct": 2.9380087664370835,
+  "summary": {
+    "off": {
+      "mean_tps": 157.62982069607895,
+      "pooled_gain_pct": 0.0
+    },
+    "residual": {
+      "mean_tps": 158.18482908623542,
+      "pooled_gain_pct": 0.3520960613325519
+    },
+    "round": {
+      "mean_tps": 159.4439392618244,
+      "pooled_gain_pct": 1.1508726951121595
+    },
+    "both": {
+      "mean_tps": 157.80162609644393,
+      "pooled_gain_pct": 0.10899295552471155
+    },
+    "logits": {
+      "mean_tps": 155.92832169961872,
+      "pooled_gain_pct": -1.079427096311214
+    },
+    "all": {
+      "mean_tps": 157.90577466352502,
+      "pooled_gain_pct": 0.17506456977967044
+    }
+  },
+  "bracketed_comparisons": [
+    {
+      "mode": "residual",
+      "block": 1,
+      "off_blocks": [
+        0,
+        2
+      ],
+      "gain_pct": 0.3033567351386157
+    },
+    {
+      "mode": "round",
+      "block": 3,
+      "off_blocks": [
+        2,
+        4
+      ],
+      "gain_pct": -0.485611065746161
+    },
+    {
+      "mode": "both",
+      "block": 5,
+      "off_blocks": [
+        4,
+        6
+      ],
+      "gain_pct": -1.4553319403203924
+    },
+    {
+      "mode": "logits",
+      "block": 7,
+      "off_blocks": [
+        6,
+        8
+      ],
+      "gain_pct": -0.37370756925477755
+    },
+    {
+      "mode": "all",
+      "block": 9,
+      "off_blocks": [
+        8,
+        10
+      ],
+      "gain_pct": 1.7105295764874962
+    },
+    {
+      "mode": "all",
+      "block": 11,
+      "off_blocks": [
+        10,
+        12
+      ],
+      "gain_pct": 0.3015377812715103
+    },
+    {
+      "mode": "logits",
+      "block": 13,
+      "off_blocks": [
+        12,
+        14
+      ],
+      "gain_pct": -1.2773544947786042
+    },
+    {
+      "mode": "both",
+      "block": 15,
+      "off_blocks": [
+        14,
+        16
+      ],
+      "gain_pct": 0.5889889541247806
+    },
+    {
+      "mode": "round",
+      "block": 17,
+      "off_blocks": [
+        16,
+        18
+      ],
+      "gain_pct": 1.7540009030251325
+    },
+    {
+      "mode": "residual",
+      "block": 19,
+      "off_blocks": [
+        18,
+        20
+      ],
+      "gain_pct": 0.460695916026288
+    }
+  ],
+  "completed_utc": "2026-10-06T17:09:36.450094+00:00",
+  "sources_unchanged": true,
+  "binary_unchanged": true,
+  "samples_discarded": 0
+}

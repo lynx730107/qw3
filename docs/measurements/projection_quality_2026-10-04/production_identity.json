@@ -1,0 +1,28 @@
+{
+  "baseline_commit": "4f033f6",
+  "current_branch": "codex/m5-deltanet-prefill",
+  "production_byte_equal": {
+    "qw3.c": true,
+    "qw3_metal.m": true,
+    "qw3_bench.c": true,
+    "metal/flash_attn.metal": true,
+    "metal/qw3_core_argmax.metal": true,
+    "metal/qw3_core_common.metal": true,
+    "metal/qw3_core_deltanet.metal": true,
+    "metal/qw3_core_linear.metal": true,
+    "metal/qw3_core_moe.metal": true,
+    "metal/qw3_core_sequence.metal": true
+  },
+  "sha256": {
+    "qw3.c": "4b97fe8578df18af62738623144783ebfae0a9c328a380fdc2117a759106ae7e",
+    "qw3_metal.m": "f1774c2e721a5b15d3aa05c8e1d435e2642a59db969d05e60c735d088fc91ec2",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "615a008d721ac760c5f986a780ef23b219c82dc6f04a1349e88651098ed884b9",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813"
+  }
+}

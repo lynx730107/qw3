@@ -303,6 +303,74 @@ and precomputed DeltaNet prefill gates. Both passed exact private correctness
 checks, but neither met the 5% end-to-end improvement gate. Both remain
 optional diagnostic prototypes; normal inference dispatch is unchanged.
 
+The [packed/pipelined DeltaNet prefill trials](docs/m5_deltanet_prefill_2026-10-04.md)
+passed exact logits, greedy, live-state and checkpoint comparisons. The best
+stable series showed about 3% higher pp128 throughput, below the predeclared
+5% adoption gate. Combining the ideas did not add their gains. The original
+campaign retained them as optional diagnostics; the later M5 integration
+below adopts packed8 with a revised acceptance criterion.
+
+The [quantized projection trials](docs/m5_projection_prefill_2026-10-04.md)
+measure natural Metal pass timestamps and their overhead, inventory the active
+weights, and test block metadata reuse in Q3_K, IQ3_S and IQ4_XS. Exact
+logits/state/checkpoint checks pass, but neither candidate meets the 5%
+prefill adoption gate. The optional `qw3-projection-prefill-test`,
+`qw3-projection-prefill-bench` and `qw3-projection-cost-bench` targets leave
+production inference unchanged.
+
+The [direct-scratch prefill trial](docs/m5_direct_scratch_prefill_2026-10-05.md)
+removes projection staging and attention-output compaction in a private
+diagnostic, reusing the production shaders with different offsets/strides.
+Full-vocabulary logits, live state, checkpoint continuation and 216 strided
+matrix/guard cases pass. Alternating pp128 controls showed about +1.5%, below
+the original 5% adoption gate; that campaign retained the production path.
+The optional `qw3-scratch-prefill-bench`, `qw3-scratch-prefill-test` and
+`qw3-scratch-matmul-test` targets preserve the experiment for reproduction.
+
+The subsequent [combined M5 prefill integration](docs/m5_packed8_scratch_prefill_2026-10-05.md)
+adopts packed8 DeltaNet and direct scratch projections for supported dense
+chunks on the base M5. The combined prototype improves pp128 by 2.85% in
+alternating controls and passes bit-identical full logits, live state and
+checkpoint continuation. The integrated dispatcher also passes 216 strided
+matrix/guard cases; the production-binary replication measures +2.07% pp128,
+with both nearby comparisons positive and a variable gain size.
+`QW3_METAL_DENSE_PREFILL_FAST=0` restores the previous
+prefill path. A fresh ctx256 reference measures 157.66/159.23 tok/s for
+qw3/llama.cpp prefill; these short tests do not establish a sustained ceiling
+or a statistically confirmed lead for either engine.
+
+The [revisited optimization tests](docs/m5_revisited_optimizations_2026-10-05.md)
+measure old Q3_K metadata reuse at -0.33% and isolated IQ3_S reuse at a marginal
++0.20% against that new default. Restoring copies while keeping packed8 is
+1.20% slower. All pass bit-identical logits/state/checkpoint checks; none
+adds a convincing gain, so the combined default is retained.
+
+The [microfusion tests](docs/m5_micro_fusions_2026-10-05.md) compare paired
+alpha/beta projections and fused convolution/QK normalization against that
+default. Prefill and decode pairing measure -1.49% and -1.75%; conv/norm's
+small positive averages are not confirmed by stable repeated controls.
+All final variants pass full bit-identical logits/state/checkpoint checks,
+but none is adopted. The optional `qw3-micro-test`, `qw3-micro-q8-test` and
+`qw3-micro-bench` targets retain the experiments and their measurements.
+
+The [combined fusion trials](docs/m5_combination_trials_2026-10-06.md) test
+attention residual/RMSNorm, existing F16 rounding folded into normalization,
+shared Q5_K input sums, and staged128 FFN down/residual epilogues in nine
+configurations. All 72 full logits/state/checkpoint/continuation cases and
+24 guarded matrix cases pass. The 260 retained performance samples do not
+show a repeatable gain; the small initial residual/RMSNorm gain changes sign
+in its replica. These remain private diagnostics and the native default
+is unchanged. Optional `qw3-combination-test`, `qw3-sum8-test`,
+`qw3-epilogue-test`, `qw3-sum8-matrix-test`, `qw3-epilogue-matrix-test`,
+`qw3-combination-campaign` and `qw3-epilogue-campaign` targets retain the trials.
+
+The [register dequantization trials](docs/m5_register_dequant_2026-10-06.md)
+compare direct IQ4_XS cooperative input tensors and cached input coordinates
+against native staged128. Both pass 16 guarded matrix cases, but all 60
+retained GPU timing samples show a large slowdown. These isolated matrix
+results are not full-model tok/s; neither prototype is adopted. Optional
+`qw3-register-iq4-test` and `qw3-register-iq4-cached-test` retain the experiments.
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. The block probe computes
 **only the last logit row**.
@@ -396,70 +464,7 @@ to use the plain presentation.
 An [illustrated footer preview](docs/agent_tui_preview_2026-10-03.png) shows the
 four activity states using status strings emitted by the agent formatter.
 
-### Optional dense expert
-
-Configure a second model to let the MoE delegate a difficult task:
-
-```sh
-./qw3-agent --metal -m /path/to/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf \
-  --expert-model /path/to/Qwen3.8-27B-UD-Q3_K_XL.gguf \
-  --expert-mode manual
-```
-
-Inside the agent, `/expert run TASK` forces one dense assignment. For example:
-
-```text
-/expert run Find the functional bug in module.c; give a concrete counterexample and verify the proposed fix.
-/expert status
-/expert mode auto
-/expert mode manual
-/expert mode off
-```
-
-`manual` accepts explicit `/expert run` requests; `auto` also exposes
-`delegate_dense` to the MoE. Routine exploration stays with the MoE, and there
-can be at most one delegation per user turn. `off` rejects both kinds of
-delegation. Without `--expert-model`, the ordinary agent path is used.
-
-The supervisor saves and closes the MoE process, waits for its exit, starts
-the dense expert, and then restores the MoE's own session to finish the same
-turn. The models never share token IDs, KV, DeltaNet state or a Metal engine.
-Both models retain the existing tools and verification guards. This alternation
-reduces simultaneous memory use; it does not make dense inference faster.
-
-Expert defaults are `--expert-ctx 8192`, `--expert-think on`,
-`--expert-kv f16`, full offload, `--expert-timeout 1200`,
-`--expert-max-tokens 8192` and `--expert-max-tool-rounds 12`. The token budget
-includes reasoning and compaction; the timeout includes loading and tools.
-`--expert-think high|on|none` and the other flags are configurable. For a review
-requiring several large functions at once, a larger expert context may avoid
-expensive compaction. The initial packet is measured with the dense tokenizer
-and limited to 4096 tokens including instructions. Supplemental evidence can
-be abbreviated with its complete file path retained; an oversized original
-request is rejected explicitly.
-
-`--read-only` enforces local reading/navigation only in both models, including
-the executor: writes, edits, shell commands, semantic indexing and network tools
-are rejected. It is useful for diagnosis on an existing project.
-
-Hybrid sessions live under `STORE/hybrid/moe-MODEL_PROFILE`; each assignment
-has its own `job-*` directory, request, tool journal and result. Mutating tools
-are journaled before execution. Ctrl+C, a deadline, or expert failure restores
-the MoE with the edits retained and verification still pending when appropriate.
-A supervisor restart recovers the recorded result or interruption without
-automatically rerunning saved tools. Recorded interrupted shell commands are
-blocked on recovery; `/new` explicitly starts a fresh conversation. Recovery
-does not undo edits or certify checks that were interrupted.
-
-`--trace PATH` distinguishes model starts/exits, delegation, prefill, generation,
-checkpoints and return. The TUI shows the active model and expert time/token
-budgets. `make test-agent-hybrid` runs model-free IPC/state/guard checks;
-`python3 tests/test_agent_hybrid.py --output /tmp/hybrid-safety` runs sequential
-real-model recovery fixtures. The frozen eight-task evaluation is available as
-`python3 tools/bench_hybrid_agent.py --output /tmp/hybrid-pilot`; it records
-separate prefill/generation timings, total wall time, RSS, physical footprint
-and machine-wide swap. A quality advantage requires evidence from that pilot;
-successful handoff alone does not establish it.
+`--read-only` limits the agent to local reading and navigation tools.
 
 Useful interactive commands:
 

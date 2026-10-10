@@ -125,12 +125,22 @@ int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
     uint64_t up_offset, uint32_t up_type,
     uint64_t down_offset, uint32_t down_type,
     uint32_t n_tokens, uint32_t n_embd, uint32_t n_ff);
+/* M5 dense prefill policy and direct strided-kernel availability. */
+int qw3_metal_dense_prefill_fast_enabled(uint32_t n_tokens);
+int qw3_metal_dense_prefill_strided_enabled(uint32_t type, uint32_t n_tokens);
 int qw3_metal_session_batch_dense_deltanet_projections(
     qw3_metal_session *s,
     uint64_t qkv_offset, uint32_t qkv_type,
     uint64_t z_offset, uint32_t z_type,
     uint32_t n_tokens, uint32_t n_embd,
     uint32_t n_qkv, uint32_t n_z);
+int qw3_metal_session_batch_dense_deltanet_projections_layout(
+    qw3_metal_session *s,
+    uint64_t qkv_offset, uint32_t qkv_type,
+    uint64_t z_offset, uint32_t z_type,
+    uint32_t n_tokens, uint32_t n_embd,
+    uint32_t n_qkv, uint32_t n_z,
+    uint32_t scratch_qkv_offset, uint32_t scratch_z_offset, uint32_t scratch_stride);
 int qw3_metal_session_batch_dense_gqa_projections(
     qw3_metal_session *s,
     uint64_t q_offset, uint32_t q_type,
@@ -138,6 +148,14 @@ int qw3_metal_session_batch_dense_gqa_projections(
     uint64_t v_offset, uint32_t v_type,
     uint32_t n_tokens, uint32_t n_embd,
     uint32_t qg_n, uint32_t kv_n, uint32_t batch_mask);
+int qw3_metal_session_batch_dense_gqa_projections_layout(
+    qw3_metal_session *s,
+    uint64_t q_offset, uint32_t q_type,
+    uint64_t k_offset, uint32_t k_type,
+    uint64_t v_offset, uint32_t v_type,
+    uint32_t n_tokens, uint32_t n_embd,
+    uint32_t qg_n, uint32_t kv_n, uint32_t batch_mask,
+    uint32_t scratch_q_offset, uint32_t scratch_k_offset, uint32_t scratch_v_offset, uint32_t scratch_stride);
 int qw3_metal_session_stage_dense_gqa_projections(
     qw3_metal_session *s, uint32_t n_tokens,
     uint32_t qg_n, uint32_t kv_n,
@@ -153,6 +171,10 @@ int qw3_metal_session_copy_batch_scratch_to_x1(
 int qw3_metal_session_batch_dense_gqa_output_add(
     qw3_metal_session *s, uint64_t weight_offset, uint32_t weight_type,
     uint32_t n_tokens, uint32_t n_in, uint32_t n_embd);
+int qw3_metal_session_batch_dense_gqa_output_add_layout(
+    qw3_metal_session *s, uint64_t weight_offset, uint32_t weight_type,
+    uint32_t n_tokens, uint32_t n_in, uint32_t n_embd,
+    uint32_t input_offset, uint32_t input_stride);
 int qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
     qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
     uint32_t n_in, uint32_t n_out);

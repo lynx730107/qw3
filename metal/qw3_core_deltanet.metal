@@ -807,3 +807,77 @@ kernel void qw3_router_top8_batch(constant qw3_router_batch_args &args,
         for (uint k = 0; k < 8u; k++) row_weights[k] /= sum;
     }
 }
+
+/* Eight lanes per state column; preserve tiled2 reduction ordering.
+ * Fixed head_dim=128, selected only for validated M5 dense chunks. */
+inline float qw3_gdn_packed_tree4(thread const float *p) {
+#pragma clang fp reassociate(off)
+    return (p[0]+p[1])+(p[2]+p[3]);
+}
+kernel void qw3_deltanet_batch_recur_packed8(constant qw3_batch_gdn_args &args,
+    device float *state, device float *scratch, device const float *dt_bias,
+    device const float *a, uint2 group [[threadgroup_position_in_grid]],
+    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+    ushort lane [[thread_index_in_simdgroup]]) {
+    const uint hv = group.y;
+    const uint j = group.x * 16u + uint(simd_idx) * 4u + uint(lane) / 8u;
+    const uint row_lane = uint(lane) % 8u;
+    if (hv >= args.v_heads || j >= args.head_dim) return;
+    const uint hk = hv % args.q_heads;
+    const uint qk_n = args.q_heads * args.head_dim;
+    device float *st = state + uint64_t(hv) * args.head_dim * args.head_dim;
+    const uint i0 = row_lane * 16u;
+    const float norm_scale = rsqrt(float(args.head_dim));
+    const float dt_hv = dt_bias[hv], a_hv = a[hv];
+    float4 sv[4];
+    #pragma unroll
+    for (uint p = 0; p < 4u; p++) {
+        uint i = i0 + p * 4u;
+        sv[p] = float4(st[(i+0u)*args.head_dim+j],st[(i+1u)*args.head_dim+j],
+                       st[(i+2u)*args.head_dim+j],st[(i+3u)*args.head_dim+j]);
+    }
+    for (uint t = 0; t < args.n_tokens; t++) {
+        uint64_t base = uint64_t(t) * args.stride;
+        device const float *qh = scratch + base + args.conv_offset + uint64_t(hk)*args.head_dim;
+        device const float *kh = qh + qk_n;
+        device const float *vh = scratch + base + args.conv_offset + 2u*qk_n + uint64_t(hv)*args.head_dim;
+        float b = 0.0f, g = 0.0f;
+        if (lane == 0) {
+            float beta_raw = scratch[base + args.beta_offset + hv];
+            b = 1.0f / (1.0f + exp(-beta_raw));
+            float alpha_raw = scratch[base + args.alpha_offset + hv] + dt_hv;
+            float sp = alpha_raw > 20.0f ? alpha_raw : (alpha_raw < -20.0f ? exp(alpha_raw) : log(1.0f + exp(alpha_raw)));
+            g = exp(sp * a_hv);
+        }
+        b = simd_broadcast(b, 0); g = simd_broadcast(g, 0);
+        float4 kv[4], qv[4];
+        float part[4];
+        #pragma unroll
+        for (uint p = 0; p < 4u; p++) {
+            kv[p] = *((device const float4 *)(kh + i0 + p*4u));
+            qv[p] = *((device const float4 *)(qh + i0 + p*4u));
+            part[p] = dot(sv[p], kv[p]);
+        }
+        float sk = qw3_gdn_packed_tree4(part);
+        sk += simd_shuffle_xor(sk, 1);
+        sk += simd_shuffle_xor(sk, 2);
+        sk += simd_shuffle_xor(sk, 4);
+        float d = b * (vh[j] - sk*g);
+        #pragma unroll
+        for (uint p = 0; p < 4u; p++) {
+            sv[p] = sv[p]*g + kv[p]*d;
+            part[p] = dot(sv[p], qv[p]);
+        }
+        float value = qw3_gdn_packed_tree4(part);
+        value += simd_shuffle_xor(value, 1);
+        value += simd_shuffle_xor(value, 2);
+        value += simd_shuffle_xor(value, 4);
+        if (row_lane == 0) scratch[base+args.inner_offset+uint64_t(hv)*args.head_dim+j] = value*norm_scale;
+    }
+    #pragma unroll
+    for (uint p = 0; p < 4u; p++) {
+        uint i = i0 + p*4u;
+        st[(i+0u)*args.head_dim+j] = sv[p].x; st[(i+1u)*args.head_dim+j] = sv[p].y;
+        st[(i+2u)*args.head_dim+j] = sv[p].z; st[(i+3u)*args.head_dim+j] = sv[p].w;
+    }
+}

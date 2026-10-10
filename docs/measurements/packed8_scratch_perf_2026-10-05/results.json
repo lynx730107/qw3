@@ -1,0 +1,640 @@
+{
+  "started_utc": "2026-10-05T18:09:31.623614+00:00",
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "binary": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+  "binary_sha256": "b43defdc8297137a44e6dfca550d7c53f96f197a56f47f54f9418c5b393ec46b",
+  "source_sha256": {
+    "qw3.c": "4b97fe8578df18af62738623144783ebfae0a9c328a380fdc2117a759106ae7e",
+    "qw3_metal.m": "f1774c2e721a5b15d3aa05c8e1d435e2642a59db969d05e60c735d088fc91ec2",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "615a008d721ac760c5f986a780ef23b219c82dc6f04a1349e88651098ed884b9",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/dense_candidates.inc": "8fe2d77a5257aa28c91bbe6afe2aec0e081423e03ec8656340b73afa0ba2c5ff",
+    "tests/bench_dense_candidates.m": "19d4aace0a2d1bf343ff49da4dea6fbe74b1bf4a283e867a3fad3eb287daaa04",
+    "tests/gdn_prefill_candidates.inc": "c9df42779a4a702be536726d3a3fdac74815fd6adc9ba38e5d38bce494bc76d2",
+    "tests/gdn_prefill_dispatch.inc": "7befece9f422ae3dcc8a12116cb565b7e1fc52ac9e8c2749caca0b105ddc6857",
+    "tests/gdn_prefill_candidates.metal": "ac72e785c557036723d24b8b95548f9928c0b701877c7db822914dbcf291e9ed",
+    "tests/bench_gdn_prefill.m": "9c008a147e48e8c00de6426d464cea6dd02f5e942b1db947686b39c307ff1219",
+    "tests/projection_candidates.inc": "bd7e687c1e355315b536058abb29c1fe122af69eb0fe3a6f0223bb8c48229391",
+    "tests/projection_candidates.metal": "8695edee96448b8780c88d9f287d14b32d103ccafe5f159a4bb3487d151ec8f8",
+    "tests/bench_projection_prefill.m": "14028a78ba7006ac23ada519a4d2c9a3b787b55d5b4077d16724df9e58d32d6f",
+    "tests/bench_projection_cost.m": "68f067a05b389eb78144f2b6a1f1397c05477280a16e374bb448f090cbb0ec52",
+    "tests/scratch_candidates.inc": "6a14851c2fe2ea72125b4dc11243b6b63273dd5b036ba576bf95015161016cfa",
+    "tests/scratch_matmul.inc": "bb5c072aaaa3036cf0dfb13314479a6587edd2ee60cddf6e736d3c6be868128b",
+    "tests/bench_scratch_prefill.m": "09cbb2fe056a79a3c1b2cd1d77be19e01ca587a175fc8f96e457eee0d01baa66",
+    "tests/test_scratch_prefill.m": "b984136525b187629dcb9eed4dc6a8466f63ec663a75ee903471d34dc03b3469",
+    "tests/test_scratch_matmul.m": "c76933f841158d8a54c45d159609447cf12ef204cb3e4b954d38950fe30dd36e",
+    "tests/bench_packed8_scratch.m": "5d7ff492481c1bb6802d975122bb55898182124977edcb50f5ca88212ce2f77f",
+    "tests/test_packed8_scratch.m": "8d7880f436a0f7705a99c45a36c6c38b06c2fa1194f5d06330f2b87a8ee7f349"
+  },
+  "device": "Apple M5",
+  "context": 512,
+  "kv": "f16",
+  "gpu_layers": 64,
+  "seed": 1,
+  "workload": "same seed-1 fixed input IDs for each job across all blocks; no sampling",
+  "timing": "qw3-bench pure pp128 and 32 decode forwards at depth128, including output logits",
+  "warmup": true,
+  "repetitions": 3,
+  "cooldown_seconds": 40.0,
+  "candidate_environment": {
+    "QW3_PRIVATE_PACKED8_SCRATCH": "1"
+  },
+  "runs": [
+    {
+      "block": 0,
+      "mode": "off",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3068.94M  free = 1027.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3044.94M  free = 1051.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "152.79",
+        "stdev_tps": "0.42",
+        "avg_ms": "837.74",
+        "stdev_ms": "2.32",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 0,
+      "mode": "off",
+      "job": "tg32_d128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3044.94M  free = 1051.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3020.94M  free = 1075.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "tg",
+        "n_prompt": "0",
+        "n_gen": "32",
+        "n_depth": "128",
+        "reps": "3",
+        "avg_tps": "8.78",
+        "stdev_tps": "0.03",
+        "avg_ms": "3643.25",
+        "stdev_ms": "10.85",
+        "session_bytes": "176761680"
+      }
+    },
+    {
+      "block": 1,
+      "mode": "candidate",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3020.94M  free = 1075.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3020.94M  free = 1075.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_PACKED8_SCRATCH": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "157.14",
+        "stdev_tps": "0.05",
+        "avg_ms": "814.56",
+        "stdev_ms": "0.27",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 1,
+      "mode": "candidate",
+      "job": "tg32_d128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3020.94M  free = 1075.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3004.94M  free = 1091.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_PACKED8_SCRATCH": "1"
+      },
+      "metrics": {
+        "test": "tg",
+        "n_prompt": "0",
+        "n_gen": "32",
+        "n_depth": "128",
+        "reps": "3",
+        "avg_tps": "8.81",
+        "stdev_tps": "0.03",
+        "avg_ms": "3633.82",
+        "stdev_ms": "13.84",
+        "session_bytes": "176761680"
+      }
+    },
+    {
+      "block": 2,
+      "mode": "off",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2996.94M  free = 1099.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2988.94M  free = 1107.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "152.65",
+        "stdev_tps": "0.31",
+        "avg_ms": "838.50",
+        "stdev_ms": "1.72",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 2,
+      "mode": "off",
+      "job": "tg32_d128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2988.94M  free = 1107.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2988.94M  free = 1107.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "tg",
+        "n_prompt": "0",
+        "n_gen": "32",
+        "n_depth": "128",
+        "reps": "3",
+        "avg_tps": "8.78",
+        "stdev_tps": "0.02",
+        "avg_ms": "3645.92",
+        "stdev_ms": "9.32",
+        "session_bytes": "176761680"
+      }
+    },
+    {
+      "block": 3,
+      "mode": "candidate",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2940.94M  free = 1155.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2940.94M  free = 1155.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_PACKED8_SCRATCH": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "156.96",
+        "stdev_tps": "0.12",
+        "avg_ms": "815.52",
+        "stdev_ms": "0.63",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 3,
+      "mode": "candidate",
+      "job": "tg32_d128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2940.94M  free = 1155.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2932.94M  free = 1163.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_PACKED8_SCRATCH": "1"
+      },
+      "metrics": {
+        "test": "tg",
+        "n_prompt": "0",
+        "n_gen": "32",
+        "n_depth": "128",
+        "reps": "3",
+        "avg_tps": "8.80",
+        "stdev_tps": "0.02",
+        "avg_ms": "3636.41",
+        "stdev_ms": "7.97",
+        "session_bytes": "176761680"
+      }
+    },
+    {
+      "block": 4,
+      "mode": "off",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2876.94M  free = 1219.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2876.94M  free = 1219.06M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "152.64",
+        "stdev_tps": "0.49",
+        "avg_ms": "838.59",
+        "stdev_ms": "2.68",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 4,
+      "mode": "off",
+      "job": "tg32_d128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-packed8-scratch-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2876.94M  free = 1219.06M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2860.88M  free = 1235.12M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "tg",
+        "n_prompt": "0",
+        "n_gen": "32",
+        "n_depth": "128",
+        "reps": "3",
+        "avg_tps": "8.77",
+        "stdev_tps": "0.03",
+        "avg_ms": "3650.25",
+        "stdev_ms": "11.64",
+        "session_bytes": "176761680"
+      }
+    }
+  ],
+  "summary": {
+    "pp128": {
+      "modes": {
+        "off": {
+          "mean_tps": 152.69421789942064,
+          "ms_samples": [
+            837.74,
+            838.5,
+            838.59
+          ]
+        },
+        "candidate": {
+          "mean_tps": 157.04750687082844,
+          "ms_samples": [
+            814.56,
+            815.52
+          ]
+        }
+      },
+      "baseline_spread_pct": 0.10146346121708838,
+      "stable_baseline_5pct": true,
+      "pooled_gain_pct": 2.850984818740998
+    },
+    "tg32_d128": {
+      "modes": {
+        "off": {
+          "mean_tps": 8.775602362830936,
+          "ms_samples": [
+            3643.25,
+            3645.92,
+            3650.25
+          ]
+        },
+        "candidate": {
+          "mean_tps": 8.803022737932638,
+          "ms_samples": [
+            3633.82,
+            3636.41
+          ]
+        }
+      },
+      "baseline_spread_pct": 0.19213614218074326,
+      "stable_baseline_5pct": true,
+      "pooled_gain_pct": 0.3124614581198504
+    }
+  },
+  "all_baselines_stable_5pct": true,
+  "bracketed_comparisons": [
+    {
+      "block": 1,
+      "job": "pp128",
+      "off_blocks": [
+        0,
+        2
+      ],
+      "baseline_mean_ms": 838.12,
+      "candidate_ms": 814.56,
+      "gain_pct": 2.892359065016703
+    },
+    {
+      "block": 1,
+      "job": "tg32_d128",
+      "off_blocks": [
+        0,
+        2
+      ],
+      "baseline_mean_ms": 3644.585,
+      "candidate_ms": 3633.82,
+      "gain_pct": 0.2962447231838583
+    },
+    {
+      "block": 3,
+      "job": "pp128",
+      "off_blocks": [
+        2,
+        4
+      ],
+      "baseline_mean_ms": 838.5450000000001,
+      "candidate_ms": 815.52,
+      "gain_pct": 2.8233519717481004
+    },
+    {
+      "block": 3,
+      "job": "tg32_d128",
+      "off_blocks": [
+        2,
+        4
+      ],
+      "baseline_mean_ms": 3648.085,
+      "candidate_ms": 3636.41,
+      "gain_pct": 0.3210584065053146
+    }
+  ],
+  "completed_utc": "2026-10-05T18:14:23.370345+00:00"
+}

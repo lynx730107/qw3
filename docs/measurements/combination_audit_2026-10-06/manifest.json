@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-06",
+  "kind": "local source and archived-evidence audit",
+  "benchmarks_run": 0,
+  "code_changed": false,
+  "production_matches_previous_regressions": true,
+  "sources_match_completed_conv_followup": true,
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "tests/q5_decode_candidates.metal": "e61a72258cff452a75b8098ba7196b808e36d7509c5d5572595913d2504c37ed",
+    "tests/prepare_micro_candidates.py": "b17e23fd48f95b89fc418e18846cc3671c542801b00b69fcc87f6bac87d2dfe6"
+  },
+  "evidence_sha256": {
+    "docs/measurements/projection_cost_2026-10-04/inventory.json": "85bfb1e9b0795d2672a371bf8b7e8befb62404503ca0269d293a35ab5968f569",
+    "docs/measurements/projection_profile_2026-10-04/stage_summary.json": "5a6dd3861f2a6a8f8e0f3692c7d364ebf212a6b539706bb09561543d1396c47d",
+    "docs/m5_deltanet_prefill_2026-10-04.md": "521dbce7966eecde81fa9f828f3f058fa29ebfb6742604d0884626682e059a71",
+    "docs/m5_revisited_optimizations_2026-10-05.md": "8f5f52dccc5efe478c02866e518d33b552f17f0e546e2378284e9fbd78c3f46b",
+    "docs/m5_micro_fusions_2026-10-05.md": "847b6b73c1b5a23c07d2411de0f3aeb385d464ead21cf5113e4b1bf1ddb79eab",
+    "docs/m5_decode_2026-10-01.md": "7c8544557a0db5e5b586c4cc021bb4f7017f871f32d5848ece17c264c31d452a",
+    "docs/m5_layout_staging_2026-10-02.md": "649327ff08c231c7db483d2b89bd808ce97d7e2d01fc7fe72e004d4af84fcb1b",
+    "docs/decode_block_cost_2026-10-01.md": "f07fad944a4f55575e563a3ed48762618ceccde1668f4f77b893657d642738e8",
+    "docs/metal_prefill_validation.md": "6ffe30f2458879f9155014eeb56ec4c19c9ae8b2e6fc52a6f4e20db7527b4cf6"
+  },
+  "counts": {
+    "layers": 64,
+    "iq3_s_gate_up_pair_layers": [
+      2,
+      4,
+      5,
+      20,
+      22,
+      27,
+      29,
+      30,
+      32,
+      33,
+      35,
+      37,
+      38,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48
+    ],
+    "rounding_dispatches_eligible": 19,
+    "attention_residual_norm_fusions_eligible": 64,
+    "A_plus_B_structural_dispatch_saving": 83,
+    "down_types": {
+      "18": 4,
+      "21": 17,
+      "23": 32,
+      "12": 2,
+      "11": 3,
+      "22": 4,
+      "17": 1,
+      "13": 1
+    },
+    "IQ3_S_IQ4_XS_down_epilogues_eligible": 49,
+    "lm_head_n_in": 5120,
+    "lm_head_n_out": 248320,
+    "sum8_partial_count": 640,
+    "sum8_scratch_bytes": 2560
+  },
+  "candidates": {
+    "A": "dense prefill attention residual + FFN RMSNorm",
+    "B": "preserve existing F16 rounding in FFN RMSNorm output on eligible IQ3_S pairs",
+    "C": "Q5_K LM head share exact input sum8 partials across all vocabulary rows",
+    "D": "dense staged128 IQ4_XS/IQ3_S down projection residual epilogue"
+  },
+  "recommended_first_combination": [
+    "A",
+    "B"
+  ],
+  "later_combinations": [
+    [
+      "A",
+      "B",
+      "C"
+    ],
+    [
+      "A",
+      "B",
+      "D"
+    ]
+  ],
+  "status": "unmeasured hypotheses; no performance gain claimed",
+  "report": "../../m5_combination_audit_2026-10-06.md",
+  "follow_up": {
+    "status": "completed",
+    "report": "../../m5_combination_trials_2026-10-06.md",
+    "outcome": "../combination_campaign_2026-10-06/outcome.json",
+    "performance_samples": 260,
+    "full_bit_exact_cases": 72,
+    "guarded_matrix_cases": 24,
+    "adopted_variants": []
+  }
+}

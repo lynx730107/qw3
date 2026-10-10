@@ -1,0 +1,17 @@
+{
+  "candidate": "all",
+  "accepted": false,
+  "reason": "pp128 gain below predeclared 5 percent threshold",
+  "pp128_gain_pct": 1.5127328934936513,
+  "correctness": {
+    "full_vocabulary_logits": "exact finite numeric equality",
+    "prefix_cases": 8,
+    "canonical_live_states": "byte-identical",
+    "checkpoint_and_32_greedy_continuation": "pass",
+    "matrix_shapes": 24,
+    "matrix_cases": 216,
+    "matrix_outputs": "finite and bit-identical",
+    "input_and_output_guards": "pass"
+  },
+  "production_sources_unchanged": true
+}

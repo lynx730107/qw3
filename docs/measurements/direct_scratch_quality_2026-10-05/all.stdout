@@ -1,0 +1,9 @@
+full_exact mode=all prefix=1 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=15 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=16 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=31 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=127 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=159 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=129 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=159 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+PASS mode=all projections=1152 output=512 copies_skipped=1664

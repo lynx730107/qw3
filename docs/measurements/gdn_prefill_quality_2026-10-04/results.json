@@ -1,0 +1,61 @@
+{
+  "binary_sha256": "445d5d387e998b98e82a414ca1bc92e33d2815ab02c7579685b8e19263251bd8",
+  "runs": [
+    {
+      "mode": "packed4",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-gdn-prefill-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "packed4"
+      ],
+      "kv": "f16",
+      "exit_code": 0,
+      "log": "packed4-dot-tree.log"
+    },
+    {
+      "mode": "packed8",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-gdn-prefill-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "packed8"
+      ],
+      "kv": "f16",
+      "exit_code": 0
+    },
+    {
+      "mode": "pipeline",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-gdn-prefill-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "pipeline"
+      ],
+      "kv": "f16",
+      "exit_code": 0
+    }
+  ],
+  "context": 512,
+  "gpu_layers": 64,
+  "prefix_lengths": [
+    16,
+    31,
+    128,
+    1,
+    15
+  ],
+  "extension_at_128": 31,
+  "greedy_steps_per_case": 32,
+  "checkpoint": "save/load candidate payload and compare to native path before each continuation",
+  "source_sha256": {
+    "tests/gdn_prefill_candidates.inc": "8dda685ea208cf3b6b609ae3591fa0e0cc1a6a2620b2731c5198657d3dc11e97",
+    "tests/gdn_prefill_candidates.metal": "b858f44c00b3c0ec583f52898bd33e4b1d06a4f0f48842515c5ebb4404948421",
+    "tests/test_gdn_prefill.m": "ffa8024481d5cbd0f5c29d29af31c7a86ef460c378c95196a548927275f3f87e",
+    "qw3.c": "4b97fe8578df18af62738623144783ebfae0a9c328a380fdc2117a759106ae7e",
+    "qw3_metal.m": "f1774c2e721a5b15d3aa05c8e1d435e2642a59db969d05e60c735d088fc91ec2"
+  }
+}

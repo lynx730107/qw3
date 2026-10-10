@@ -1,0 +1,232 @@
+{
+  "completed_utc": "2026-10-05T19:56:24.277635+00:00",
+  "production_changed": false,
+  "quality_manifest": "micro_pair_quality_2026-10-05/manifest.json",
+  "candidates": {
+    "prefill": {
+      "adopted": false,
+      "result": "micro_prefill_perf_2026-10-05/results.json",
+      "summary": {
+        "pp128": {
+          "modes": {
+            "off": {
+              "mean_tps": 159.81421597393032,
+              "ms_samples": [
+                805.66,
+                799.79,
+                797.34
+              ]
+            },
+            "candidate": {
+              "mean_tps": 157.43866964324152,
+              "ms_samples": [
+                800.48,
+                825.55
+              ]
+            }
+          },
+          "baseline_spread_pct": 1.043469536207886,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": -1.4864424395613862
+        }
+      },
+      "brackets": [
+        {
+          "block": 1,
+          "job": "pp128",
+          "off_blocks": [
+            0,
+            2
+          ],
+          "baseline_mean_ms": 802.7249999999999,
+          "candidate_ms": 800.48,
+          "gain_pct": 0.2804567259644175
+        },
+        {
+          "block": 3,
+          "job": "pp128",
+          "off_blocks": [
+            2,
+            4
+          ],
+          "baseline_mean_ms": 798.565,
+          "candidate_ms": 825.55,
+          "gain_pct": -3.2687299376173318
+        }
+      ],
+      "reason": "No repeatable performance gain"
+    },
+    "decode": {
+      "adopted": false,
+      "result": "micro_decode_perf_2026-10-05/results.json",
+      "summary": {
+        "tg32_d128": {
+          "modes": {
+            "off": {
+              "mean_tps": 8.9949206807281,
+              "ms_samples": [
+                3573.75,
+                3530.93,
+                3568.01
+              ]
+            },
+            "candidate": {
+              "mean_tps": 8.837288940685221,
+              "ms_samples": [
+                3687.21,
+                3554.83
+              ]
+            }
+          },
+          "baseline_spread_pct": 1.2127116651986958,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": -1.752452807956506
+        }
+      },
+      "brackets": [
+        {
+          "block": 1,
+          "job": "tg32_d128",
+          "off_blocks": [
+            0,
+            2
+          ],
+          "baseline_mean_ms": 3552.34,
+          "candidate_ms": 3687.21,
+          "gain_pct": -3.6577791880581745
+        },
+        {
+          "block": 3,
+          "job": "tg32_d128",
+          "off_blocks": [
+            2,
+            4
+          ],
+          "baseline_mean_ms": 3549.4700000000003,
+          "candidate_ms": 3554.83,
+          "gain_pct": -0.15078076870060908
+        }
+      ],
+      "reason": "No repeatable performance gain"
+    },
+    "conv": {
+      "adopted": false,
+      "result": "micro_conv_perf_2026-10-05/results.json",
+      "summary": {
+        "pp128": {
+          "modes": {
+            "off": {
+              "mean_tps": 160.08671363655316,
+              "ms_samples": [
+                798.67,
+                802.14,
+                797.89
+              ]
+            },
+            "candidate": {
+              "mean_tps": 160.77978194242073,
+              "ms_samples": [
+                795.53,
+                796.71
+              ]
+            }
+          },
+          "baseline_spread_pct": 0.5326548772387252,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": 0.4329330586678726
+        }
+      },
+      "brackets": [
+        {
+          "block": 1,
+          "job": "pp128",
+          "off_blocks": [
+            0,
+            2
+          ],
+          "baseline_mean_ms": 800.405,
+          "candidate_ms": 795.53,
+          "gain_pct": 0.6127990144934925
+        },
+        {
+          "block": 3,
+          "job": "pp128",
+          "off_blocks": [
+            2,
+            4
+          ],
+          "baseline_mean_ms": 800.015,
+          "candidate_ms": 796.71,
+          "gain_pct": 0.4148309924564719
+        }
+      ],
+      "reason": "Small pooled gain within unstable control variation; repeat contains a negative comparison"
+    },
+    "conv_repeat": {
+      "adopted": false,
+      "result": "micro_conv_repeat_2026-10-05/results.json",
+      "summary": {
+        "pp128": {
+          "modes": {
+            "off": {
+              "mean_tps": 159.24161182368968,
+              "ms_samples": [
+                798.57,
+                796.52,
+                800.55,
+                819.6
+              ]
+            },
+            "candidate": {
+              "mean_tps": 160.14012260728137,
+              "ms_samples": [
+                794.57,
+                807.56,
+                795.77
+              ]
+            }
+          },
+          "baseline_spread_pct": 2.8976045799226746,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": 0.5642437132491018
+        }
+      },
+      "brackets": [
+        {
+          "block": 1,
+          "job": "pp128",
+          "off_blocks": [
+            0,
+            2
+          ],
+          "baseline_mean_ms": 797.5450000000001,
+          "candidate_ms": 794.57,
+          "gain_pct": 0.3744163509822984
+        },
+        {
+          "block": 3,
+          "job": "pp128",
+          "off_blocks": [
+            2,
+            4
+          ],
+          "baseline_mean_ms": 798.535,
+          "candidate_ms": 807.56,
+          "gain_pct": -1.1175640200108972
+        },
+        {
+          "block": 5,
+          "job": "pp128",
+          "off_blocks": [
+            4,
+            6
+          ],
+          "baseline_mean_ms": 810.075,
+          "candidate_ms": 795.77,
+          "gain_pct": 1.7976299684582253
+        }
+      ],
+      "reason": "Small pooled gain within unstable control variation; repeat contains a negative comparison"
+    }
+  }
+}

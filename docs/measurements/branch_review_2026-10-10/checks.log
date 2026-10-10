@@ -1,0 +1,15 @@
+START native_full
+END {'name': 'native_full', 'command': ['./qw3-native-prefill-test', '../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf', 'all'], 'rc': 0, 'seconds': 80.3}
+START native_matrix
+END {'name': 'native_matrix', 'command': ['./qw3-native-prefill-matmul-test', '../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf'], 'rc': 0, 'seconds': 1.31}
+START sum8_matrix
+END {'name': 'sum8_matrix', 'command': ['./qw3-sum8-matrix-test', '../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf'], 'rc': 0, 'seconds': 0.62}
+START epilogue_matrix
+END {'name': 'epilogue_matrix', 'command': ['./qw3-epilogue-matrix-test', '../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf'], 'rc': 0, 'seconds': 0.75}
+START register_v2
+END {'name': 'register_v2', 'command': ['./qw3-register-iq4-test', '../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf', 'quality'], 'rc': 0, 'seconds': 0.79}
+START register_v3
+END {'name': 'register_v3', 'command': ['./qw3-register-iq4-cached-test', '../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf', 'quality'], 'rc': 0, 'seconds': 0.79}
+START agent_guards
+END {'name': 'agent_guards', 'command': ['make', 'test-agent-color', 'test-agent-context', 'test-agent-repeat', 'test-agent-status', 'test-agent-tool-parse', 'test-agent-verify', 'test-runtime-fingerprint'], 'rc': 0, 'seconds': 0.71}
+PASS

@@ -1,0 +1,56 @@
+COMBO_BEGIN 0 off
+off: 8.80 tok/s, 3637.44 ms
+COMBO_BEGIN 1 logits
+logits: 8.67 tok/s, 3692.40 ms
+COMBO_BEGIN 2 off
+off: 8.69 tok/s, 3682.58 ms
+COMBO_BEGIN 3 logits
+logits: 8.85 tok/s, 3617.30 ms
+COMBO_BEGIN 4 off
+off: 8.43 tok/s, 3796.41 ms
+COMBO_BEGIN 5 logits
+logits: 8.72 tok/s, 3669.90 ms
+COMBO_BEGIN 6 off
+off: 8.73 tok/s, 3665.49 ms
+{
+  "summary": {
+    "off": {
+      "mean_tps": 8.659226947514261,
+      "pooled_gain_pct": 0.0
+    },
+    "logits": {
+      "mean_tps": 8.743487923057305,
+      "pooled_gain_pct": 0.9730773434369233
+    }
+  },
+  "baseline_spread_pct": 4.370381367115339,
+  "bracketed_comparisons": [
+    {
+      "mode": "logits",
+      "block": 1,
+      "off_blocks": [
+        0,
+        2
+      ],
+      "gain_pct": -0.8772072364857553
+    },
+    {
+      "mode": "logits",
+      "block": 3,
+      "off_blocks": [
+        2,
+        4
+      ],
+      "gain_pct": 3.3780720426837663
+    },
+    {
+      "mode": "logits",
+      "block": 5,
+      "off_blocks": [
+        4,
+        6
+      ],
+      "gain_pct": 1.6635330662960746
+    }
+  ]
+}

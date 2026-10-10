@@ -1,0 +1,173 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+COMBO_BEGIN 0 off
+qw3-bench: sample 1/5 158.376 tok/s 808.201 ms
+qw3-bench: sample 2/5 158.665 tok/s 806.732 ms
+qw3-bench: sample 3/5 158.252 tok/s 808.837 ms
+qw3-bench: sample 4/5 157.903 tok/s 810.625 ms
+qw3-bench: sample 5/5 156.946 tok/s 815.569 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 0 off 0
+COMBO_BEGIN 1 residual
+qw3-bench: sample 1/5 159.348 tok/s 803.271 ms
+qw3-bench: sample 2/5 158.719 tok/s 806.459 ms
+qw3-bench: sample 3/5 158.524 tok/s 807.450 ms
+qw3-bench: sample 4/5 158.159 tok/s 809.310 ms
+qw3-bench: sample 5/5 157.706 tok/s 811.636 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 1 residual 0
+COMBO_BEGIN 2 off
+qw3-bench: sample 1/5 158.916 tok/s 805.458 ms
+qw3-bench: sample 2/5 158.349 tok/s 808.342 ms
+qw3-bench: sample 3/5 158.497 tok/s 807.587 ms
+qw3-bench: sample 4/5 157.096 tok/s 814.788 ms
+qw3-bench: sample 5/5 157.121 tok/s 814.661 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 2 off 0
+COMBO_BEGIN 3 round
+qw3-bench: sample 1/5 158.592 tok/s 807.101 ms
+qw3-bench: sample 2/5 158.576 tok/s 807.183 ms
+qw3-bench: sample 3/5 158.534 tok/s 807.400 ms
+qw3-bench: sample 4/5 158.132 tok/s 809.448 ms
+qw3-bench: sample 5/5 157.994 tok/s 810.155 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=114 round_saved=114 sum8_head=0
+COMBO_END 3 round 0
+COMBO_BEGIN 4 off
+qw3-bench: sample 1/5 160.832 tok/s 795.860 ms
+qw3-bench: sample 2/5 160.428 tok/s 797.864 ms
+qw3-bench: sample 3/5 160.170 tok/s 799.149 ms
+qw3-bench: sample 4/5 160.107 tok/s 799.466 ms
+qw3-bench: sample 5/5 159.970 tok/s 800.148 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 4 off 0
+COMBO_BEGIN 5 both
+qw3-bench: sample 1/5 157.446 tok/s 812.977 ms
+qw3-bench: sample 2/5 155.887 tok/s 821.109 ms
+qw3-bench: sample 3/5 157.604 tok/s 812.162 ms
+qw3-bench: sample 4/5 157.281 tok/s 813.832 ms
+qw3-bench: sample 5/5 153.890 tok/s 831.762 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=0
+COMBO_END 5 both 0
+COMBO_BEGIN 6 off
+qw3-bench: sample 1/5 153.181 tok/s 835.611 ms
+qw3-bench: sample 2/5 158.703 tok/s 806.538 ms
+qw3-bench: sample 3/5 156.239 tok/s 819.260 ms
+qw3-bench: sample 4/5 159.090 tok/s 804.576 ms
+qw3-bench: sample 5/5 158.783 tok/s 806.131 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 6 off 0
+COMBO_BEGIN 7 logits
+qw3-bench: sample 1/5 158.957 tok/s 805.249 ms
+qw3-bench: sample 2/5 153.756 tok/s 832.489 ms
+qw3-bench: sample 3/5 155.114 tok/s 825.197 ms
+qw3-bench: sample 4/5 156.503 tok/s 817.878 ms
+qw3-bench: sample 5/5 156.103 tok/s 819.974 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=6
+COMBO_END 7 logits 0
+COMBO_BEGIN 8 off
+qw3-bench: sample 1/5 159.657 tok/s 801.721 ms
+qw3-bench: sample 2/5 158.130 tok/s 809.462 ms
+qw3-bench: sample 3/5 155.075 tok/s 825.406 ms
+qw3-bench: sample 4/5 155.033 tok/s 825.633 ms
+qw3-bench: sample 5/5 152.994 tok/s 836.633 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 8 off 0
+COMBO_BEGIN 9 all
+qw3-bench: sample 1/5 159.119 tok/s 804.430 ms
+qw3-bench: sample 2/5 158.794 tok/s 806.075 ms
+qw3-bench: sample 3/5 158.507 tok/s 807.536 ms
+qw3-bench: sample 4/5 158.467 tok/s 807.740 ms
+qw3-bench: sample 5/5 158.115 tok/s 809.537 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=6
+COMBO_END 9 all 0
+COMBO_BEGIN 10 off
+qw3-bench: sample 1/5 156.538 tok/s 817.695 ms
+qw3-bench: sample 2/5 155.667 tok/s 822.268 ms
+qw3-bench: sample 3/5 155.080 tok/s 825.378 ms
+qw3-bench: sample 4/5 155.647 tok/s 822.372 ms
+qw3-bench: sample 5/5 155.700 tok/s 822.093 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 10 off 0
+COMBO_BEGIN 11 all
+qw3-bench: sample 1/5 159.211 tok/s 803.963 ms
+qw3-bench: sample 2/5 156.360 tok/s 818.624 ms
+qw3-bench: sample 3/5 155.816 tok/s 821.481 ms
+qw3-bench: sample 4/5 157.041 tok/s 815.075 ms
+qw3-bench: sample 5/5 157.705 tok/s 811.643 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=6
+COMBO_END 11 all 0
+COMBO_BEGIN 12 off
+qw3-bench: sample 1/5 159.917 tok/s 800.415 ms
+qw3-bench: sample 2/5 160.143 tok/s 799.284 ms
+qw3-bench: sample 3/5 157.116 tok/s 814.684 ms
+qw3-bench: sample 4/5 157.026 tok/s 815.151 ms
+qw3-bench: sample 5/5 154.814 tok/s 826.800 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 12 off 0
+COMBO_BEGIN 13 logits
+qw3-bench: sample 1/5 154.785 tok/s 826.951 ms
+qw3-bench: sample 2/5 158.489 tok/s 807.629 ms
+qw3-bench: sample 3/5 157.724 tok/s 811.544 ms
+qw3-bench: sample 4/5 157.547 tok/s 812.454 ms
+qw3-bench: sample 5/5 150.669 tok/s 849.544 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=6
+COMBO_END 13 logits 0
+COMBO_BEGIN 14 off
+qw3-bench: sample 1/5 159.695 tok/s 801.530 ms
+qw3-bench: sample 2/5 157.193 tok/s 814.287 ms
+qw3-bench: sample 3/5 157.120 tok/s 814.662 ms
+qw3-bench: sample 4/5 156.523 tok/s 817.770 ms
+qw3-bench: sample 5/5 158.676 tok/s 806.673 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 14 off 0
+COMBO_BEGIN 15 both
+qw3-bench: sample 1/5 157.754 tok/s 811.389 ms
+qw3-bench: sample 2/5 159.716 tok/s 801.421 ms
+qw3-bench: sample 3/5 160.089 tok/s 799.554 ms
+qw3-bench: sample 4/5 160.216 tok/s 798.920 ms
+qw3-bench: sample 5/5 158.355 tok/s 808.311 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=0
+COMBO_END 15 both 0
+COMBO_BEGIN 16 off
+qw3-bench: sample 1/5 159.700 tok/s 801.501 ms
+qw3-bench: sample 2/5 159.278 tok/s 803.625 ms
+qw3-bench: sample 3/5 159.304 tok/s 803.493 ms
+qw3-bench: sample 4/5 159.069 tok/s 804.681 ms
+qw3-bench: sample 5/5 156.410 tok/s 818.360 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 16 off 0
+COMBO_BEGIN 17 round
+qw3-bench: sample 1/5 161.517 tok/s 792.485 ms
+qw3-bench: sample 2/5 160.818 tok/s 795.932 ms
+qw3-bench: sample 3/5 159.539 tok/s 802.313 ms
+qw3-bench: sample 4/5 160.683 tok/s 796.599 ms
+qw3-bench: sample 5/5 160.151 tok/s 799.246 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=114 round_saved=114 sum8_head=0
+COMBO_END 17 round 0
+COMBO_BEGIN 18 off
+qw3-bench: sample 1/5 158.981 tok/s 805.127 ms
+qw3-bench: sample 2/5 158.721 tok/s 806.447 ms
+qw3-bench: sample 3/5 153.917 tok/s 831.619 ms
+qw3-bench: sample 4/5 156.879 tok/s 815.916 ms
+qw3-bench: sample 5/5 155.664 tok/s 822.284 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 18 off 0
+COMBO_BEGIN 19 residual
+qw3-bench: sample 1/5 158.386 tok/s 808.152 ms
+qw3-bench: sample 2/5 158.093 tok/s 809.649 ms
+qw3-bench: sample 3/5 157.962 tok/s 810.323 ms
+qw3-bench: sample 4/5 157.774 tok/s 811.285 ms
+qw3-bench: sample 5/5 157.202 tok/s 814.240 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 19 residual 0
+COMBO_BEGIN 20 off
+qw3-bench: sample 1/5 157.930 tok/s 810.486 ms
+qw3-bench: sample 2/5 157.462 tok/s 812.895 ms
+qw3-bench: sample 3/5 156.838 tok/s 816.128 ms
+qw3-bench: sample 4/5 157.479 tok/s 812.807 ms
+qw3-bench: sample 5/5 157.840 tok/s 810.949 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 20 off 0

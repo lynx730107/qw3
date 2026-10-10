@@ -1,0 +1,209 @@
+{
+  "branch": "codex/m5-deltanet-prefill",
+  "archive_commit": "4f033f64d5bfb4e393b6f5e36d552f1135e09ccf",
+  "ordinary_inference_unchanged": true,
+  "ordinary_sha256": {
+    "qw3.c": "4b97fe8578df18af62738623144783ebfae0a9c328a380fdc2117a759106ae7e",
+    "qw3_metal.m": "f1774c2e721a5b15d3aa05c8e1d435e2642a59db969d05e60c735d088fc91ec2",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "615a008d721ac760c5f986a780ef23b219c82dc6f04a1349e88651098ed884b9",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813"
+  },
+  "stable_series_summaries": {
+    "packed4_repeat": {
+      "pp128": {
+        "modes": {
+          "off": {
+            "mean_tps": 152.85954834780324,
+            "ms_samples": [
+              839.48,
+              835.26
+            ]
+          },
+          "candidate": {
+            "mean_tps": 157.1921551290081,
+            "ms_samples": [
+              814.29
+            ]
+          }
+        },
+        "baseline_spread_pct": 0.5052319038383324,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": 2.8343710471699257
+      },
+      "tg32_d128": {
+        "modes": {
+          "off": {
+            "mean_tps": 8.76599451577468,
+            "ms_samples": [
+              3651.18,
+              3649.76
+            ]
+          },
+          "candidate": {
+            "mean_tps": 8.664080077760119,
+            "ms_samples": [
+              3693.41
+            ]
+          }
+        },
+        "baseline_spread_pct": 0.038906667835680864,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": -1.1626112454344306
+      }
+    },
+    "packed8": {
+      "pp128": {
+        "modes": {
+          "off": {
+            "mean_tps": 151.8464768849328,
+            "ms_samples": [
+              835.39,
+              834.94,
+              858.54
+            ]
+          },
+          "candidate": {
+            "mean_tps": 156.4572217842235,
+            "ms_samples": [
+              814.79,
+              821.44
+            ]
+          }
+        },
+        "baseline_spread_pct": 2.8265504108079487,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": 3.036451680590946
+      },
+      "tg32_d128": {
+        "modes": {
+          "off": {
+            "mean_tps": 8.672791825893704,
+            "ms_samples": [
+              3624.78,
+              3648.09,
+              3796.23
+            ]
+          },
+          "candidate": {
+            "mean_tps": 8.666062750418746,
+            "ms_samples": [
+              3738.28,
+              3646.85
+            ]
+          }
+        },
+        "baseline_spread_pct": 4.72994223097678,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": -0.0775883430623403
+      }
+    },
+    "pipeline": {
+      "pp128": {
+        "modes": {
+          "off": {
+            "mean_tps": 153.57112862781796,
+            "ms_samples": [
+              838.51,
+              838.81,
+              823.15
+            ]
+          },
+          "candidate": {
+            "mean_tps": 155.00590354515452,
+            "ms_samples": [
+              824.97,
+              826.58
+            ]
+          }
+        },
+        "baseline_spread_pct": 1.9024479135030026,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": 0.934273863945978
+      },
+      "tg32_d128": {
+        "modes": {
+          "off": {
+            "mean_tps": 8.86816366196038,
+            "ms_samples": [
+              3636.38,
+              3645.25,
+              3543.61
+            ]
+          },
+          "candidate": {
+            "mean_tps": 8.85036521585211,
+            "ms_samples": [
+              3646.04,
+              3585.3
+            ]
+          }
+        },
+        "baseline_spread_pct": 2.868261462181221,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": -0.20070046953031273
+      }
+    },
+    "combined": {
+      "pp128": {
+        "modes": {
+          "off": {
+            "mean_tps": 154.10361059943895,
+            "ms_samples": [
+              827.02,
+              833.58,
+              831.23
+            ]
+          },
+          "candidate": {
+            "mean_tps": 154.8015697846686,
+            "ms_samples": [
+              826.46,
+              827.27
+            ]
+          }
+        },
+        "baseline_spread_pct": 0.7932093540664154,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": 0.45291553034654264
+      },
+      "tg32_d128": {
+        "modes": {
+          "off": {
+            "mean_tps": 8.776003481148047,
+            "ms_samples": [
+              3574.68,
+              3627.01,
+              3737.23
+            ]
+          },
+          "candidate": {
+            "mean_tps": 8.812792870450568,
+            "ms_samples": [
+              3622.86,
+              3639.31
+            ]
+          }
+        },
+        "baseline_spread_pct": 4.5472601743372865,
+        "stable_baseline_5pct": true,
+        "pooled_gain_pct": 0.4192043608636675
+      }
+    }
+  },
+  "adopted_candidates": [],
+  "agent_checks": {
+    "model_free": "status, context, tool parse, verification, repeat, bash, edit, color, trace: PASS",
+    "moe_real": "read-tool Unicode diagram/ASCII separator, KV resume: PASS",
+    "dense_real": "prompt/full offload/KV validation, generation, KV checkpoint and prefix cache resume: PASS"
+  },
+  "builds": {
+    "metal_agent_and_bench": "PASS",
+    "cpu_agent_and_metal_cli": "PASS; unchanged CPU core produces existing unused-function warnings"
+  }
+}

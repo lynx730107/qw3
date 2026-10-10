@@ -1,0 +1,35 @@
+{
+  "command": [
+    "caffeinate",
+    "-disu",
+    "./qw3-projection-cost-bench",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "bandwidth"
+  ],
+  "exit_code": 0,
+  "binary_sha256": "e5b9d4c798a3b54b8e0ae2bb190f729192e3dc5ad6e06451b343416518cb8636",
+  "source_sha256": {
+    "tests/projection_candidates.inc": "bd7e687c1e355315b536058abb29c1fe122af69eb0fe3a6f0223bb8c48229391",
+    "tests/projection_candidates.metal": "8695edee96448b8780c88d9f287d14b32d103ccafe5f159a4bb3487d151ec8f8",
+    "tests/bench_projection_cost.m": "68f067a05b389eb78144f2b6a1f1397c05477280a16e374bb448f090cbb0ec52"
+  },
+  "swap_before": "vm.swapusage: total = 3072.00M  used = 2104.81M  free = 967.19M  (encrypted)",
+  "swap_after": "vm.swapusage: total = 3072.00M  used = 2104.81M  free = 967.19M  (encrypted)",
+  "completed_utc": "2026-10-04T13:54:29.829966+00:00",
+  "repeats": [
+    {
+      "file": "bandwidth_long_repeat0.json",
+      "exit_code": 0,
+      "swap_before": "vm.swapusage: total = 3072.00M  used = 2080.81M  free = 991.19M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 3072.00M  used = 2072.81M  free = 999.19M  (encrypted)",
+      "completed_utc": "2026-10-04T14:00:18.034794+00:00"
+    },
+    {
+      "file": "bandwidth_long_repeat1.json",
+      "exit_code": 0,
+      "swap_before": "vm.swapusage: total = 3072.00M  used = 2072.81M  free = 999.19M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 3072.00M  used = 2072.81M  free = 999.19M  (encrypted)",
+      "completed_utc": "2026-10-04T14:00:59.449760+00:00"
+    }
+  ]
+}

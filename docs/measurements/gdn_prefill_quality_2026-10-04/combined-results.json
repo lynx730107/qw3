@@ -1,0 +1,16 @@
+{
+  "command": [
+    "caffeinate",
+    "-disu",
+    "./qw3-gdn-prefill-test",
+    "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "packed8_pipeline"
+  ],
+  "exit_code": 0,
+  "binary_sha256": "50053863bebf84194518d739a39f85c4fef95fabd52c2b449914e96c96312fe6",
+  "source_sha256": {
+    "tests/gdn_prefill_candidates.inc": "96c7814d742970408dd3ab0a4b02eb974b5df4fe03ac2f811eedd59a8877bf4e",
+    "tests/gdn_prefill_candidates.metal": "ac72e785c557036723d24b8b95548f9928c0b701877c7db822914dbcf291e9ed",
+    "tests/test_gdn_prefill.m": "414e541b7a97b43a2fa32defa43fe6b2411ee20b884659616b1347d7a7afeacd"
+  }
+}

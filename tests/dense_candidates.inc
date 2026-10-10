@@ -1,3 +1,4 @@
+#define QW3_PRIVATE_ORDINARY_PREFILL_BASELINE 1
 /* Private candidates only; normal CLI/agent/engine sources are unchanged. */
 #define qw3_metal_session_matvec_iq4_xs_pair_x1_to_scratch probe_base_iq4_pair
 #define qw3_metal_session_matvec_iq4_xs_inner_add_x0 probe_base_iq4_add

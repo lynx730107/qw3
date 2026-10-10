@@ -1,0 +1,19 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+QW3_AGENT_COLOR_SELFTEST=1 ./qw3-agent
+test-agent-color: ok
+QW3_AGENT_CONTEXT_LEDGER_SELFTEST=1 ./qw3-agent
+test-agent-context: ok
+QW3_AGENT_REPEAT_GUARD_SELFTEST=1 ./qw3-agent
+test-agent-repeat-guard: ok
+QW3_AGENT_STATUS_SELFTEST=1 ./qw3-agent
+test-agent-status: ok
+QW3_AGENT_TOOL_PARSE_SELFTEST=1 ./qw3-agent
+test-agent-tool-parse: ok
+QW3_AGENT_VERIFY_GUARD_SELFTEST=1 ./qw3-agent
+test-agent-verify: ok
+python3 tests/test_runtime_fingerprint.py
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.184s
+
+OK

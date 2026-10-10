@@ -1,0 +1,77 @@
+{
+  "started_utc": "2026-10-06T18:00:09.642069+00:00",
+  "source_sha256": {
+    "Makefile": "cafc2dcffca06df4a0ef64478514f4130f2576b59e4c69cc5bc812e902b0d551",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "dbf4709e87dd45216ec45a9c72cdd299705586557f8bd60a28a064c59040ab88",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/prepare_combination_candidates.py": "07af2be6e17863514df9c750406a7f0b7a5dcebb23f6466e0eed05a5a79b7044",
+    "tests/combination_candidates.inc": "6834902ed01025e54bf4b9bca5897a383fe57a527c2df200068a398ba267fed7",
+    "tests/combination_candidates.metal": "3573334a5ab30f222afe1789f71fdd1ec097513827a2b3b1a6429686c264606a",
+    "tests/prepare_sum8_candidates.py": "2d3fcb987854046d691c8eee767006073dd5bb9de286111b7db15b7c15507b93",
+    "tests/sum8_dispatch.inc": "5459ba2bf6688e5941c469ad92733bcbfabb71ee5c34a1ac06cf85897060ddce",
+    "tests/prepare_epilogue_candidates.py": "019d07621bc8db0cddc1acd0277c9256ded1dc2c14525d1ffcb42faf02c64690",
+    "tests/epilogue_dispatch.inc": "10eba1b1dc3c10e95e12a18904ebe99eeb1be3ed61b5150ae5b863833d66866f",
+    "tests/test_epilogue_candidates.m": "62873a5a24db9b09867f604a5eccd2a63d3289aa411075d72e054b29be73cc84",
+    "tests/bench_combination_campaign.m": "0685c575f998d33b9cbdf635a6d05b1abff4087abd2e6244f55ae5fd8d0dc699",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.combination_candidates/bridge.inc": "cce13545c7fd4d0b6e479bd42498ec0ed6f11f23d6d9a314162fb3c395c10b88",
+    "tests/.combination_candidates/core.inc": "7c1958dd779b18dae161e8d6f4f443d24c70eea928843a788f8dec0c33a45ecd",
+    "tests/.combination_candidates/manifest.json": "b1764f066ce9c564c512f03b03b9b6fab75413f4c54964066f03d43f4eb6799e",
+    "tests/.combination_candidates/quality.inc": "cf6c2d6d9adab351302d55b94f6741d8d6eb846305987553ef0ac416dab52dab",
+    "tests/.sum8_candidates/candidates.inc": "63f14b113e8888b935c6b0026031090285dd268bb9e0b6ec906b2f945091ed3b",
+    "tests/.sum8_candidates/head.inc": "3bf60d1ef3d677233d0d9adee30382af315182fec3e717ed51935589df8acfd5",
+    "tests/.sum8_candidates/kernels.metal": "e8d936e7c5e37e5e11480a40d87f236f8edccd54954771f078715acc21c5a60f",
+    "tests/.sum8_candidates/quality.inc": "21bafd5ee95677ccafbf9459f0d9d90bdad3ad030a5a6b84225644ac26a376c0",
+    "tests/.epilogue_candidates/bench.m": "f2625c02f66c955c7877271d51441cc25ffaa58b8c1dd912e2a85f0977bc3697",
+    "tests/.epilogue_candidates/bridge.inc": "679a191aac9e9d5098701d022fb70509a64d0e91e70369f73349e9356ad6384d",
+    "tests/.epilogue_candidates/candidates.inc": "dc33646c0fb2b0d97c3fac06bab1e67a00ae78e9382088a29c624c55fcb9c292",
+    "tests/.epilogue_candidates/kernels.metal": "cda4f53859f0025b8a8ea147b54c2b97b2d9e877989d36889275d130221a2825",
+    "tests/.epilogue_candidates/quality.inc": "cc76da12444f1968fed15c4b788e62f625ad74f1c01ae002ccfcbd400f89bf73",
+    "tests/test_epilogue_matrix.m": "c366b747deed5f104ece64d1bf3b41f24a14078fb9c5b2140b763550370439c1",
+    "tests/test_sum8_matrix.m": "c23dfae6c00605c099664063f2f485364f12aea286d43898a3608a2840660c06"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "binary_sha256": {
+    "qw3-epilogue-matrix-test": "cb50fb2b0967d7c97adcaa36b8cc6d283f5198c67fe5fdc29a4e05b159482cef",
+    "qw3-sum8-matrix-test": "09c5d4feead24dc3946e0a4fc6513aef24d37e41747094f5956a703479ac9d71"
+  },
+  "note": "Matrix checks repeated on Makefile targets with unchanged numerical sources and flags; diagnostic build targets added after timed campaigns.",
+  "runs": [
+    {
+      "name": "epilogue",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-epilogue-matrix-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "exit_code": 0,
+      "cases": 16
+    },
+    {
+      "name": "sum8",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-sum8-matrix-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "exit_code": 0,
+      "cases": 8
+    }
+  ],
+  "completed_utc": "2026-10-06T18:00:11.009530+00:00",
+  "sources_unchanged": true,
+  "binaries_unchanged": true
+}

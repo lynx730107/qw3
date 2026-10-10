@@ -1,0 +1,94 @@
+{
+  "completed_utc": "2026-10-06T14:15:07.203407+00:00",
+  "adopted": false,
+  "reason": "Aggregate gain +0.049% is smaller than OFF block dispersion 0.187%; nearby comparisons include -0.343%. No repeatable gain established.",
+  "production_changed": false,
+  "production_matches_prior_regression_sources": true,
+  "source_unchanged_during_campaign": true,
+  "binaries_unchanged_during_campaign": true,
+  "quality_rerun": false,
+  "quality_reused": "../micro_pair_quality_2026-10-05/manifest.json",
+  "quality_reason": "All relevant source and binary SHA256 hashes match the prior complete bit-exact proof; model size and mtime also match.",
+  "campaign_count": 1,
+  "total_samples": 35,
+  "discarded_samples": 0,
+  "summary": {
+    "modes": {
+      "off": {
+        "mean_tps": 158.2185579243703,
+        "ms_samples": [
+          808.82,
+          808.72,
+          808.49,
+          810.0
+        ]
+      },
+      "candidate": {
+        "mean_tps": 158.29633568716687,
+        "ms_samples": [
+          811.55,
+          807.03,
+          807.25
+        ]
+      }
+    },
+    "baseline_spread_pct": 0.18676792539178422,
+    "stable_baseline_5pct": true,
+    "pooled_gain_pct": 0.049158432371609884
+  },
+  "bracketed_comparisons": [
+    {
+      "block": 1,
+      "job": "pp128",
+      "off_blocks": [
+        0,
+        2
+      ],
+      "baseline_mean_ms": 808.77,
+      "candidate_ms": 811.55,
+      "gain_pct": -0.3425543712648582
+    },
+    {
+      "block": 3,
+      "job": "pp128",
+      "off_blocks": [
+        2,
+        4
+      ],
+      "baseline_mean_ms": 808.605,
+      "candidate_ms": 807.03,
+      "gain_pct": 0.19516003122561631
+    },
+    {
+      "block": 5,
+      "job": "pp128",
+      "off_blocks": [
+        4,
+        6
+      ],
+      "baseline_mean_ms": 809.245,
+      "candidate_ms": 807.25,
+      "gain_pct": 0.2471353360173456
+    }
+  ],
+  "sample_statistics": {
+    "off": {
+      "count": 20,
+      "mean_ms": 809.0082,
+      "sample_stdev_ms": 1.3391316353675111,
+      "min_ms": 806.359,
+      "max_ms": 812.203
+    },
+    "candidate": {
+      "count": 15,
+      "mean_ms": 808.6087333333334,
+      "sample_stdev_ms": 4.066206734725112,
+      "min_ms": 804.243,
+      "max_ms": 818.65
+    }
+  },
+  "native_integration": false,
+  "native_eight_simd_mask_and_production_replication": "Not performed: adoption prerequisite was not met. Private diagnostic candidate retained.",
+  "followup_automation_id": "riprova-fusione-conv-qk-qw3",
+  "followup_status": "PAUSED"
+}

@@ -1,0 +1,78 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+QW3_METAL_BIN=./qw3-test sh tests/test_metal_logits_regression.sh
+qw3: model=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf  backend=Metal  ctx=1024  think=think
+qw3: loaded ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.010s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3: Qwen3.6-35B-A3B  layers=40  embd=2048  vocab=248320
+qw3: full_attn_layers=10 (GQA: 16 Q-heads, 2 KV-heads, dim=256)
+qw3: linear_layers=30 (DeltaNet: 16 QK-heads, 32 V-heads, dim=128)
+qw3: moe: 256 experts, top-8 routing + 1 shared, ff_dim=512
+qw3: memory estimate: total=83.8 MB (gqa_kv=20.0 MB  deltanet=60.0 MB  scratch=3.8 MB)
+qw3 chat ready. Type /help for commands.
+metal logits/mixed40: ok token=66 layers=0..39 maxdiff=6.198883e-06 rmsdiff=7.283177e-07 out_rms=0.5385471 last_top0=108 first_bad_layer=-1 first_bad_maxdiff=0 first_bad_rmsdiff=0 out0=[0.8540494 0.4252808 0.2911842 0.6214247]
+metal logits: ok token=66 maxdiff=1.204014e-05 rmsdiff=1.850228e-06 cpu_top0=992 gpu_top0=992 metal_argmax=992
+metal logits cpu top8: 992:14.13537 98277:14.05272 2:13.86194 40020:11.53075 8:11.1501 13:10.78005 740:10.70869 220:10.65629
+metal logits gpu top8: 992:14.13537 98277:14.05272 2:13.86194 40020:11.53074 8:11.1501 13:10.78005 740:10.70869 220:10.65629
+metal logits argmax: 992:14.13537
+qw3: model=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf  backend=Metal  ctx=1024  think=think
+qw3: loaded ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.008s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3: Qwen3.6-35B-A3B  layers=40  embd=2048  vocab=248320
+qw3: full_attn_layers=10 (GQA: 16 Q-heads, 2 KV-heads, dim=256)
+qw3: linear_layers=30 (DeltaNet: 16 QK-heads, 32 V-heads, dim=128)
+qw3: moe: 256 experts, top-8 routing + 1 shared, ff_dim=512
+qw3: memory estimate: total=83.8 MB (gqa_kv=20.0 MB  deltanet=60.0 MB  scratch=3.8 MB)
+metal session decode: ok tokens=12 ctx=1024 pos=12 maxdiff=0.001532078 rmsdiff=0.0002961897 cpu_top0=8160 gpu_top0=8160
+metal session decode cpu top8: 8160:25.62029 1596:24.12487 90700:19.06221 31248:18.23579 760:17.21052 77264:16.17191 32:14.36439 9764:14.31448
+metal session decode gpu top8: 8160:25.62022 1596:24.12479 90700:19.06198 31248:18.23592 760:17.21078 77264:16.17208 32:14.36398 9764:14.31432
+qw3: model=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf  backend=Metal  ctx=1024  think=think
+qw3: loaded ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.040s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3: Qwen3.6-35B-A3B  layers=40  embd=2048  vocab=248320
+qw3: full_attn_layers=10 (GQA: 16 Q-heads, 2 KV-heads, dim=256)
+qw3: linear_layers=30 (DeltaNet: 16 QK-heads, 32 V-heads, dim=128)
+qw3: moe: 256 experts, top-8 routing + 1 shared, ff_dim=512
+qw3: memory estimate: total=83.8 MB (gqa_kv=20.0 MB  deltanet=60.0 MB  scratch=3.8 MB)
+metal greedy step 0: cpu_top0=8160 gpu_top0=8160 gpu_top0_val=25.62022 maxdiff=0.001532078 rmsdiff=0.0002961897
+metal greedy step 1: cpu_top0=579 gpu_top0=579 gpu_top0_val=27.72538 maxdiff=0.0008831024 rmsdiff=0.0001707828
+metal greedy step 2: cpu_top0=264 gpu_top0=264 gpu_top0_val=27.78122 maxdiff=0.0005860329 rmsdiff=0.0001068627
+metal greedy step 3: cpu_top0=7047 gpu_top0=7047 gpu_top0_val=32.12337 maxdiff=0.001058817 rmsdiff=0.0001783949
+metal greedy: ok prompt_tokens=12 generated=4 final_tokens=16 total_ms=1033.9
+metal greedy generated ids: 8160 579 264 7047
+qw3: model=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf  backend=Metal  ctx=1024  think=think
+qw3: loaded ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.036s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3: Qwen3.6-35B-A3B  layers=40  embd=2048  vocab=248320
+qw3: full_attn_layers=10 (GQA: 16 Q-heads, 2 KV-heads, dim=256)
+qw3: linear_layers=30 (DeltaNet: 16 QK-heads, 32 V-heads, dim=128)
+qw3: moe: 256 experts, top-8 routing + 1 shared, ff_dim=512
+qw3: memory estimate: total=83.8 MB (gqa_kv=20.0 MB  deltanet=60.0 MB  scratch=3.8 MB)
+metal session decode: ok tokens=26 ctx=1024 pos=26 maxdiff=0.001977444 rmsdiff=0.0003264577 cpu_top0=8160 gpu_top0=8160
+metal session decode cpu top8: 8160:23.45887 1596:22.1466 90700:18.39054 760:18.0885 1206:15.8125 9764:15.33637 11707:14.88501 36948:14.5142
+metal session decode gpu top8: 8160:23.45839 1596:22.14654 90700:18.39115 760:18.08845 1206:15.81249 9764:15.33604 11707:14.88497 36948:14.51384
+qw3: model=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf  backend=Metal  ctx=1024  think=think
+qw3: loaded ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (size=16.5 GiB, 733 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 16898.67 MiB from GGUF offset 10.47 MiB in 2 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3: Qwen3.6-35B-A3B  layers=40  embd=2048  vocab=248320
+qw3: full_attn_layers=10 (GQA: 16 Q-heads, 2 KV-heads, dim=256)
+qw3: linear_layers=30 (DeltaNet: 16 QK-heads, 32 V-heads, dim=128)
+qw3: moe: 256 experts, top-8 routing + 1 shared, ff_dim=512
+qw3: memory estimate: total=83.8 MB (gqa_kv=20.0 MB  deltanet=60.0 MB  scratch=3.8 MB)
+qw3 chat ready. Type /help for commands.
+metal session prefill q8 batch: ok token=66 n_tokens=64 stride=34625 qkv_maxdiff=0.01324463 qkv_rmsdiff=0.0007243597 gate_maxdiff=0.008350372 gate_rmsdiff=0.0008139855 f32_maxdiff=2.384186e-06 f32_rmsdiff=3.000858e-07 convnorm_maxdiff=0.006689072 convnorm_rmsdiff=0.0002234866 inner_maxdiff=0.002609968 inner_rmsdiff=1.483844e-05 attn_maxdiff=0.0004528761 attn_rmsdiff=1.087894e-05 ffn_maxdiff=0.004612923 ffn_rmsdiff=0.0002915652 router_maxdiff=0.004461765 router_rmsdiff=0.001164406 layer_maxdiff=0.0009708405 layer_rmsdiff=1.66793e-05 qkv_first=[0.3535684 1.235549 0.890331 -0.3604984] router_first=[-4.82777 -5.591707 -5.667871 -5.720477]
+test-metal-logits-regression: ok

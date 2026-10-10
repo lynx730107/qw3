@@ -1,0 +1,33 @@
+{
+  "started_utc": "2026-10-04T13:47:31.438189+00:00",
+  "binary_sha256": "7c2b801c45a0bdd536c2f52e30075d377d6ad013ce19a7a0e045c12396de6448",
+  "runs": [
+    {
+      "mode": "bandwidth",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-projection-cost-bench",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "bandwidth"
+      ],
+      "exit_code": 0,
+      "swap_before": "vm.swapusage: total = 3072.00M  used = 2248.88M  free = 823.12M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 3072.00M  used = 2248.88M  free = 823.12M  (encrypted)"
+    },
+    {
+      "mode": "matrices",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-projection-cost-bench",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "matrices"
+      ],
+      "exit_code": 0,
+      "swap_before": "vm.swapusage: total = 3072.00M  used = 2248.88M  free = 823.12M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 3072.00M  used = 2248.88M  free = 823.12M  (encrypted)"
+    }
+  ],
+  "completed_utc": "2026-10-04T13:47:41.345434+00:00"
+}

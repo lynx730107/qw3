@@ -1,0 +1,163 @@
+{
+  "completed_utc": "2026-10-04T14:04:10.320039+00:00",
+  "adopted": false,
+  "production_changed": false,
+  "quality_final": [
+    "q3_metadata",
+    "iq_metadata",
+    "stage_profile"
+  ],
+  "criteria": {
+    "pp128_repeatable_min_gain_pct": 5,
+    "tg32_max_regression_pct": 2,
+    "off_spread_max_pct": 5
+  },
+  "experiments": {
+    "profile": {
+      "summary": {
+        "pp128": {
+          "modes": {
+            "off": {
+              "mean_tps": 151.53667661126107,
+              "ms_samples": [
+                832.63,
+                851.6,
+                849.81
+              ]
+            },
+            "candidate": {
+              "mean_tps": 148.24680777137564,
+              "ms_samples": [
+                870.56,
+                856.29
+              ]
+            }
+          },
+          "baseline_spread_pct": 2.278322904531427,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": -2.1710050091206523
+        },
+        "tg32_d128": {
+          "modes": {
+            "off": {
+              "mean_tps": 8.650207244548568,
+              "ms_samples": [
+                3677.93,
+                3711.14,
+                3708.93
+              ]
+            },
+            "candidate": {
+              "mean_tps": 8.493853900404254,
+              "ms_samples": [
+                3751.94,
+                3782.92
+              ]
+            }
+          },
+          "baseline_spread_pct": 0.9029535635534103,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": -1.8075098055350014
+        }
+      },
+      "candidate_blocks": 2,
+      "result": "profiling cost calibrated"
+    },
+    "iq_metadata": {
+      "summary": {
+        "pp128": {
+          "modes": {
+            "off": {
+              "mean_tps": 151.76365971741924,
+              "ms_samples": [
+                838.06,
+                840.87,
+                851.32
+              ]
+            },
+            "candidate": {
+              "mean_tps": 148.74899768741793,
+              "ms_samples": [
+                860.32,
+                860.7
+              ]
+            }
+          },
+          "baseline_spread_pct": 1.5822256163043447,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": -1.9864189066173932
+        },
+        "tg32_d128": {
+          "modes": {
+            "off": {
+              "mean_tps": 8.732750543522755,
+              "ms_samples": [
+                3649.91,
+                3666.05,
+                3677.14
+              ]
+            },
+            "candidate": {
+              "mean_tps": 8.73678390793614,
+              "ms_samples": [
+                3658.4,
+                3666.95
+              ]
+            }
+          },
+          "baseline_spread_pct": 0.7460457929099551,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": 0.0461866440966352
+        }
+      },
+      "candidate_blocks": 2,
+      "result": "below adoption criterion"
+    },
+    "q3_metadata": {
+      "summary": {
+        "pp128": {
+          "modes": {
+            "off": {
+              "mean_tps": 152.3873018518629,
+              "ms_samples": [
+                837.64,
+                842.29
+              ]
+            },
+            "candidate": {
+              "mean_tps": 154.68091020048095,
+              "ms_samples": [
+                827.51
+              ]
+            }
+          },
+          "baseline_spread_pct": 0.5551310825653077,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": 1.5051177629273216
+        },
+        "tg32_d128": {
+          "modes": {
+            "off": {
+              "mean_tps": 8.662625912621175,
+              "ms_samples": [
+                3644.48,
+                3743.58
+              ]
+            },
+            "candidate": {
+              "mean_tps": 8.893162547557576,
+              "ms_samples": [
+                3598.27
+              ]
+            }
+          },
+          "baseline_spread_pct": 2.7191807884801023,
+          "stable_baseline_5pct": true,
+          "pooled_gain_pct": 2.661278892356589
+        }
+      },
+      "candidate_blocks": 1,
+      "result": "below adoption criterion"
+    }
+  }
+}

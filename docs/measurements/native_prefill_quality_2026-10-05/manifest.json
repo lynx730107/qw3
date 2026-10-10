@@ -1,0 +1,68 @@
+{
+  "started_utc": "2026-10-05T18:21:54.896675+00:00",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "tests/native_prefill_validation.inc": "907df1accba141b0447ba08233a3eefb2ec5c2c29fe1fad51210041e9912599a",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/test_native_prefill_matmul.m": "37d3dc186cec6af8587a7a7ff18aa9329c090dea3c2f2b79c6907e124a038546",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9"
+  },
+  "binary_sha256": {
+    "qw3-native-prefill-test": "41618ed6a1fa57680a7714c6834b529bbd32456d80d2871603a2bbb9d93fadda",
+    "qw3-native-prefill-matmul-test": "1900030e625969d47660e4e20e3bed0706c6d89f723547982a3816a61d481aad",
+    "qw3-bench": "d5572f21ebaf10b8f9898d2a0a015dead09ba4e1b0232be20ab4458ce4df8470"
+  },
+  "runs": [
+    {
+      "name": "all",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-native-prefill-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0"
+      },
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2700.88M  free = 1395.12M  (encrypted)",
+      "exit_code": 0,
+      "completed_utc": "2026-10-05T18:23:20.365310+00:00",
+      "swap_after": "vm.swapusage: total = 9216.00M  used = 8795.06M  free = 420.94M  (encrypted)"
+    },
+    {
+      "name": "matrices",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-native-prefill-matmul-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0"
+      },
+      "swap_before": "vm.swapusage: total = 9216.00M  used = 8795.06M  free = 420.94M  (encrypted)",
+      "exit_code": 0,
+      "completed_utc": "2026-10-05T18:23:21.733252+00:00",
+      "swap_after": "vm.swapusage: total = 5120.00M  used = 3664.12M  free = 1455.88M  (encrypted)"
+    }
+  ],
+  "model": {
+    "path": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "size": 13146393504,
+    "mtime_ns": 1789489033525906407
+  },
+  "source_unchanged": true,
+  "completed_utc": "2026-10-05T18:23:21.737879+00:00"
+}

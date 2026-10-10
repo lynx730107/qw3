@@ -1,0 +1,84 @@
+COMBO_BEGIN 0 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.03,0.66,809.99,3.42,174664400
+COMBO_END 0 off 0
+COMBO_BEGIN 1 residual
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.49,0.62,807.63,3.13,174664400
+COMBO_END 1 residual 0
+COMBO_BEGIN 2 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.00,0.84,810.17,4.29,174664400
+COMBO_END 2 off 0
+COMBO_BEGIN 3 round
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.37,0.28,808.26,1.44,174664400
+COMBO_END 3 round 0
+COMBO_BEGIN 4 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,160.30,0.34,798.50,1.69,174664400
+COMBO_END 4 off 0
+COMBO_BEGIN 5 both
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,156.42,1.57,818.37,8.29,174664400
+COMBO_END 5 both 0
+COMBO_BEGIN 6 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.20,2.52,814.42,13.23,174664400
+COMBO_END 6 off 0
+COMBO_BEGIN 7 logits
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,156.09,1.92,820.16,10.06,174664400
+COMBO_END 7 logits 0
+COMBO_BEGIN 8 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,156.18,2.67,819.77,13.99,174664400
+COMBO_END 8 off 0
+COMBO_BEGIN 9 all
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.60,0.38,807.06,1.92,174664400
+COMBO_END 9 all 0
+COMBO_BEGIN 10 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,155.73,0.52,821.96,2.75,174664400
+COMBO_END 10 off 0
+COMBO_BEGIN 11 all
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.23,1.32,814.16,6.79,174664400
+COMBO_END 11 all 0
+COMBO_BEGIN 12 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.80,2.23,811.27,11.50,174664400
+COMBO_END 12 off 0
+COMBO_BEGIN 13 logits
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,155.84,3.21,821.62,17.24,174664400
+COMBO_END 13 logits 0
+COMBO_BEGIN 14 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.84,1.30,810.98,6.68,174664400
+COMBO_END 14 off 0
+COMBO_BEGIN 15 both
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,159.23,1.11,803.92,5.60,174664400
+COMBO_END 15 both 0
+COMBO_BEGIN 16 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.75,1.33,806.33,6.82,174664400
+COMBO_END 16 off 0
+COMBO_BEGIN 17 round
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,160.54,0.74,797.32,3.69,174664400
+COMBO_END 17 round 0
+COMBO_BEGIN 18 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,156.83,2.12,816.28,11.10,174664400
+COMBO_END 18 off 0
+COMBO_BEGIN 19 residual
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.88,0.44,810.73,2.27,174664400
+COMBO_END 19 residual 0
+COMBO_BEGIN 20 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.51,0.43,812.65,2.22,174664400
+COMBO_END 20 off 0

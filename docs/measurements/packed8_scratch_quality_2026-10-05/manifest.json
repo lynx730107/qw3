@@ -1,0 +1,48 @@
+{
+  "started_utc": "2026-10-05T18:07:47.769552+00:00",
+  "production_sha256": {
+    "qw3.c": "4b97fe8578df18af62738623144783ebfae0a9c328a380fdc2117a759106ae7e",
+    "qw3_metal.m": "f1774c2e721a5b15d3aa05c8e1d435e2642a59db969d05e60c735d088fc91ec2",
+    "qw3_metal.h": "00cd30f758faeff7d3a925b8b750594f9ead423fb4c5a71f15c3ee50a7394d00",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "615a008d721ac760c5f986a780ef23b219c82dc6f04a1349e88651098ed884b9",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813"
+  },
+  "diagnostic_sha256": {
+    "tests/scratch_candidates.inc": "6a14851c2fe2ea72125b4dc11243b6b63273dd5b036ba576bf95015161016cfa",
+    "tests/scratch_matmul.inc": "bb5c072aaaa3036cf0dfb13314479a6587edd2ee60cddf6e736d3c6be868128b",
+    "tests/gdn_prefill_dispatch.inc": "7befece9f422ae3dcc8a12116cb565b7e1fc52ac9e8c2749caca0b105ddc6857",
+    "tests/gdn_prefill_candidates.inc": "c9df42779a4a702be536726d3a3fdac74815fd6adc9ba38e5d38bce494bc76d2",
+    "tests/gdn_prefill_candidates.metal": "ac72e785c557036723d24b8b95548f9928c0b701877c7db822914dbcf291e9ed",
+    "tests/bench_scratch_prefill.m": "09cbb2fe056a79a3c1b2cd1d77be19e01ca587a175fc8f96e457eee0d01baa66",
+    "tests/test_scratch_prefill.m": "b984136525b187629dcb9eed4dc6a8466f63ec663a75ee903471d34dc03b3469",
+    "tests/test_packed8_scratch.m": "8d7880f436a0f7705a99c45a36c6c38b06c2fa1194f5d06330f2b87a8ee7f349",
+    "tests/bench_packed8_scratch.m": "5d7ff492481c1bb6802d975122bb55898182124977edcb50f5ca88212ce2f77f",
+    "tools/bench_qw3_candidates.py": "90c7a6c52f15567d0b50c433ee0e7516b2025bc21d7d23198bc465a39cf48765"
+  },
+  "binary_sha256": {
+    "qw3-packed8-scratch-test": "002680ed6dfce7f302b3207f3198b09c796e319236f72a3d69fa44d542b8d4aa",
+    "qw3-packed8-scratch-bench": "b43defdc8297137a44e6dfca550d7c53f96f197a56f47f54f9418c5b393ec46b"
+  },
+  "swap_before": "vm.swapusage: total = 3072.00M  used = 1957.12M  free = 1114.88M  (encrypted)",
+  "command": [
+    "caffeinate",
+    "-disu",
+    "./qw3-packed8-scratch-test",
+    "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "all"
+  ],
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_KV_Q8_0": "0"
+  },
+  "exit_code": 0,
+  "completed_utc": "2026-10-05T18:09:31.575839+00:00",
+  "swap_after": "vm.swapusage: total = 4096.00M  used = 3172.94M  free = 923.06M  (encrypted)",
+  "production_unchanged": true
+}

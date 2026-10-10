@@ -1,0 +1,88 @@
+{
+  "started_utc": "2026-10-06T16:36:19.623093+00:00",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "dbf4709e87dd45216ec45a9c72cdd299705586557f8bd60a28a064c59040ab88",
+    "Makefile": "a38bcae0563bac50dc18a035a6272a6e267f4ba1fd91f3f0d903e6beb2dfd794",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/prepare_combination_candidates.py": "07af2be6e17863514df9c750406a7f0b7a5dcebb23f6466e0eed05a5a79b7044",
+    "tests/combination_candidates.inc": "6834902ed01025e54bf4b9bca5897a383fe57a527c2df200068a398ba267fed7",
+    "tests/combination_candidates.metal": "3573334a5ab30f222afe1789f71fdd1ec097513827a2b3b1a6429686c264606a",
+    "tests/test_combination_candidates.m": "79aaf65031e13c46a44eb1721add56abf9f80b7c0b842ee9fbc1d21089517a9e",
+    "tests/bench_combination_candidates.m": "4f65a613b92dae006cb25b80b99df9da4c28f011974e8f1132df20b0118904b4",
+    "tests/.combination_candidates/core.inc": "7c1958dd779b18dae161e8d6f4f443d24c70eea928843a788f8dec0c33a45ecd",
+    "tests/.combination_candidates/bridge.inc": "cce13545c7fd4d0b6e479bd42498ec0ed6f11f23d6d9a314162fb3c395c10b88",
+    "tests/.combination_candidates/quality.inc": "cf6c2d6d9adab351302d55b94f6741d8d6eb846305987553ef0ac416dab52dab",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9"
+  },
+  "binary_sha256": {
+    "qw3-combination-test": "d3c17d8d2476ed1b2cf158bc68fa29c8eca52861c3947e7447011cb5015d0980",
+    "qw3-combination-bench": "efe842db42318becd2d95da2f886a3d3171d012bca44b516071c856da98363db"
+  },
+  "production_matches_prior_regressions": true,
+  "runs": [
+    {
+      "mode": "residual",
+      "exit_code": 0,
+      "full_exact_cases": 8
+    },
+    {
+      "mode": "round",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-combination-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "round"
+      ],
+      "exit_code": 0,
+      "full_exact_cases": 8,
+      "completed_utc": "2026-10-06T16:39:34.386911+00:00"
+    },
+    {
+      "mode": "both",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-combination-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "both"
+      ],
+      "exit_code": 0,
+      "full_exact_cases": 8,
+      "completed_utc": "2026-10-06T16:41:21.479432+00:00"
+    }
+  ],
+  "completed_utc": "2026-10-06T16:41:21.480473+00:00",
+  "numeric_sources_unchanged": true,
+  "makefile_note": "Added independent sum8/campaign targets after snapshot; compile flags and inference sources unchanged.",
+  "prefixes": [
+    1,
+    15,
+    16,
+    31,
+    127,
+    128,
+    129,
+    159
+  ],
+  "extended_prefix": [
+    128,
+    159
+  ],
+  "continuation": 32,
+  "context": 512,
+  "kv": "f16",
+  "gpu_layers": 64,
+  "compare": "entire finite vocabulary bit-for-bit; live KV; all DeltaNet/conv state; checkpoint payload save/load and continuation"
+}

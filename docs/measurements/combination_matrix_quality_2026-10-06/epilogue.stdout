@@ -1,0 +1,17 @@
+epilogue_matrix_exact type=21 tokens=128 n_in=17408 rows=1 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=21 tokens=128 n_in=17408 rows=33 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=21 tokens=128 n_in=17408 rows=65 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=21 tokens=128 n_in=17408 rows=5120 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=21 tokens=256 n_in=17408 rows=1 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=21 tokens=256 n_in=17408 rows=33 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=21 tokens=256 n_in=17408 rows=65 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=21 tokens=256 n_in=17408 rows=5120 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=128 n_in=17408 rows=1 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=128 n_in=17408 rows=33 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=128 n_in=17408 rows=65 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=128 n_in=17408 rows=5120 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=256 n_in=17408 rows=1 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=256 n_in=17408 rows=33 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=256 n_in=17408 rows=65 residual=nonzero guards=exact input=unchanged
+epilogue_matrix_exact type=23 tokens=256 n_in=17408 rows=5120 residual=nonzero guards=exact input=unchanged
+PASS epilogue_matrix cases=16

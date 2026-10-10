@@ -1,0 +1,29 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+register IQ4 compile: In module 'monolithic_metal' imported from <built-in>:1:
+/System/Library/PrivateFrameworks/GPUCompiler.framework/Versions/32023/Libraries/lib/clang/32023.886/include/metal/metal_tensor:1494:3: error: static_assert failed due to requirement '__tensor_detail::__is_tensor_addrspace_v<metal::tensor_handle, threadgroup half>' "tensor: ElementType must be device or constant qualified"
+  static_assert(__tensor_detail::__is_tensor_addrspace_v<tensor_handle, ElementType>,
+  ^             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/System/Library/Frameworks/MetalPerformancePrimitives.framework/Headers/__impl/MPPTensorOpsMatMul2dImpl.h:3260:1: note: in instantiation of template class 'metal::tensor<threadgroup half, metal::extents<int, 18446744073709551615, 18446744073709551615>>' requested here
+using __cooperative_tensor_destination_t =
+^
+/System/Library/Frameworks/MetalPerformancePrimitives.framework/Headers/MPPTensorOpsMatMul2d.h:527:3: note: in instantiation of template type alias '__cooperative_tensor_destination_t' requested here
+  using cooperative_tensor_destination_t =
+  ^
+/System/Library/Frameworks/MetalPerformancePrimitives.framework/Headers/MPPTensorOpsMatMul2d.h:539:10: note: in instantiation of template type alias 'cooperative_tensor_destination_t' requested here
+  INLINE cooperative_tensor_destination_t<LeftOperandType, RightOperandType, ElementType, CoordType, CoopArgs...>
+         ^
+program_source:9619:27: note: while substituting explicitly-specified template arguments into function template 'get_destination_cooperative_tensor' 
+    auto cT = mm.template get_destination_cooperative_tensor<
+                          ^
+program_source:9619:27: error: no matching member function for call to 'get_destination_cooperative_tensor'
+    auto cT = mm.template get_destination_cooperative_tensor<
+              ~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/System/Library/Frameworks/MetalPerformancePrimitives.framework/Headers/MPPTensorOpsMatMul2d.h:540:3: note: candidate template ignored: substitution failure [with LeftOperandType = metal::tensor<device float, metal::extents<int, 18446744073709551615, 18446744073709551615>, metal::tensor_inline>, RightOperandType = metal::tensor<threadgroup half, metal::extents<int, 18446744073709551615, 18446744073709551615>>, ElementType = float]
+  get_destination_cooperative_tensor() thread const
+  ^
+
+register IQ4 diagnostic failed mode=quality cases=0

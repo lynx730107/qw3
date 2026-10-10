@@ -1,0 +1,61 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+COMBO_BEGIN 0 off
+qw3-bench: sample 1/5 156.673 tok/s 816.988 ms
+qw3-bench: sample 2/5 155.913 tok/s 820.969 ms
+qw3-bench: sample 3/5 155.432 tok/s 823.510 ms
+qw3-bench: sample 4/5 154.812 tok/s 826.810 ms
+qw3-bench: sample 5/5 154.690 tok/s 827.462 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 0 off 0
+COMBO_BEGIN 1 residual
+qw3-bench: sample 1/5 157.237 tok/s 814.057 ms
+qw3-bench: sample 2/5 156.696 tok/s 816.866 ms
+qw3-bench: sample 3/5 156.751 tok/s 816.581 ms
+qw3-bench: sample 4/5 155.549 tok/s 822.891 ms
+qw3-bench: sample 5/5 155.171 tok/s 824.897 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 1 residual 0
+COMBO_BEGIN 2 off
+qw3-bench: sample 1/5 154.114 tok/s 830.555 ms
+qw3-bench: sample 2/5 154.053 tok/s 830.884 ms
+qw3-bench: sample 3/5 156.398 tok/s 818.426 ms
+qw3-bench: sample 4/5 157.016 tok/s 815.206 ms
+qw3-bench: sample 5/5 155.592 tok/s 822.667 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 2 off 0
+COMBO_BEGIN 3 residual
+qw3-bench: sample 1/5 156.321 tok/s 818.826 ms
+qw3-bench: sample 2/5 155.363 tok/s 823.875 ms
+qw3-bench: sample 3/5 153.015 tok/s 836.520 ms
+qw3-bench: sample 4/5 155.610 tok/s 822.570 ms
+qw3-bench: sample 5/5 153.576 tok/s 833.465 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 3 residual 0
+COMBO_BEGIN 4 off
+qw3-bench: sample 1/5 157.067 tok/s 814.941 ms
+qw3-bench: sample 2/5 156.428 tok/s 818.269 ms
+qw3-bench: sample 3/5 155.477 tok/s 823.274 ms
+qw3-bench: sample 4/5 155.921 tok/s 820.929 ms
+qw3-bench: sample 5/5 155.826 tok/s 821.429 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 4 off 0
+COMBO_BEGIN 5 residual
+qw3-bench: sample 1/5 153.527 tok/s 833.727 ms
+qw3-bench: sample 2/5 151.126 tok/s 846.976 ms
+qw3-bench: sample 3/5 151.666 tok/s 843.958 ms
+qw3-bench: sample 4/5 150.804 tok/s 848.782 ms
+qw3-bench: sample 5/5 153.109 tok/s 836.005 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 5 residual 0
+COMBO_BEGIN 6 off
+qw3-bench: sample 1/5 157.720 tok/s 811.566 ms
+qw3-bench: sample 2/5 157.165 tok/s 814.433 ms
+qw3-bench: sample 3/5 157.130 tok/s 814.614 ms
+qw3-bench: sample 4/5 157.415 tok/s 813.137 ms
+qw3-bench: sample 5/5 156.515 tok/s 817.814 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0
+COMBO_END 6 off 0

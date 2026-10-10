@@ -35,7 +35,7 @@ qw3_cpu_cli.o: qw3_cli.c qw3.h
 qw3_cpu_cli_test.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_cpu_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h qw3_agent_hybrid.inc linenoise.h
+qw3_cpu_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h linenoise.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_agent.c
 
 qw3_eval_cpu.o: qw3_eval.c qw3.h
@@ -80,7 +80,7 @@ qw3_metal_cli.o: qw3_cli.c qw3.h
 qw3_metal_cli_test.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_CLI_ENABLE_INTERNAL_TESTS=1 -c -o $@ qw3_cli.c
 
-qw3_metal_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h qw3_agent_hybrid.inc linenoise.h
+qw3_metal_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h linenoise.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_agent.c
 
 qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h
@@ -114,6 +114,114 @@ qw3-iq3-stream-bench: tests/bench_iq3_stream.m tests/iq3_decode_candidates.metal
 
 qw3-decode-trials-bench: tests/bench_decode_trials.m tests/iq4_layout_probe.inc tests/iq4_prefetch_probe.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_decode_trials.m $(METAL_LDLIBS)
+
+qw3-projection-cost-bench: tests/bench_projection_cost.m tests/projection_candidates.inc tests/projection_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_projection_cost.m $(METAL_LDLIBS)
+
+qw3-projection-prefill-bench: tests/bench_projection_prefill.m tests/projection_candidates.inc tests/projection_candidates.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_projection_prefill.m $(METAL_LDLIBS)
+
+qw3-projection-prefill-test: tests/test_projection_prefill.m tests/projection_candidates.inc tests/projection_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_projection_prefill.m $(METAL_LDLIBS)
+
+qw3-scratch-prefill-bench: tests/bench_scratch_prefill.m tests/scratch_candidates.inc tests/scratch_matmul.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_scratch_prefill.m $(METAL_LDLIBS)
+
+qw3-scratch-prefill-test: tests/test_scratch_prefill.m tests/scratch_candidates.inc tests/scratch_matmul.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_scratch_prefill.m $(METAL_LDLIBS)
+
+qw3-scratch-matmul-test: tests/test_scratch_matmul.m tests/scratch_candidates.inc tests/scratch_matmul.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_scratch_matmul.m $(METAL_LDLIBS)
+
+tests/.combination_candidates/core.inc: tests/prepare_combination_candidates.py tests/test_native_prefill.m qw3.c qw3_metal.m
+	python3 tests/prepare_combination_candidates.py
+
+tests/.sum8_candidates/candidates.inc: tests/prepare_sum8_candidates.py tests/sum8_dispatch.inc tests/combination_candidates.inc tests/.combination_candidates/core.inc metal/qw3_core_linear.metal qw3_metal.m
+	python3 tests/prepare_sum8_candidates.py
+
+qw3-sum8-test: tests/test_sum8_candidates.m tests/.sum8_candidates/candidates.inc tests/combination_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_sum8_candidates.m $(METAL_LDLIBS)
+
+qw3-sum8-bench: tests/bench_sum8_candidates.m tests/.sum8_candidates/candidates.inc tests/combination_candidates.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_sum8_candidates.m $(METAL_LDLIBS)
+
+qw3-combination-campaign: tests/bench_combination_campaign.m tests/.sum8_candidates/candidates.inc tests/combination_candidates.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_combination_campaign.m $(METAL_LDLIBS)
+
+tests/.epilogue_candidates/candidates.inc: tests/prepare_epilogue_candidates.py tests/epilogue_dispatch.inc tests/.sum8_candidates/candidates.inc metal/qw3_core_moe.metal tests/bench_combination_campaign.m
+	python3 tests/prepare_epilogue_candidates.py
+
+tests/.register_iq4/kernel.metal: tests/prepare_register_iq4.py metal/qw3_core_moe.metal
+	python3 tests/prepare_register_iq4.py
+
+qw3-register-iq4-test: tests/test_register_iq4.m tests/register_iq4.inc tests/.register_iq4/kernel.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_register_iq4.m $(METAL_LDLIBS)
+
+tests/.register_iq4_cached/kernel.metal: tests/prepare_register_iq4_cached.py tests/.register_iq4/kernel.metal tests/register_iq4.inc tests/test_register_iq4.m
+	python3 tests/prepare_register_iq4_cached.py
+
+qw3-register-iq4-cached-test: tests/test_register_iq4_cached.m tests/.register_iq4_cached/kernel.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_register_iq4_cached.m $(METAL_LDLIBS)
+
+qw3-epilogue-test: tests/test_epilogue_candidates.m tests/.epilogue_candidates/candidates.inc tests/combination_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_epilogue_candidates.m $(METAL_LDLIBS)
+
+qw3-epilogue-matrix-test: tests/test_epilogue_matrix.m tests/.epilogue_candidates/candidates.inc tests/combination_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_epilogue_matrix.m $(METAL_LDLIBS)
+
+qw3-sum8-matrix-test: tests/test_sum8_matrix.m tests/.sum8_candidates/candidates.inc tests/combination_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_sum8_matrix.m $(METAL_LDLIBS)
+
+qw3-epilogue-campaign: tests/.epilogue_candidates/candidates.inc tests/combination_candidates.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/.epilogue_candidates/bench.m $(METAL_LDLIBS)
+
+qw3-combination-bench: tests/bench_combination_candidates.m tests/combination_candidates.inc tests/combination_candidates.metal tests/.combination_candidates/core.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_combination_candidates.m $(METAL_LDLIBS)
+
+qw3-combination-test: tests/test_combination_candidates.m tests/combination_candidates.inc tests/combination_candidates.metal tests/.combination_candidates/core.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_combination_candidates.m $(METAL_LDLIBS)
+
+tests/.micro_candidates/core.inc: tests/prepare_micro_candidates.py tests/test_native_prefill.m qw3.c
+	python3 tests/prepare_micro_candidates.py
+
+qw3-micro-bench: tests/bench_micro_candidates.m tests/micro_candidates.inc tests/micro_candidates.metal tests/.micro_candidates/core.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_micro_candidates.m $(METAL_LDLIBS)
+
+qw3-micro-test: tests/test_micro_candidates.m tests/test_native_prefill.m tests/micro_candidates.inc tests/micro_candidates.metal tests/.micro_candidates/core.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_micro_candidates.m $(METAL_LDLIBS)
+
+qw3-micro-q8-test: tests/test_micro_q8.m tests/micro_candidates.inc tests/micro_candidates.metal tests/.micro_candidates/core.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_micro_q8.m $(METAL_LDLIBS)
+
+qw3-copy-control-bench: tests/bench_copy_control.m tests/native_prefill_validation.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_copy_control.m $(METAL_LDLIBS)
+
+qw3-copy-control-test: tests/test_copy_control.m tests/test_native_prefill.m tests/native_prefill_validation.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_copy_control.m $(METAL_LDLIBS)
+
+qw3-revisit-prefill-bench: tests/bench_revisit_prefill.m tests/bench_projection_prefill.m tests/projection_candidates.inc tests/projection_candidates.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_revisit_prefill.m $(METAL_LDLIBS)
+
+qw3-revisit-prefill-test: tests/test_revisit_prefill.m tests/test_projection_prefill.m tests/projection_candidates.inc tests/projection_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_revisit_prefill.m $(METAL_LDLIBS)
+
+qw3-native-prefill-test: tests/test_native_prefill.m tests/native_prefill_validation.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_native_prefill.m $(METAL_LDLIBS)
+
+qw3-native-prefill-matmul-test: tests/test_native_prefill_matmul.m tests/native_prefill_validation.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_native_prefill_matmul.m $(METAL_LDLIBS)
+
+qw3-packed8-scratch-bench: tests/bench_packed8_scratch.m tests/bench_scratch_prefill.m tests/scratch_candidates.inc tests/scratch_matmul.inc tests/gdn_prefill_dispatch.inc tests/gdn_prefill_candidates.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_packed8_scratch.m $(METAL_LDLIBS)
+
+qw3-packed8-scratch-test: tests/test_packed8_scratch.m tests/test_scratch_prefill.m tests/scratch_candidates.inc tests/scratch_matmul.inc tests/gdn_prefill_dispatch.inc tests/gdn_prefill_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_packed8_scratch.m $(METAL_LDLIBS)
+
+qw3-gdn-prefill-bench: tests/bench_gdn_prefill.m tests/gdn_prefill_candidates.inc tests/gdn_prefill_dispatch.inc tests/gdn_prefill_candidates.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_gdn_prefill.m $(METAL_LDLIBS)
+
+qw3-gdn-prefill-test: tests/test_gdn_prefill.m tests/gdn_prefill_candidates.inc tests/gdn_prefill_dispatch.inc tests/gdn_prefill_candidates.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/test_gdn_prefill.m $(METAL_LDLIBS)
 
 qw3-dense-candidates-bench: tests/bench_dense_candidates.m tests/dense_candidates.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ tests/bench_dense_candidates.m $(METAL_LDLIBS)
@@ -186,7 +294,11 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-dense-candidates-bench qw3-dense-candidates-test qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench:
+qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
+	@echo "$@ requires Darwin/Apple Metal"
+	@exit 1
+
+qw3-micro-bench qw3-micro-test qw3-micro-q8-test qw3-copy-control-bench qw3-copy-control-test qw3-revisit-prefill-bench qw3-revisit-prefill-test qw3-native-prefill-test qw3-native-prefill-matmul-test qw3-packed8-scratch-bench qw3-packed8-scratch-test qw3-scratch-prefill-bench qw3-scratch-prefill-test qw3-scratch-matmul-test qw3-projection-cost-bench qw3-projection-prefill-bench qw3-projection-prefill-test qw3-gdn-prefill-bench qw3-gdn-prefill-test qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-dense-candidates-bench qw3-dense-candidates-test qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 endif
@@ -354,14 +466,15 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-register-iq4-test
+	rm -f qw3-register-iq4-cached-test
+	rm -f qw3-epilogue-matrix-test qw3-sum8-matrix-test
+	rm -f qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test
 	rm -f qw3_runtime_fingerprint.h
-	rm -f qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
+	rm -f qw3-scratch-prefill-bench qw3-scratch-prefill-test qw3-scratch-matmul-test
+	rm -f qw3-packed8-scratch-bench qw3-packed8-scratch-test
+	rm -f qw3-micro-bench qw3-micro-test qw3-micro-q8-test qw3-copy-control-bench qw3-copy-control-test qw3-revisit-prefill-bench qw3-revisit-prefill-test qw3-native-prefill-test qw3-native-prefill-matmul-test qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench qw3-decode-ab-bench \
-		qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-dense-candidates-bench qw3-dense-candidates-test qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench \
+		qw3-projection-cost-bench qw3-projection-prefill-bench qw3-projection-prefill-test qw3-gdn-prefill-bench qw3-gdn-prefill-test qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-dense-candidates-bench qw3-dense-candidates-test qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench \
 		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test \
 		qw3-eval qw3-eval-cpu qw3-eval-metal *.o
-
-.PHONY: test-agent-hybrid
-test-agent-hybrid: qw3-agent qw3-agent-cpu
-	QW3_AGENT_HYBRID_SELFTEST=1 ./qw3-agent
-	QW3_AGENT_HYBRID_SELFTEST=1 ./qw3-agent-cpu

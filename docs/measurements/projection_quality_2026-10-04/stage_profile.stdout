@@ -1,0 +1,6 @@
+full_exact mode=stage_profile prefix=16 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=stage_profile prefix=31 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=stage_profile prefix=159 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=stage_profile prefix=1 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=stage_profile prefix=15 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+PASS mode=stage_profile q3_calls=0 iq_calls=0

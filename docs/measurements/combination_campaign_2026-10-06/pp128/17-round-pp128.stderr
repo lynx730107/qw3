@@ -1,0 +1,6 @@
+qw3-bench: sample 1/5 161.517 tok/s 792.485 ms
+qw3-bench: sample 2/5 160.818 tok/s 795.932 ms
+qw3-bench: sample 3/5 159.539 tok/s 802.313 ms
+qw3-bench: sample 4/5 160.683 tok/s 796.599 ms
+qw3-bench: sample 5/5 160.151 tok/s 799.246 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=114 round_saved=114 sum8_head=0

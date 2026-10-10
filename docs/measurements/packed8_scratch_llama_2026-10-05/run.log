@@ -1,0 +1,20 @@
+pp128 pair=1/3 cooling 40s
+pp128 pair=1/3 engine=qw3
+pp128 pair=1/3 engine=llama
+pp128 pair=2/3 cooling 40s
+pp128 pair=2/3 engine=llama
+pp128 pair=2/3 engine=qw3
+pp128 pair=3/3 cooling 40s
+pp128 pair=3/3 engine=qw3
+pp128 pair=3/3 engine=llama
+{"pp128": {"qw3_tps": 157.65876730551312, "llama_tps": 159.23227010209052, "paired_saved_ms": -8.022842666666715, "ci95_radius_ms": 8.385692073593635, "lead_confirmed_in_this_series": false, "qw3_spread_pct": 0.554095245147046, "llama_spread_pct": 0.19573114495612387, "both_engines_stable_5pct": true}}
+tg32_d128 pair=1/3 cooling 40s
+tg32_d128 pair=1/3 engine=qw3
+tg32_d128 pair=1/3 engine=llama
+tg32_d128 pair=2/3 cooling 40s
+tg32_d128 pair=2/3 engine=llama
+tg32_d128 pair=2/3 engine=qw3
+tg32_d128 pair=3/3 cooling 40s
+tg32_d128 pair=3/3 engine=qw3
+tg32_d128 pair=3/3 engine=llama
+{"tg32_d128": {"qw3_tps": 8.794035445459118, "llama_tps": 9.022806495711034, "paired_saved_ms": -92.26164399999999, "ci95_radius_ms": 126.14544401622979, "lead_confirmed_in_this_series": false, "qw3_spread_pct": 1.3599969034427062, "llama_spread_pct": 1.767684241365708, "both_engines_stable_5pct": true}}

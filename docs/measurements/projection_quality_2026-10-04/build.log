@@ -1,0 +1,109 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -o qw3-projection-prefill-bench tests/bench_projection_prefill.m -lm -pthread -framework Foundation -framework Metal
+In file included from tests/bench_projection_prefill.m:1:
+In file included from tests/projection_candidates.inc:90:
+tests/../qw3_metal.m:484:16: warning: returning 'id<MTLCommandBuffer> _Nullable' from a function with incompatible result type 'id<MTLCommandBuffer,QW3ProjectionHooks>'
+  484 |         return [g_queue commandBufferWithUnretainedReferences];
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:486:12: warning: returning 'id<MTLCommandBuffer> _Nullable' from a function with incompatible result type 'id<MTLCommandBuffer,QW3ProjectionHooks>'
+  486 |     return [g_queue commandBuffer];
+      |            ^~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2987:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2987 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2989:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2989 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2999:16: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2999 |     g_batch_cb = [g_queue commandBuffer];
+      |                ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3010:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3010 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3012:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3012 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3035:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3035 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3037:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3037 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:12806:14: warning: assigning to '__strong id<MTLDevice,QW3ProjectionHooks>' from incompatible type 'id<MTLDevice> _Nullable'
+ 12806 |     g_device = MTLCreateSystemDefaultDevice();
+       |              ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 warnings generated.
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -o qw3-projection-prefill-test tests/test_projection_prefill.m -lm -pthread -framework Foundation -framework Metal
+In file included from tests/test_projection_prefill.m:1:
+In file included from tests/projection_candidates.inc:90:
+tests/../qw3_metal.m:484:16: warning: returning 'id<MTLCommandBuffer> _Nullable' from a function with incompatible result type 'id<MTLCommandBuffer,QW3ProjectionHooks>'
+  484 |         return [g_queue commandBufferWithUnretainedReferences];
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:486:12: warning: returning 'id<MTLCommandBuffer> _Nullable' from a function with incompatible result type 'id<MTLCommandBuffer,QW3ProjectionHooks>'
+  486 |     return [g_queue commandBuffer];
+      |            ^~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2987:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2987 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2989:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2989 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2999:16: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2999 |     g_batch_cb = [g_queue commandBuffer];
+      |                ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3010:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3010 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3012:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3012 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3035:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3035 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3037:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3037 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:12806:14: warning: assigning to '__strong id<MTLDevice,QW3ProjectionHooks>' from incompatible type 'id<MTLDevice> _Nullable'
+ 12806 |     g_device = MTLCreateSystemDefaultDevice();
+       |              ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 warnings generated.
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -o qw3-projection-cost-bench tests/bench_projection_cost.m -lm -pthread -framework Foundation -framework Metal
+In file included from tests/bench_projection_cost.m:1:
+In file included from tests/projection_candidates.inc:90:
+tests/../qw3_metal.m:484:16: warning: returning 'id<MTLCommandBuffer> _Nullable' from a function with incompatible result type 'id<MTLCommandBuffer,QW3ProjectionHooks>'
+  484 |         return [g_queue commandBufferWithUnretainedReferences];
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:486:12: warning: returning 'id<MTLCommandBuffer> _Nullable' from a function with incompatible result type 'id<MTLCommandBuffer,QW3ProjectionHooks>'
+  486 |     return [g_queue commandBuffer];
+      |            ^~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2987:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2987 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2989:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2989 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:2999:16: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 2999 |     g_batch_cb = [g_queue commandBuffer];
+      |                ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3010:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3010 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3012:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3012 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3035:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3035 |         g_batch_cb = [g_queue commandBufferWithUnretainedReferences];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:3037:20: warning: assigning to '__strong id<MTLCommandBuffer,QW3ProjectionHooks>' from incompatible type 'id<MTLCommandBuffer> _Nullable'
+ 3037 |         g_batch_cb = [g_queue commandBuffer];
+      |                    ^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/../qw3_metal.m:12806:14: warning: assigning to '__strong id<MTLDevice,QW3ProjectionHooks>' from incompatible type 'id<MTLDevice> _Nullable'
+ 12806 |     g_device = MTLCreateSystemDefaultDevice();
+       |              ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/bench_projection_cost.m:91:107: warning: passing '__strong id<MTLCommandBuffer>' to parameter of incompatible type 'id<MTLCommandBuffer,QW3ProjectionHooks>'
+   91 |                         for (int repeat=0;repeat<8;repeat++) if (!qw3_metal_encode_dense_batch_matmul(obj,cb,
+      |                                                                                                           ^~
+tests/../qw3_metal.m:4456:51: note: passing argument to parameter 'cb' here
+ 4456 |     QW3MetalSessionObj *obj, id<MTLCommandBuffer> cb,
+      |                                                   ^
+11 warnings generated.

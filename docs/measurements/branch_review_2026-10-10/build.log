@@ -1,0 +1,23 @@
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_metal_cli.o qw3_cli.c
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_metal_agent.o qw3_agent.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o linenoise_qw3.o linenoise.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_eval_metal.o qw3_eval.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_bench.o qw3_bench.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -o qw3-native-prefill-test tests/test_native_prefill.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -o qw3-native-prefill-matmul-test tests/test_native_prefill_matmul.m -lm -pthread -framework Foundation -framework Metal
+python3 tests/prepare_register_iq4.py
+python3 tests/prepare_combination_candidates.py
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_metal_core.o qw3.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -c -o qw3_metal.o qw3_metal.m
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-register-iq4-test tests/test_register_iq4.m -lm -pthread -framework Foundation -framework Metal
+python3 tests/prepare_register_iq4_cached.py
+python3 tests/prepare_sum8_candidates.py
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-cli qw3_metal_cli.o qw3_metal_core.o qw3_metal.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-agent qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-eval qw3_eval_metal.o qw3_metal_core.o qw3_metal.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-bench qw3_bench.o qw3_metal_core.o qw3_metal.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-register-iq4-cached-test tests/test_register_iq4_cached.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-sum8-matrix-test tests/test_sum8_matrix.m -lm -pthread -framework Foundation -framework Metal
+python3 tests/prepare_epilogue_candidates.py
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-epilogue-matrix-test tests/test_epilogue_matrix.m -lm -pthread -framework Foundation -framework Metal

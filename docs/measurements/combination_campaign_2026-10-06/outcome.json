@@ -1,0 +1,490 @@
+{
+  "date": "2026-10-06",
+  "completed_utc": "2026-10-06T18:01:56.112396+00:00",
+  "status": "complete",
+  "performance_samples": 260,
+  "performance_blocks": 52,
+  "samples_discarded": 0,
+  "full_bit_exact_cases": 72,
+  "guarded_matrix_cases": 24,
+  "matrix_cases_repeated_on_make_targets": true,
+  "adopted_variants": [],
+  "default": "native packed8 DeltaNet + direct scratch projections",
+  "decision": "No new repeatable benefit distinguishable from control variability. A initial positive signal changed sign in bounded replica; broader D combinations negative in both local comparisons. Keep all candidates diagnostic.",
+  "production_inference_sources_unchanged": true,
+  "model_size_mtime_unchanged": true,
+  "campaigns": {
+    "pp128": {
+      "summary": {
+        "off": {
+          "mean_tps": 157.62982069607895,
+          "pooled_gain_pct": 0.0
+        },
+        "residual": {
+          "mean_tps": 158.18482908623542,
+          "pooled_gain_pct": 0.3520960613325519
+        },
+        "round": {
+          "mean_tps": 159.4439392618244,
+          "pooled_gain_pct": 1.1508726951121595
+        },
+        "both": {
+          "mean_tps": 157.80162609644393,
+          "pooled_gain_pct": 0.10899295552471155
+        },
+        "logits": {
+          "mean_tps": 155.92832169961872,
+          "pooled_gain_pct": -1.079427096311214
+        },
+        "all": {
+          "mean_tps": 157.90577466352502,
+          "pooled_gain_pct": 0.17506456977967044
+        }
+      },
+      "baseline_spread_pct": 2.9380087664370835,
+      "bracketed_comparisons": [
+        {
+          "mode": "residual",
+          "block": 1,
+          "off_blocks": [
+            0,
+            2
+          ],
+          "gain_pct": 0.3033567351386157
+        },
+        {
+          "mode": "round",
+          "block": 3,
+          "off_blocks": [
+            2,
+            4
+          ],
+          "gain_pct": -0.485611065746161
+        },
+        {
+          "mode": "both",
+          "block": 5,
+          "off_blocks": [
+            4,
+            6
+          ],
+          "gain_pct": -1.4553319403203924
+        },
+        {
+          "mode": "logits",
+          "block": 7,
+          "off_blocks": [
+            6,
+            8
+          ],
+          "gain_pct": -0.37370756925477755
+        },
+        {
+          "mode": "all",
+          "block": 9,
+          "off_blocks": [
+            8,
+            10
+          ],
+          "gain_pct": 1.7105295764874962
+        },
+        {
+          "mode": "all",
+          "block": 11,
+          "off_blocks": [
+            10,
+            12
+          ],
+          "gain_pct": 0.3015377812715103
+        },
+        {
+          "mode": "logits",
+          "block": 13,
+          "off_blocks": [
+            12,
+            14
+          ],
+          "gain_pct": -1.2773544947786042
+        },
+        {
+          "mode": "both",
+          "block": 15,
+          "off_blocks": [
+            14,
+            16
+          ],
+          "gain_pct": 0.5889889541247806
+        },
+        {
+          "mode": "round",
+          "block": 17,
+          "off_blocks": [
+            16,
+            18
+          ],
+          "gain_pct": 1.7540009030251325
+        },
+        {
+          "mode": "residual",
+          "block": 19,
+          "off_blocks": [
+            18,
+            20
+          ],
+          "gain_pct": 0.460695916026288
+        }
+      ],
+      "sources_unchanged": true,
+      "binary_unchanged": true,
+      "samples_discarded": 0
+    },
+    "tg32_d128": {
+      "summary": {
+        "off": {
+          "mean_tps": 8.659226947514261,
+          "pooled_gain_pct": 0.0
+        },
+        "logits": {
+          "mean_tps": 8.743487923057305,
+          "pooled_gain_pct": 0.9730773434369233
+        }
+      },
+      "baseline_spread_pct": 4.370381367115339,
+      "bracketed_comparisons": [
+        {
+          "mode": "logits",
+          "block": 1,
+          "off_blocks": [
+            0,
+            2
+          ],
+          "gain_pct": -0.8772072364857553
+        },
+        {
+          "mode": "logits",
+          "block": 3,
+          "off_blocks": [
+            2,
+            4
+          ],
+          "gain_pct": 3.3780720426837663
+        },
+        {
+          "mode": "logits",
+          "block": 5,
+          "off_blocks": [
+            4,
+            6
+          ],
+          "gain_pct": 1.6635330662960746
+        }
+      ],
+      "sources_unchanged": true,
+      "binary_unchanged": true,
+      "samples_discarded": 0
+    },
+    "epilogue_pp128": {
+      "summary": {
+        "off": {
+          "mean_tps": 158.03444657077597,
+          "pooled_gain_pct": 0.0
+        },
+        "down": {
+          "mean_tps": 157.87558663731164,
+          "pooled_gain_pct": -0.10052234617923261
+        },
+        "residual_down": {
+          "mean_tps": 158.01006079683978,
+          "pooled_gain_pct": -0.015430669999694224
+        },
+        "both_down": {
+          "mean_tps": 155.6212082527872,
+          "pooled_gain_pct": -1.5270331059804687
+        },
+        "all_down": {
+          "mean_tps": 156.2118623382963,
+          "pooled_gain_pct": -1.1532828899194603
+        }
+      },
+      "baseline_spread_pct": 3.146573286643317,
+      "bracketed_comparisons": [
+        {
+          "mode": "down",
+          "block": 1,
+          "off_blocks": [
+            0,
+            2
+          ],
+          "gain_pct": -1.3568061828519329
+        },
+        {
+          "mode": "residual_down",
+          "block": 3,
+          "off_blocks": [
+            2,
+            4
+          ],
+          "gain_pct": -1.1108914316783292
+        },
+        {
+          "mode": "both_down",
+          "block": 5,
+          "off_blocks": [
+            4,
+            6
+          ],
+          "gain_pct": -0.9069512390481815
+        },
+        {
+          "mode": "all_down",
+          "block": 7,
+          "off_blocks": [
+            6,
+            8
+          ],
+          "gain_pct": -1.0776410691557214
+        },
+        {
+          "mode": "all_down",
+          "block": 9,
+          "off_blocks": [
+            8,
+            10
+          ],
+          "gain_pct": -0.0387049210542556
+        },
+        {
+          "mode": "both_down",
+          "block": 11,
+          "off_blocks": [
+            10,
+            12
+          ],
+          "gain_pct": -2.41928711113244
+        },
+        {
+          "mode": "residual_down",
+          "block": 13,
+          "off_blocks": [
+            12,
+            14
+          ],
+          "gain_pct": 0.8718815129055812
+        },
+        {
+          "mode": "down",
+          "block": 15,
+          "off_blocks": [
+            14,
+            16
+          ],
+          "gain_pct": 0.5432901503164445
+        }
+      ],
+      "sources_unchanged": true,
+      "binary_unchanged": true,
+      "samples_discarded": 0
+    },
+    "residual_repeat_pp128": {
+      "summary": {
+        "off": {
+          "mean_tps": 156.06044903955768,
+          "pooled_gain_pct": 0.0
+        },
+        "residual": {
+          "mean_tps": 154.34083601286176,
+          "pooled_gain_pct": -1.1018890675241089
+        }
+      },
+      "baseline_spread_pct": 1.134703000085957,
+      "bracketed_comparisons": [
+        {
+          "mode": "residual",
+          "block": 1,
+          "off_blocks": [
+            0,
+            2
+          ],
+          "gain_pct": 0.5237711522965371
+        },
+        {
+          "mode": "residual",
+          "block": 3,
+          "off_blocks": [
+            2,
+            4
+          ],
+          "gain_pct": -0.6517139229792579
+        },
+        {
+          "mode": "residual",
+          "block": 5,
+          "off_blocks": [
+            4,
+            6
+          ],
+          "gain_pct": -2.951692026274222
+        }
+      ],
+      "sources_unchanged": true,
+      "binary_unchanged": true,
+      "samples_discarded": 0
+    }
+  },
+  "quality": {
+    "combination_quality": {
+      "manifest": "docs/measurements/combination_quality_2026-10-06/manifest.json",
+      "sha256": "5283b16316e0442c71ebd5a36117e7954fdc609e4c251b56817d27fc3a82fb0b",
+      "runs": [
+        {
+          "mode": "residual",
+          "exit_code": 0,
+          "full_exact_cases": 8
+        },
+        {
+          "mode": "round",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "./qw3-combination-test",
+            "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+            "round"
+          ],
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T16:39:34.386911+00:00"
+        },
+        {
+          "mode": "both",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "./qw3-combination-test",
+            "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+            "both"
+          ],
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T16:41:21.479432+00:00"
+        }
+      ],
+      "numeric_sources_still_match": true
+    },
+    "sum8_quality": {
+      "manifest": "docs/measurements/sum8_quality_2026-10-06/manifest.json",
+      "sha256": "fb0947348f0e20858cb3023187abbf4e7a61a53eb02135a7ff985a505d56faa9",
+      "runs": [
+        {
+          "mode": "logits",
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T16:44:27.270674+00:00"
+        },
+        {
+          "mode": "all",
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T16:46:49.142479+00:00"
+        }
+      ],
+      "numeric_sources_still_match": true
+    },
+    "epilogue_quality": {
+      "manifest": "docs/measurements/epilogue_quality_2026-10-06/manifest.json",
+      "sha256": "6e5d043bc87f02a333fb4e057ac0566d990ecea65d99e21534ee2e4dbae78672",
+      "runs": [
+        {
+          "mode": "down",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-epilogue-test",
+            "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+            "down"
+          ],
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T17:23:51.023497+00:00"
+        },
+        {
+          "mode": "residual_down",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-epilogue-test",
+            "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+            "residual_down"
+          ],
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T17:26:21.599217+00:00"
+        },
+        {
+          "mode": "both_down",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-epilogue-test",
+            "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+            "both_down"
+          ],
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T17:28:49.843989+00:00"
+        },
+        {
+          "mode": "all_down",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-epilogue-test",
+            "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+            "all_down"
+          ],
+          "exit_code": 0,
+          "full_exact_cases": 8,
+          "completed_utc": "2026-10-06T17:31:12.032921+00:00"
+        }
+      ],
+      "numeric_sources_still_match": true
+    },
+    "combination_matrix_quality": {
+      "manifest": "docs/measurements/combination_matrix_quality_2026-10-06/manifest.json",
+      "sha256": "64e7de40082bce2b6867e42bb186337a21ca46fe4810355eaf6696696ac5f0ac",
+      "runs": [
+        {
+          "name": "epilogue",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "/tmp/qw3-epilogue-matrix",
+            "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+          ],
+          "exit_code": 0,
+          "cases": 16,
+          "completed_utc": "2026-10-06T17:31:32.059048+00:00"
+        },
+        {
+          "name": "sum8",
+          "command": [
+            "caffeinate",
+            "-disu",
+            "/tmp/qw3-sum8-matrix",
+            "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+          ],
+          "exit_code": 0,
+          "cases": 8,
+          "completed_utc": "2026-10-06T17:31:33.271901+00:00"
+        }
+      ],
+      "numeric_sources_still_match": true
+    }
+  },
+  "production_binary_replica": "not performed: no candidate qualified for native integration",
+  "diagnostic_build_targets_added_after_timing": [
+    "qw3-sum8-matrix-test",
+    "qw3-epilogue-matrix-test"
+  ],
+  "report": "../../m5_combination_trials_2026-10-06.md",
+  "report_sha256": "d69df4a0693a55cab844a1ef5633b412248d81c35b5cf287417049198c4d2ee9"
+}

@@ -1,0 +1,11 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+QW3_AGENT_REPEAT_GUARD_SELFTEST=1 ./qw3-agent
+test-agent-repeat-guard: ok
+sh tests/test_agent_bash_tool.sh
+test-agent-bash: ok
+sh tests/test_agent_edit_tool.sh
+test-agent-edit: ok
+QW3_AGENT_COLOR_SELFTEST=1 ./qw3-agent
+test-agent-color: ok
+sh tests/test_agent_trace.sh
+test-agent-trace: ok

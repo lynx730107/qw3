@@ -1,0 +1,72 @@
+{
+  "started_utc": "2026-10-05T18:29:20.342581+00:00",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "tests/projection_candidates.inc": "92655b8a7e1246c3fa15d8242b6e30d0372af7b4e0a27f0f0f9a554d23ec3860",
+    "tests/projection_candidates.metal": "8695edee96448b8780c88d9f287d14b32d103ccafe5f159a4bb3487d151ec8f8",
+    "tests/test_projection_prefill.m": "f833c37900f27e4482e3a74228bbe2454b644e6ac0f2d9be42198b6f778db078",
+    "tests/bench_projection_prefill.m": "e9d24feafb6a6b4585c5beb3c001daad79ec7bb8c62d1bacf6713a9737166d32",
+    "tests/test_revisit_prefill.m": "0796bc641f6ed7f90110882c6e4f2c682e2920a3a482a76fd353e61eff55d399",
+    "tests/bench_revisit_prefill.m": "a01897bd4d2d029251e4f456bed7d58015491895262b84fca9ee5c15ecf141e9",
+    "tools/bench_qw3_candidates.py": "ea8c084da5476d6fa4c8ce74a1d34a67cf3a6b29358a306bd32e08e3369fe79f",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9"
+  },
+  "binary_sha256": {
+    "qw3-revisit-prefill-test": "ccdcd3a1342a97c195254d2fc8e7ad047bf2d3902c802c76fa89a6968d060e03",
+    "qw3-revisit-prefill-bench": "515ee812e6e0ec33e141b2ccfccb50a048bf23c3073ca7cc0be312f2dc6015a2"
+  },
+  "runs": [
+    {
+      "name": "q3_metadata",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-revisit-prefill-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "q3_metadata"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0"
+      },
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3118.69M  free = 977.31M  (encrypted)",
+      "exit_code": 0,
+      "completed_utc": "2026-10-05T18:31:00.226673+00:00",
+      "swap_after": "vm.swapusage: total = 9216.00M  used = 8846.62M  free = 369.38M  (encrypted)"
+    },
+    {
+      "name": "iq3_metadata",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-revisit-prefill-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "iq3_metadata"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0"
+      },
+      "swap_before": "vm.swapusage: total = 9216.00M  used = 8846.62M  free = 369.38M  (encrypted)",
+      "exit_code": 0,
+      "completed_utc": "2026-10-05T18:33:21.737105+00:00",
+      "swap_after": "vm.swapusage: total = 9216.00M  used = 8677.00M  free = 539.00M  (encrypted)"
+    }
+  ],
+  "model": {
+    "path": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "size": 13146393504,
+    "mtime_ns": 1789489033525906407
+  },
+  "source_unchanged": true,
+  "completed_utc": "2026-10-05T18:33:21.747627+00:00"
+}

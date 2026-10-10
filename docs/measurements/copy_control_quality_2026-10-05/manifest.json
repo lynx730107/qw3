@@ -1,0 +1,51 @@
+{
+  "started_utc": "2026-10-05T18:46:58.648441+00:00",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "tests/native_prefill_validation.inc": "0ce1f9b693b58a0e1bd5bf0f4e69d3e7df66341b9a7008ce274c0a1a2e687789",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/test_copy_control.m": "a0c8cfefeb7ff33aed6ef3c31a0f1a56f91d2d22ebd149a9af4379e8e0f1eff3",
+    "tests/bench_copy_control.m": "910e565e44e8f63b0b94c295878b73151106f272cb8fbd576b52fb23e514927b",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9"
+  },
+  "binary_sha256": {
+    "qw3-copy-control-test": "f8931a0e62d81487b065f70805ac97cb5616158558606e242f7cc4613da5d9b3",
+    "qw3-copy-control-bench": "9a370611729095064ae83dc05954162cdb14dbdc2bc40584cc6a2084a95950aa"
+  },
+  "runs": [
+    {
+      "name": "all",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-copy-control-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0"
+      },
+      "swap_before": "vm.swapusage: total = 3072.00M  used = 2100.56M  free = 971.44M  (encrypted)",
+      "exit_code": 0,
+      "completed_utc": "2026-10-05T18:48:19.349653+00:00",
+      "swap_after": "vm.swapusage: total = 9216.00M  used = 8199.56M  free = 1016.44M  (encrypted)"
+    }
+  ],
+  "model": {
+    "path": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "size": 13146393504,
+    "mtime_ns": 1789489033525906407
+  },
+  "source_unchanged": true,
+  "completed_utc": "2026-10-05T18:48:19.362303+00:00"
+}

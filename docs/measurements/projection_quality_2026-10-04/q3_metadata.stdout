@@ -1,0 +1,6 @@
+full_exact mode=q3_metadata prefix=16 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=q3_metadata prefix=31 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=q3_metadata prefix=159 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=q3_metadata prefix=1 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=q3_metadata prefix=15 continuation=32 logits=exact live_kv=exact deltanet=exact conv=exact
+PASS mode=q3_metadata q3_calls=11 iq_calls=0

@@ -1,0 +1,56 @@
+COMBO_BEGIN 0 off
+off: 155.50 tok/s, 823.15 ms
+COMBO_BEGIN 1 residual
+residual: 156.28 tok/s, 819.06 ms
+COMBO_BEGIN 2 off
+off: 155.43 tok/s, 823.55 ms
+COMBO_BEGIN 3 residual
+residual: 154.78 tok/s, 827.05 ms
+COMBO_BEGIN 4 off
+off: 156.14 tok/s, 819.77 ms
+COMBO_BEGIN 5 residual
+residual: 152.05 tok/s, 841.89 ms
+COMBO_BEGIN 6 off
+off: 157.19 tok/s, 814.31 ms
+{
+  "summary": {
+    "off": {
+      "mean_tps": 156.06044903955768,
+      "pooled_gain_pct": 0.0
+    },
+    "residual": {
+      "mean_tps": 154.34083601286176,
+      "pooled_gain_pct": -1.1018890675241089
+    }
+  },
+  "baseline_spread_pct": 1.134703000085957,
+  "bracketed_comparisons": [
+    {
+      "mode": "residual",
+      "block": 1,
+      "off_blocks": [
+        0,
+        2
+      ],
+      "gain_pct": 0.5237711522965371
+    },
+    {
+      "mode": "residual",
+      "block": 3,
+      "off_blocks": [
+        2,
+        4
+      ],
+      "gain_pct": -0.6517139229792579
+    },
+    {
+      "mode": "residual",
+      "block": 5,
+      "off_blocks": [
+        4,
+        6
+      ],
+      "gain_pct": -2.951692026274222
+    }
+  ]
+}

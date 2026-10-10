@@ -118,7 +118,6 @@ typedef struct {
     uint64_t rng;
 } sample_opts;
 
-typedef enum { AGENT_EXPERT_OFF, AGENT_EXPERT_AUTO, AGENT_EXPERT_MANUAL } agent_expert_mode;
 
 typedef struct {
     char *p;
@@ -178,17 +177,6 @@ typedef struct {
     qw3_backend backend;
     qw3_think_mode think_mode;
     sample_opts sample;
-    const char *expert_model;
-    char *expert_model_owned;
-    agent_expert_mode expert_mode;
-    bool expert_mode_set;
-    int expert_ctx, expert_timeout, expert_tokens, expert_rounds;
-    qw3_think_mode expert_think;
-    bool expert_kv_f32;
-    int hybrid_fd;
-    bool hybrid_dense, hybrid_color;
-    const char *hybrid_job;
-    const char *hybrid_lock;
 } agent_config;
 
 typedef struct {
@@ -289,25 +277,8 @@ typedef struct {
     uint64_t trace_seq;
     agent_turn_state turn;
     char *turn_request;
-    bool hybrid_resume, hybrid_cancelled, hybrid_forced, hybrid_result_commit;
-    double hybrid_deadline;
-    int hybrid_generated;
-    void *hybrid_supervisor;
-    char *hybrid_job_owned;
 } agent_state;
 
-static int agent_hybrid_main(agent_state *a, const char *executable);
-static int agent_hybrid_worker_loop(agent_state *a);
-static int agent_hybrid_run(agent_state *a, const char *request);
-static int agent_hybrid_command(agent_state *a, char *line, char **message);
-static int agent_hybrid_pause(agent_state *a, const tool_call_list *calls);
-static bool agent_hybrid_tool_budget(agent_state *a);
-static void agent_hybrid_generation(agent_state *a);
-static void agent_hybrid_restore(agent_state *a);
-static bool agent_hybrid_before_tool(agent_state *a, const tool_call *call);
-static void agent_hybrid_after_tool(agent_state *a, const tool_call *call, const char *out);
-static bool agent_hybrid_checkpoint(agent_state *a);
-static char *hybrid_absolute(const char *path);
 
 typedef struct {
     qw3_engine *engine;
@@ -1595,7 +1566,7 @@ static int store_save(agent_state *a, const char *name) {
     if (rc == 0) rc = store_write_messages_path(messages_path, &a->messages);
     int checkpoint_rc = 1;
     char checkpoint_err[256] = {0};
-    if (rc == 0 && !a->session_stripped && !a->hybrid_result_commit) {
+    if (rc == 0 && !a->session_stripped) {
         checkpoint_rc = store_write_checkpoint_path(
             a, checkpoint_path, &a->transcript,
             checkpoint_err, sizeof(checkpoint_err));
@@ -1613,7 +1584,7 @@ static int store_save(agent_state *a, const char *name) {
     agent_trace_begin(a, "checkpoint_save");
     agent_trace_string(a, "session", id);
     agent_trace_string(a, "result",
-                       a->hybrid_result_commit ? "transcript_only" : checkpoint_rc == 0 ? "saved" :
+                       checkpoint_rc == 0 ? "saved" :
                        (a->session_stripped ? "stripped" : "fallback"));
     agent_trace_i64(a, "tokens", a->transcript.len);
     agent_trace_end(a);
@@ -2262,7 +2233,6 @@ static void infer_tool_name_from_params(tool_call *call) {
 }
 
 static const char *native_shorthand_tools[] = {
-    "delegate_dense",
     "read", "more", "list", "get_skeleton", "get_function", "get_fucttion",
     "semantic_search", "search_web", "visit_url", "search", "write",
     "edit", "bash",
@@ -4478,12 +4448,9 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
         strcmp(call->name, "get_skeleton") && strcmp(call->name, "get_function") &&
         strcmp(call->name, "get_fucttion"))
         return agent_strdup("error: tool disabled in read-only mode; inspect with local read tools and provide a counterexample without modifying or executing code.");
-    if (!agent_hybrid_before_tool(a, call))
-        return agent_strdup("error: hybrid recovery/journal guard blocked this tool; nothing was executed. Inspect recorded changes and use a fresh, read-only verification instead of replaying an operation.");
     agent_set_activity(a, "tool", call ? call->name : NULL);
     char *out = execute_one_tool_raw(a, call);
     agent_note_tool_result(a, call, out);
-    agent_hybrid_after_tool(a, call, out);
     agent_set_activity(a, "processing", NULL);
     return out;
 }
@@ -4698,7 +4665,6 @@ static bool execute_native_tools_append(agent_state *a,
         }
         free(response);
         free(out);
-        if (a->cfg.hybrid_fd >= 0 && !agent_hybrid_checkpoint(a)) return false;
     }
     if (all_guard_rejected) *all_guard_rejected = all_rejected;
     return true;
@@ -6078,7 +6044,6 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     int think_end_id = agent_single_rendered_token_id(a->engine, "</think>");
     char eval_err[160] = {0};
     for (int i = 0; i < summary_max; i++) {
-        if (a->cfg.hybrid_dense && a->hybrid_generated >= a->cfg.expert_tokens) break;
         if (agent_should_interrupt(a)) {
             snprintf(err, err_len, "compaction interrupted");
             qw3_session_invalidate(a->session);
@@ -6090,7 +6055,6 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         }
         int token = qw3_session_argmax(a->session);
         if (token < 0 || token == eos || token == think_end_id) break;
-        if (a->cfg.hybrid_dense) { a->hybrid_generated++; agent_hybrid_generation(a); }
 
         size_t text_len = 0;
         char *text = token_decoded_text(a->engine, token, &text_len);
@@ -6298,7 +6262,7 @@ static int generate_once(agent_state *a, char **assistant_text,
                         suppress_output ? NULL :
                             (a->output_write ? a->output_ud : stdout),
                         !suppress_output && a->output_color &&
-                            (isatty(STDOUT_FILENO) || a->cfg.hybrid_color),
+                            isatty(STDOUT_FILENO),
                         qw3_think_mode_enabled(a->cfg.think_mode));
 
     int rc = -1;
@@ -6336,12 +6300,8 @@ static int generate_once(agent_state *a, char **assistant_text,
         agent_set_activity(a, "generating", NULL);
         const int eos = qw3_token_eos(a->engine);
         int n_generated = 0;
-        bool response_complete = false;
         const double t_gen0 = agent_now_sec();
         int max_tokens = a->cfg.n_predict;
-        if (a->cfg.hybrid_dense && max_tokens > a->cfg.expert_tokens - a->hybrid_generated)
-            max_tokens = a->cfg.expert_tokens - a->hybrid_generated;
-        if (a->cfg.hybrid_dense && max_tokens <= 0) rc = -1;
         int room = qw3_session_ctx(a->session) - qw3_session_pos(a->session);
         if (room <= 1) {
             max_tokens = 0;
@@ -6399,7 +6359,7 @@ static int generate_once(agent_state *a, char **assistant_text,
                 rc = -1;
                 break;
             }
-            if (token == eos) { response_complete = true; break; }
+            if (token == eos) break;
             int repeat_ngram = agent_repeated_token_ngram_size(&emit.generated, token);
             if (repeat_ngram && !agent_token_repeat_is_formatting(a->engine, &emit,
                                                                  token, repeat_ngram)) {
@@ -6408,7 +6368,6 @@ static int generate_once(agent_state *a, char **assistant_text,
             }
             agent_emit_token(&emit, token);
             n_generated++;
-            if (a->cfg.hybrid_dense) { a->hybrid_generated++; agent_hybrid_generation(a); }
             if (agent_text_has_repeated_suffix(emit.text.p, emit.text.len)) {
                 agent_statusf(a, "agent: stopped repeated text loop\n");
                 break;
@@ -6420,21 +6379,12 @@ static int generate_once(agent_state *a, char **assistant_text,
                 break;
             }
             if (generated_has_complete_tool_call(emit.text.p)) {
-                response_complete = true;
                 break;
             }
         }
         free(repeat_buf);
         const double t_gen1 = agent_now_sec();
         agent_emit_done(&emit);
-        if (a->cfg.hybrid_dense && rc == 0 && !response_complete && !agent_should_interrupt(a)) {
-            agent_statusf(a, "agent: expert stopped before a complete response; task incomplete\n");
-            rc = -1;
-        }
-        if (a->cfg.hybrid_dense && a->hybrid_generated >= a->cfg.expert_tokens) {
-            agent_statusf(a, "agent: expert total token budget exhausted; task incomplete\n");
-            rc = -1;
-        }
 
         const int prefill_tokens = a->transcript.len - cached;
         const double prefill_s = t_prefill1 - t_prefill0;
@@ -6487,17 +6437,12 @@ static int generate_once(agent_state *a, char **assistant_text,
 }
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
-    bool resuming = a->hybrid_resume;
-    a->hybrid_resume = false;
-    if (!resuming) {
-        memset(&a->turn, 0, sizeof(a->turn));
-        a->turn.guard_retry_credits = 2;
-        a->turn.empty_retry_credits = 2;
-        a->turn.verification_guard_credits = 3;
-        free(a->turn_request);
-        a->turn_request = agent_strdup(user_message ? user_message : "");
-    }
-    if (!resuming) {
+    memset(&a->turn, 0, sizeof(a->turn));
+    a->turn.guard_retry_credits = 2;
+    a->turn.empty_retry_credits = 2;
+    a->turn.verification_guard_credits = 3;
+    free(a->turn_request);
+    a->turn_request = agent_strdup(user_message ? user_message : "");
     agent_trace_begin(a, "user_turn");
     agent_trace_i64(a, "context_tokens", a ? a->transcript.len : 0);
     agent_trace_i64(a, "input_bytes",
@@ -6522,11 +6467,9 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     if (!agent_append_message(a, AGENT_MESSAGE_USER,
                               "user", user_message)) return -1;
 
-    }
     user_message = a->turn_request;
     const int final_attempts = 3;
     const int verification_attempts = 3;
-    char compact_err[160] = {0};
     for (;
          a->turn.round < a->cfg.max_tool_rounds + final_attempts +
                      verification_attempts;
@@ -6646,16 +6589,6 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                     return -1;
                 }
                 continue;
-            }
-            int delegation = agent_hybrid_pause(a, &native_calls);
-            if (delegation) {
-                free_tool_calls(&native_calls);
-                free(assistant);
-                if (delegation == 2) return 2;
-                continue;
-            }
-            if (!agent_hybrid_tool_budget(a)) {
-                free_tool_calls(&native_calls); free(assistant); return -1;
             }
             bool all_guard_rejected = false;
             bool ok = execute_native_tools_append(a, &native_calls,
@@ -6825,16 +6758,6 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             }
             continue;
         }
-        int delegation = agent_hybrid_pause(a, &dsml_calls);
-        if (delegation) {
-            free_tool_calls(&dsml_calls);
-            free(assistant);
-            if (delegation == 2) return 2;
-            continue;
-        }
-        if (!agent_hybrid_tool_budget(a)) {
-            free_tool_calls(&dsml_calls); free(assistant); return -1;
-        }
         bool all_guard_rejected = false;
         char *tool_result = execute_tools(a, &dsml_calls,
                                           &all_guard_rejected);
@@ -6874,7 +6797,6 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         free(response);
         free(tool_result);
         free(assistant);
-        if (a->cfg.hybrid_fd >= 0 && !agent_hybrid_checkpoint(a)) return -1;
         if (all_guard_rejected && a->turn.guard_retry_credits > 0) {
             a->turn.guard_retry_credits--;
             a->turn.round--;
@@ -6883,7 +6805,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     agent_statusf(a,
                   "agent: unable to produce a final answer after tool budget "
                   "was exhausted\n");
-    return a->cfg.hybrid_dense ? -1 : 0;
+    return 0;
 }
 
 static char *build_system_prompt(const char *user_system, bool tools_enabled,
@@ -7017,14 +6939,6 @@ static void print_help(void) {
         "  --chdir PATH         Change working directory before loading/running\n"
         "  --trace PATH         Append machine-readable JSONL agent events\n"
         "  --no-prefix-cache   Disable the reusable Metal system-prompt cache\n"
-        "  --expert-model PATH Dense model for sequential delegated tasks\n"
-        "  --expert-mode MODE  auto, manual, off (auto with an expert model)\n"
-        "  --expert-ctx N      Dense context size (default: 8192)\n"
-        "  --expert-timeout N  Dense wall time in seconds (default: 1200)\n"
-        "  --expert-max-tokens N Total dense generation budget (default: 8192)\n"
-        "  --expert-max-tool-rounds N Dense tool budget (default: 12)\n"
-        "  --expert-kv TYPE     Dense KV: f16 (default) or f32\n"
-        "  --expert-think MODE none, on, high (default: on)\n"
         "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
         "  --no-tools           Disable tool execution\n"
         "  --compact-tools      Advertise only read, write, edit, and bash\n"
@@ -7043,23 +6957,11 @@ static void print_help(void) {
         QW3_AGENT_REPEAT_LAST_N_DEFAULT);
 }
 
-static bool agent_positive_int(const char *text, int *out) {
-    char *end = NULL; errno = 0;
-    long n = strtol(text, &end, 10);
-    if (errno || end == text || *end || n <= 0 || n > INT_MAX) return false;
-    *out = (int)n; return true;
-}
 
 static int parse_args(agent_config *cfg, int argc, char **argv) {
     memset(cfg, 0, sizeof(*cfg));
     cfg->model_path = "./qw3.gguf";
     cfg->n_predict = 2048;
-    cfg->hybrid_fd = -1;
-    cfg->expert_ctx = 8192;
-    cfg->expert_timeout = 1200;
-    cfg->expert_tokens = 8192;
-    cfg->expert_rounds = 12;
-    cfg->expert_think = QW3_THINK_ON;
     cfg->ctx_size = 32768;
     cfg->max_tool_rounds = QW3_AGENT_MAX_TOOL_ROUNDS;
     cfg->tools_enabled = true;
@@ -7084,54 +6986,8 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
             print_help();
             exit(0);
-        } else if (!strcmp(argv[i], "--expert-model") && i + 1 < argc) {
-            cfg->expert_model = argv[++i];
-        } else if (!strcmp(argv[i], "--expert-mode") && i + 1 < argc) {
-            const char *mode = argv[++i];
-            cfg->expert_mode_set = true;
-            if (!strcmp(mode, "auto")) cfg->expert_mode = AGENT_EXPERT_AUTO;
-            else if (!strcmp(mode, "manual")) cfg->expert_mode = AGENT_EXPERT_MANUAL;
-            else if (!strcmp(mode, "off")) cfg->expert_mode = AGENT_EXPERT_OFF;
-            else { fprintf(stderr, "agent: invalid expert mode\n"); return -1; }
-        } else if (!strcmp(argv[i], "--expert-ctx") && i + 1 < argc) {
-            if (!agent_positive_int(argv[++i], &cfg->expert_ctx)) {
-                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
-            }
-        } else if (!strcmp(argv[i], "--expert-timeout") && i + 1 < argc) {
-            if (!agent_positive_int(argv[++i], &cfg->expert_timeout)) {
-                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
-            }
-        } else if (!strcmp(argv[i], "--expert-max-tokens") && i + 1 < argc) {
-            if (!agent_positive_int(argv[++i], &cfg->expert_tokens)) {
-                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
-            }
-        } else if (!strcmp(argv[i], "--expert-max-tool-rounds") && i + 1 < argc) {
-            if (!agent_positive_int(argv[++i], &cfg->expert_rounds)) {
-                fprintf(stderr, "agent: invalid positive expert budget\n"); return -1;
-            }
-        } else if (!strcmp(argv[i], "--expert-kv") && i + 1 < argc) {
-            const char *kv = argv[++i];
-            if (!strcmp(kv, "f16")) cfg->expert_kv_f32 = false;
-            else if (!strcmp(kv, "f32")) cfg->expert_kv_f32 = true;
-            else { fprintf(stderr, "agent: expert KV must be f16 or f32\n"); return -1; }
-        } else if (!strcmp(argv[i], "--expert-think") && i + 1 < argc) {
-            const char *mode = argv[++i];
-            if (!strcmp(mode, "on")) cfg->expert_think = QW3_THINK_ON;
-            else if (!strcmp(mode, "none")) cfg->expert_think = QW3_THINK_NONE;
-            else if (!strcmp(mode, "high")) cfg->expert_think = QW3_THINK_HIGH;
-            else { fprintf(stderr, "agent: invalid expert thinking mode\n"); return -1; }
-        } else if (!strcmp(argv[i], "--hybrid-worker-fd") && i + 1 < argc) {
-            cfg->hybrid_fd = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--hybrid-job") && i + 1 < argc) {
-            cfg->hybrid_job = argv[++i];
-        } else if (!strcmp(argv[i], "--hybrid-lock") && i + 1 < argc) {
-            cfg->hybrid_lock = argv[++i];
-        } else if (!strcmp(argv[i], "--hybrid-dense")) {
-            cfg->hybrid_dense = true;
         } else if (!strcmp(argv[i], "--read-only")) {
             cfg->read_only = true;
-        } else if (!strcmp(argv[i], "--hybrid-color")) {
-            cfg->hybrid_color = true;
         } else if (!strcmp(argv[i], "-m") && i + 1 < argc) {
             cfg->model_path = argv[++i];
         } else if (!strcmp(argv[i], "-p") && i + 1 < argc) {
@@ -7299,22 +7155,6 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
             return -1;
         }
     }
-    if (cfg->expert_ctx < 2048 || cfg->expert_ctx > 32768 || cfg->expert_timeout <= 0 ||
-        cfg->expert_tokens <= 0 || cfg->expert_rounds <= 0 || cfg->expert_rounds > 128) {
-        fprintf(stderr, "agent: invalid expert budget (ctx 2048..32768, positive budgets required)\n");
-        return -1;
-    }
-    if (cfg->hybrid_dense) {
-        cfg->think_mode = cfg->expert_think;
-        /* The expert has its own cumulative budget. A small primary -n must
-         * not silently truncate its reasoning and report an unfinished answer. */
-        cfg->n_predict = cfg->expert_tokens;
-        if (!cfg->metal_n_gpu_layers_set) unsetenv("QW3_METAL_NGL");
-    }
-    if (cfg->expert_model && !cfg->expert_mode_set) cfg->expert_mode = AGENT_EXPERT_AUTO;
-    if (!cfg->expert_model && cfg->expert_mode != AGENT_EXPERT_OFF) {
-        fprintf(stderr, "agent: --expert-mode requires --expert-model\n"); return -1;
-    }
     if (!cfg->store_dir) cfg->store_dir = default_store_dir();
     if (!cfg->store_dir || ensure_dir(cfg->store_dir) != 0) {
         fprintf(stderr, "agent: cannot create store directory\n");
@@ -7324,37 +7164,10 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
                                              cfg->tools_enabled,
                                              cfg->compact_tools, cfg->read_only);
     if (!cfg->system_prompt) return -1;
-    if (cfg->expert_model && cfg->tools_enabled && !cfg->hybrid_dense) {
-        strbuf extended = {0};
-        const char *end_tools = strstr(cfg->system_prompt, "</tools>");
-        if (end_tools) {
-            sb_append_n(&extended, cfg->system_prompt, (size_t)(end_tools - cfg->system_prompt));
-            sb_append(&extended,
-                "{\"type\":\"function\",\"function\":{\"name\":\"delegate_dense\","
-                "\"description\":\"Delegate one difficult task to the dense coding agent.\","
-                "\"parameters\":{\"type\":\"object\",\"properties\":{"
-                "\"task\":{\"type\":\"string\"},\"reason\":{\"type\":\"string\"},"
-                "\"context\":{\"type\":\"string\"},\"criteria\":{\"type\":\"string\"}},"
-                "\"required\":[\"task\",\"reason\",\"context\",\"criteria\"]}}}\n");
-            sb_append(&extended, end_tools);
-        } else sb_append(&extended, cfg->system_prompt);
-        sb_append(&extended,
-            "\nAdditional tool: delegate_dense(task, reason, context, criteria), all string parameters. "
-            "Call using the same native <tool_call><function=delegate_dense> XML format. "
-            "A dense specialist can read, edit and verify files, then return control. "
-            "Delegate at most once per user turn, as the only call in its batch. "
-            "Use it for difficult correctness, unresolved failed checks, diagnosis or architecture. "
-            "Do routine reads, searches and simple edits yourself. Explain the concrete difficulty; "
-            "confidence alone is not a reason. Include facts, failed attempts, file paths and completion criteria. "
-            "Only delegate when automatic expert mode is enabled or the user explicitly requests it.\n");
-        free(cfg->system_prompt);
-        cfg->system_prompt = extended.p;
-    }
     return 0;
 }
 
 static void free_config(agent_config *cfg) {
-    free(cfg->expert_model_owned);
     free(cfg->model_path_owned);
     free(cfg->prompt_owned);
     free(cfg->user_system_owned);
@@ -7377,11 +7190,6 @@ static void agent_absolutize_env_path(const char *name) {
 
 static int agent_prepare_chdir_paths(agent_config *cfg) {
     if (!cfg || !cfg->chdir_path) return 0;
-    if (cfg->expert_model) {
-        cfg->expert_model_owned = hybrid_absolute(cfg->expert_model);
-        if (!cfg->expert_model_owned) return -1;
-        cfg->expert_model = cfg->expert_model_owned;
-    }
     if (!cfg->tool_dsml && !cfg->tool_native) {
         cfg->model_path_owned = realpath(cfg->model_path, NULL);
         if (!cfg->model_path_owned) {
@@ -7424,10 +7232,6 @@ static int agent_validate_model_config(const agent_config *cfg,
     if (!cfg || !engine) return -1;
     const int n_layers = qw3_engine_layer_count(engine);
     if (n_layers <= 0) return -1;
-    if (cfg->hybrid_fd >= 0 && qw3_engine_is_dense(engine) != cfg->hybrid_dense) {
-        fprintf(stderr, "agent: hybrid roles require MoE primary and dense expert models\n");
-        return -1;
-    }
     if (cfg->backend != QW3_BACKEND_METAL) return 0;
 
     int ngl = n_layers;
@@ -7571,8 +7375,6 @@ static void handle_chdir_command(agent_state *a, char *arg) {
 }
 
 static int handle_command(agent_state *a, char *line, char **message_out) {
-    if (a->cfg.expert_model && a->cfg.hybrid_fd < 0)
-        return agent_hybrid_command(a, line, message_out);
     *message_out = NULL;
     if (line[0] != '/') {
         *message_out = agent_strdup(line);
@@ -7918,10 +7720,9 @@ static void *agent_worker_main(void *ud) {
         snprintf(w->activity, sizeof(w->activity), "starting");
         pthread_mutex_unlock(&w->mu);
 
-        int rc = w->agent->cfg.expert_model && w->agent->cfg.hybrid_fd < 0 ?
-            agent_hybrid_run(w->agent, job) : run_agent_turn(w->agent, job);
+        int rc = run_agent_turn(w->agent, job);
         free(job);
-        if (rc == 0 && w->agent->cfg.conversation && !w->agent->hybrid_supervisor) {
+        if (rc == 0 && w->agent->cfg.conversation) {
             store_save(w->agent, w->agent->cfg.conversation);
         }
 
@@ -8605,10 +8406,7 @@ static void agent_build_editor_status(agent_worker *w,
                           (double)progress_total) + 0.5);
         if (fill < 0) fill = 0;
         if (fill > 12) fill = 12;
-        if (w->agent->cfg.expert_model) {
-            snprintf(field, sizeof(field), "● %.63s", activity);
-            agent_status_segment(&out, color, QW3_AGENT_STATUS_PROGRESS, field);
-        } else agent_status_segment(&out, color, QW3_AGENT_STATUS_PROGRESS, "● prefill");
+        agent_status_segment(&out, color, QW3_AGENT_STATUS_PROGRESS, "● prefill");
         sb_append(&out, "  ");
         if (color) sb_append(&out, QW3_AGENT_STATUS_PROGRESS);
         for (int i = 0; i < 12; i++) {
@@ -8620,20 +8418,19 @@ static void agent_build_editor_status(agent_worker *w,
                  pct, progress_current, progress_total, progress_tps);
         sb_append(&out, field);
     } else {
-        snprintf(field, sizeof(field), "● %s", busy ? activity : w->agent->cfg.expert_model ? "ready · MoE" : "ready");
+        snprintf(field, sizeof(field), "● %s", busy ? activity : "ready");
         agent_status_segment(&out, color,
                              !busy ? QW3_AGENT_STATUS_READY :
                              !strncmp(activity, "tool:", 5) ? QW3_AGENT_STATUS_TOOL :
                              QW3_AGENT_STATUS_BUSY, field);
         agent_status_separator(&out, color);
-        bool dense_active = busy && w->agent->cfg.expert_model && !strncmp(activity, "dense", 5);
         snprintf(field, sizeof(field), "ctx %d/%d",
-                 w->agent->transcript.len, dense_active ? w->agent->cfg.expert_ctx : w->agent->cfg.ctx_size);
+                 w->agent->transcript.len, w->agent->cfg.ctx_size);
         sb_append(&out, field);
         agent_status_separator(&out, color);
         snprintf(field, sizeof(field), "tools %s", w->agent->cfg.tools_enabled ? "on" : "off");
         sb_append(&out, field);
-        qw3_think_mode active_think = dense_active ? w->agent->cfg.expert_think : w->agent->cfg.think_mode;
+        qw3_think_mode active_think = w->agent->cfg.think_mode;
         if (active_think != QW3_THINK_NONE) {
             agent_status_separator(&out, color);
             snprintf(field, sizeof(field), "think %s", qw3_think_mode_name(active_think));
@@ -8992,14 +8789,14 @@ static int interactive_loop_blocking(agent_state *a) {
         linenoiseFree(line);
         if (action < 0) break;
         if (action == 0) continue;
-        int turn_rc = a->hybrid_supervisor ? agent_hybrid_run(a, message) : run_agent_turn(a, message);
+        int turn_rc = run_agent_turn(a, message);
         if (turn_rc != 0) {
             free(message);
             rc = 1;
             break;
         }
         free(message);
-        if (a->cfg.conversation && !a->hybrid_supervisor) store_save(a, a->cfg.conversation);
+        if (a->cfg.conversation) store_save(a, a->cfg.conversation);
     }
     if (hist) {
         linenoiseHistorySave(hist);
@@ -9050,7 +8847,6 @@ static void agent_direct_progress_update(void *ud, const char *phase,
     p->active = true;
 }
 
-#include "qw3_agent_hybrid.inc"
 
 int main(int argc, char **argv) {
     if (getenv("QW3_AGENT_TOOL_PARSE_SELFTEST")) {
@@ -9108,16 +8904,9 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if (getenv("QW3_AGENT_HYBRID_SELFTEST")) {
-        int rc = agent_hybrid_selftest();
-        fprintf(stderr, "test-agent-hybrid: %s (%d)\n", rc ? "FAIL" : "ok", rc);
-        return rc ? 1 : 0;
-    }
 
     agent_state a;
     memset(&a, 0, sizeof(a));
-    char executable_path[PATH_MAX];
-    const char *executable = realpath(argv[0], executable_path) ? executable_path : argv[0];
     if (parse_args(&a.cfg, argc, argv) != 0) {
         free_config(&a.cfg);
         return 1;
@@ -9165,21 +8954,6 @@ int main(int argc, char **argv) {
         return rc;
     }
 
-    if (a.cfg.expert_model && a.cfg.hybrid_fd < 0 && !a.cfg.dump_prompt) {
-        int rc = agent_hybrid_main(&a, executable);
-        agent_trace_close(&a);
-        free_config(&a.cfg);
-        return rc;
-    }
-    int hybrid_lock_fd = -1;
-    if (a.cfg.hybrid_fd >= 0) {
-        signal(SIGPIPE, SIG_IGN);
-        hybrid_lock_fd = agent_hybrid_acquire_lock(&a);
-        if (hybrid_lock_fd < 0) {
-            hybrid_send(a.cfg.hybrid_fd, H_ERROR, "model ownership lock unavailable", 32);
-            agent_trace_close(&a); free_config(&a.cfg); return 1;
-        }
-    }
 
     qw3_log(stderr, QW3_LOG_OK,
             "qw3-agent: model=%s backend=%s ctx=%d think=%s tools=%s\n",
@@ -9227,7 +9001,6 @@ int main(int argc, char **argv) {
 
     agent_init_transcript(&a);
     if (a.cfg.conversation) {
-        if (a.cfg.hybrid_fd >= 0) agent_hybrid_restore(&a);
         (void)store_load(&a, a.cfg.conversation);
     }
     (void)agent_prepare_prefix_cache(&a);
@@ -9247,9 +9020,7 @@ int main(int argc, char **argv) {
 
     int rc = 0;
     agent_direct_progress direct_progress = {0};
-    if (a.cfg.hybrid_fd >= 0) {
-        rc = agent_hybrid_worker_loop(&a);
-    } else if (a.cfg.prompt) {
+    if (a.cfg.prompt) {
         if (agent_direct_progress_enabled()) {
             a.progress_update = agent_direct_progress_update;
             a.progress_ud = &direct_progress;
@@ -9272,8 +9043,6 @@ int main(int argc, char **argv) {
     qw3_session_free(a.session);
     qw3_engine_close(a.engine);
     free(a.turn_request);
-    free(a.hybrid_job_owned);
-    if (hybrid_lock_fd >= 0) close(hybrid_lock_fd);
     agent_trace_begin(&a, "session_end");
     agent_trace_i64(&a, "status", rc);
     agent_trace_end(&a);

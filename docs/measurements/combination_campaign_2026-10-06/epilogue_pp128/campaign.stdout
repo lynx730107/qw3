@@ -1,0 +1,68 @@
+COMBO_BEGIN 0 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,159.31,0.69,803.49,3.48,174664400
+COMBO_END 0 off 0
+COMBO_BEGIN 1 down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.53,0.23,812.57,1.17,174664400
+COMBO_END 1 down 0
+COMBO_BEGIN 2 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,160.08,1.05,799.60,5.28,174664400
+COMBO_END 2 off 0
+COMBO_BEGIN 3 residual_down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.17,0.33,809.26,1.68,174664400
+COMBO_END 3 residual_down 0
+COMBO_BEGIN 4 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,159.81,0.32,800.94,1.61,174664400
+COMBO_END 4 off 0
+COMBO_BEGIN 5 both_down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.73,0.50,811.51,2.59,174664400
+COMBO_END 5 both_down 0
+COMBO_BEGIN 6 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.59,3.13,807.36,16.35,174664400
+COMBO_END 6 off 0
+COMBO_BEGIN 7 all_down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,155.19,2.27,824.95,12.16,174664400
+COMBO_END 7 all_down 0
+COMBO_BEGIN 8 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,155.20,1.12,824.76,5.92,174664400
+COMBO_END 8 off 0
+COMBO_BEGIN 9 all_down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.28,0.47,813.85,2.46,174664400
+COMBO_END 9 all_down 0
+COMBO_BEGIN 10 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,159.54,0.37,802.31,1.88,174664400
+COMBO_END 10 off 0
+COMBO_BEGIN 11 both_down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,153.58,1.42,833.51,7.71,174664400
+COMBO_END 11 both_down 0
+COMBO_BEGIN 12 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,155.28,1.34,824.38,7.09,174664400
+COMBO_END 12 off 0
+COMBO_BEGIN 13 residual_down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.85,0.63,810.89,3.26,174664400
+COMBO_END 13 residual_down 0
+COMBO_BEGIN 14 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.73,0.59,811.54,3.01,174664400
+COMBO_END 14 off 0
+COMBO_BEGIN 15 down
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,158.23,0.43,808.96,2.17,174664400
+COMBO_END 15 down 0
+COMBO_BEGIN 16 off
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+pp,128,0,0,5,157.03,1.00,815.17,5.17,174664400
+COMBO_END 16 off 0

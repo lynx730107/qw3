@@ -15007,6 +15007,16 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                 lw->linear_ssm_out->type, q3_batch, k_batch, ntok);
         const int full_batch_attention =
             full_batch_gqa || full_batch_deltanet;
+        const int direct_dn_projections = full_batch_deltanet &&
+            qw3_metal_dense_prefill_strided_enabled(lw->linear_qkv_proj->type, ntok) &&
+            qw3_metal_dense_prefill_strided_enabled(lw->linear_gate_proj->type, ntok);
+        const int direct_gqa_projections = full_batch_gqa &&
+            qw3_metal_dense_prefill_strided_enabled(lw->attn_q_proj->type, ntok) &&
+            qw3_metal_dense_prefill_strided_enabled(lw->attn_k_proj->type, ntok) &&
+            qw3_metal_dense_prefill_strided_enabled(lw->attn_v_proj->type, ntok);
+        const int direct_output = full_batch_attention &&
+            qw3_metal_dense_prefill_strided_enabled(is_full_attn ?
+                lw->attn_o_proj->type : lw->linear_ssm_out->type, ntok);
         const int layer_batch = !profile && full_batch_attention &&
             batch_ffn && gate_batch && up_batch && down_batch &&
             layer_batch_enabled;
@@ -15022,25 +15032,29 @@ static int qw3_metal_session_eval_dense_prefill_batch(
               (qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
                    s->metal, lw->attn_norm->offset, ntok,
                    n_embd, QW3_RMS_EPS) &&
-               qw3_metal_session_batch_dense_deltanet_projections(
+               qw3_metal_session_batch_dense_deltanet_projections_layout(
                    s->metal, lw->linear_qkv_proj->offset,
                    lw->linear_qkv_proj->type,
                    lw->linear_gate_proj->offset,
                    lw->linear_gate_proj->type,
-                   ntok, n_embd, n_qkv, inner_n))) &&
+                   ntok, n_embd, n_qkv, inner_n,
+                   dense_dn_qkv_offset, dense_dn_z_offset,
+                   direct_dn_projections ? dense_dn_stride : 0))) &&
              (!batch_gqa_mask ||
               (qw3_metal_session_batch_rmsnorm_weight_f32_x0_to_x1(
                    s->metal, lw->attn_norm->offset, ntok,
                    n_embd, QW3_RMS_EPS) &&
-               qw3_metal_session_batch_dense_gqa_projections(
+               qw3_metal_session_batch_dense_gqa_projections_layout(
                    s->metal, lw->attn_q_proj->offset,
                    lw->attn_q_proj->type,
                    lw->attn_k_proj->offset,
                    lw->attn_k_proj->type,
                    lw->attn_v_proj->offset,
                    lw->attn_v_proj->type,
-                   ntok, n_embd, qg_n, kv_n, batch_gqa_mask)));
-        if (ok && full_batch_gqa) {
+                   ntok, n_embd, qg_n, kv_n, batch_gqa_mask,
+                   dense_gqa_qg_offset, dense_gqa_k_offset, dense_gqa_v_offset,
+                   direct_gqa_projections ? dense_gqa_stride : 0)));
+        if (ok && full_batch_gqa && !direct_gqa_projections) {
             stage = "stage dense GQA projections";
             ok = qw3_metal_session_stage_dense_gqa_projections(
                 s->metal, ntok, qg_n, kv_n,
@@ -15081,7 +15095,7 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                 dense_gqa_q_rope_offset, dense_gqa_gate_offset,
                 dense_gqa_inner_offset, dense_gqa_stride);
         }
-        if (ok && full_batch_gqa) {
+        if (ok && full_batch_gqa && !direct_output) {
             stage = "compact dense GQA attention";
             ok = qw3_metal_session_copy_batch_scratch_to_x1(
                 s->metal, ntok, q_n, dense_gqa_inner_offset,
@@ -15089,9 +15103,10 @@ static int qw3_metal_session_eval_dense_prefill_batch(
         }
         if (ok && full_batch_gqa) {
             stage = "batch dense GQA output";
-            ok = qw3_metal_session_batch_dense_gqa_output_add(
+            ok = qw3_metal_session_batch_dense_gqa_output_add_layout(
                 s->metal, lw->attn_o_proj->offset,
-                lw->attn_o_proj->type, ntok, q_n, n_embd);
+                lw->attn_o_proj->type, ntok, q_n, n_embd,
+                dense_gqa_inner_offset, direct_output ? dense_gqa_stride : 0);
         }
         if (ok && full_batch_gqa) {
             stage = "batch dense GQA FFN norm";
@@ -15101,9 +15116,10 @@ static int qw3_metal_session_eval_dense_prefill_batch(
         }
         if (ok && full_batch_deltanet) {
             stage = "stage dense DeltaNet projections";
-            ok = qw3_metal_session_stage_dense_deltanet_projections(
+            ok = (direct_dn_projections ||
+                 qw3_metal_session_stage_dense_deltanet_projections(
                 s->metal, ntok, n_qkv, inner_n,
-                dense_dn_qkv_offset, dense_dn_z_offset, dense_dn_stride) &&
+                dense_dn_qkv_offset, dense_dn_z_offset, dense_dn_stride)) &&
                  qw3_metal_session_batch_matmul_q8_0_x1_to_scratch(
                 s->metal, lw->linear_ssm_alpha->offset, ntok,
                 n_embd, (uint32_t)spec->n_linear_v_heads,
@@ -15141,7 +15157,7 @@ static int qw3_metal_session_eval_dense_prefill_batch(
                 (uint32_t)spec->n_linear_v_heads,
                 (uint32_t)spec->n_linear_head_dim, QW3_RMS_EPS);
         }
-        if (ok && full_batch_deltanet) {
+        if (ok && full_batch_deltanet && !direct_output) {
             stage = "compact dense DeltaNet output";
             ok = qw3_metal_session_copy_batch_scratch_to_x1(
                 s->metal, ntok, inner_n, dense_dn_inner_offset,
@@ -15149,9 +15165,10 @@ static int qw3_metal_session_eval_dense_prefill_batch(
         }
         if (ok && full_batch_deltanet) {
             stage = "batch dense DeltaNet output";
-            ok = qw3_metal_session_batch_dense_gqa_output_add(
+            ok = qw3_metal_session_batch_dense_gqa_output_add_layout(
                 s->metal, lw->linear_ssm_out->offset,
-                lw->linear_ssm_out->type, ntok, inner_n, n_embd);
+                lw->linear_ssm_out->type, ntok, inner_n, n_embd,
+                dense_dn_inner_offset, direct_output ? dense_dn_stride : 0);
         }
         if (ok && full_batch_deltanet) {
             stage = "batch dense DeltaNet FFN norm";

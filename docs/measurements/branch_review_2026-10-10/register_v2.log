@@ -1,0 +1,22 @@
+qw3: loaded ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+register_matrix_exact tokens=128 n_in=17408 n_out=1 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=128 n_in=17408 n_out=33 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=128 n_in=17408 n_out=65 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=128 n_in=17408 n_out=5120 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=17408 n_out=1 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=17408 n_out=33 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=17408 n_out=65 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=17408 n_out=5120 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=128 n_in=5120 n_out=1 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=128 n_in=5120 n_out=33 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=128 n_in=5120 n_out=65 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=128 n_in=5120 n_out=17408 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=5120 n_out=1 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=5120 n_out=33 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=5120 n_out=65 finite=all guards=exact input=unchanged invalid_layout=rejected
+register_matrix_exact tokens=256 n_in=5120 n_out=17408 finite=all guards=exact input=unchanged invalid_layout=rejected
+PASS register_iq4 quality_cases=16 threads=4 ctx512 kv=f16 ngl64

@@ -1,0 +1,10 @@
+full_exact mode=logits prefix=1 extended_prefix=1 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=logits prefix=15 extended_prefix=15 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=logits prefix=16 extended_prefix=16 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=logits prefix=31 extended_prefix=31 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=logits prefix=127 extended_prefix=127 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=logits prefix=128 extended_prefix=159 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=logits prefix=129 extended_prefix=129 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=logits prefix=159 extended_prefix=159 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+PASS mode=logits residual_norm=0 round_saved=0
+sum8_head=265

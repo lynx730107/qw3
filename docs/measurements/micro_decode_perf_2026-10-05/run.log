@@ -1,0 +1,34 @@
+block=0 mode=off cooling 40s
+off tg32_d128 8.95 tokens/s 3573.75 ms
+block=1 mode=candidate cooling 40s
+candidate tg32_d128 8.68 tokens/s 3687.21 ms
+block=2 mode=off cooling 40s
+off tg32_d128 9.06 tokens/s 3530.93 ms
+block=3 mode=candidate cooling 40s
+candidate tg32_d128 9.00 tokens/s 3554.83 ms
+block=4 mode=off cooling 40s
+off tg32_d128 8.97 tokens/s 3568.01 ms
+{
+  "tg32_d128": {
+    "modes": {
+      "off": {
+        "mean_tps": 8.9949206807281,
+        "ms_samples": [
+          3573.75,
+          3530.93,
+          3568.01
+        ]
+      },
+      "candidate": {
+        "mean_tps": 8.837288940685221,
+        "ms_samples": [
+          3687.21,
+          3554.83
+        ]
+      }
+    },
+    "baseline_spread_pct": 1.2127116651986958,
+    "stable_baseline_5pct": true,
+    "pooled_gain_pct": -1.752452807956506
+  }
+}

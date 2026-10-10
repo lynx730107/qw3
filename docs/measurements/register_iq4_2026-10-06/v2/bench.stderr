@@ -1,0 +1,47 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+REGISTER_BEGIN block=0 mode=off cooldown=60
+REGISTER_SAMPLE block=0 mode=off repetition=1 gpu_ms=2.234921878
+REGISTER_SAMPLE block=0 mode=off repetition=2 gpu_ms=2.212687512
+REGISTER_SAMPLE block=0 mode=off repetition=3 gpu_ms=2.286109375
+REGISTER_SAMPLE block=0 mode=off repetition=4 gpu_ms=2.327463531
+REGISTER_SAMPLE block=0 mode=off repetition=5 gpu_ms=2.351901057
+REGISTER_BEGIN block=1 mode=register cooldown=60
+REGISTER_SAMPLE block=1 mode=register repetition=1 gpu_ms=12.594671891
+REGISTER_SAMPLE block=1 mode=register repetition=2 gpu_ms=12.631114601
+REGISTER_SAMPLE block=1 mode=register repetition=3 gpu_ms=12.554015644
+REGISTER_SAMPLE block=1 mode=register repetition=4 gpu_ms=12.564489589
+REGISTER_SAMPLE block=1 mode=register repetition=5 gpu_ms=13.382901030
+REGISTER_BEGIN block=2 mode=off cooldown=60
+REGISTER_SAMPLE block=2 mode=off repetition=1 gpu_ms=2.347890637
+REGISTER_SAMPLE block=2 mode=off repetition=2 gpu_ms=2.392208349
+REGISTER_SAMPLE block=2 mode=off repetition=3 gpu_ms=2.393338538
+REGISTER_SAMPLE block=2 mode=off repetition=4 gpu_ms=2.373953117
+REGISTER_SAMPLE block=2 mode=off repetition=5 gpu_ms=2.485223959
+REGISTER_BEGIN block=3 mode=register cooldown=60
+REGISTER_SAMPLE block=3 mode=register repetition=1 gpu_ms=12.565072917
+REGISTER_SAMPLE block=3 mode=register repetition=2 gpu_ms=12.556562491
+REGISTER_SAMPLE block=3 mode=register repetition=3 gpu_ms=12.553421897
+REGISTER_SAMPLE block=3 mode=register repetition=4 gpu_ms=12.566281250
+REGISTER_SAMPLE block=3 mode=register repetition=5 gpu_ms=12.583281234
+REGISTER_BEGIN block=4 mode=off cooldown=60
+REGISTER_SAMPLE block=4 mode=off repetition=1 gpu_ms=2.258640627
+REGISTER_SAMPLE block=4 mode=off repetition=2 gpu_ms=2.263755217
+REGISTER_SAMPLE block=4 mode=off repetition=3 gpu_ms=2.270755213
+REGISTER_SAMPLE block=4 mode=off repetition=4 gpu_ms=2.328609378
+REGISTER_SAMPLE block=4 mode=off repetition=5 gpu_ms=2.472072927
+REGISTER_BEGIN block=5 mode=register cooldown=60
+REGISTER_SAMPLE block=5 mode=register repetition=1 gpu_ms=12.454015639
+REGISTER_SAMPLE block=5 mode=register repetition=2 gpu_ms=12.467062479
+REGISTER_SAMPLE block=5 mode=register repetition=3 gpu_ms=12.526390638
+REGISTER_SAMPLE block=5 mode=register repetition=4 gpu_ms=12.589249993
+REGISTER_SAMPLE block=5 mode=register repetition=5 gpu_ms=12.619796878
+REGISTER_BEGIN block=6 mode=off cooldown=60
+REGISTER_SAMPLE block=6 mode=off repetition=1 gpu_ms=2.260098961
+REGISTER_SAMPLE block=6 mode=off repetition=2 gpu_ms=2.347802074
+REGISTER_SAMPLE block=6 mode=off repetition=3 gpu_ms=2.317000006
+REGISTER_SAMPLE block=6 mode=off repetition=4 gpu_ms=2.328343777
+REGISTER_SAMPLE block=6 mode=off repetition=5 gpu_ms=2.347375004

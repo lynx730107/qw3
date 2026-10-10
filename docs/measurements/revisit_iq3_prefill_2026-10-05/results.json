@@ -1,0 +1,357 @@
+{
+  "started_utc": "2026-10-05T18:37:25.956095+00:00",
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "binary": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-revisit-prefill-bench",
+  "binary_sha256": "515ee812e6e0ec33e141b2ccfccb50a048bf23c3073ca7cc0be312f2dc6015a2",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/dense_candidates.inc": "7e4f8ec67b1b4e374fd3cb9d602133424834ca9f28906065c0c38663e65ad3ba",
+    "tests/bench_dense_candidates.m": "19d4aace0a2d1bf343ff49da4dea6fbe74b1bf4a283e867a3fad3eb287daaa04",
+    "tests/gdn_prefill_candidates.inc": "19aed96a31b94990196833da9909d1721d04502736fa096ab696369179f72d5a",
+    "tests/gdn_prefill_dispatch.inc": "7befece9f422ae3dcc8a12116cb565b7e1fc52ac9e8c2749caca0b105ddc6857",
+    "tests/gdn_prefill_candidates.metal": "ac72e785c557036723d24b8b95548f9928c0b701877c7db822914dbcf291e9ed",
+    "tests/bench_gdn_prefill.m": "9c008a147e48e8c00de6426d464cea6dd02f5e942b1db947686b39c307ff1219",
+    "tests/projection_candidates.inc": "92655b8a7e1246c3fa15d8242b6e30d0372af7b4e0a27f0f0f9a554d23ec3860",
+    "tests/projection_candidates.metal": "8695edee96448b8780c88d9f287d14b32d103ccafe5f159a4bb3487d151ec8f8",
+    "tests/bench_projection_prefill.m": "e9d24feafb6a6b4585c5beb3c001daad79ec7bb8c62d1bacf6713a9737166d32",
+    "tests/bench_projection_cost.m": "68f067a05b389eb78144f2b6a1f1397c05477280a16e374bb448f090cbb0ec52",
+    "tests/scratch_candidates.inc": "e31345d95751fd35fae88afd5c5327dafd7b3b32fe60478b1221882d0622b0e1",
+    "tests/scratch_matmul.inc": "7479d02409d7e588a38feba5cc83ee189881a13881dcfc3b6b63fb3719d9c6e8",
+    "tests/bench_scratch_prefill.m": "09cbb2fe056a79a3c1b2cd1d77be19e01ca587a175fc8f96e457eee0d01baa66",
+    "tests/test_scratch_prefill.m": "b984136525b187629dcb9eed4dc6a8466f63ec663a75ee903471d34dc03b3469",
+    "tests/test_scratch_matmul.m": "c76933f841158d8a54c45d159609447cf12ef204cb3e4b954d38950fe30dd36e",
+    "tests/bench_packed8_scratch.m": "5d7ff492481c1bb6802d975122bb55898182124977edcb50f5ca88212ce2f77f",
+    "tests/test_packed8_scratch.m": "8d7880f436a0f7705a99c45a36c6c38b06c2fa1194f5d06330f2b87a8ee7f349",
+    "tests/bench_revisit_prefill.m": "a01897bd4d2d029251e4f456bed7d58015491895262b84fca9ee5c15ecf141e9",
+    "tests/test_revisit_prefill.m": "0796bc641f6ed7f90110882c6e4f2c682e2920a3a482a76fd353e61eff55d399"
+  },
+  "device": "Apple M5",
+  "context": 512,
+  "kv": "f16",
+  "gpu_layers": 64,
+  "seed": 1,
+  "workload": "same seed-1 fixed input IDs for each job across all blocks; no sampling",
+  "timing": "qw3-bench pure pp128 and 32 decode forwards at depth128, including output logits",
+  "warmup": true,
+  "repetitions": 3,
+  "cooldown_seconds": 40.0,
+  "candidate_environment": {
+    "QW3_PRIVATE_IQ3_METADATA": "1"
+  },
+  "jobs": [
+    "pp128"
+  ],
+  "runs": [
+    {
+      "block": 0,
+      "mode": "off",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-revisit-prefill-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3332.62M  free = 763.38M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3332.62M  free = 763.38M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "158.06",
+        "stdev_tps": "0.75",
+        "avg_ms": "809.81",
+        "stdev_ms": "3.84",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 1,
+      "mode": "candidate",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-revisit-prefill-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3316.62M  free = 779.38M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3316.62M  free = 779.38M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_METADATA": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "158.53",
+        "stdev_tps": "0.82",
+        "avg_ms": "807.44",
+        "stdev_ms": "4.20",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 2,
+      "mode": "off",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-revisit-prefill-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 3316.62M  free = 779.38M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 3316.62M  free = 779.38M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "158.30",
+        "stdev_tps": "0.64",
+        "avg_ms": "808.58",
+        "stdev_ms": "3.25",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 3,
+      "mode": "candidate",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-revisit-prefill-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2748.56M  free = 1347.44M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2748.56M  free = 1347.44M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_METADATA": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "158.62",
+        "stdev_tps": "0.40",
+        "avg_ms": "806.97",
+        "stdev_ms": "2.03",
+        "session_bytes": "174664400"
+      }
+    },
+    {
+      "block": 4,
+      "mode": "off",
+      "job": "pp128",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-revisit-prefill-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "512",
+        "-p",
+        "128",
+        "-n",
+        "0",
+        "-d",
+        "0",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "swap_before": "vm.swapusage: total = 4096.00M  used = 2724.56M  free = 1371.44M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 4096.00M  used = 2724.56M  free = 1371.44M  (encrypted)",
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_BENCH_PRINT_SAMPLES": "1"
+      },
+      "metrics": {
+        "test": "pp",
+        "n_prompt": "128",
+        "n_gen": "0",
+        "n_depth": "0",
+        "reps": "3",
+        "avg_tps": "158.41",
+        "stdev_tps": "0.65",
+        "avg_ms": "808.02",
+        "stdev_ms": "3.29",
+        "session_bytes": "174664400"
+      }
+    }
+  ],
+  "summary": {
+    "pp128": {
+      "modes": {
+        "off": {
+          "mean_tps": 158.25849712126146,
+          "ms_samples": [
+            809.81,
+            808.58,
+            808.02
+          ]
+        },
+        "candidate": {
+          "mean_tps": 158.57186216636418,
+          "ms_samples": [
+            807.44,
+            806.97
+          ]
+        }
+      },
+      "baseline_spread_pct": 0.22152917007003392,
+      "stable_baseline_5pct": true,
+      "pooled_gain_pct": 0.1980083539290911
+    }
+  },
+  "all_baselines_stable_5pct": true,
+  "bracketed_comparisons": [
+    {
+      "block": 1,
+      "job": "pp128",
+      "off_blocks": [
+        0,
+        2
+      ],
+      "baseline_mean_ms": 809.1949999999999,
+      "candidate_ms": 807.44,
+      "gain_pct": 0.2173536114138397
+    },
+    {
+      "block": 3,
+      "job": "pp128",
+      "off_blocks": [
+        2,
+        4
+      ],
+      "baseline_mean_ms": 808.3,
+      "candidate_ms": 806.97,
+      "gain_pct": 0.16481405752382106
+    }
+  ],
+  "completed_utc": "2026-10-05T18:41:03.465094+00:00",
+  "source_unchanged_during_campaign": true,
+  "baseline_description": "production packed8+direct scratch enabled on Apple M5; metadata candidates OFF",
+  "decision": "not adopted: about +0.2%, comparable to control spread and smaller than within-block sample SD; no compelling extra gain"
+}

@@ -1,0 +1,9 @@
+full_exact mode=iq3_metadata prefix=1 extended_prefix=1 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=iq3_metadata prefix=15 extended_prefix=15 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=iq3_metadata prefix=16 extended_prefix=16 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=iq3_metadata prefix=31 extended_prefix=31 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=iq3_metadata prefix=127 extended_prefix=127 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=iq3_metadata prefix=128 extended_prefix=159 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=iq3_metadata prefix=129 extended_prefix=129 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=iq3_metadata prefix=159 extended_prefix=159 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+PASS mode=iq3_metadata q3_calls=0 iq_calls=333 iq3_calls=333 iq4_calls=0

@@ -1,0 +1,74 @@
+[
+  {
+    "name": "native_full",
+    "command": [
+      "./qw3-native-prefill-test",
+      "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "all"
+    ],
+    "rc": 0,
+    "seconds": 80.3
+  },
+  {
+    "name": "native_matrix",
+    "command": [
+      "./qw3-native-prefill-matmul-test",
+      "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+    ],
+    "rc": 0,
+    "seconds": 1.31
+  },
+  {
+    "name": "sum8_matrix",
+    "command": [
+      "./qw3-sum8-matrix-test",
+      "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+    ],
+    "rc": 0,
+    "seconds": 0.62
+  },
+  {
+    "name": "epilogue_matrix",
+    "command": [
+      "./qw3-epilogue-matrix-test",
+      "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+    ],
+    "rc": 0,
+    "seconds": 0.75
+  },
+  {
+    "name": "register_v2",
+    "command": [
+      "./qw3-register-iq4-test",
+      "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "quality"
+    ],
+    "rc": 0,
+    "seconds": 0.79
+  },
+  {
+    "name": "register_v3",
+    "command": [
+      "./qw3-register-iq4-cached-test",
+      "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "quality"
+    ],
+    "rc": 0,
+    "seconds": 0.79
+  },
+  {
+    "name": "agent_guards",
+    "command": [
+      "make",
+      "test-agent-color",
+      "test-agent-context",
+      "test-agent-repeat",
+      "test-agent-status",
+      "test-agent-tool-parse",
+      "test-agent-verify",
+      "test-runtime-fingerprint"
+    ],
+    "rc": 0,
+    "seconds": 0.71
+  }
+]

@@ -1,0 +1,65 @@
+{
+  "snapshot_utc": "2026-10-05T19:32:34.210275+00:00",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "dbf4709e87dd45216ec45a9c72cdd299705586557f8bd60a28a064c59040ab88",
+    "Makefile": "d024c971c486ee4691dc74948a825156ccd4513612a57264dfe047ca949fe9f9",
+    "tools/bench_qw3_candidates.py": "1da62ca7105710f9b3add43a379379f9514e383879c2eb1274010e827b3c4e6f",
+    "tests/prepare_micro_candidates.py": "b17e23fd48f95b89fc418e18846cc3671c542801b00b69fcc87f6bac87d2dfe6",
+    "tests/micro_candidates.inc": "19252cf87d8963fcf8742cf51f0cca7c1b084da04e62877d9dfd389a11744013",
+    "tests/micro_candidates.metal": "2dc5cfc9a0a26a2bd3bc136e790289fce32017c18b70e55086a3cffac0cab087",
+    "tests/test_micro_candidates.m": "e654ff48fd0bd02c42e5ee8d0f7410810c5d1dd1978c003293f50b3b3caef375",
+    "tests/test_micro_q8.m": "e1cd2cc7f9f5bb05e1934df1d183a3e60c4589c2f6638616b22d1953e2a44170",
+    "tests/bench_micro_candidates.m": "ec8a001871e4c80a5bf242be95fc00f045c2cb42dc5ee0b60235304a802d9f27",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/.micro_candidates/core.inc": "190acf030d6888ee1eed09820b46be64992de588d0d71328bbaef7fd4a39c9b0",
+    "tests/.micro_candidates/quality.inc": "74e9532602d56b873605053279a2e9f5cce1ca6341379a8662065fe6f4bb46a0",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9"
+  },
+  "binary_sha256": {
+    "qw3-micro-test": "c8a7fc16c78907617502ff19080edd04182e8a437db2db64a86819c522bf8f63",
+    "qw3-micro-bench": "6334047c5da0703a140fbfa127fa6e52d3a2ef8a5c910c9ad8ebcf5a90ee6c06",
+    "qw3-micro-q8-test": "7cddbccae15010e8b921d186565f694781159af24de8f6050a5ab1c6e13f055d"
+  },
+  "production_unchanged_from_prior_regressions": true,
+  "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "ctx": 512,
+  "kv": "f16",
+  "prefixes": [
+    1,
+    15,
+    16,
+    31,
+    127,
+    128,
+    129,
+    159
+  ],
+  "extended_prefix": [
+    128,
+    159
+  ],
+  "continuation": 32,
+  "compare": "all finite vocabulary logits bit-for-bit; live KV; all DeltaNet and conv state; checkpoint payload and continuation",
+  "quality": {
+    "conv_final_exit": 0,
+    "pair_final_exit": 0,
+    "q8_final_exit": 0,
+    "q8_cases": 384,
+    "prefill_initial_exit": 0,
+    "prefill_initial_note": "Initial isolated prefill proof preceded the final decode grid and conv kernel; final pair proof and final q8 matrix proof use the archived final binary/source."
+  },
+  "source_unchanged": true,
+  "completed_utc": "2026-10-05T19:56:24.277635+00:00",
+  "final_source_unchanged": true
+}

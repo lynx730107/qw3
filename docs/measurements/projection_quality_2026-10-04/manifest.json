@@ -1,0 +1,23 @@
+{
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "offload": 64,
+  "kv": "f16",
+  "context": 512,
+  "threads": 4,
+  "checks": "full finite exact vocabulary logits, canonical KV/GDN/conv, checkpoint roundtrip, 32 greedy continuations at prefixes16,31,128+31,1,15",
+  "sources_sha256": {
+    "tests/projection_candidates.inc": "bd7e687c1e355315b536058abb29c1fe122af69eb0fe3a6f0223bb8c48229391",
+    "tests/projection_candidates.metal": "8695edee96448b8780c88d9f287d14b32d103ccafe5f159a4bb3487d151ec8f8",
+    "tests/test_projection_prefill.m": "b5a051b4ddf22cb7e0b4080e1a9d6454929e6e013a2cdb7e7760b779867bad38",
+    "tests/bench_projection_prefill.m": "14028a78ba7006ac23ada519a4d2c9a3b787b55d5b4077d16724df9e58d32d6f",
+    "tests/bench_projection_cost.m": "d405a47aa866572b478731908565a457d2e7c3a686b73a5663f50add180fc271",
+    "tools/bench_qw3_candidates.py": "16d23cd58fac08229b33a502646e4168d30242d7821c801c4f864b3d3e5bd528"
+  },
+  "binary_sha256": "cad2af24df23242a4d40aefbd9ace610776db2d05ede2161e543b1ddf0b908fc",
+  "passed": [
+    "q3_metadata",
+    "iq_metadata",
+    "stage_profile"
+  ],
+  "completed_utc": "2026-10-04T13:46:24.829973+00:00"
+}

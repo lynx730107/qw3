@@ -1,0 +1,40 @@
+block=0 mode=off cooling 40s
+off pp128 160.29 tokens/s 798.57 ms
+block=1 mode=candidate cooling 40s
+candidate pp128 161.09 tokens/s 794.57 ms
+block=2 mode=off cooling 40s
+off pp128 160.70 tokens/s 796.52 ms
+block=3 mode=candidate cooling 40s
+candidate pp128 158.51 tokens/s 807.56 ms
+block=4 mode=off cooling 40s
+off pp128 159.89 tokens/s 800.55 ms
+block=5 mode=candidate cooling 40s
+candidate pp128 160.85 tokens/s 795.77 ms
+block=6 mode=off cooling 40s
+off pp128 156.19 tokens/s 819.60 ms
+{
+  "pp128": {
+    "modes": {
+      "off": {
+        "mean_tps": 159.24161182368968,
+        "ms_samples": [
+          798.57,
+          796.52,
+          800.55,
+          819.6
+        ]
+      },
+      "candidate": {
+        "mean_tps": 160.14012260728137,
+        "ms_samples": [
+          794.57,
+          807.56,
+          795.77
+        ]
+      }
+    },
+    "baseline_spread_pct": 2.8976045799226746,
+    "stable_baseline_5pct": true,
+    "pooled_gain_pct": 0.5642437132491018
+  }
+}

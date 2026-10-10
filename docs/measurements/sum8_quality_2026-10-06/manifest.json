@@ -1,0 +1,76 @@
+{
+  "started_utc": "2026-10-06T16:41:50.050630+00:00",
+  "source_sha256": {
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3_metal.m": "1edd71d1adab90530e28a8230b17bc98f3949dbfae88881d8db974cf1340290f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "dbf4709e87dd45216ec45a9c72cdd299705586557f8bd60a28a064c59040ab88",
+    "Makefile": "e20706f4f0033516723368fa905b52b60c66712765bb895725ba034c71c412ad",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/prepare_combination_candidates.py": "07af2be6e17863514df9c750406a7f0b7a5dcebb23f6466e0eed05a5a79b7044",
+    "tests/combination_candidates.inc": "6834902ed01025e54bf4b9bca5897a383fe57a527c2df200068a398ba267fed7",
+    "tests/combination_candidates.metal": "3573334a5ab30f222afe1789f71fdd1ec097513827a2b3b1a6429686c264606a",
+    "tests/test_combination_candidates.m": "79aaf65031e13c46a44eb1721add56abf9f80b7c0b842ee9fbc1d21089517a9e",
+    "tests/bench_combination_candidates.m": "4f65a613b92dae006cb25b80b99df9da4c28f011974e8f1132df20b0118904b4",
+    "tests/.combination_candidates/core.inc": "7c1958dd779b18dae161e8d6f4f443d24c70eea928843a788f8dec0c33a45ecd",
+    "tests/.combination_candidates/bridge.inc": "cce13545c7fd4d0b6e479bd42498ec0ed6f11f23d6d9a314162fb3c395c10b88",
+    "tests/.combination_candidates/quality.inc": "cf6c2d6d9adab351302d55b94f6741d8d6eb846305987553ef0ac416dab52dab",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "5e99c50e41c267cfe497823ae7aaaa2b25fbd2c0d8be045028c5bc177ac95731",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "tests/prepare_sum8_candidates.py": "2d3fcb987854046d691c8eee767006073dd5bb9de286111b7db15b7c15507b93",
+    "tests/sum8_dispatch.inc": "5459ba2bf6688e5941c469ad92733bcbfabb71ee5c34a1ac06cf85897060ddce",
+    "tests/test_sum8_candidates.m": "c058536b7beeb88271aefd9d61c5dbb4fce816261b6bd7cab6736822281896bf",
+    "tests/bench_sum8_candidates.m": "002c7f7d28dc93a80b6d320a12a2c2b06a4f0b91f4cd57f32fc71be8dcc5b407",
+    "tests/.sum8_candidates/candidates.inc": "63f14b113e8888b935c6b0026031090285dd268bb9e0b6ec906b2f945091ed3b",
+    "tests/.sum8_candidates/head.inc": "3bf60d1ef3d677233d0d9adee30382af315182fec3e717ed51935589df8acfd5",
+    "tests/.sum8_candidates/quality.inc": "21bafd5ee95677ccafbf9459f0d9d90bdad3ad030a5a6b84225644ac26a376c0",
+    "tests/.sum8_candidates/kernels.metal": "e8d936e7c5e37e5e11480a40d87f236f8edccd54954771f078715acc21c5a60f"
+  },
+  "binary_sha256": {
+    "qw3-sum8-test": "02afbedeb2ef0f974463314e87c721f916264022fc58d666031878482aae6566",
+    "qw3-sum8-bench": "b167e5a3b3e622d9817381a6c1663eb70fbe350f25b85d68852adaa4d1ad8e5f"
+  },
+  "runs": [
+    {
+      "mode": "logits",
+      "exit_code": 0,
+      "full_exact_cases": 8,
+      "completed_utc": "2026-10-06T16:44:27.270674+00:00"
+    },
+    {
+      "mode": "all",
+      "exit_code": 0,
+      "full_exact_cases": 8,
+      "completed_utc": "2026-10-06T16:46:49.142479+00:00"
+    }
+  ],
+  "completed_utc": "2026-10-06T16:46:49.142696+00:00",
+  "numeric_sources_unchanged": true,
+  "makefile_note": "Added campaign/clean/non-Darwin targets after snapshot; compile flags and inference sources unchanged.",
+  "prefixes": [
+    1,
+    15,
+    16,
+    31,
+    127,
+    128,
+    129,
+    159
+  ],
+  "extended_prefix": [
+    128,
+    159
+  ],
+  "continuation": 32,
+  "context": 512,
+  "kv": "f16",
+  "gpu_layers": 64,
+  "compare": "entire finite vocabulary bit-for-bit; live KV; all DeltaNet/conv state; checkpoint payload save/load and continuation"
+}

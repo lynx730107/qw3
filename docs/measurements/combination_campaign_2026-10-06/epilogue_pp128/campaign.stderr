@@ -1,0 +1,141 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+COMBO_BEGIN 0 off
+qw3-bench: sample 1/5 159.723 tok/s 801.385 ms
+qw3-bench: sample 2/5 159.281 tok/s 803.611 ms
+qw3-bench: sample 3/5 160.067 tok/s 799.663 ms
+qw3-bench: sample 4/5 158.240 tok/s 808.897 ms
+qw3-bench: sample 5/5 159.222 tok/s 803.911 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 0 off 0
+COMBO_BEGIN 1 down
+qw3-bench: sample 1/5 157.302 tok/s 813.719 ms
+qw3-bench: sample 2/5 157.548 tok/s 812.451 ms
+qw3-bench: sample 3/5 157.560 tok/s 812.389 ms
+qw3-bench: sample 4/5 157.343 tok/s 813.511 ms
+qw3-bench: sample 5/5 157.875 tok/s 810.770 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=294
+COMBO_END 1 down 0
+COMBO_BEGIN 2 off
+qw3-bench: sample 1/5 161.090 tok/s 794.586 ms
+qw3-bench: sample 2/5 160.729 tok/s 796.371 ms
+qw3-bench: sample 3/5 160.576 tok/s 797.132 ms
+qw3-bench: sample 4/5 159.505 tok/s 802.484 ms
+qw3-bench: sample 5/5 158.524 tok/s 807.451 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 2 off 0
+COMBO_BEGIN 3 residual_down
+qw3-bench: sample 1/5 158.649 tok/s 806.812 ms
+qw3-bench: sample 2/5 158.337 tok/s 808.401 ms
+qw3-bench: sample 3/5 158.101 tok/s 809.611 ms
+qw3-bench: sample 4/5 157.841 tok/s 810.945 ms
+qw3-bench: sample 5/5 157.924 tok/s 810.516 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=294
+COMBO_END 3 residual_down 0
+COMBO_BEGIN 4 off
+qw3-bench: sample 1/5 159.389 tok/s 803.067 ms
+qw3-bench: sample 2/5 159.989 tok/s 800.053 ms
+qw3-bench: sample 3/5 160.244 tok/s 798.781 ms
+qw3-bench: sample 4/5 159.749 tok/s 801.259 ms
+qw3-bench: sample 5/5 159.697 tok/s 801.519 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 4 off 0
+COMBO_BEGIN 5 both_down
+qw3-bench: sample 1/5 158.146 tok/s 809.377 ms
+qw3-bench: sample 2/5 158.349 tok/s 808.339 ms
+qw3-bench: sample 3/5 157.360 tok/s 813.419 ms
+qw3-bench: sample 4/5 157.633 tok/s 812.014 ms
+qw3-bench: sample 5/5 157.171 tok/s 814.399 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=0 down_epilogue=294
+COMBO_END 5 both_down 0
+COMBO_BEGIN 6 off
+qw3-bench: sample 1/5 159.740 tok/s 801.303 ms
+qw3-bench: sample 2/5 159.759 tok/s 801.206 ms
+qw3-bench: sample 3/5 160.284 tok/s 798.583 ms
+qw3-bench: sample 4/5 160.160 tok/s 799.199 ms
+qw3-bench: sample 5/5 153.014 tok/s 836.523 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 6 off 0
+COMBO_BEGIN 7 all_down
+qw3-bench: sample 1/5 155.250 tok/s 824.479 ms
+qw3-bench: sample 2/5 155.152 tok/s 824.998 ms
+qw3-bench: sample 3/5 157.885 tok/s 810.719 ms
+qw3-bench: sample 4/5 151.634 tok/s 844.139 ms
+qw3-bench: sample 5/5 156.020 tok/s 820.407 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=6 down_epilogue=294
+COMBO_END 7 all_down 0
+COMBO_BEGIN 8 off
+qw3-bench: sample 1/5 156.574 tok/s 817.503 ms
+qw3-bench: sample 2/5 156.110 tok/s 819.933 ms
+qw3-bench: sample 3/5 154.202 tok/s 830.081 ms
+qw3-bench: sample 4/5 154.087 tok/s 830.697 ms
+qw3-bench: sample 5/5 155.040 tok/s 825.591 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 8 off 0
+COMBO_BEGIN 9 all_down
+qw3-bench: sample 1/5 156.601 tok/s 817.364 ms
+qw3-bench: sample 2/5 157.866 tok/s 810.814 ms
+qw3-bench: sample 3/5 157.148 tok/s 814.519 ms
+qw3-bench: sample 4/5 157.557 tok/s 812.402 ms
+qw3-bench: sample 5/5 157.224 tok/s 814.127 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=6 down_epilogue=294
+COMBO_END 9 all_down 0
+COMBO_BEGIN 10 off
+qw3-bench: sample 1/5 159.760 tok/s 801.202 ms
+qw3-bench: sample 2/5 159.967 tok/s 800.167 ms
+qw3-bench: sample 3/5 159.591 tok/s 802.048 ms
+qw3-bench: sample 4/5 159.394 tok/s 803.043 ms
+qw3-bench: sample 5/5 158.988 tok/s 805.092 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 10 off 0
+COMBO_BEGIN 11 both_down
+qw3-bench: sample 1/5 155.349 tok/s 823.949 ms
+qw3-bench: sample 2/5 152.317 tok/s 840.355 ms
+qw3-bench: sample 3/5 153.866 tok/s 831.893 ms
+qw3-bench: sample 4/5 151.968 tok/s 842.284 ms
+qw3-bench: sample 5/5 154.388 tok/s 829.082 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=114 round_saved=114 sum8_head=0 down_epilogue=294
+COMBO_END 11 both_down 0
+COMBO_BEGIN 12 off
+qw3-bench: sample 1/5 156.549 tok/s 817.636 ms
+qw3-bench: sample 2/5 156.789 tok/s 816.386 ms
+qw3-bench: sample 3/5 153.729 tok/s 832.632 ms
+qw3-bench: sample 4/5 154.451 tok/s 828.743 ms
+qw3-bench: sample 5/5 154.866 tok/s 826.519 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 12 off 0
+COMBO_BEGIN 13 residual_down
+qw3-bench: sample 1/5 158.500 tok/s 807.569 ms
+qw3-bench: sample 2/5 158.286 tok/s 808.663 ms
+qw3-bench: sample 3/5 157.769 tok/s 811.314 ms
+qw3-bench: sample 4/5 157.850 tok/s 810.894 ms
+qw3-bench: sample 5/5 156.859 tok/s 816.018 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=384 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=294
+COMBO_END 13 residual_down 0
+COMBO_BEGIN 14 off
+qw3-bench: sample 1/5 158.124 tok/s 809.493 ms
+qw3-bench: sample 2/5 157.910 tok/s 810.587 ms
+qw3-bench: sample 3/5 158.378 tok/s 808.194 ms
+qw3-bench: sample 4/5 157.129 tok/s 814.619 ms
+qw3-bench: sample 5/5 157.096 tok/s 814.790 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 14 off 0
+COMBO_BEGIN 15 down
+qw3-bench: sample 1/5 158.861 tok/s 805.734 ms
+qw3-bench: sample 2/5 158.453 tok/s 807.808 ms
+qw3-bench: sample 3/5 157.917 tok/s 810.553 ms
+qw3-bench: sample 4/5 158.069 tok/s 809.775 ms
+qw3-bench: sample 5/5 157.842 tok/s 810.935 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=294
+COMBO_END 15 down 0
+COMBO_BEGIN 16 off
+qw3-bench: sample 1/5 156.465 tok/s 818.076 ms
+qw3-bench: sample 2/5 156.229 tok/s 819.311 ms
+qw3-bench: sample 3/5 156.229 tok/s 819.312 ms
+qw3-bench: sample 4/5 157.920 tok/s 810.537 ms
+qw3-bench: sample 5/5 158.293 tok/s 808.627 ms
+private dispatches pair=0 add=0 gdn=0 residual_norm=0 round_norm=0 round_saved=0 sum8_head=0 down_epilogue=0
+COMBO_END 16 off 0
