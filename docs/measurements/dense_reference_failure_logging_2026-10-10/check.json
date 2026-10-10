@@ -1,0 +1,24 @@
+{
+  "purpose": "Harness error-path test with a fake shell executable. No model inference or performance measurement.",
+  "command": [
+    "python3",
+    "tools/bench_dense_reference.py",
+    "--qw3",
+    "/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-runner-failure-cx6h45s3/fail-bench",
+    "--jobs",
+    "pp128",
+    "--pairs",
+    "2",
+    "--repetitions",
+    "1",
+    "--cooldown",
+    "0",
+    "--output",
+    "docs/measurements/dense_reference_failure_logging_2026-10-10/probe"
+  ],
+  "runner_rc": 1,
+  "fake_rc": 127,
+  "raw_stdout_preserved": true,
+  "raw_stderr_preserved": true,
+  "failure_manifest_preserved": true
+}

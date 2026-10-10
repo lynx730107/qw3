@@ -94,3 +94,6 @@ tests/.gdn_cache/
 /qw3-model-residency-bench
 /qw3-model-residency-test
 tests/.model_residency/
+/qw3-gdn-windows-test
+/qw3-gdn-windows-bench
+tests/.gdn_windows/

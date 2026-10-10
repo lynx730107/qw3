@@ -86,6 +86,7 @@ def main():
     critical = [0, 12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262,
                 2.228, 2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093]
     manifest = args.output / "results.json"
+    manifest.write_text(json.dumps(data, indent=2) + '\n')
     for label, pp, tg, depth in jobs:
         timings = {"qw3": [], "llama": []}
         for pair in range(args.pairs):
@@ -109,11 +110,26 @@ def main():
                 if engine == 'qw3' and args.qw3_packed8_scratch:
                     run_env['QW3_PRIVATE_PACKED8_SCRATCH'] = '1'
                 swap_before = run(['sysctl', 'vm.swapusage']).stdout.strip()
-                result = run(command, run_env)
+                result = subprocess.run(command, env=run_env, text=True, capture_output=True)
                 swap_after = run(['sysctl', 'vm.swapusage']).stdout.strip()
                 stem = args.output / f"{label}-{pair}-{engine}"
                 stem.with_suffix(".stdout").write_text(result.stdout)
                 stem.with_suffix(".stderr").write_text(result.stderr)
+                if result.returncode:
+                    data['failure'] = {'job': label, 'pair': pair + 1, 'engine': engine,
+                                       'command': command, 'returncode': result.returncode,
+                                       'stdout': stem.with_suffix('.stdout').name,
+                                       'stderr': stem.with_suffix('.stderr').name,
+                                       'swap_before': swap_before, 'swap_after': swap_after}
+                    data['stopped_utc'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    data['sources_unchanged_at_stop'] = all(
+                        hashlib.sha256((root / f).read_bytes()).hexdigest() == h
+                        for f, h in data['source_sha256'].items())
+                    data['binaries_unchanged_at_stop'] = all(
+                        hashlib.sha256(Path(f).read_bytes()).hexdigest() == h
+                        for f, h in data['binary_sha256'].items())
+                    manifest.write_text(json.dumps(data, indent=2) + '\n')
+                    result.check_returncode()
                 if engine == "qw3":
                     rows = list(csv.DictReader(io.StringIO(result.stdout)))
                     if len(rows) != 1 or any(int(rows[0][key]) != value for key, value in

@@ -1,0 +1,29 @@
+{
+  "command": [
+    "caffeinate",
+    "-disu",
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-bench",
+    "-m",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "--metal",
+    "--ngl",
+    "64",
+    "--llama-style",
+    "--ctx-alloc",
+    "256",
+    "-p",
+    "128",
+    "-n",
+    "0",
+    "-d",
+    "0",
+    "-r",
+    "5",
+    "--seed",
+    "1",
+    "-t",
+    "4"
+  ],
+  "returncode": 0,
+  "purpose": "Diagnostic replay of the failed command, not included in performance summaries."
+}

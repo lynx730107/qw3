@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/tools/bench_dense_reference.py", line 213, in <module>
+    main()
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/tools/bench_dense_reference.py", line 132, in main
+    result.check_returncode()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 460, in check_returncode
+    raise CalledProcessError(self.returncode, self.args, self.stdout,
+subprocess.CalledProcessError: Command '['caffeinate', '-disu', '/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-runner-failure-cx6h45s3/fail-bench', '-m', '/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf', '--metal', '--ngl', '64', '--llama-style', '--ctx-alloc', '256', '-p', '128', '-n', '0', '-d', '0', '-r', '1', '--seed', '1', '-t', '4']' returned non-zero exit status 127.

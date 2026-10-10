@@ -390,6 +390,12 @@ bit-exact on the measured 27B model. Seven ordinary benchmark blocks confirm
 `QW3_METAL_DENSE_GDN_CACHE=0`. The fallback also fixes a normalization reduction
 that read unwritten threadgroup slots, exposed by head dimension 32 tests.
 
+The [DeltaNet cache-window trials](docs/m5_gdn_windows_2026-10-10.md)
+compare first48/80/96 and middle/last64 against the adopted native first64
+cache. All ten guarded matrix cases and 448 timed greedy forward pairs pass
+whole-logit and state checks. The small gains of middle/last64 do not survive
+replication; none replaces the native cache64.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither
