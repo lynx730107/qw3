@@ -110,3 +110,6 @@ tests/.hazard_tracking/
 tests/.weight_tracking/
 /qw3-weight-tracking-bench
 /qw3-weight-tracking-native-bench
+/qw3-hazard-fences-test
+tests/.hazard_fences/
+/qw3-hazard-fences-native-bench

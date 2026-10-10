@@ -1,0 +1,8 @@
+qw3: loaded ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+2026-10-10 18:06:48.996 qw3-hazard-fences-test[3074:53715394] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+candidate logit mismatch id=0 baseline=6.95593739 candidate=0.985501587
+candidate quality failed mode=one error=

@@ -1,0 +1,3 @@
+full_exact mode=one prefix=1 extended_prefix=1 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+explicit_ordering variant=3 waits=1781 updates=1782 barriers=32338
+PASS hazard_tracking tracked_allocations=68 untracked_allocations=68 tracked_bytes=207149568 untracked_bytes=207149568

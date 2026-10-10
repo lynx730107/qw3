@@ -413,6 +413,14 @@ fails the first numerical check. Read-only GGUF views pass full-state and
 checkpoint checks, but ordinary native controls show a neutral decode
 effect despite positive paired screenings. Neither tracking change is adopted.
 
+The [explicit session-fence trials](docs/m5_hazard_fences_2026-10-10.md)
+restore exact state/checkpoint results for private untracked session buffers.
+They also expose a native Flash Attention mask API error: `didModifyRange`
+is now called only for Managed buffers. The guard preserves bit-exact logits
+and states; full fence checks pass with Metal API validation enabled.
+Ordinary decode screening shows no gain; session fences remain private
+and production keeps tracked session buffers.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

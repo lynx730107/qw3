@@ -1,0 +1,73 @@
+{
+  "start_utc": "2026-10-10T16:14:56.000913+00:00",
+  "source_sha256_before": {
+    "Makefile": "7fff6321bf249053eb519e4b0ee44fe44bd660a67996fcdb8fa245435bbc9d33",
+    "tests/prepare_hazard_fences.py": "68ff9c453d276fb1c7cd455587b54c5114f8fd26b224a8aeaf064150fd6775e5",
+    "tests/prepare_hazard_tracking.py": "b324c509cff9e441e471232e1ae250ee5ba23c02fb750d296b1c58fdbafb3d63",
+    "tests/test_hazard_fences.m": "648eb61e7ec32dc1bd0c3d833f685604d82834a8767948ef17777e83977fce80",
+    "tests/bench_hazard_fences_native.m": "5fa5aac0c15421af37c14a6a21ac84a98490f0834ffaf3f340083466dab9c694",
+    "tests/native_prefill_validation.inc": "5074b43ef6c284ee770c62f8b945838a30c6985d4708f4b23abd56964fded043",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "e55854d49fccda69ec7687730fc88f75ddf9793b22d2ee23f0b8f4363c1939f5",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_runtime_fingerprint.h": "f6a22aaeb5f390a891feb0aa42bba33f484ba283582409df3b2059384b86978d",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "tests/.hazard_fences/core.inc": "9bc6218eeb276c88b1a9f351e1b558830e7fe2fbf14510762f9d8ba703f98f7c",
+    "tests/.hazard_fences/validation.inc": "59bcc99e52a1a0b3fe770fea0fbc262ec5825597875da0bdd02a6fb6e33ac94e",
+    "tests/.hazard_fences/quality.inc": "64acf5900553ea788fa631d59cb940e88ee06368006a4a0810999934793240a1"
+  },
+  "binary_sha256": "edbfca44ce423d5a28587af3992bca383d29fc780bb7ea6feeada4202847b56d",
+  "variants": {
+    "0": "tracked buffers, old shared didModifyRange vs managed-only guard, API validation disabled",
+    "2": "tracked native buffers vs untracked session buffers with encoder fences only, API validation enabled"
+  },
+  "runs": [
+    {
+      "variant": 0,
+      "scope": "eight prefixes + extension + checkpoints +32 continuations per prefix",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-hazard-fences-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all",
+        "0"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_NGL": "64",
+        "MTL_DEBUG_LAYER": "0"
+      },
+      "exit_code": 0
+    },
+    {
+      "variant": 2,
+      "scope": "eight prefixes + extension + checkpoints +32 continuations per prefix",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-hazard-fences-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all",
+        "2"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_NGL": "64",
+        "MTL_DEBUG_LAYER": "1"
+      },
+      "exit_code": 0
+    }
+  ],
+  "end_utc": "2026-10-10T16:17:47.470662+00:00",
+  "source_unchanged": true,
+  "binary_unchanged": true
+}

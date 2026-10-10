@@ -3589,7 +3589,9 @@ static int qw3_metal_session_ensure_flash_attn_buffers(QW3MetalSessionObj *obj,
         for (uint32_t k = 0; k < allowed; k++) row[k] = 0;
         for (uint32_t k = allowed; k < n_keys; k++) row[k] = neg_inf_half;
     }
-    [obj.flashAttnMask didModifyRange:NSMakeRange(0, (NSUInteger)mask_bytes)];
+    if (obj.flashAttnMask.storageMode == MTLStorageModeManaged) {
+        [obj.flashAttnMask didModifyRange:NSMakeRange(0, (NSUInteger)mask_bytes)];
+    }
 
     obj.flashAttnMaskPos0 = pos0;
     obj.flashAttnMaskTokens = n_tokens;

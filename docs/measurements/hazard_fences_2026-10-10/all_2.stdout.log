@@ -1,0 +1,2 @@
+full_exact mode=all prefix=1 extended_prefix=1 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=15 extended_prefix=15 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact

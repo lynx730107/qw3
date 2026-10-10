@@ -49,7 +49,7 @@ def main():
                 (name == 'QW3_PRIVATE_MICRO' and value in ('prefill', 'decode', 'pair', 'conv', 'all')) or
                 (name in ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64',
                           'QW3_METAL_DENSE_GDN_CACHE', 'QW3_PRIVATE_MODEL_RESIDENCY',
-                          'QW3_PRIVATE_WEIGHT_UNTRACKED') and value == '1') or
+                          'QW3_PRIVATE_WEIGHT_UNTRACKED', 'QW3_PRIVATE_SESSION_FENCES') and value == '1') or
                 (name in ('QW3_PRIVATE_IQ3_METADATA', 'QW3_PRIVATE_METADATA_COMBINED', 'QW3_PRIVATE_RESTORE_COPIES') and value == '1') or
                 (name in ('QW3_PRIVATE_Q3_METADATA', 'QW3_PRIVATE_IQ_METADATA', 'QW3_PRIVATE_STAGE_PROFILE') and value == '1')):
             parser.error('use one documented private candidate setting')
@@ -72,6 +72,9 @@ def main():
                                         + sorted((root / 'metal').glob('*.metal'))
                                         + [root / n for n in ('qw3.h', 'qw3_metal.h',
                                              'qw3_runtime_fingerprint.h', 'tools/bench_qw3_candidates.py', 'Makefile',
+                                             'tests/prepare_hazard_fences.py', 'tests/prepare_hazard_tracking.py',
+                                             'tests/bench_hazard_fences_native.m',
+                                             'tests/.hazard_fences/core.inc', 'tests/.hazard_fences/validation.inc',
                                              'tests/prepare_weight_tracking_native.py', 'tests/bench_weight_tracking_native.m',
                                              'tests/.weight_tracking/native_core.inc',
                                              'tests/model_residency_candidates.inc', 'tests/bench_model_residency.m',
@@ -125,11 +128,23 @@ def main():
             if 'QW3_METAL_DENSE_GDN_CACHE' in candidate_env and mode == 'off':
                 run_env['QW3_METAL_DENSE_GDN_CACHE'] = '0'
             swap_before = subprocess.check_output(['sysctl', 'vm.swapusage'], text=True).strip()
-            run = subprocess.run(command, env=run_env, capture_output=True, text=True, check=True)
+            run = subprocess.run(command, env=run_env, capture_output=True, text=True, check=False)
             swap_after = subprocess.check_output(['sysctl', 'vm.swapusage'], text=True).strip()
             stem = args.output / f'{block}-{mode}-{job}'
             stem.with_suffix('.stdout').write_text(run.stdout)
             stem.with_suffix('.stderr').write_text(run.stderr)
+            if run.returncode:
+                data['failure'] = {'block': block, 'mode': mode, 'job': job,
+                    'command': command, 'returncode': run.returncode,
+                    'stdout_log': str(stem.with_suffix('.stdout')),
+                    'stderr_log': str(stem.with_suffix('.stderr')),
+                    'swap_before': swap_before, 'swap_after': swap_after}
+                data.update(stopped_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    sources_unchanged=all(hashlib.sha256((root / f).read_bytes()).hexdigest() == h
+                        for f, h in data['source_sha256'].items()),
+                    binary_unchanged=hashlib.sha256(binary.read_bytes()).hexdigest() == data['binary_sha256'])
+                save()
+                run.check_returncode()
             calls = re.search(r'private dispatches pair=(\d+) add=(\d+) gdn=(\d+)', run.stderr)
             if candidate_env and not any(k in candidate_env for k in
                     ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64', 'QW3_METAL_DENSE_GDN_CACHE')):
@@ -144,6 +159,14 @@ def main():
                     weights = re.search(r' weight_untracked=(\d+) weight_views=(\d+) weight_bytes=(\d+)', run.stderr)
                     if not weights or int(weights[1]) != (mode == 'candidate') or int(weights[2]) != 1 or int(weights[3]) <= 0:
                         raise ValueError('weight view tracking activation mismatch')
+                if 'QW3_PRIVATE_SESSION_FENCES' in candidate_env:
+                    fences = re.search(r' session_untracked=(\d+) fence_waits=(\d+) fence_updates=(\d+) tracked_allocations=(\d+) untracked_allocations=(\d+) barriers=(\d+)', run.stderr)
+                    if not fences:
+                        raise ValueError('missing session fence counters')
+                    untracked, waits, updates, tracked_allocs, untracked_allocs, barriers = map(int, fences.groups())
+                    candidate = mode == 'candidate'
+                    if untracked != candidate or barriers or bool(waits) != candidate or bool(updates) != candidate or bool(untracked_allocs) != candidate or bool(tracked_allocs) == candidate:
+                        raise ValueError('session fence activation mismatch')
                 if mode == 'off' and (pair or add or gdn):
                     raise ValueError('candidate dispatched during an OFF control')
                 if 'QW3_PRIVATE_MICRO' in candidate_env:

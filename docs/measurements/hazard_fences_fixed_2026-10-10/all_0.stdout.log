@@ -1,0 +1,11 @@
+full_exact mode=all prefix=1 extended_prefix=1 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=15 extended_prefix=15 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=16 extended_prefix=16 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=31 extended_prefix=31 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=127 extended_prefix=127 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=128 extended_prefix=159 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=129 extended_prefix=129 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+full_exact mode=all prefix=159 extended_prefix=159 continuation=32 logits=bit_exact live_kv=exact deltanet=exact conv=exact
+mask_write_calls baseline=7 candidate=7
+explicit_ordering variant=0 waits=0 updates=0 barriers=0
+PASS hazard_tracking tracked_allocations=220 untracked_allocations=0 tracked_bytes=696106496 untracked_bytes=0

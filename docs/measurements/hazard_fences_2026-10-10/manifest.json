@@ -1,0 +1,98 @@
+{
+  "start_utc": "2026-10-10T16:06:48.565685+00:00",
+  "source_sha256_before": {
+    "Makefile": "0f077699e031f8addbe61c8f8a990ae57362d55d98c946814e3d2010d3dcf764",
+    "tests/prepare_hazard_fences.py": "53532b194c843121aba1a8c363f9287b1ddfeb72638cc04e63303a3fcb433613",
+    "tests/prepare_hazard_tracking.py": "b324c509cff9e441e471232e1ae250ee5ba23c02fb750d296b1c58fdbafb3d63",
+    "tests/test_hazard_fences.m": "648eb61e7ec32dc1bd0c3d833f685604d82834a8767948ef17777e83977fce80",
+    "tests/native_prefill_validation.inc": "5074b43ef6c284ee770c62f8b945838a30c6985d4708f4b23abd56964fded043",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "6b33b763a389b6d56997af7b7844ac86bc1ef8f816afbde6817b81e98ad0efbd",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_runtime_fingerprint.h": "0c9fef2a03c35c25184ef2121b4446525e31f65b2d079808926d7b5a6ace8378",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "tests/.hazard_fences/core.inc": "08c9fe144fa2dc767dba80b2dc915923f7c195c29d27d7c70df3ffc6306c4770",
+    "tests/.hazard_fences/validation.inc": "ef4d7b8e0a9c97b7fefd6c8c4e5199dcc9267852f2efceaac6934a9368da770e",
+    "tests/.hazard_fences/quality.inc": "a79a7a4bbdfe04cd916c1a3723b2f9d4ff6f10b654580feb3931b5af4358a5c0"
+  },
+  "binary_sha256": "96ac9af1dc4e7bab82f30c976141d432b1d9b12aa4933fa24c05efaa2be73812",
+  "variants": {
+    "1": "dispatch barriers only",
+    "2": "encoder fences only",
+    "3": "both"
+  },
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_NGL": "64",
+    "MTL_DEBUG_LAYER": "1"
+  },
+  "runs": [
+    {
+      "variant": 1,
+      "scope": "prefix1 + checkpoint +32 continuations",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-hazard-fences-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "one",
+        "1"
+      ],
+      "exit_code": 1
+    },
+    {
+      "variant": 2,
+      "scope": "prefix1 + checkpoint +32 continuations",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-hazard-fences-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "one",
+        "2"
+      ],
+      "exit_code": 0
+    },
+    {
+      "variant": 3,
+      "scope": "prefix1 + checkpoint +32 continuations",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-hazard-fences-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "one",
+        "3"
+      ],
+      "exit_code": 0
+    },
+    {
+      "variant": 2,
+      "scope": "eight prefixes + extension + checkpoints +32 continuations per prefix",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-hazard-fences-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all",
+        "2"
+      ],
+      "exit_code": -6
+    }
+  ],
+  "end_utc": "2026-10-10T16:07:08.374408+00:00",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "full_start_utc": "2026-10-10T16:08:17.792054+00:00",
+  "full_end_utc": "2026-10-10T16:08:36.121556+00:00",
+  "source_unchanged_after_full": true,
+  "binary_unchanged_after_full": true
+}
