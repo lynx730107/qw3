@@ -382,6 +382,14 @@ kernel can be disabled with `QW3_METAL_DENSE_PREFILL_K64=0`, retaining
 packed8 and direct scratch. Single-token decode uses its existing path;
 matching or beating llama.cpp in both phases remains the objective.
 
+The [M5 DeltaNet state-cache integration](docs/m5_gdn_cache_2026-10-10.md)
+reuses 64 FP32 state values per column during dense decode at head dimension
+128. Full logits, live states, checkpoint roundtrips and continuations remain
+bit-exact on the measured 27B model. Seven ordinary benchmark blocks confirm
++0.99% decode with all three nearby comparisons positive. Disable it with
+`QW3_METAL_DENSE_GDN_CACHE=0`. The fallback also fixes a normalization reduction
+that read unwritten threadgroup slots, exposed by head dimension 32 tests.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

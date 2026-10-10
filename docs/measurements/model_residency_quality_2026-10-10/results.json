@@ -1,0 +1,46 @@
+{
+  "started_utc": "2026-10-10T12:56:52.326330+00:00",
+  "source_sha256": {
+    "Makefile": "c23692c1875f64c050ee3840a882f8f9f4ca281e961dbef0fb9c95f2a1ead93f",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "6b33b763a389b6d56997af7b7844ac86bc1ef8f816afbde6817b81e98ad0efbd",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "0c9fef2a03c35c25184ef2121b4446525e31f65b2d079808926d7b5a6ace8378",
+    "tests/model_residency_candidates.inc": "1dbd0f513d47fcbabc7492195d88344e9ad019473160e0ddb608f28897ef0f67",
+    "tests/bench_model_residency.m": "67d1a28d4a0a4c0b3b4f31ca573bfb7cd464c20230c8e2ba7f0eadff716319dc",
+    "tests/test_model_residency.m": "19c0f48151685ed77bbadf888b7b3b767d924c86dc17aca4498ba6ab25cb6576",
+    "tests/prepare_model_residency.py": "04646a66e0f1fadc3a782cba03bed4769255dfc74084121b6361a5b73c09ff60",
+    "tests/.model_residency/quality.inc": "6a83b03a172209b9972570f45a5603b99536251ee77dee1cc7de253bc7e4d000",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813"
+  },
+  "binary_sha256": {
+    "qw3-model-residency-test": "752548e77adf19bd58e619ac2e180b76b9d5f8dc5fe941554f4ea11c7e0fc20b",
+    "qw3-model-residency-bench": "c765909b18a177f80c1a9f878d130aea5d683ae1ca08ba52e3b7b034f0b5bc30"
+  },
+  "runs": [
+    {
+      "name": "full",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-model-residency-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all"
+      ],
+      "rc": 0,
+      "seconds": 95.677393167
+    }
+  ],
+  "sources_unchanged": true,
+  "binaries_unchanged": true,
+  "completed_utc": "2026-10-10T12:58:28.020993+00:00"
+}

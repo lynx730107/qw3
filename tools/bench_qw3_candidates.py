@@ -47,7 +47,8 @@ def main():
                 (name == 'QW3_PRIVATE_DIRECT_SCRATCH' and value in ('projections', 'output', 'all')) or
                 (name == 'QW3_PRIVATE_PACKED8_SCRATCH' and value == '1') or
                 (name == 'QW3_PRIVATE_MICRO' and value in ('prefill', 'decode', 'pair', 'conv', 'all')) or
-                (name in ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64') and value == '1') or
+                (name in ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64',
+                          'QW3_METAL_DENSE_GDN_CACHE', 'QW3_PRIVATE_MODEL_RESIDENCY') and value == '1') or
                 (name in ('QW3_PRIVATE_IQ3_METADATA', 'QW3_PRIVATE_METADATA_COMBINED', 'QW3_PRIVATE_RESTORE_COPIES') and value == '1') or
                 (name in ('QW3_PRIVATE_Q3_METADATA', 'QW3_PRIVATE_IQ_METADATA', 'QW3_PRIVATE_STAGE_PROFILE') and value == '1')):
             parser.error('use one documented private candidate setting')
@@ -69,7 +70,15 @@ def main():
                               for f in ([root / n for n in ('qw3.c', 'qw3_metal.m', 'qw3_bench.c')]
                                         + sorted((root / 'metal').glob('*.metal'))
                                         + [root / n for n in ('qw3.h', 'qw3_metal.h',
-                                             'qw3_runtime_fingerprint.h', 'tools/bench_qw3_candidates.py',
+                                             'qw3_runtime_fingerprint.h', 'tools/bench_qw3_candidates.py', 'Makefile',
+                                             'tests/model_residency_candidates.inc', 'tests/bench_model_residency.m',
+                                             'tests/test_model_residency.m', 'tests/prepare_model_residency.py',
+                                             'tests/.model_residency/quality.inc',
+                                             'tests/gdn_cache_candidates.inc', 'tests/bench_gdn_cache.m',
+                                             'tests/test_gdn_cache.m', 'tests/prepare_gdn_cache.py',
+                                             'tests/test_native_gdn_cache.m',
+                                             'tests/.gdn_cache/kernels.metal', 'tests/.gdn_cache/quality.inc',
+                                             'tests/.gdn_cache/native_quality.inc', 'tests/.gdn_cache/bench.inc',
                                              'tests/dense_candidates.inc',
                                              'tests/bench_dense_candidates.m', 'tests/gdn_prefill_candidates.inc',
                                              'tests/gdn_prefill_dispatch.inc',
@@ -110,6 +119,8 @@ def main():
                 run_env['QW3_METAL_DENSE_PREFILL_FAST'] = '0'
             if 'QW3_METAL_DENSE_PREFILL_K64' in candidate_env and mode == 'off':
                 run_env['QW3_METAL_DENSE_PREFILL_K64'] = '0'
+            if 'QW3_METAL_DENSE_GDN_CACHE' in candidate_env and mode == 'off':
+                run_env['QW3_METAL_DENSE_GDN_CACHE'] = '0'
             swap_before = subprocess.check_output(['sysctl', 'vm.swapusage'], text=True).strip()
             run = subprocess.run(command, env=run_env, capture_output=True, text=True, check=True)
             swap_after = subprocess.check_output(['sysctl', 'vm.swapusage'], text=True).strip()
@@ -118,10 +129,14 @@ def main():
             stem.with_suffix('.stderr').write_text(run.stderr)
             calls = re.search(r'private dispatches pair=(\d+) add=(\d+) gdn=(\d+)', run.stderr)
             if candidate_env and not any(k in candidate_env for k in
-                    ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64')):
+                    ('QW3_METAL_DENSE_PREFILL_FAST', 'QW3_METAL_DENSE_PREFILL_K64', 'QW3_METAL_DENSE_GDN_CACHE')):
                 if not calls:
                     raise ValueError('missing private dispatch counters')
                 pair, add, gdn = map(int, calls.groups())
+                if 'QW3_PRIVATE_MODEL_RESIDENCY' in candidate_env:
+                    resident = re.search(r' residency_requests=(\d+) residency_views=(\d+) residency_bytes=(\d+)', run.stderr)
+                    if not resident or any(bool(int(v)) != (mode == 'candidate') for v in resident.groups()):
+                        raise ValueError('model residency activation mismatch')
                 if mode == 'off' and (pair or add or gdn):
                     raise ValueError('candidate dispatched during an OFF control')
                 if 'QW3_PRIVATE_MICRO' in candidate_env:

@@ -1,0 +1,21 @@
+native_norm_disagreement head_dim=32 v_heads=3 native_cpu_max=0.239533466 bounded_cpu_max=7.43534613e-08
+matrix_exact head_dim=32 v_heads=3 variant=1 state=exact inner=bounded_reference_exact cpu_norm_max=7.43534613e-08 guards=ok inputs=unchanged
+poison_sensitive head_dim=32 v_heads=3 state=exact inner=different
+native_norm_disagreement head_dim=32 v_heads=7 native_cpu_max=0.282049138 bounded_cpu_max=2.95526175e-08
+matrix_exact head_dim=32 v_heads=7 variant=1 state=exact inner=bounded_reference_exact cpu_norm_max=2.95526175e-08 guards=ok inputs=unchanged
+poison_sensitive head_dim=32 v_heads=7 state=exact inner=different
+matrix_exact head_dim=64 v_heads=3 variant=1 state=exact inner=bounded_reference_exact cpu_norm_max=5.45593902e-08 guards=ok inputs=unchanged
+poison_sensitive head_dim=64 v_heads=3 state=exact inner=different
+matrix_exact head_dim=64 v_heads=7 variant=1 state=exact inner=bounded_reference_exact cpu_norm_max=9.99178464e-08 guards=ok inputs=unchanged
+poison_sensitive head_dim=64 v_heads=7 state=exact inner=different
+matrix_exact head_dim=128 v_heads=3 variant=1 state=exact inner=bounded_reference_exact cpu_norm_max=1.65258983e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=3 variant=2 state=exact inner=bounded_reference_exact cpu_norm_max=1.65258983e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=3 variant=3 state=exact inner=bounded_reference_exact cpu_norm_max=1.65258983e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=3 variant=4 state=exact inner=bounded_reference_exact cpu_norm_max=1.65258983e-07 guards=ok inputs=unchanged
+poison_sensitive head_dim=128 v_heads=3 state=exact inner=different
+matrix_exact head_dim=128 v_heads=7 variant=1 state=exact inner=bounded_reference_exact cpu_norm_max=3.81399085e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=7 variant=2 state=exact inner=bounded_reference_exact cpu_norm_max=3.81399085e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=7 variant=3 state=exact inner=bounded_reference_exact cpu_norm_max=3.81399085e-07 guards=ok inputs=unchanged
+matrix_exact head_dim=128 v_heads=7 variant=4 state=exact inner=bounded_reference_exact cpu_norm_max=3.81399085e-07 guards=ok inputs=unchanged
+poison_sensitive head_dim=128 v_heads=7 state=exact inner=different
+PASS matrix_cases=12 poison_cases=6 native_norm_disagreements=2

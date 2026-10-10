@@ -1,0 +1,44 @@
+{
+  "source_sha256": {
+    "Makefile": "9dbdefb4ced0bda631183b3f460cf2fc7f45b0bb3b1620c4cb2957328f665d46",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "0142c7c669219c43a0f904474a2b175668abe2c24d5d9090f3539fc05d443f22",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_runtime_fingerprint.h": "e8bd93854ced2f9ed29c62e378757e2a3fffa2d795d3e32147b47023aff215e0",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/bench_iq3_groups.m": "5dcfdba95ba25a426b6bb0837b2605111f38b007ae20ef81457511be8b2f99bc",
+    "tests/prepare_gdn_cache.py": "1988dc7a4c6e622624eb8acd72f70e1d442e50693f8da3a58e8f106df2cfc496",
+    "tests/gdn_cache_candidates.inc": "2764cb67fe24503561f1b69b4f0f88b932d79164bdd52cef6f8dcd928289870a",
+    "tests/test_gdn_cache.m": "e741152c8f1fdd250180a2949ea9e78ea475996a36fa3d49823b6457f554a7e0",
+    "tests/bench_gdn_cache.m": "0d75b75bd62f3965005bcb63fd8d320908c770b64153c022b4e6c979b394c1ee",
+    "tests/.gdn_cache/bench.inc": "0717bb154a5a0b3a2284744171c02d97573e8a06a54c42e4f268f21ce6fa66b1",
+    "tests/.gdn_cache/kernels.metal": "ffb2487e1705481c8e9716a0a61cd8d77e5c43166c996d0e501b80fa68cae44d",
+    "tests/.gdn_cache/quality.inc": "25e874b0e700e6f0dbc14ac2219e4ab3048013af4dd01b21bb65cb4ee89eb5a8",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813"
+  },
+  "binary_sha256": {
+    "qw3-gdn-cache-test": "2fa452a3073b29b13dd8af02481b8c466856ccf103f50793113652406e6c74ee",
+    "qw3-gdn-cache-bench": "2edbf2b63c940eb1fc2054871ee0ee0bbeebefcf2689ed86ca661eaf77098f3c"
+  },
+  "started_utc": "2026-10-10T12:35:25.849821+00:00",
+  "command": [
+    "caffeinate",
+    "-disu",
+    "./qw3-gdn-cache-test",
+    "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "all",
+    "64"
+  ],
+  "rc": 0,
+  "seconds": 80.46289845800001,
+  "sources_unchanged": true,
+  "completed_utc": "2026-10-10T12:36:46.329033+00:00"
+}

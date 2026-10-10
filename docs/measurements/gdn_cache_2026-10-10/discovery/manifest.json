@@ -1,0 +1,12 @@
+{
+  "rc": 1,
+  "observation": "Initial baseline-equality test failed for head_dim=32 on the bounded-reduction-only variant. Investigate against independent CPU normalization, rather than treating potentially incorrect baseline outputs as the reference.",
+  "source_sha256": {
+    "tests/test_gdn_cache.m": "e1d0ec2ce51dd05c5d34986fa27c9f410806ed8213e773b507923558c8c98185",
+    "tests/prepare_gdn_cache.py": "fc21743aeaac80e03988a0bfa845300f0adf8cdec1795c234ac4e9a764252b50",
+    "tests/gdn_cache_candidates.inc": "a593128ec488255a0ad194b065bae5c1a706357c0752953b3c17b6e6c9d570f3",
+    "tests/.gdn_cache/kernels.metal": "f55ea9788287ca3d7336275d230398ac22411ba618b9ae7e739d13dab2e019fa",
+    "qw3_metal.m": "0142c7c669219c43a0f904474a2b175668abe2c24d5d9090f3539fc05d443f22",
+    "metal/qw3_core_deltanet.metal": "b7cc9644736e044e4150620028fae2eca036d00e1a58501755ff18a21413e06f"
+  }
+}

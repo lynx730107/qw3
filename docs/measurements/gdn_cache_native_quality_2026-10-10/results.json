@@ -1,0 +1,74 @@
+{
+  "started_utc": "2026-10-10T12:42:03.401135+00:00",
+  "source_sha256": {
+    "Makefile": "bda858feb202686e971cd5c18a3f3a8e744cab8ab832977aff20134b9153dea8",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "6b33b763a389b6d56997af7b7844ac86bc1ef8f816afbde6817b81e98ad0efbd",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_runtime_fingerprint.h": "0c9fef2a03c35c25184ef2121b4446525e31f65b2d079808926d7b5a6ace8378",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "tests/native_prefill_validation.inc": "5074b43ef6c284ee770c62f8b945838a30c6985d4708f4b23abd56964fded043",
+    "tests/test_native_gdn_cache.m": "a812052deeeade692c743a572b3671196b0bffce1c51cf091d96de3a1c6d2349",
+    "tests/test_gdn_cache.m": "2258ac5c70f653fa0410f2b6e49450a533eb6b98ecf1869d5a6b423f4f0ca621",
+    "tests/prepare_gdn_cache.py": "fe138c7a59c20071b99a522a0741b28bc798429ddcdc3e9dae88d6f672906d90",
+    "tests/gdn_cache_candidates.inc": "7e8510f75ab47c1b0314c3fbab69874368e5c5708db936195d030e813b60c648",
+    "tests/.gdn_cache/bench.inc": "0717bb154a5a0b3a2284744171c02d97573e8a06a54c42e4f268f21ce6fa66b1",
+    "tests/.gdn_cache/kernels.metal": "ffb2487e1705481c8e9716a0a61cd8d77e5c43166c996d0e501b80fa68cae44d",
+    "tests/.gdn_cache/native_quality.inc": "5fc3b15830317aa918c331e170e267ad503d249d97a625b4e38c20e409dee102",
+    "tests/.gdn_cache/quality.inc": "25e874b0e700e6f0dbc14ac2219e4ab3048013af4dd01b21bb65cb4ee89eb5a8",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813"
+  },
+  "binary_sha256": {
+    "qw3-native-gdn-cache-test": "f7719d513d92654b412935643a405de2b094bac2942403dfb5b4b8263d93466b",
+    "qw3-gdn-cache-test": "46e94ccd809a54bd8c129bb2fd5db847a09c8dcbde154391f816d1e351f4ca2e",
+    "qw3-bench": "9ddc245c16b7092132e56978daba6da98cf795cbf400157913f57e5343f18e7a"
+  },
+  "runs": [
+    {
+      "name": "matrix",
+      "command": [
+        "./qw3-gdn-cache-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "rc": 0,
+      "seconds": 1.947107167
+    },
+    {
+      "name": "full",
+      "command": [
+        "./qw3-native-gdn-cache-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "all"
+      ],
+      "rc": 0,
+      "seconds": 80.127299416
+    },
+    {
+      "name": "fingerprint",
+      "command": [
+        "make",
+        "test-runtime-fingerprint"
+      ],
+      "rc": 0,
+      "seconds": 0.42216424999999447
+    },
+    {
+      "name": "checkpoint",
+      "command": [
+        "make",
+        "test-agent-checkpoint-compatibility"
+      ],
+      "rc": 0,
+      "seconds": 12.840111374999992
+    }
+  ],
+  "sources_unchanged": true,
+  "completed_utc": "2026-10-10T12:43:38.759262+00:00"
+}

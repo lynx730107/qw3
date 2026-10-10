@@ -139,6 +139,27 @@ tests/.kstage_candidates/kernels.metal: tests/prepare_kstage_candidates.py tests
 tests/.iq3_groups/wrapper.inc: tests/prepare_iq3_groups.py tests/test_native_prefill.m qw3_metal.m
 	python3 tests/prepare_iq3_groups.py
 
+tests/.gdn_cache/kernels.metal: tests/prepare_gdn_cache.py tests/test_native_prefill.m tests/bench_iq3_groups.m metal/qw3_core_deltanet.metal qw3_metal.m
+	python3 tests/prepare_gdn_cache.py
+
+qw3-gdn-cache-test: tests/test_gdn_cache.m tests/gdn_cache_candidates.inc tests/.gdn_cache/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_gdn_cache.m $(METAL_LDLIBS)
+
+qw3-native-gdn-cache-test: tests/test_native_gdn_cache.m tests/native_prefill_validation.inc tests/.gdn_cache/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_native_gdn_cache.m $(METAL_LDLIBS)
+
+qw3-model-residency-bench: tests/bench_model_residency.m tests/model_residency_candidates.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_model_residency.m $(METAL_LDLIBS)
+
+tests/.model_residency/quality.inc: tests/prepare_model_residency.py tests/test_native_prefill.m
+	python3 tests/prepare_model_residency.py
+
+qw3-model-residency-test: tests/test_model_residency.m tests/model_residency_candidates.inc tests/.model_residency/quality.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_model_residency.m $(METAL_LDLIBS)
+
+qw3-gdn-cache-bench: tests/bench_gdn_cache.m tests/gdn_cache_candidates.inc tests/.gdn_cache/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_gdn_cache.m $(METAL_LDLIBS)
+
 qw3-iq3-groups-test: tests/test_iq3_groups.m tests/iq3_groups_candidates.inc tests/.iq3_groups/wrapper.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_groups.m $(METAL_LDLIBS)
 
@@ -321,7 +342,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
+qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -493,6 +514,10 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-model-residency-bench
+	rm -f qw3-model-residency-test
+	rm -f qw3-native-gdn-cache-test
+	rm -f qw3-gdn-cache-test qw3-gdn-cache-bench
 	rm -f qw3-iq3-groups-test qw3-iq3-groups-bench
 	rm -f qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-kstage-paired-bench
 	rm -f qw3-native-kstage-test

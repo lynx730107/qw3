@@ -1,0 +1,10 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+python3 tests/prepare_gdn_cache.py
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_metal_core.o qw3.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -c -o qw3_metal.o qw3_metal.m
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-native-gdn-cache-test tests/test_native_gdn_cache.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-gdn-cache-test tests/test_gdn_cache.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-cli qw3_metal_cli.o qw3_metal_core.o qw3_metal.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-agent qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-eval qw3_eval_metal.o qw3_metal_core.o qw3_metal.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-bench qw3_bench.o qw3_metal_core.o qw3_metal.o -lm -pthread -framework Foundation -framework Metal

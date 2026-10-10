@@ -231,6 +231,10 @@ static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_pipeline;
 static id<MTLComputePipelineState> g_deltanet_prepare_scratch_gates_pipeline;
 static id<MTLComputePipelineState> g_deltanet_recur_scratch_gates_tiled_pipeline;
 static id<MTLComputePipelineState> g_deltanet_fused_gdn_scratch_pipeline;
+static id<MTLComputePipelineState> g_deltanet_fused_gdn_cache64_pipeline;
+#ifndef QW3_METAL_GDN_PIPELINE
+#define QW3_METAL_GDN_PIPELINE(pipeline) (pipeline)
+#endif
 static id<MTLComputePipelineState> g_deltanet_batch_fused_gdn_pipeline;
 static id<MTLComputePipelineState> g_deltanet_batch_recur_tiled_pipeline;
 static id<MTLComputePipelineState> g_deltanet_batch_recur_packed8_pipeline;
@@ -2583,6 +2587,14 @@ static int qw3_metal_compile_kernels(void) {
         fprintf(stderr, "qw3: Metal pipeline qw3_deltanet_fused_gdn_scratch failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
+    }
+    /* Optional pipeline: old external libraries retain their native fallback. */
+    if (strcmp(g_device_name, "Apple M5") == 0) {
+        fn = [g_library newFunctionWithName:@"qw3_deltanet_fused_gdn_cache64"];
+        if (fn) g_deltanet_fused_gdn_cache64_pipeline =
+            [g_device newComputePipelineStateWithFunction:fn error:&error];
+        if (g_deltanet_fused_gdn_cache64_pipeline.maxTotalThreadsPerThreadgroup < 128u)
+            g_deltanet_fused_gdn_cache64_pipeline = nil;
     }
     fn = [g_library newFunctionWithName:@"qw3_deltanet_batch_fused_gdn"];
     if (!fn) {
@@ -8902,7 +8914,13 @@ int qw3_metal_session_deltanet_fused_gdn_from_scratch(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:g_deltanet_fused_gdn_scratch_pipeline];
+    id<MTLComputePipelineState> selected_pipeline = g_deltanet_fused_gdn_scratch_pipeline;
+    const char *cache_env = getenv("QW3_METAL_DENSE_GDN_CACHE");
+    if (obj.densePrefill && head_dim == 128u &&
+        g_deltanet_fused_gdn_cache64_pipeline &&
+        (!cache_env || strcmp(cache_env, "0") != 0))
+        selected_pipeline = g_deltanet_fused_gdn_cache64_pipeline;
+    [enc setComputePipelineState:QW3_METAL_GDN_PIPELINE(selected_pipeline)];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:obj.deltanetState offset:(NSUInteger)state_offset atIndex:1];
     [enc setBuffer:obj.qNorm offset:0 atIndex:2];
@@ -13149,6 +13167,7 @@ void qw3_metal_cleanup(void) {
     g_deltanet_prepare_scratch_gates_pipeline = nil;
     g_deltanet_recur_scratch_gates_tiled_pipeline = nil;
     g_deltanet_fused_gdn_scratch_pipeline = nil;
+    g_deltanet_fused_gdn_cache64_pipeline = nil;
     g_deltanet_batch_fused_gdn_pipeline = nil;
     g_deltanet_batch_recur_tiled_pipeline = nil;
     g_deltanet_batch_recur_packed8_pipeline = nil;

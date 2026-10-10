@@ -1,4 +1,10 @@
 /* Exercise production dispatch against its runtime compact-path opt-out. */
+#ifdef QW3_PRIVATE_GDN_CACHE_CONTROL
+#include <stdint.h>
+static uint64_t native_gdn_cache_calls;
+#define QW3_METAL_GDN_PIPELINE(pipeline) \
+    (native_gdn_cache_calls += (pipeline) == g_deltanet_fused_gdn_cache64_pipeline, (pipeline))
+#endif
 #ifdef QW3_PRIVATE_K64_CONTROL
 #include <stdint.h>
 static uint64_t native_k64_calls;
@@ -23,6 +29,9 @@ static void scratch_select(int mode) {
 #ifdef QW3_PRIVATE_COPY_CONTROL
     probe_restore_copies = mode != 0;
     setenv("QW3_METAL_DENSE_PREFILL_FAST", "1", 1);
+#elif defined(QW3_PRIVATE_GDN_CACHE_CONTROL)
+    setenv("QW3_METAL_DENSE_PREFILL_FAST", "1", 1);
+    setenv("QW3_METAL_DENSE_GDN_CACHE", mode ? "1" : "0", 1);
 #elif defined(QW3_PRIVATE_K64_CONTROL)
     setenv("QW3_METAL_DENSE_PREFILL_FAST", "1", 1);
     setenv("QW3_METAL_DENSE_PREFILL_K64", mode ? "1" : "0", 1);

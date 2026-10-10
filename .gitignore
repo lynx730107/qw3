@@ -87,3 +87,10 @@ tests/.kstage_candidates/
 qw3-iq3-groups-test
 qw3-iq3-groups-bench
 tests/.iq3_groups/
+/qw3-gdn-cache-test
+/qw3-gdn-cache-bench
+tests/.gdn_cache/
+/qw3-native-gdn-cache-test
+/qw3-model-residency-bench
+/qw3-model-residency-test
+tests/.model_residency/
