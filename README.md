@@ -455,6 +455,11 @@ shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither
 variant shows a convincing decode gain. Both remain private diagnostics.
 
+The [IQ3_S integer sign-folding trial](docs/m5_iq3_signed_2026-10-11.md)
+fails bit-for-bit guarded matrices for both implicit and explicit FMA
+accumulation. Differences of one or two ULP reject both candidates before
+timing; production keeps the original FP32 expressions.
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. The block probe computes
 **only the last logit row**.

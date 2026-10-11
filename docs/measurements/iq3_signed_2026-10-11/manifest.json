@@ -1,0 +1,93 @@
+{
+  "started_utc": "2026-10-11T08:44:42.856165+00:00",
+  "revision": "d758b9382f4cd2d1c53a3dc9a0bf872d76bd1792",
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "source_sha256": {
+    "Makefile": "e3e81121cf8cbe5c83644dfe21f6b9f4f8438ec098af40090b08a056a2389f6b",
+    "tests/prepare_iq3_signed.py": "3e8eb27aabfcc267c85987558bded722cf60286684b533efe9c964d1a6a47d2d",
+    "tests/test_iq3_signed.m": "6e96e7c3ac9d2f9e36c8028df2007fddc5b52692567827c38361f1842d331276",
+    "tests/bench_iq3_signed.m": "3e0ba92d2fdfa97b10a88467494f6bcfb95e5d8f055ac15e37a0cb407b7b1238",
+    "tests/iq4_load_candidates.inc": "c36fb026adcc0c8853ecf9d69332a9bebc9595d9bf8064df989cd6a920b3259a",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/bench_iq3_groups.m": "5dcfdba95ba25a426b6bb0837b2605111f38b007ae20ef81457511be8b2f99bc",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "e55854d49fccda69ec7687730fc88f75ddf9793b22d2ee23f0b8f4363c1939f5",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "f6a22aaeb5f390a891feb0aa42bba33f484ba283582409df3b2059384b86978d",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/.iq3_signed/bench.inc": "3811c718c402dddcf11cb3b47860b8ebfa6e256ff73519bd83d9488595be99bb",
+    "tests/.iq3_signed/hooks.inc": "6d49e745ab23d72584864bf186b558365df355625b642949a93f1c3110a6e1af",
+    "tests/.iq3_signed/kernels.metal": "c2b26d732f4d964e5b3f25f1995a0c3f6b5fbb9115901776e2d2a07cf598b77e",
+    "tests/.iq3_signed/quality.inc": "76a3a37626e2b73cae62ffedf7604bec82ea202fba9a9f5dd86badb6cc03f0a1"
+  },
+  "binary_sha256": {
+    "qw3-iq3-signed-test": "619b262f6428a87d6754645aea318504f9c52aeaf3b3d733270a6d5985e9b01f",
+    "qw3-iq3-signed-bench": "2443cce4edfa7cbcc752597f08c6aa6324597bf9b03808eafa7029ca7dce85cf"
+  },
+  "environment_prefixes_cleared": [
+    "QW3_",
+    "GGML_",
+    "MTL_"
+  ],
+  "matrix_environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1"
+  },
+  "runs": [
+    {
+      "name": "matrix_v1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-signed-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "1"
+      ],
+      "exit_code": 1,
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "MTL_DEBUG_LAYER": "1"
+      }
+    },
+    {
+      "name": "matrix_v2",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-signed-test",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "exit_code": 1,
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "MTL_DEBUG_LAYER": "1"
+      }
+    }
+  ],
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "matrix_completed_utc": "2026-10-11T08:44:43.799668+00:00"
+}

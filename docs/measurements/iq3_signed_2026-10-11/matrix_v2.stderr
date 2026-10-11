@@ -1,0 +1,8 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.036s)
+2026-10-11 10:44:43.664 qw3-iq3-signed-test[21808:54255098] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+IQ3 signed differs variant=2 ni=256 no=1 pattern=0 index=5 reference=0.264090478 candidate=0.264090508 bits=3e8736de/3e8736df
+IQ3 signed matrix failed after 0 cases

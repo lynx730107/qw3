@@ -1,0 +1,31 @@
+{
+  "adopted": false,
+  "reason": "Both compiled variants fail strict finite bitwise matrix equality.",
+  "matrix_passed_before_first_failure": {
+    "1": 2,
+    "2": 0
+  },
+  "first_failures": {
+    "1": {
+      "n_in": 256,
+      "n_out": 1,
+      "pattern": 2,
+      "output_index": 5,
+      "reference_hex": "423e8c0a",
+      "candidate_hex": "423e8c08",
+      "ulp_distance": 2
+    },
+    "2": {
+      "n_in": 256,
+      "n_out": 1,
+      "pattern": 0,
+      "output_index": 5,
+      "reference_hex": "3e8736de",
+      "candidate_hex": "3e8736df",
+      "ulp_distance": 1
+    }
+  },
+  "timing_runs": 0,
+  "full_model_runs": 0,
+  "checkpoint_runs": 0
+}
