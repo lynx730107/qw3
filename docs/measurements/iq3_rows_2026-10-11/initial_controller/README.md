@@ -1,0 +1,1 @@
+The initial controller retained the old hyphenated executable names. It invoked the previous immutable-descriptor matrix binary, which exited 0, then the new marker assertion stopped the controller. These are not row-geometry results. The command paths were corrected before the row-geometry screening. No performance sample was recorded or discarded.

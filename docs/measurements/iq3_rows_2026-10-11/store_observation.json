@@ -1,0 +1,14 @@
+{
+  "observed_utc": "2026-10-11T15:20:27.169478+00:00",
+  "files": [
+    {
+      "path": "history",
+      "bytes": 30100,
+      "records": 1000,
+      "mtime_ns": 1791731259260092889,
+      "sha256": "6d70dfc9a49f1ae9f338713fc47f47701d8808b68fc108207a5d60025498e8b3"
+    }
+  ],
+  "numeric_started_utc": "2026-10-11T15:15:52.671155+00:00",
+  "note": "First store metadata check reused the previous campaign history digest and failed because history was already updated before this campaign. No agent/store cleanup or agent run is performed by this experiment; the current history observation is retained and verified separately."
+}

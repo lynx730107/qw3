@@ -426,6 +426,13 @@ buffer for intermediate cores. Thirty-six ordinary timing samples retain
 an initial +0.685% cache32 point estimate followed by −0.666% in replication;
 cache64 gives −0.673%. No variant is adopted or additional data buffer added.
 
+The [single-IQ3_S row-geometry screen](docs/m5_iq3_rows_2026-10-11.md)
+keeps 64 threads and the original buffers, grid and per-row arithmetic.
+Both variants pass 36 guarded matrix cases and one-session 27B checks.
+Thirty-six ordinary timing samples retain a −5.330% eight-row result and
+a +0.674% two-row pilot followed by +0.188% with mixed local comparisons.
+Neither variant is adopted; production inference remains unchanged.
+
 The [model-residency replication](docs/m5_model_residency_retry_2026-10-11.md)
 uses the original buffer without copying weights. Twenty-one samples retain
 a +0.301% aggregate point estimate, but nearby comparisons approach zero and

@@ -1,0 +1,155 @@
+{
+  "adopted": false,
+  "replica_variant": 1,
+  "rows_per_simd": 2,
+  "runs": 7,
+  "samples_retained": 21,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3560.121,
+    3539.564,
+    3550.1893333333333,
+    3549.187,
+    3546.7226666666666,
+    3540.369,
+    3544.3466666666664
+  ],
+  "run_mean_spread_pct": {
+    "off": 0.44505616455878805,
+    "on": 0.27186964270176084
+  },
+  "control_stability_gate_passed": true,
+  "both_modes_stable_5pct": true,
+  "comparisons": [
+    {
+      "block": 1,
+      "candidate_mean_ms": 3539.564,
+      "adjacent_off_mean_ms": 3555.1551666666664,
+      "point_gain_pct": 0.44048268845164884,
+      "gain_vs_left_off_pct": 0.5807777455076435,
+      "gain_vs_right_off_pct": 0.3001876313956542,
+      "saved_ms": 15.591166666666595
+    },
+    {
+      "block": 3,
+      "candidate_mean_ms": 3549.187,
+      "adjacent_off_mean_ms": 3548.456,
+      "point_gain_pct": -0.020596266130801233,
+      "gain_vs_left_off_pct": 0.02824120941875563,
+      "gain_vs_right_off_pct": -0.0694337416803692,
+      "saved_ms": -0.7309999999997672
+    },
+    {
+      "block": 5,
+      "candidate_mean_ms": 3540.369,
+      "adjacent_off_mean_ms": 3545.5346666666665,
+      "point_gain_pct": 0.1459075781836905,
+      "gain_vs_left_off_pct": 0.17946340244947567,
+      "gain_vs_right_off_pct": 0.11235175391792751,
+      "saved_ms": 5.165666666666311
+    }
+  ],
+  "neighbor_weighted_control_mean_ms": 3549.715277777778,
+  "candidate_mean_ms": 3543.04,
+  "gain_vs_neighbor_weighted_controls_pct": 0.1884053744179548,
+  "all_three_local_comparisons_positive": false,
+  "all_three_candidates_faster_than_both_neighbors": false,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "swap_observations": [
+    {
+      "stage": "numeric",
+      "name": "matrix_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "matrix_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "model",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_3_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_5_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_6_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    }
+  ],
+  "all_numeric_and_timing_swap_observations_equal": true,
+  "scope": "seven-block replication; adjacent interpolated controls are shared; no independent-sample CI asserted",
+  "numeric_checkpoint_suite_repeated": false
+}

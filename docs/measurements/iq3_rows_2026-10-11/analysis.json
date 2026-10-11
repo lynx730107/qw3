@@ -1,0 +1,107 @@
+{
+  "adopted": false,
+  "numeric_guarded_matrices": 36,
+  "extra_tail_threadgroup_in_matrix_tests": true,
+  "initial_controller_wrong_binary_retained_separately": true,
+  "initial_controller_run_is_not_row_geometry_evidence": true,
+  "numeric_session_count": 1,
+  "numeric_full_vocab_checks_per_phase": 33,
+  "numeric_checkpoint_suite_repeated": false,
+  "native_runs": 5,
+  "native_samples_retained": 15,
+  "native_samples_discarded": 0,
+  "block_means_ms": [
+    3501.016,
+    3490.406,
+    3526.879,
+    3747.671333333333,
+    3568.9320000000002
+  ],
+  "off_max_over_min_spread_pct": 1.939894019336097,
+  "control_stability_gate_passed": true,
+  "comparisons": [
+    {
+      "block": 1,
+      "variant": 1,
+      "candidate_mean_ms": 3490.406,
+      "adjacent_off_mean_ms": 3513.9475,
+      "point_gain_pct": 0.6744630853831923,
+      "gain_vs_left_off_pct": 0.30397609905552514,
+      "gain_vs_right_off_pct": 1.0449500717108595
+    },
+    {
+      "block": 3,
+      "variant": 2,
+      "candidate_mean_ms": 3747.671333333333,
+      "adjacent_off_mean_ms": 3547.9055,
+      "point_gain_pct": -5.330398948182403,
+      "gain_vs_left_off_pct": -5.891454017579267,
+      "gain_vs_right_off_pct": -4.769343878785515
+    }
+  ],
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "rows_per_simd_by_variant": [
+    4,
+    2,
+    8
+  ],
+  "threads_per_threadgroup": 64,
+  "threadgroup_grid_bytes": 1024,
+  "swap_observations": [
+    {
+      "stage": "numeric",
+      "name": "matrix_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "matrix_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "model",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    }
+  ],
+  "all_swap_observations_equal": true,
+  "store_history_only_bytes_at_observation_and_end": 30100,
+  "store_history_records": 1000,
+  "store_history_updated_before_this_campaign": true,
+  "scope": "screening; each variant has one ON run; adjacent controls are shared, no independent-sample CI"
+}
