@@ -1,0 +1,133 @@
+{
+  "started_utc": "2026-10-11T07:32:16.270264+00:00",
+  "source_sha256": {
+    "Makefile": "e47913de13225862a473e4585796057bd31fc5f70041d0ce2d9f1d01af728acd",
+    "tests/prepare_iq4_loads.py": "faf18a24e389796a456d6c3dd1adad3259f422eee4e679f56961d569574d6120",
+    "tests/iq4_load_candidates.inc": "c36fb026adcc0c8853ecf9d69332a9bebc9595d9bf8064df989cd6a920b3259a",
+    "tests/test_iq4_loads.m": "fbca7f2d944d7d5bbca260d53cac320e7880839bd93d9556f990a69e7771abc5",
+    "tests/bench_iq4_loads.m": "057bd571e4d9394b4f9caabe1d7f2c0fa5fb9e8689d138ea26c766171df6c35d",
+    "tests/.iq4_loads/quality.inc": "dd9820622f43b0489198ab935778b08ecac7a498653f134557221b286771a927",
+    "tests/.iq4_loads/bench.inc": "03d31033b6c460f8564158ee2a664350aa0793b9c7c6c499dbaf305e7f05891b",
+    "tests/test_native_prefill.m": "3f96e23d441cb112e26f7d7059962b9c76ace784747359e71addf4b36aa2f944",
+    "tests/bench_iq3_groups.m": "5dcfdba95ba25a426b6bb0837b2605111f38b007ae20ef81457511be8b2f99bc",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "e55854d49fccda69ec7687730fc88f75ddf9793b22d2ee23f0b8f4363c1939f5",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "f6a22aaeb5f390a891feb0aa42bba33f484ba283582409df3b2059384b86978d",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9"
+  },
+  "binary_sha256": {
+    "qw3-iq4-loads-test": "1e54536a2c3f3ca33a6635a9b3cf5e27cd2045d3078f6b82c82af9cadc9ca48d",
+    "qw3-iq4-loads-bench": "34e9668721676a3f015f96bd7ea5efa8d8c0fa76cab51c547faa8efbb9d61884"
+  },
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1"
+  },
+  "runs": [
+    {
+      "name": "matrix_v1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq4-loads-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "1"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "matrix_v2",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq4-loads-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "matrix_v3",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq4-loads-test",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "3"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "paired_v1_r1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq4-loads-bench",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "1"
+      ],
+      "exit_code": 0,
+      "cooldown_seconds": 30,
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1"
+      }
+    },
+    {
+      "name": "paired_v2_r1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq4-loads-bench",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "exit_code": 0,
+      "cooldown_seconds": 30,
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1"
+      }
+    },
+    {
+      "name": "paired_v3_r1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq4-loads-bench",
+        "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "3"
+      ],
+      "exit_code": 0,
+      "cooldown_seconds": 30,
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1"
+      }
+    }
+  ],
+  "source_unchanged": true,
+  "binary_unchanged": true
+}

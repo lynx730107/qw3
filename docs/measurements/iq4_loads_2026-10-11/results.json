@@ -1,0 +1,177 @@
+{
+  "scope": "Paired private two-session screening, not ordinary single-session throughput, not a llama comparison.",
+  "matrix_cases_total": 108,
+  "timed_pairs_total": 192,
+  "checkpoint_checks": "full eight-prefix/checkpoint harness available, not run because every candidate has a negative screening effect",
+  "production_inference_changed": false,
+  "variants": [
+    {
+      "variant": 1,
+      "loads": "header uint2",
+      "matrix_cases": 36,
+      "timed_pairs": 64,
+      "baseline_tps": 8.769290383541357,
+      "candidate_tps": 8.726278328192327,
+      "gain_pct": -0.49048501609385564,
+      "blocks": [
+        {
+          "first_token": 8,
+          "last_token": 15,
+          "gain_pct": -0.7466139455958198
+        },
+        {
+          "first_token": 16,
+          "last_token": 23,
+          "gain_pct": -0.7547873137186967
+        },
+        {
+          "first_token": 24,
+          "last_token": 31,
+          "gain_pct": -0.44820654671166027
+        },
+        {
+          "first_token": 32,
+          "last_token": 39,
+          "gain_pct": -0.7457871586722509
+        },
+        {
+          "first_token": 40,
+          "last_token": 47,
+          "gain_pct": 1.0553589216454995
+        },
+        {
+          "first_token": 48,
+          "last_token": 55,
+          "gain_pct": -0.7500187043472883
+        },
+        {
+          "first_token": 56,
+          "last_token": 63,
+          "gain_pct": 0.009930020052251187
+        },
+        {
+          "first_token": 64,
+          "last_token": 71,
+          "gain_pct": -1.5501798188050975
+        }
+      ],
+      "positive_blocks": 2,
+      "full_logits": "finite bit-exact every forward",
+      "canonical_state": "exact before and after 72 greedy steps",
+      "actual_candidate_dispatches": 10224,
+      "decision": "reject; no gain in initial paired screening"
+    },
+    {
+      "variant": 2,
+      "loads": "payload uint2",
+      "matrix_cases": 36,
+      "timed_pairs": 64,
+      "baseline_tps": 8.906833684642978,
+      "candidate_tps": 8.891936847241528,
+      "gain_pct": -0.167251774636068,
+      "blocks": [
+        {
+          "first_token": 8,
+          "last_token": 15,
+          "gain_pct": -0.4203794887521983
+        },
+        {
+          "first_token": 16,
+          "last_token": 23,
+          "gain_pct": -1.1102230246251565e-14
+        },
+        {
+          "first_token": 24,
+          "last_token": 31,
+          "gain_pct": -1.2455089820359255
+        },
+        {
+          "first_token": 32,
+          "last_token": 39,
+          "gain_pct": 0.28321105205135755
+        },
+        {
+          "first_token": 40,
+          "last_token": 47,
+          "gain_pct": -0.24530695021285354
+        },
+        {
+          "first_token": 48,
+          "last_token": 55,
+          "gain_pct": 1.099665684399187
+        },
+        {
+          "first_token": 56,
+          "last_token": 63,
+          "gain_pct": -0.2942546067365992
+        },
+        {
+          "first_token": 64,
+          "last_token": 71,
+          "gain_pct": -0.5368768393828605
+        }
+      ],
+      "positive_blocks": 2,
+      "full_logits": "finite bit-exact every forward",
+      "canonical_state": "exact before and after 72 greedy steps",
+      "actual_candidate_dispatches": 10224,
+      "decision": "reject; no gain in initial paired screening"
+    },
+    {
+      "variant": 3,
+      "loads": "header and payload uint2",
+      "matrix_cases": 36,
+      "timed_pairs": 64,
+      "baseline_tps": 8.933821045513913,
+      "candidate_tps": 8.887300283963128,
+      "gain_pct": -0.5207263646068272,
+      "blocks": [
+        {
+          "first_token": 8,
+          "last_token": 15,
+          "gain_pct": -0.9829751819403154
+        },
+        {
+          "first_token": 16,
+          "last_token": 23,
+          "gain_pct": -0.7130132851950965
+        },
+        {
+          "first_token": 24,
+          "last_token": 31,
+          "gain_pct": -0.03161487024910814
+        },
+        {
+          "first_token": 32,
+          "last_token": 39,
+          "gain_pct": -0.902026739334072
+        },
+        {
+          "first_token": 40,
+          "last_token": 47,
+          "gain_pct": 0.3654933993233467
+        },
+        {
+          "first_token": 48,
+          "last_token": 55,
+          "gain_pct": -0.4374153909652345
+        },
+        {
+          "first_token": 56,
+          "last_token": 63,
+          "gain_pct": -0.9586917467441891
+        },
+        {
+          "first_token": 64,
+          "last_token": 71,
+          "gain_pct": -0.5104496872107123
+        }
+      ],
+      "positive_blocks": 1,
+      "full_logits": "finite bit-exact every forward",
+      "canonical_state": "exact before and after 72 greedy steps",
+      "actual_candidate_dispatches": 10224,
+      "decision": "reject; no gain in initial paired screening"
+    }
+  ]
+}

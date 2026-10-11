@@ -1,0 +1,7 @@
+qw3: loaded ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+IQ4 aligned tensors=156 block_bytes=136 alignment=8
+PASS iq4_loads=3 timed_tokens=64 baseline_tps=8.933821046 candidate_tps=8.887300284 gain_pct=-0.520726365 calls=10224 full_logits=bit_exact live_state=exact

@@ -115,3 +115,6 @@ tests/.hazard_fences/
 /qw3-hazard-fences-native-bench
 /qw3-decode-profile-test
 tests/.decode_profile/
+/qw3-iq4-loads-test
+/qw3-iq4-loads-bench
+tests/.iq4_loads/
