@@ -450,6 +450,11 @@ operations. Both pass exact matrices and model-state checks, but lose
 throughput in paired screening. Isolated controls do not establish a useful
 partial candidate; production retains two rows.
 
+The [IQ4_XS packed integer lookup trial](docs/m5_iq4_packed_lut_2026-10-11.md)
+reconstructs the native table values from four integer words, but both
+compiled variants fail the first bitwise matrix check by one ULP. Diagnostic
+replication confirms the failure; neither reaches performance screening.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

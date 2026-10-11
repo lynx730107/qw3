@@ -1,0 +1,21 @@
+{
+  "adopted": false,
+  "reason": "Both variants fail finite bitwise matrix equality in the first case.",
+  "initial_runs": 2,
+  "diagnostic_replications": 2,
+  "shader_unchanged_between_builds": true,
+  "passed_matrix_cases": 0,
+  "first_failure_each_variant": {
+    "n_in": 256,
+    "n_out": 1,
+    "kind": "single",
+    "pattern": "mixed finite",
+    "output_index": 5,
+    "reference_hex": "be0175c6",
+    "candidate_hex": "be0175c5",
+    "ulp_distance": 1
+  },
+  "timing_runs": 0,
+  "full_model_runs": 0,
+  "checkpoint_runs": 0
+}
