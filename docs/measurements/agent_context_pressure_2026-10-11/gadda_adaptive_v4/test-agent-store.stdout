@@ -1,0 +1,5 @@
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -DQW3_NO_METAL -c -o qw3_cpu_core.o qw3.c
+PASS prefix retention: 4 files across versions; current cache protected; unrelated entries preserved
+PASS context retention: 12 archives rotate to the latest 8 with intact content and private mode
+PASS history retention: latest 1000 entries; save overwrites; adjacent duplicates suppressed; reload bounded
+test-agent-store: ok (no model; temporary store only)

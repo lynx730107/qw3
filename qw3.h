@@ -68,6 +68,7 @@ typedef struct qw3_session qw3_session;
 
 typedef void (*qw3_session_progress_fn)(void *ud, const char *event,
                                         int current, int total);
+typedef bool (*qw3_session_interrupt_fn)(void *ud);
 
 typedef struct {
     const char *model_path;
@@ -288,6 +289,12 @@ void qw3_session_set_progress(qw3_session *s, qw3_session_progress_fn fn,
 /* Synchronize the session to a full prompt token prefix. */
 int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
                      char *err, size_t errlen);
+/* Check interruption before each prefill batch/token. Returns -2 on an
+ * interrupt, after draining submitted Metal work; the evaluated prefix stays
+ * valid for a later sync. Does not allocate another session or data buffer. */
+int qw3_session_sync_interruptible(qw3_session *s, const qw3_tokens *prompt,
+                                   qw3_session_interrupt_fn should_interrupt,
+                                   void *ud, char *err, size_t errlen);
 int qw3_session_common_prefix(qw3_session *s, const qw3_tokens *prompt);
 
 /* Sampling. */

@@ -156,6 +156,7 @@ tests/.iq3_share/
 /qw3-iq4-share-test
 /qw3-iq4-share-model-test
 /qw3-iq4-share-native-bench
+/qw3-agent-context-pressure-test
 tests/.iq4_share/
 /qw3-iq4-packed-lut-test
 /qw3-iq4-packed-lut-bench

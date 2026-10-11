@@ -1,0 +1,7 @@
+tests/test_agent_context_pressure.m:116:87: warning: comparison of integers of different signs: 'int' and 'uint64_t' (aka 'unsigned long long') [-Wsign-compare]
+  116 |     int header[2]={s->tokens.len,(int)s->kv.pos};CHECK(s->tokens.len<=256 && s->kv.pos==(uint64_t)s->tokens.len);
+      |                                                                              ~~~~~~~~~^ ~~~~~~~~~~~~~~~~~~~~~~~
+tests/test_agent_context_pressure.m:16:29: note: expanded from macro 'CHECK'
+   16 | #define CHECK(x) do { if (!(x)) { fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#x); return 1; } } while (0)
+      |                             ^
+1 warning generated.

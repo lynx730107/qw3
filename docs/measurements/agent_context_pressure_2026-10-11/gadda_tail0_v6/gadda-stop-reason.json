@@ -1,0 +1,6 @@
+{
+  "stopped_utc": "2026-10-11T19:40:34.565802+00:00",
+  "pid": 65919,
+  "signal": "SIGTERM",
+  "reason": "Recent-tail selection only accepted real user boundaries, so long single-user tool turns kept tail=0. After two completed compactions the agent reread lines119/134/151/167 and started a third. Stop owned test to preserve recent complete assistant/tool exchanges and deterministic read cursor."
+}

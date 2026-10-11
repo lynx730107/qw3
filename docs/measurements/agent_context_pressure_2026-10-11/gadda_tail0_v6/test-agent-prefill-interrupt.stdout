@@ -1,0 +1,7 @@
+{
+  "ordinary_interrupt_seconds": 0.9146051660000001,
+  "manual_compaction_interrupt_seconds": 0.8536259580000003,
+  "canceled_checkpoints": 0,
+  "model_processes_at_once": 1
+}
+PASS real_tui ordinary_prefill=interruptible manual_compaction=interruptible canceled_autosave=skipped

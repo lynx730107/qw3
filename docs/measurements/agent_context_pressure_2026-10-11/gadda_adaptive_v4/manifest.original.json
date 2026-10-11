@@ -1,0 +1,546 @@
+{
+  "started_utc": "2026-10-11T18:29:53.801419+00:00",
+  "reason": "Regression suite after oversized tool-result and compaction-interruption fix; requested Wikipedia test archived separately",
+  "revision": "cd0eb1af251c86b2a22f3ad3c242bbb1504d4829",
+  "source_sha256": {
+    "Makefile": "8265cd5453359465c627159a1b48e3cc323cf25d2f0da398539b31faba830654",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_metal.m": "e55854d49fccda69ec7687730fc88f75ddf9793b22d2ee23f0b8f4363c1939f5",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_agent.c": "80cf8ad47e5ac6cc74f77839cfa12816d64eb5d7bb1260e6dce5e1f2f48ef57c",
+    "qw3_agent_unicode.h": "24450ca1f87e461ec16ec28f39bbbda8ebf8d932f103754fc3bd9be08491271b",
+    "qw3_cli.c": "9ebc48714d7226b78b1f0f9e190adf5f475f79e15d10e8246ce88a592c4fb77f",
+    "linenoise.c": "f0ecdd9b7f7a62cfd381ba85381540772f6d0e9aad4a9c634b2c13c6aad6f2c0",
+    "linenoise.h": "7fb72a08f09353164f8c10c647a01b4f27515e53042659113917307c893f8f03",
+    "qw3_runtime_fingerprint.h": "9e02e7401c00314204219b02f1b2c85dff4aa5e67b1ca32cc9ffcc8838ed7ef6",
+    "tools/runtime_fingerprint.py": "789ce0a0d32a4648a04a58b672c1cb33001cf22212e364a111bb122d8ce46309",
+    "tests/test_runtime_fingerprint.py": "cbdb9a4f6e8673a0acd5d3a4bedaa5fdccac352d4ebf9424e5fc69d644ee5f1e",
+    "tests/test_agent_bash_tool.sh": "747f5f1cc061d14a0ce1d3452b4f4f0320df2d38ada8ee6c180f8a0d236e37db",
+    "tests/test_agent_edit_tool.sh": "b747c64efa1bb527fc9991d6b02eeb4527a4053f9c8816cbc5025ac9bfffc486",
+    "tests/test_agent_trace.sh": "35d504cfa56c3952266e149260ab25dc65c3dc832efe1b4f2de6a23f8b2641d1",
+    "tests/test_dense_agent.sh": "ddf383c1e367d7b034716c8b3b1b1b64cca187762cbc1f4e6f15e2f9526f6018",
+    "tests/test_agent_prefix_cache.sh": "e38cf363b66dd03029f6da41b2791ed4ae07959147c7661199ab0a4e133e5fcf",
+    "tests/test_agent_checkpoint.sh": "1ec81e9114da5bd78d62872e9c53c774a2160f26e64a243af097dd3acd6ec4b9",
+    "tests/test_agent_checkpoint_compatibility.sh": "0a0dd1624208a6b779bf3915199ef33fe882c4f621f7151d504e999a5f792f9d",
+    "tests/test_agent_coding_smoke.sh": "754c6d2e408bfcd3d7be0868e33af8c47bd30e2db1630be8c69d8d62fc03ef38",
+    "tests/test_agent_python_smoke.sh": "3376ef5d0d9f02d85b5f96c59c29d3d35ede3d822acea2b6a61a1acce776d6c3",
+    "tests/test_agent_git_smoke.sh": "37971512ba2390af53845f72be40e2e4e1c5c7ca3b49029e2b5b042bc9525be5",
+    "tests/test_agent_repeat_format.py": "542f9ed05755bbda973d7c95ed15dc08dfbd48a4fb12de33ebd5f82765f9859e",
+    "tests/test_runtime_regression.sh": "1a318eb0f27a130ef99b0faef93615a33b1049035059bd565897bde17af070da",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/test_agent_store.c": "3bfa929f692d48c6b36781e2f071fe88998cf911f78aba9f82ce4af5d53665f2",
+    "tests/test_agent_llama_reference.py": "5d27725fb700c15b9d76d74e8f59e5c48603956219fc5747ae166dfef239dfa9",
+    ".gitignore": "081907118205a1c6c69fe61a773ea5e9bcee17470442ea880654822734052761",
+    "tests/test_agent_context_pressure.m": "89b4a9315a3cac75ff0cc667cbc507cc5c157a652cd46fe8f4c10573bab5da92",
+    "tests/test_agent_prefill_interrupt.py": "f5861e74d36e560e218e3c250b9d5e03526f843b5dd3e1bdcf9ccb35d9aceb1d"
+  },
+  "source_snapshot_paths": {
+    "Makefile": "source_snapshot/Makefile",
+    "qw3.c": "source_snapshot/qw3.c",
+    "qw3.h": "source_snapshot/qw3.h",
+    "qw3_metal.m": "source_snapshot/qw3_metal.m",
+    "qw3_metal.h": "source_snapshot/qw3_metal.h",
+    "qw3_bench.c": "../agent_regressions_2026-10-11/source_snapshot/qw3_bench.c",
+    "qw3_agent.c": "source_snapshot/qw3_agent.c",
+    "qw3_agent_unicode.h": "../agent_regressions_2026-10-11/source_snapshot/qw3_agent_unicode.h",
+    "qw3_cli.c": "../agent_regressions_2026-10-11/source_snapshot/qw3_cli.c",
+    "linenoise.c": "../agent_regressions_2026-10-11/source_snapshot/linenoise.c",
+    "linenoise.h": "../agent_regressions_2026-10-11/source_snapshot/linenoise.h",
+    "qw3_runtime_fingerprint.h": "source_snapshot/qw3_runtime_fingerprint.h",
+    "tools/runtime_fingerprint.py": "../agent_regressions_2026-10-11/source_snapshot/tools/runtime_fingerprint.py",
+    "tests/test_runtime_fingerprint.py": "../agent_regressions_2026-10-11/source_snapshot/tests/test_runtime_fingerprint.py",
+    "tests/test_agent_bash_tool.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_bash_tool.sh",
+    "tests/test_agent_edit_tool.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_edit_tool.sh",
+    "tests/test_agent_trace.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_trace.sh",
+    "tests/test_dense_agent.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_dense_agent.sh",
+    "tests/test_agent_prefix_cache.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_prefix_cache.sh",
+    "tests/test_agent_checkpoint.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_checkpoint.sh",
+    "tests/test_agent_checkpoint_compatibility.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_checkpoint_compatibility.sh",
+    "tests/test_agent_coding_smoke.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_coding_smoke.sh",
+    "tests/test_agent_python_smoke.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_python_smoke.sh",
+    "tests/test_agent_git_smoke.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_git_smoke.sh",
+    "tests/test_agent_repeat_format.py": "../agent_regressions_2026-10-11/source_snapshot/tests/test_agent_repeat_format.py",
+    "tests/test_runtime_regression.sh": "../agent_regressions_2026-10-11/source_snapshot/tests/test_runtime_regression.sh",
+    "metal/flash_attn.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/flash_attn.metal",
+    "metal/qw3_core_argmax.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_argmax.metal",
+    "metal/qw3_core_common.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_common.metal",
+    "metal/qw3_core_deltanet.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_deltanet.metal",
+    "metal/qw3_core_linear.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_linear.metal",
+    "metal/qw3_core_moe.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_moe.metal",
+    "metal/qw3_core_sequence.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_sequence.metal",
+    "tests/test_agent_store.c": "../agent_store_2026-10-11/source_snapshot/tests/test_agent_store.c",
+    "tests/test_agent_llama_reference.py": "../agent_web_2026-10-11/source_snapshot/tests/test_agent_llama_reference.py",
+    ".gitignore": "source_snapshot/.gitignore",
+    "tests/test_agent_context_pressure.m": "source_snapshot/tests/test_agent_context_pressure.m",
+    "tests/test_agent_prefill_interrupt.py": "source_snapshot/tests/test_agent_prefill_interrupt.py"
+  },
+  "binary_sha256": {
+    "qw3-agent": "f52a1ff0e9d27196cbcd1977c04128327f96e9db3fddaa3b9f9744bf9af35d62",
+    "qw3-cli": "1b58d64ec1687bf26969f5f42812ca781831738beb7735f31aeeef0308f15f3d",
+    "qw3-bench": "fda23d8577fe2914648de33044b1c8937844885317f0e2b6d5a9e2fe47d0ffd6",
+    "qw3-agent-context-pressure-test": "594e93f168fa972617e518d47fada9fc9e917756d31b8bf9a7d1a13529e0d798"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "environment": {
+    "QW3_MODEL": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "QW3_DENSE_MODEL": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "QW3_AGENT_BIN": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-agent",
+    "QW3_CLI_BIN": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-cli",
+    "QW3_CTX": "4096",
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_KV_Q8_0": "0",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_KERNEL_DIR": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/metal",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1",
+    "QW3_REPEAT_ARTIFACT_DIR": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/agent_context_pressure_2026-10-11/repeat_format_artifacts"
+  },
+  "sequential": true,
+  "private_optimization_variables_cleared": true,
+  "no_additional_weight_copies": true,
+  "production_binaries_match_previous_suite": false,
+  "bit_exact_model_check_planned": true,
+  "planned_guard_targets": [
+    "test-agent-bash",
+    "test-agent-edit",
+    "test-agent-color",
+    "test-agent-context",
+    "test-agent-repeat",
+    "test-agent-status",
+    "test-agent-tool-parse",
+    "test-agent-trace",
+    "test-agent-verify",
+    "test-runtime-fingerprint",
+    "test-agent-store"
+  ],
+  "planned_model_targets": [
+    "test-dense-agent",
+    "test-agent-prefix-cache",
+    "test-agent-checkpoint",
+    "test-agent-checkpoint-compatibility",
+    "test-agent-coding-smoke",
+    "test-agent-python-smoke",
+    "test-agent-git-smoke",
+    "test-agent-repeat-format",
+    "test-runtime-regression"
+  ],
+  "planned_live_url_oracle": true,
+  "planned_context_pressure": true,
+  "planned_real_tui_interrupt": true,
+  "store_before": {
+    "history": {
+      "bytes": 29843,
+      "sha256": "abdfea6a8c4762e9df6668fffc0d41f94b0323fa2fb7c75fa6df3e1d6f95f6f0"
+    },
+    "spills/context-jy1CgC": {
+      "bytes": 8944,
+      "sha256": "ce46ca36d67e28d169e45f86d0162a89208034edb7cf882ab0dfbd373e42cff3"
+    },
+    "spills/context-x35FnX": {
+      "bytes": 85518,
+      "sha256": "14f436d5c1d3ed59eb67fe27e45fd3144ce7493913a09a99f116105f29b03921"
+    },
+    "spills/context-40b9Ne": {
+      "bytes": 83053,
+      "sha256": "ac183be45608d0ee5d3e9d3f858163485340d6cb7efc1a513e0ba2ec5263b30e"
+    },
+    "spills/context-FbA6kr": {
+      "bytes": 30290,
+      "sha256": "e00865d25e9e7ad672d9ce031b9a310757da7b9559ad5164198284a575a32d22"
+    }
+  },
+  "runs": [
+    {
+      "target": "test-agent-context-pressure",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-context-pressure"
+      ],
+      "exit_code": 0,
+      "seconds": 22.0967405,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-prefill-interrupt",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "python3",
+        "tests/test_agent_prefill_interrupt.py",
+        "--model",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--agent",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-agent",
+        "--log",
+        "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/agent_context_pressure_2026-10-11/pty.log"
+      ],
+      "exit_code": 0,
+      "seconds": 3.4763000409999982,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-bash",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-bash"
+      ],
+      "exit_code": 0,
+      "seconds": 1.9743392499999999,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-edit",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-edit"
+      ],
+      "exit_code": 0,
+      "seconds": 0.23093837500000092,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-color",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-color"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07723975000000038,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-context",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-context"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07382220899999936,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-repeat",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-repeat"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07581100000000163,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-status",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-status"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07432554200000041,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-tool-parse",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-tool-parse"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07237250000000017,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-trace",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-trace"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07565262500000003,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-verify",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-verify"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07667995799999971,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-runtime-fingerprint",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-runtime-fingerprint"
+      ],
+      "exit_code": 0,
+      "seconds": 0.23517874999999933,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-store",
+      "model_required": false,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-store"
+      ],
+      "exit_code": 0,
+      "seconds": 1.8725214579999978,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-dense-agent",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-dense-agent"
+      ],
+      "exit_code": 0,
+      "seconds": 4.433792959000002,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-prefix-cache",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-prefix-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 24.132815082999997,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-checkpoint",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-checkpoint"
+      ],
+      "exit_code": 0,
+      "seconds": 24.530035791999993,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-checkpoint-compatibility",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-checkpoint-compatibility"
+      ],
+      "exit_code": 0,
+      "seconds": 28.504200459000003,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-coding-smoke",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-coding-smoke"
+      ],
+      "exit_code": 0,
+      "seconds": 34.243486458999996,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-python-smoke",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-python-smoke"
+      ],
+      "exit_code": 0,
+      "seconds": 40.79191308399999,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-git-smoke",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-git-smoke"
+      ],
+      "exit_code": 0,
+      "seconds": 89.50220016699998,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-agent-repeat-format",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-agent-repeat-format"
+      ],
+      "exit_code": 0,
+      "seconds": 37.091311125000004,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "test-runtime-regression",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "make",
+        "-j1",
+        "test-runtime-regression"
+      ],
+      "exit_code": 0,
+      "seconds": 4.049920916000019,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    },
+    {
+      "target": "live-url-oracle",
+      "model_required": true,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "python3",
+        "tests/test_agent_llama_reference.py",
+        "--candidate-only",
+        "--model",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+      ],
+      "exit_code": 0,
+      "seconds": 47.55724708400004,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 852.31M  free = 1195.69M  (encrypted)"
+    }
+  ],
+  "completed_utc": "2026-10-11T18:35:59.185662+00:00",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "model_unchanged": true,
+  "store_after": {
+    "history": {
+      "bytes": 29843,
+      "sha256": "abdfea6a8c4762e9df6668fffc0d41f94b0323fa2fb7c75fa6df3e1d6f95f6f0"
+    },
+    "spills/context-jy1CgC": {
+      "bytes": 8944,
+      "sha256": "ce46ca36d67e28d169e45f86d0162a89208034edb7cf882ab0dfbd373e42cff3"
+    },
+    "spills/context-x35FnX": {
+      "bytes": 85518,
+      "sha256": "14f436d5c1d3ed59eb67fe27e45fd3144ce7493913a09a99f116105f29b03921"
+    },
+    "spills/context-40b9Ne": {
+      "bytes": 83053,
+      "sha256": "ac183be45608d0ee5d3e9d3f858163485340d6cb7efc1a513e0ba2ec5263b30e"
+    },
+    "spills/context-FbA6kr": {
+      "bytes": 30290,
+      "sha256": "e00865d25e9e7ad672d9ce031b9a310757da7b9559ad5164198284a575a32d22"
+    }
+  },
+  "store_unchanged": true,
+  "all_passed": true
+}

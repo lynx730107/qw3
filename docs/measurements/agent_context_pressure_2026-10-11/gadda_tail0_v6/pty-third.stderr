@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/tests/test_agent_prefill_interrupt.py", line 95, in <module>
+    assert proc.poll()==0, ('quit did not complete', proc.poll())
+AssertionError: ('quit did not complete', 1)

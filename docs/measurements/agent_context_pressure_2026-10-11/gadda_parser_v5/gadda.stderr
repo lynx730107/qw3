@@ -1,0 +1,349 @@
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf backend=Metal ctx=8192 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+2026-10-11 21:08:31.159 qw3-agent[64206:54688212] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 662.9 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.01 s
+
+[tool] bash
+$ curl -s "https://it.wikipedia.org/wiki/Carlo_Emilio_Gadda" -o /tmp/gadda.html && wc -c /tmp/gadda.html
+  479461 /tmp/gadda.html
+
+exit=0
+
+
+[tool] bash
+$ python3 - <<'EOF'
+import re, html
+raw = open('/tmp/gadda.html', encoding='utf-8').read()
+# strip scripts/styles
+raw = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', raw, flags=re.S)
+# mark headings
+raw = re.sub(r'<h([1-6])[^>]*>', lambda m: '\n\n@@H%s ' % m.group(1), raw)
+raw = re.sub(r'</h[1-6]>', '\n', raw)
+raw = re.sub(r'<li[^>]*>', '\n- ', raw)
+raw = re.sub(r'<p[^>]*>', '\n', raw)
+text = re.sub(r'<[^>]+>', '', raw)
+text = html.unescape(text)
+lines = [l.strip() for l in text.split('\n')]
+out = []
+for l in lines:
+    if l:
+        out.append(l)
+open('/tmp/gadda.txt','w',encoding='utf-8').write('\n'.join(out))
+print(len(out))
+EOF
+grep -n "@@H" /tmp/gadda.txt | head -50
+614
+47:@@H2 Indice
+131:@@H1 Carlo Emilio Gadda
+224:@@H2 Biografia
+226:@@H3 I primi anni e gli studi
+231:@@H3 Volontario nella prima guerra mondiale
+236:@@H3 Ingegnere e collaboratore a Solaria
+240:@@H3 I primi scritti
+245:@@H3 L'abbandono della professione e l'attività letteraria
+252:@@H3 Il lavoro in Rai e la produzione letteraria matura
+258:@@H3 Gli ultimi anni
+265:@@H2 Pensiero e poetica
+267:@@H3 Il mondo come "gnommero" e la tecnica del pastiche
+271:@@H3 Giudizi critici
+278:@@H2 Opere
+283:@@H3 Raccolte
+293:@@H3 Romanzi, racconti, saggi
+336:@@H3 Altri testi
+348:@@H3 Poesie
+351:@@H3 Epistolari
+372:@@H3 Mélanges
+377:@@H3 Traduzioni
+383:@@H2 Riconoscimenti
+386:@@H2 Note
+409:@@H2 Bibliografia
+460:@@H2 Voci correlate
+464:@@H2 Altri progetti
+475:@@H2 Collegamenti esterni
+
+exit=0
+
+
+[tool] read
+read path=/tmp/gadda.txt start=278 lines=105
+  278  @@H2 Opere
+  279  [modifica | modifica wikitesto]
+  280  -
+  281  «Il dirmi che una scarica di mitra è realtà mi va bene, certo; ma io chiedo al romanzo che dietro questi due ettogrammi di piombo ci sia una tensione tragica, una consecuzione operante, un mistero, forse le ragioni o le irragioni del fatto.»
+  282  (I viaggi, la morte, 1958)
+  283  @@H3 Raccolte
+  284  [modifica | modifica wikitesto]
+  285  - Opere, 5 voll., direzione a cura di Dante Isella, Collana I Libri della Spiga, Garzanti, Milano, 1988-1993
+  286  - I. Romanzi e racconti I, 1988, ISBN 88-11-58640-2
+  287  - II. Romanzi e racconti II, 1989, ISBN 88-11-58641-0
+  288  - III. Saggi, giornali, favole e altri scritti I, 1991, ISBN 88-11-58642-9
+  289  - IV. Saggi, giornali, favole a altri scritti II, 1992, ISBN 88-11-58643-7
+  290  - V. I. Scritti vari e postumi, 1993, ISBN 88-11-58644-5
+  291  - V. II. Bibliografia e Indici, 1993, ISBN 88-11-58644-5.
+  292  - Romanzi (contiene: L'Adalgisa, La cognizione del dolore, Quer pasticciaccio brutto de via Merulana), a cura di Giorgio Bàrberi Squarotti, Collana Classici italiani n. 97, UTET, 1997,  p. 832, ISBN 978-88-02-05210-6.
+  293  @@H3 Romanzi, racconti, saggi
+  294  [modifica | modifica wikitesto]
+
+context_guard: read token limit=1024 returned_lines=17 next_start=295. Continue with more or read at next_start; the remaining file stays on disk.
+
+
+[tool] more
+read path=/tmp/gadda.txt start=295 lines=90
+
+context_guard: read token limit=1024 returned_lines=0 next_start=295. Continue with more or read at next_start; the remaining file stays on disk.
+The next line alone is too long. Convert HTML to readable text on disk or extract shorter fields; this line has not been skipped.
+
+
+[tool] bash
+$ sed -n '295,382p' /tmp/gadda.txt | cut -c1-200
+{{Cita web|url = http://www.premiocampiello.org/confindustria/campiello/istituzionale.nsf/($linkacross)/A0DA0F82AD480CE0C12573A3004FE715?opendocument&language=IT|titolo = Premio Campiello, opere premi
+- La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+- Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+- Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+- Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+- L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio 
+- Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+- Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+- Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459-3300-4.
+- I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+- Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con t
+- Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+- I viaggi, la morte, Garzanti, Milano, 1958.
+- Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+- La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+- Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+- I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+- I racconti, Milano, Garzanti, 1965.
+- Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+- Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+- La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+- Novella seconda, Garzanti, Milano, 1971.
+- Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+- Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+- Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+- Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+- Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+- Il palazzo degli ori, Einaudi, Torino, 1983.
+- Gonnella buffone, Guanda, Milano, 1985.
+- Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+- I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+- Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+- Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+- Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di via Keplero, Un fulmine sul 220]
+- Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+- Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+- I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+- Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+- Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+- La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+- Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+@@H3 Altri testi
+[modifica | modifica wikitesto]
+- Le carte militari di Gadda, a cura di Giulio Ungarelli, Collana Prosa n.51, Milano, Scheiwiller, 1994, ISBN 978-88-764-4195-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I, Ricciardi, Milano-Napoli, 2001, ISBN 88-7817-556-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II, Ricciardi, Milano-Napoli, 2003, ISBN 978-88-781-7909-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III, Einaudi, Torino, 2006, ISBN 978-88-061-8221-2.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV, Einaudi, Torino, 2007, ISBN 978-88-061-8933-4.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2010, ISBN 978-88-608-8126-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2011, ISBN 978-88-608-8528-9.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2012, ISBN 978-88-608-8960-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2013, ISBN 978-88-235-0481-3.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. V. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2014, ISBN 978-88-235-1038-8.
+@@H3 Poesie
+[modifica | modifica wikitesto]
+- Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 978-88-061-3384-9.
+@@H3 Epistolari
+[modifica | modifica wikitesto]
+- Piero Gadda Conti, Le confessioni di Carlo Emilio Gadda[20], Milano, Pan editrice, 1974.
+- Carteggio dell'Ing. Carlo Emilio Gadda con l'Ammonia Casale, s.a., 1927-1940, a cura di Dante Isella, Verona, Stamperia Valdonega, 1982.
+- Lettere a una gentile signora, corrispondenza con Lucia Rodocanachi, a cura di Giuseppe Marcenaro, con un saggio di Giuseppe Pontiggia, Milano, Adelphi, 1983, ISBN 978-88-459-0555-1.
+- Lettere agli amici milanesi, a cura di E. Sassi, Milano, Il Saggiatore, 1983.
+- L'Ingegner fantasia. Lettere a Ugo Betti 1919-1930. Un capitolo inesplorato della vita dell'autore del "Pasticciaccio", a cura di Giulio Ungarelli, Milano, Rizzoli, 1984.
+- A un amico fraterno. Lettere a Bonaventura Tecchi, a cura di Marcello Carlino, Milano, Garzanti, 1984.
+- Lettere alla sorella. 1920-1924, a cura di Gianfranco Colombo, Milano, Archinto, 1987.
+- Carissimo Gianfranco. Lettere ritrovate, 1943-63, a cura di Giulio Ungarelli, Milano, Archinto, 1998.
+- Lettere a Piero [Bigongiari], a cura di Simona Priami, Firenze, Polistampa, 1999, ISBN 978-88-830-4049-8.
+- Cara Anita, Caro Emilio, a cura di Federico Roncoroni, Roma, Benincasa, 2002, ISBN 978-88-864-1810-2.
+- 8 lettere di Carlo Emilio Gadda a Leone Piccioni, a cura di Silvia Zoppi Garampi, Erreciedizioni, 2007, ISBN 978-88-899-7013-3.
+- C.E. Gadda-Gianfranco Contini, Carteggio 1934-1963. Con 62 lettere inedite, a cura di Dante Isella, G. Contini, Giulio Ungarelli, Milano, Garzanti, 2009  [1988].
+- Un gomitolo di concause. Lettere a Pietro Citati (1957-1969), a cura di Giorgio Pinotti, Milano, Adelphi, 2013, ISBN 978-88-459-2811-6.
+- C.E. Gadda-Goffredo Parise, «Se mi vede Cecchi, sono fritto». Corrispondenza e scritti 1962-1973, a cura di Domenico Scarpa, Milano, Adelphi, 2015, ISBN 978-88-459-2990-8.
+- Gadda in "zona Guarnieri": cinque lettere di Carlo Emilio Gadda a Silvio Guarnieri (1934-1939), a cura di Maria Antonietta Grignani e Anna Modena, Novara, Interlinea, 2015.
+- Dediche e lettere tra Carlo Emilio Gadda e Cesare Angelini, a cura di Fabio Maggi, in “Margini. Giornale della dedica ed altro”, n. 9, Università di Basilea, 2015, pp. 3-20.
+- La guerra di Gadda. Lettere e immagini (1915-1919), A cura di Giulia Fanfani, Arnaldo Liberati, Alessia Vezzoni, cronologia di Francesco Cutolo, La collana dei casi n.138, Milano, Adelphi, 2021, ISB
+- C. E. Gadda - Alessandro Bonsanti, «Sono il pero e la zucca di me stesso». Carteggio 1930-1970, a cura di Roberta Colbertaldo, Collana Gabinetto scient. lett. Vieusseux, Firenze, Olschki, 2021, ISBN
+- C. E. Gadda - Leone Piccioni, «Col nuovo sole ti disturberò». Scritti, lettere, detti memorabili, A cura di Silvia Zoppi Garampi, Prefazione di Emanuele Trevi, Roma, Succedeoggi Libri, 2022, ISBN 97
+@@H3 Mélanges
+[modifica | modifica wikitesto]
+- «Per favore, mi lasci nell'ombra». Interviste 1950-1972, a cura di Claudio Vela, Milano, Adelphi, 1993.
+- Gadda. La vita e le opere in un volume di Mauro Bersani. Le immagini e la voce dello scrittore in una videocassetta di Rai Educational, Torino, Einaudi, 2003.
+- Federico Roncoroni, "E sapremo chi fu l'autore del delitto?" Piero Chiara intervista Carlo Emilio Gadda, Mauro Pagliai Editore, 2013, ISBN 978-88-5640-282-7. [intervista del 1957 per la Radio della 
+@@H3 Traduzioni
+[modifica | modifica wikitesto]
+- Francisco de Quevedo, Il mondo com'è (El mundo por de dentro), in Narratori spagnoli. Raccolta di romanzi e racconti dalle origini ai nostri giorni, a cura di Carlo Bo, Bompiani, 1941.
+- Alonso J. de Salas Barbadillo, Il viaggio di saggezza (La Peregrinación sabia), in Narratori spagnoli, Bompiani, 1941.
+- Juan Ruiz de Alarcón, La verità sospetta (La verdad sospechosa), 1957.
+- La verità sospetta. Tre traduzioni, a cura di Manuela Benuzzi Billeter, Milano, Bompiani, 1977. [edizione in volume unico].
+
+exit=0
+
+agent: tool result limited 4225 -> 914 tokens (full result saved)
+
+[tool] bash
+$ grep -n "^- " /tmp/gadda.txt | awk -F: '$1>=293 && $1<=382 {print}' | cut -c1-160
+296:- La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+297:- Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+298:- Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+299:- Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+300:- L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini
+301:- Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+302:- Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+303:- Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459
+304:- I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+305:- Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; 
+306:- Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+307:- I viaggi, la morte, Garzanti, Milano, 1958.
+308:- Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+309:- La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Cla
+310:- Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. ri
+311:- I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+312:- I racconti, Milano, Garzanti, 1965.
+313:- Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, 
+314:- Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vel
+315:- La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+316:- Novella seconda, Garzanti, Milano, 1971.
+317:- Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 192
+318:- Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+319:- Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+320:- Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+321:- Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+322:- Il palazzo degli ori, Einaudi, Torino, 1983.
+323:- Gonnella buffone, Guanda, Milano, 1985.
+324:- Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+325:- I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+326:- Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+327:- Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+328:- Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di
+329:- Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+330:- Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+331:- I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+332:- Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+333:- Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra 
+334:- La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+335:- Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+338:- Le carte militari di Gadda, a cura di Giulio Ungarelli, Collana Prosa n.51, Milano, Scheiwiller, 1994, ISBN 978-88-764-4195-0.
+339:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I, Ricciardi, Milano-Napoli, 2001, ISBN 88-7817-556-0.
+340:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II, Ricciardi, Milano-Napoli, 2003, ISBN 978-88-781-7909-7.
+341:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III, Einaudi, Torino, 2006, ISBN 978-88-061-8221-2.
+342:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV, Einaudi, Torino, 2007, ISBN 978-88-061-8933-4.
+343:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2010, ISBN 978-88-608-8126-7.
+344:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2011, ISBN 978-88-608-8528-9.
+345:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2012, ISBN 978-88-608-8960-7
+346:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2013, ISBN 978-88-235-0481-3.
+347:- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. V. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2014, ISBN 978-88-235-1038-8.
+350:- Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 978-88
+353:- Piero Gadda Conti, Le confessioni di Carlo Emilio Gadda[20], Milano, Pan editrice, 1974.
+354:- Carteggio dell'Ing. Carlo Emilio Gadda con l'Ammonia Casale, s.a., 1927-1940, a cura di Dante Isella, Verona, Stamperia Valdonega, 1982.
+355:- Lettere a una gentile signora, corrispondenza con Lucia Rodocanachi, a cura di Giuseppe Marcenaro, con un saggio di Giuseppe Pontiggia, Milano, Adelphi, 1
+356:- Lettere agli amici milanesi, a cura di E. Sassi, Milano, Il Saggiatore, 1983.
+357:- L'Ingegner fantasia. Lettere a Ugo Betti 1919-1930. Un capitolo inesplorato della vita dell'autore del "Pasticciaccio", a cura di Giulio Ungarelli, Milano
+358:- A un amico fraterno. Lettere a Bonaventura Tecchi, a cura di Marcello Carlino, Milano, Garzanti, 1984.
+359:- Lettere alla sorella. 1920-1924, a cura di Gianfranco Colombo, Milano, Archinto, 1987.
+360:- Carissimo Gianfranco. Lettere ritrovate, 1943-63, a cura di Giulio Ungarelli, Milano, Archinto, 1998.
+361:- Lettere a Piero [Bigongiari], a cura di Simona Priami, Firenze, Polistampa, 1999, ISBN 978-88-830-4049-8.
+362:- Cara Anita, Caro Emilio, a cura di Federico Roncoroni, Roma, Benincasa, 2002, ISBN 978-88-864-1810-2.
+363:- 8 lettere di Carlo Emilio Gadda a Leone Piccioni, a cura di Silvia Zoppi Garampi, Erreciedizioni, 2007, ISBN 978-88-899-7013-3.
+364:- C.E. Gadda-Gianfranco Contini, Carteggio 1934-1963. Con 62 lettere inedite, a cura di Dante Isella, G. Contini, Giulio Ungarelli, Milano, Garzanti, 2009  
+365:- Un gomitolo di concause. Lettere a Pietro Citati (1957-1969), a cura di Giorgio Pinotti, Milano, Adelphi, 2013, ISBN 978-88-459-2811-6.
+366:- C.E. Gadda-Goffredo Parise, «Se mi vede Cecchi, sono fritto». Corrispondenza e scritti 1962-1973, a cura di Domenico Scarpa, Milano, Adelphi, 2015, ISBN 9
+367:- Gadda in "zona Guarnieri": cinque lettere di Carlo Emilio Gadda a Silvio Guarnieri (1934-1939), a cura di Maria Antonietta Grignani e Anna Modena, Novara,
+368:- Dediche e lettere tra Carlo Emilio Gadda e Cesare Angelini, a cura di Fabio Maggi, in “Margini. Giornale della dedica ed altro”, n. 9, Università di Basil
+369:- La guerra di Gadda. Lettere e immagini (1915-1919), A cura di Giulia Fanfani, Arnaldo Liberati, Alessia Vezzoni, cronologia di Francesco Cutolo, La collan
+370:- C. E. Gadda - Alessandro Bonsanti, «Sono il pero e la zucca di me stesso». Carteggio 1930-1970, a cura di Roberta Colbertaldo, Collana Gabinetto scient. l
+371:- C. E. Gadda - Leone Piccioni, «Col nuovo sole ti disturberò». Scritti, lettere, detti memorabili, A cura di Silvia Zoppi Garampi, Prefazione di Emanuele T
+374:- «Per favore, mi lasci nell'ombra». Interviste 1950-1972, a cura di Claudio Vela, Milano, Adelphi, 1993.
+375:- Gadda. La vita e le opere in un volume di Mauro Bersani. Le immagini e la voce dello scrittore in una videocassetta di Rai Educational, Torino, Einaudi, 2
+376:- Federico Roncoroni, "E sapremo chi fu l'autore del delitto?" Piero Chiara intervista Carlo Emilio Gadda, Mauro Pagliai Editore, 2013, ISBN 978-88-5640-282
+379:- Francisco de Quevedo, Il mondo com'è (El mundo por de dentro), in Narratori spagnoli. Raccolta di romanzi e racconti dalle origini ai nostri giorni, a cur
+380:- Alonso J. de Salas Barbadillo, Il viaggio di saggezza (La Peregrinación sabia), in Narratori spagnoli, Bompiani, 1941.
+381:- Juan Ruiz de Alarcón, La verità sospetta (La verdad sospechosa), 1957.
+382:- La verità sospetta. Tre traduzioni, a cura di Manuela Benuzzi Billeter, Milano, Bompiani, 1977. [edizione in volume unico].
+
+exit=0
+
+agent: tool result limited 4005 -> 939 tokens (full result saved)
+
+[tool] bash
+$ sed -n '307,378p' /tmp/gadda.txt | grep "^- " | cut -c1-150
+- I viaggi, la morte, Garzanti, Milano, 1958.
+- Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+- La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti
+- Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; 
+- I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-361
+- I racconti, Milano, Garzanti, 1965.
+- Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pin
+- Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claud
+- La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+- Novella seconda, Garzanti, Milano, 1971.
+- Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici d
+- Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+- Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+- Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+- Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+- Il palazzo degli ori, Einaudi, Torino, 1983.
+- Gonnella buffone, Guanda, Milano, 1985.
+- Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+- I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+- Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+- Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+- Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incen
+- Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+- Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+- I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+- Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+- Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritt
+- La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+- Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+- Le carte militari di Gadda, a cura di Giulio Ungarelli, Collana Prosa n.51, Milano, Scheiwiller, 1994, ISBN 978-88-764-4195-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I, Ricciardi, Milano-Napoli, 2001, ISBN 88-7817-556-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II, Ricciardi, Milano-Napoli, 2003, ISBN 978-88-781-7909-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III, Einaudi, Torino, 2006, ISBN 978-88-061-8221-2.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV, Einaudi, Torino, 2007, ISBN 978-88-061-8933-4.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2010, ISBN 978-88-608-81
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2011, ISBN 978-88-608-8
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2012, ISBN 978-88-608-
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2013, ISBN 978-88-235-0
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. V. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2014, ISBN 978-88-235-10
+- Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 
+- Piero Gadda Conti, Le confessioni di Carlo Emilio Gadda[20], Milano, Pan editrice, 1974.
+- Carteggio dell'Ing. Carlo Emilio Gadda con l'Ammonia Casale, s.a., 1927-1940, a cura di Dante Isella, Verona, Stamperia Valdonega, 1982.
+- Lettere a una gentile signora, corrispondenza con Lucia Rodocanachi, a cura di Giuseppe Marcenaro, con un saggio di Giuseppe Pontiggia, Milano, Adel
+- Lettere agli amici milanesi, a cura di E. Sassi, Milano, Il Saggiatore, 1983.
+- L'Ingegner fantasia. Lettere a Ugo Betti 1919-1930. Un capitolo inesplorato della vita dell'autore del "Pasticciaccio", a cura di Giulio Ungarelli, 
+- A un amico fraterno. Lettere a Bonaventura Tecchi, a cura di Marcello Carlino, Milano, Garzanti, 1984.
+- Lettere alla sorella. 1920-1924, a cura di Gianfranco Colombo, Milano, Archinto, 1987.
+- Carissimo Gianfranco. Lettere ritrovate, 1943-63, a cura di Giulio Ungarelli, Milano, Archinto, 1998.
+- Lettere a Piero [Bigongiari], a cura di Simona Priami, Firenze, Polistampa, 1999, ISBN 978-88-830-4049-8.
+- Cara Anita, Caro Emilio, a cura di Federico Roncoroni, Roma, Benincasa, 2002, ISBN 978-88-864-1810-2.
+- 8 lettere di Carlo Emilio Gadda a Leone Piccioni, a cura di Silvia Zoppi Garampi, Erreciedizioni, 2007, ISBN 978-88-899-7013-3.
+- C.E. Gadda-Gianfranco Contini, Carteggio 1934-1963. Con 62 lettere inedite, a cura di Dante Isella, G. Contini, Giulio Ungarelli, Milano, Garzanti, 
+- Un gomitolo di concause. Lettere a Pietro Citati (1957-1969), a cura di Giorgio Pinotti, Milano, Adelphi, 2013, ISBN 978-88-459-2811-6.
+- C.E. Gadda-Goffredo Parise, «Se mi vede Cecchi, sono fritto». Corrispondenza e scritti 1962-1973, a cura di Domenico Scarpa, Milano, Adelphi, 2015, 
+- Gadda in "zona Guarnieri": cinque lettere di Carlo Emilio Gadda a Silvio Guarnieri (1934-1939), a cura di Maria Antonietta Grignani e Anna Modena, N
+- Dediche e lettere tra Carlo Emilio Gadda e Cesare Angelini, a cura di Fabio Maggi, in “Margini. Giornale della dedica ed altro”, n. 9, Università di
+- La guerra di Gadda. Lettere e immagini (1915-1919), A cura di Giulia Fanfani, Arnaldo Liberati, Alessia Vezzoni, cronologia di Francesco Cutolo, La 
+- C. E. Gadda - Alessandro Bonsanti, «Sono il pero e la zucca di me stesso». Carteggio 1930-1970, a cura di Roberta Colbertaldo, Collana Gabinetto sci
+- C. E. Gadda - Leone Piccioni, «Col nuovo sole ti disturberò». Scritti, lettere, detti memorabili, A cura di Silvia Zoppi Garampi, Prefazione di Eman
+- «Per favore, mi lasci nell'ombra». Interviste 1950-1972, a cura di Claudio Vela, Milano, Adelphi, 1993.
+- Gadda. La vita e le opere in un volume di Mauro Bersani. Le immagini e la voce dello scrittore in una videocassetta di Rai Educational, Torino, Eina
+- Federico Roncoroni, "E sapremo chi fu l'autore del delitto?" Piero Chiara intervista Carlo Emilio Gadda, Mauro Pagliai Editore, 2013, ISBN 978-88-56
+
+exit=0
+
+agent: tool result limited 2963 -> 876 tokens (full result saved)

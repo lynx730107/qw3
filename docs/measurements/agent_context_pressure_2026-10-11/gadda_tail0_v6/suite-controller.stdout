@@ -1,0 +1,55 @@
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_metal_agent.o qw3_agent.c
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-agent qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o -lm -pthread -framework Foundation -framework Metal
+make: `qw3-cli' is up to date.
+make: `qw3-bench' is up to date.
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-agent-context-pressure-test tests/test_agent_context_pressure.m linenoise_qw3.o -lm -pthread -framework Foundation -framework Metal
+RUN test-agent-context-pressure model=True
+DONE test-agent-context-pressure exit=0 seconds=22.484
+RUN test-agent-prefill-interrupt model=True
+DONE test-agent-prefill-interrupt exit=0 seconds=3.472
+RUN test-agent-bash model=False
+DONE test-agent-bash exit=0 seconds=1.979
+RUN test-agent-edit model=False
+DONE test-agent-edit exit=0 seconds=0.239
+RUN test-agent-color model=False
+DONE test-agent-color exit=0 seconds=0.077
+RUN test-agent-context model=False
+DONE test-agent-context exit=0 seconds=0.076
+RUN test-agent-repeat model=False
+DONE test-agent-repeat exit=0 seconds=0.074
+RUN test-agent-status model=False
+DONE test-agent-status exit=0 seconds=0.077
+RUN test-agent-tool-parse model=False
+DONE test-agent-tool-parse exit=0 seconds=0.076
+RUN test-agent-trace model=False
+DONE test-agent-trace exit=0 seconds=0.077
+RUN test-agent-verify model=False
+DONE test-agent-verify exit=0 seconds=0.074
+RUN test-runtime-fingerprint model=False
+DONE test-runtime-fingerprint exit=0 seconds=0.293
+RUN test-agent-store model=False
+DONE test-agent-store exit=0 seconds=1.152
+RUN test-agent-web-page model=False
+DONE test-agent-web-page exit=0 seconds=2.779
+RUN test-dense-agent model=True
+DONE test-dense-agent exit=0 seconds=4.429
+RUN test-agent-prefix-cache model=True
+DONE test-agent-prefix-cache exit=0 seconds=26.014
+RUN test-agent-checkpoint model=True
+DONE test-agent-checkpoint exit=0 seconds=25.801
+RUN test-agent-checkpoint-compatibility model=True
+DONE test-agent-checkpoint-compatibility exit=0 seconds=31.556
+RUN test-agent-coding-smoke model=True
+DONE test-agent-coding-smoke exit=0 seconds=40.541
+RUN test-agent-python-smoke model=True
+DONE test-agent-python-smoke exit=0 seconds=45.572
+RUN test-agent-git-smoke model=True
+DONE test-agent-git-smoke exit=0 seconds=91.351
+RUN test-agent-repeat-format model=True
+DONE test-agent-repeat-format exit=0 seconds=43.393
+RUN test-runtime-regression model=True
+DONE test-runtime-regression exit=0 seconds=3.661
+RUN live-url-oracle model=True
+DONE live-url-oracle exit=0 seconds=48.595
+PASS targets=24 sources=unchanged binaries=unchanged store=unchanged

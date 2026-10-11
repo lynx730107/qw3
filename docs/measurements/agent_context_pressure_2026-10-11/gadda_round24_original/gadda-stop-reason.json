@@ -1,0 +1,6 @@
+{
+  "pid": 58872,
+  "command": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-agent --metal -m /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ctx 8192 --nothink --no-prefix-cache --temp 0 -n 2048 --chdir /var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-h3z_xp5c/work --store-dir /var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-h3z_xp5c/store --trace /var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-h3z_xp5c/trace.jsonl -p Cerca su Wikipedia le opere di Carlo Emilio Gadda ed elencale.",
+  "action": "SIGTERM only owned test model",
+  "reason": "Five oversized extractions plus a full cat of the same page; second automatic compaction without completing the requested list; strengthen bounded-read prompt before retry"
+}

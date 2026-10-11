@@ -78,6 +78,9 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define QW3_AGENT_CONTEXT_ARCHIVE_KEEP 8
 #define QW3_AGENT_TOOL_HISTORY_MAX 64
 #define QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS 512
+#define QW3_AGENT_TOOL_RESULT_MAX_TOKENS 2048
+#define QW3_AGENT_TOOL_SPILL_KEEP 8
+#define QW3_AGENT_WEB_SPILL_KEEP 8
 #define QW3_AGENT_COMPACT_SOFT_PERCENT 85
 #define QW3_AGENT_COMPACT_MIN_FREE_TOKENS 2048
 #define QW3_AGENT_COMPACT_TAIL_DIVISOR 4
@@ -691,6 +694,18 @@ static bool agent_ensure_message_room(agent_state *a, const char *role,
                                       const char *text, int reserve,
                                       const char *reason,
                                       char *err, size_t err_len);
+static char *agent_context_tool_response(agent_state *a, const char *tool_name,
+                                         const char *value);
+static int agent_create_spill(agent_state *a, const char *prefix,
+                              char **path_out, char **dir_out);
+static int agent_rendered_message_tokens(agent_state *a, const char *text);
+static int agent_tool_result_token_limit(const agent_state *a) {
+    if (!a || !a->engine || a->cfg.ctx_size <= 0) return 0;
+    int limit = a->cfg.ctx_size / 8;
+    if (limit < 128) limit = 128;
+    if (limit > QW3_AGENT_TOOL_RESULT_MAX_TOKENS) limit = QW3_AGENT_TOOL_RESULT_MAX_TOKENS;
+    return limit;
+}
 static void agent_prune_spills(const char *dir, const char *prefix,
                                const char *protected_path, size_t keep);
 
@@ -731,12 +746,12 @@ static char *native_tool_declarations(bool compact_tools, bool read_only) {
     sb_append(&sb, "{\"type\":\"function\",\"function\":{\"name\":\"" NAME "\",\"description\":\"" DESC "\",\"parameters\":{\"type\":\"object\",\"properties\":{" PARAMS "}}}}\n")
 #define TOOL_PARAM(NAME, DESC) \
     "\"" NAME "\":{\"type\":\"string\",\"description\":\"" DESC "\"}"
-    TOOL_DECL("read", "Read a precise numbered line range from a text file. Broad source-file reads are blocked.",
+    TOOL_DECL("read", "Read a precise numbered line range from a text file. The returned complete lines fit a context-dependent token budget; continue at next_start when limited. Broad source-file reads are blocked.",
               TOOL_PARAM("path", "Path to read") ","
               TOOL_PARAM("start", "Required first 1-based line for source files") ","
               TOOL_PARAM("lines", "Maximum lines to return; source files are capped by context guard"));
     if (!compact_tools) {
-    TOOL_DECL("more", "Continue the previous read.",
+    TOOL_DECL("more", "Continue at the first unread line of the previous read, within the context-dependent token budget.",
               TOOL_PARAM("path", "Optional path") ","
               TOOL_PARAM("lines", "Maximum lines to return; default 160"));
     TOOL_DECL("list", "List files below a path.",
@@ -760,7 +775,7 @@ static char *native_tool_declarations(bool compact_tools, bool read_only) {
               TOOL_PARAM("content", "true/false; default false"));
     TOOL_DECL("search_web", "Search the web with DuckDuckGo and return up to five results with title, URL, and snippet.",
               TOOL_PARAM("query", "Web search query"));
-    TOOL_DECL("visit_url", "Fetch a URL and return up to 8000 characters of readable text with HTML tags removed.",
+    TOOL_DECL("visit_url", "Fetch a URL, save the complete readable page in a local file, and return up to 8000 characters. Search the saved file for relevant sections, then use read/more with their adaptive token budget.",
               TOOL_PARAM("url", "URL to fetch"));
     }
     TOOL_DECL("search", "Search text files for a literal pattern.",
@@ -1235,7 +1250,8 @@ static int store_write_checkpoint_path(agent_state *a, const char *path,
         a->cfg.backend != QW3_BACKEND_METAL) {
         return 1;
     }
-    if (qw3_session_sync(a->session, tokens, err, err_len) != 0) {
+    if (qw3_session_sync_interruptible(a->session, tokens, a->should_interrupt,
+                                       a->interrupt_ud, err, err_len) != 0) {
         return -1;
     }
     const uint64_t bytes = qw3_session_payload_bytes(a->session);
@@ -2960,9 +2976,32 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     size_t cap = 0;
     int lno = 1;
     int emitted = 0;
+    const int token_limit = agent_tool_result_token_limit(a);
+    bool token_clamped = false;
+    static const char read_token_notice[] =
+        "\ncontext_guard: read token limit=%d returned_lines=%d next_start=%d. "
+        "Continue with more or read at next_start; the remaining file stays on disk.\n";
     while (getline(&line, &cap, fp) >= 0) {
         if (lno >= start && emitted < lines) {
+            size_t before = out.len;
             sb_printf(&out, "%5d  %s", lno, line);
+            if (token_limit) {
+                size_t data_end = out.len;
+                sb_printf(&out, read_token_notice, token_limit, emitted + 1, lno + 1);
+                char *wrapped = native_tool_response_text("read", out.p);
+                int count = wrapped ? agent_rendered_message_tokens(a, wrapped) : INT_MAX;
+                free(wrapped);
+                out.len = data_end;
+                out.p[out.len] = '\0';
+                /* Reserve a few tokens for the actual stop-line numbers and
+                 * for the equivalent more/DSML response wrapper. */
+                if (count > token_limit - 16) {
+                    out.len = before;
+                    out.p[out.len] = '\0';
+                    token_clamped = true;
+                    break;
+                }
+            }
             emitted++;
         }
         lno++;
@@ -2975,7 +3014,12 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     free(a->last_read_path);
     a->last_read_path = saved_path;
     a->last_read_next = start + emitted;
-    if (emitted == 0) sb_append(&out, "(no lines)\n");
+    if (token_clamped) {
+        sb_printf(&out, read_token_notice, token_limit, emitted, a->last_read_next);
+        if (emitted == 0) sb_append(&out,
+            "The next line alone is too long. Convert HTML to readable text "
+            "on disk or extract shorter fields; this line has not been skipped.\n");
+    } else if (emitted == 0) sb_append(&out, "(no lines)\n");
     return out.p;
 }
 
@@ -3215,30 +3259,66 @@ static char *tool_search_web(const tool_call *call) {
                             QW3_AGENT_WEB_MAX_BYTES);
 }
 
-static char *tool_visit_url(const tool_call *call) {
+static char *tool_visit_url(agent_state *a, const tool_call *call) {
     const char *url = tool_param_value(call, "url");
     if (!url || !url[0]) return agent_strdup("error: visit_url requires url");
     char max_chars[32];
     snprintf(max_chars, sizeof(max_chars), "%d",
              QW3_AGENT_WEB_VISIT_MAX_CHARS);
+    char *path = NULL, *dir = NULL;
+    int fd = agent_create_spill(a, "web-", &path, &dir);
+    if (fd >= 0) close(fd);
     static const char script[] =
-        "import html, re, sys, urllib.request\n"
+        "import os, re, sys, urllib.request\n"
+        "from html.parser import HTMLParser\n"
         "url=sys.argv[1].strip()\n"
         "limit=int(sys.argv[2])\n"
+        "path=sys.argv[3]\n"
         "if not url.startswith(('http://','https://')): url='http://'+url\n"
         "req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})\n"
         "try:\n"
-        "    raw=urllib.request.urlopen(req,timeout=30).read(2000000)\n"
+        "    with urllib.request.urlopen(req,timeout=30) as response:\n"
+        "        media=response.headers.get('Content-Type','').lower()\n"
+        "        raw=response.read(2000001)\n"
         "except Exception as e:\n"
         "    print('error: visit_url failed: '+str(e))\n"
         "    raise SystemExit(1)\n"
-        "text=raw.decode('utf-8','replace')\n"
-        "text=re.sub(r'(?is)<(script|style|nav|footer|noscript|svg)\\b[^>]*>.*?</\\1>',' ',text)\n"
-        "text=re.sub(r'(?i)<\\s*(br|/p|/div|/h[1-6]|/li|/tr|/table|/section|/article)\\b[^>]*>','\\n',text)\n"
-        "text=re.sub(r'<[^>]+>',' ',text)\n"
-        "text=html.unescape(text)\n"
+        "complete=len(raw)<=2000000\n"
+        "text=raw[:2000000].decode('utf-8','replace')\n"
+        "class ReadablePage(HTMLParser):\n"
+        "    ignored={'script','style','nav','footer','noscript','svg'}\n"
+        "    blocks={'address','article','aside','blockquote','div','dl','dt','dd','fieldset','figcaption','figure','h1','h2','h3','h4','h5','h6','header','hr','li','main','ol','p','pre','section','table','tr','ul'}\n"
+        "    def __init__(self):\n"
+        "        super().__init__(convert_charrefs=True); self.parts=[]; self.skip=[]\n"
+        "    def handle_starttag(self,tag,attrs):\n"
+        "        if tag in self.ignored: self.skip.append(tag)\n"
+        "        if self.skip: return\n"
+        "        if tag in self.blocks or tag=='br': self.parts.append('\\n')\n"
+        "        if tag=='li': self.parts.append('- ')\n"
+        "        elif tag in {'td','th'}: self.parts.append(' ')\n"
+        "    def handle_endtag(self,tag):\n"
+        "        if self.skip:\n"
+        "            if tag==self.skip[-1]: self.skip.pop()\n"
+        "            return\n"
+        "        if tag in self.blocks: self.parts.append('\\n')\n"
+        "    def handle_data(self,data):\n"
+        "        if not self.skip: self.parts.append(data)\n"
+        "if 'html' in media or re.match(r'\\s*<(?:!doctype|html|head|body)',text,re.I):\n"
+        "    parser=ReadablePage(); parser.feed(text); parser.close()\n"
+        "    text=''.join(parser.parts)\n"
         "content='\\n'.join(' '.join(line.split()) for line in text.splitlines() if line.strip())\n"
         "print('--- visit_url: '+url+' ---')\n"
+        "if not complete:\n"
+        "    print('Download exceeded the 2000000-byte fetch cap; this is only a prefix. Download the complete page with curl -L URL -o FILE.')\n"
+        "elif path:\n"
+        "    try:\n"
+        "        with open(path,'w',encoding='utf-8') as saved:\n"
+        "            saved.write(content+'\\n'); saved.flush(); os.fsync(saved.fileno())\n"
+        "        print('Full page text saved to '+path+'. Search this file, then use read/more at the relevant line ranges; their token budget adapts to the context.')\n"
+        "    except Exception as e:\n"
+        "        print('Full page text could not be saved: '+str(e)+'. Download it with curl -L URL -o FILE.')\n"
+        "else:\n"
+        "    print('Full page text could not be saved. Download it with curl -L URL -o FILE.')\n"
         "if not content:\n"
         "    print('(no useful text content)')\n"
         "elif len(content)>limit:\n"
@@ -3246,10 +3326,24 @@ static char *tool_visit_url(const tool_call *call) {
         "else:\n"
         "    print(content)\n";
     char *argv[] = {
-        "python3", "-c", (char *)script, (char *)url, max_chars, NULL
+        "python3", "-c", (char *)script, (char *)url, max_chars, path ? path : "", NULL
     };
-    return run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
-                            QW3_AGENT_WEB_MAX_BYTES);
+    char *out = run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
+                                 QW3_AGENT_WEB_MAX_BYTES);
+    if (path) {
+        strbuf notice;
+        sb_init(&notice);
+        sb_printf(&notice, "Full page text saved to %s.", path);
+        if (out && notice.p && strstr(out, notice.p)) {
+            agent_prune_spills(dir, "web-", path, QW3_AGENT_WEB_SPILL_KEEP);
+        } else {
+            (void)unlink(path);
+        }
+        sb_free(&notice);
+    }
+    free(path);
+    free(dir);
+    return out;
 }
 
 static char *tool_write(agent_state *a, const tool_call *call) {
@@ -4395,7 +4489,7 @@ static char *execute_one_tool_raw(agent_state *a, const tool_call *call) {
         !strcmp(call->name, "get_fucttion")) return tool_get_function(call);
     if (!strcmp(call->name, "semantic_search")) return tool_semantic_search(call);
     if (!strcmp(call->name, "search_web")) return tool_search_web(call);
-    if (!strcmp(call->name, "visit_url")) return tool_visit_url(call);
+    if (!strcmp(call->name, "visit_url")) return tool_visit_url(a, call);
     if (!strcmp(call->name, "write")) return tool_write(a, call);
     if (!strcmp(call->name, "edit")) return tool_edit(a, call);
     if (!strcmp(call->name, "search")) return tool_search(a, call);
@@ -4560,13 +4654,25 @@ static uint64_t agent_tool_call_hash(const tool_call *call) {
     return h;
 }
 
-static bool agent_tool_history_add(agent_tool_history *history,
+static bool agent_tool_history_add(const agent_state *a, agent_tool_history *history,
                                    const tool_call_list *calls,
                                    char *repeat_name,
                                    size_t repeat_name_len) {
     uint64_t pending[8];
     for (int i = 0; i < calls->n_calls; i++) {
         pending[i] = agent_tool_call_hash(&calls->calls[i]);
+        if (a && !strcmp(calls->calls[i].name, "more")) {
+            /* Identical more parameters advance an implicit file cursor.
+             * Include that state; unchanged cursors still trigger the guard.
+             * The ordinal allows sequential more calls in one tool batch. */
+            const char *path = a->last_read_path ? a->last_read_path : "";
+            static const char marker[] = "\nmore-runtime-cursor=";
+            pending[i] = agent_hash_update(pending[i], marker, sizeof(marker) - 1);
+            pending[i] = agent_hash_update(pending[i], path, strlen(path));
+            pending[i] = agent_hash_update(pending[i], &a->last_read_next,
+                                           sizeof(a->last_read_next));
+            pending[i] = agent_hash_update(pending[i], &i, sizeof(i));
+        }
         for (int j = 0; j < history->n_items; j++) {
             if (pending[i] == history->hashes[j]) {
                 snprintf(repeat_name, repeat_name_len, "%s",
@@ -4588,6 +4694,68 @@ static bool agent_tool_history_add(agent_tool_history *history,
         history->hashes[history->n_items++] = pending[i];
     }
     return true;
+}
+
+static bool agent_more_history_selftest(void) {
+    char path[] = "/tmp/qw3-more-history-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0) return false;
+    static const char data[] = "row 1\nrow 2\nrow 3\nrow 4\nrow 5\nrow 6\nrow 7\n";
+    bool ok = agent_write_all(fd, data, sizeof(data) - 1);
+    if (close(fd) != 0) ok = false;
+    agent_state a = {0};
+    tool_call read = {0};
+    snprintf(read.name, sizeof(read.name), "read");
+    read.n_params = 3;
+    snprintf(read.params[0].name, sizeof(read.params[0].name), "path");
+    read.params[0].value = path;
+    snprintf(read.params[1].name, sizeof(read.params[1].name), "start");
+    read.params[1].value = "1";
+    snprintf(read.params[2].name, sizeof(read.params[2].name), "lines");
+    read.params[2].value = "2";
+    char *out = ok ? tool_read(&a, &read) : NULL;
+    ok = ok && out && strstr(out, "row 1") && strstr(out, "row 2") && a.last_read_next == 3;
+    free(out);
+    tool_call_list calls = {0};
+    calls.n_calls = 1;
+    snprintf(calls.calls[0].name, sizeof(calls.calls[0].name), "more");
+    calls.calls[0].n_params = 1;
+    snprintf(calls.calls[0].params[0].name, sizeof(calls.calls[0].params[0].name), "lines");
+    calls.calls[0].params[0].value = "2";
+    agent_tool_history history = {0};
+    char repeated[64] = {0};
+    for (int first = 3; ok && first <= 7; first += 2) {
+        ok = agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
+        out = ok ? tool_more(&a, &calls.calls[0]) : NULL;
+        char expected[32];
+        snprintf(expected, sizeof(expected), "row %d", first);
+        ok = ok && out && strstr(out, expected) && a.last_read_next == (first == 7 ? 8 : first + 2);
+        free(out);
+    }
+    if (ok) {
+        ok = agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
+        out = ok ? tool_more(&a, &calls.calls[0]) : NULL;
+        ok = ok && out && strstr(out, "(no lines)") && a.last_read_next == 8;
+        free(out);
+        ok = ok && !agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
+    }
+    if (ok) {
+        memset(&history, 0, sizeof(history));
+        a.last_read_next = 1;
+        calls.n_calls = 2;
+        calls.calls[1] = calls.calls[0];
+        ok = agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
+        for (int i = 0; ok && i < 2; i++) {
+            out = tool_more(&a, &calls.calls[i]);
+            ok = out && a.last_read_next == 3 + 2 * i;
+            free(out);
+        }
+    }
+    free(a.last_read_path);
+    agent_reset_source_read_budget(&a);
+    (void)unlink(path);
+    if (ok) puts("PASS more_history continuation=all_7_rows batch=sequential no_progress_repeat=blocked");
+    return ok;
 }
 
 static bool agent_append_tool_loop_guard(agent_state *a,
@@ -4645,7 +4813,8 @@ static bool execute_native_tools_append(agent_state *a,
         agent_trace_tool_result(a, call->name, out);
         if (!tool_result_is_guard_rejection(out)) all_rejected = false;
         agent_tool_status_block(a, call->name, out ? out : "");
-        char *response = native_tool_response_text(call->name, out ? out : "");
+        char *response = agent_context_tool_response(a, call->name, out ? out : "");
+        if (!response) { free(out); return false; }
         char compact_err[160] = {0};
         if (!agent_ensure_message_room(a, "user", response,
                                        QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS,
@@ -5376,13 +5545,14 @@ static int agent_repeat_guard_selftest(void) {
              sizeof(calls.calls[0].params[0].name), "url");
     calls.calls[0].params[0].value = "https://example.test/one";
     char repeated[64] = {0};
-    if (!agent_tool_history_add(&history, &calls, repeated,
+    if (!agent_tool_history_add(NULL, &history, &calls, repeated,
                                 sizeof(repeated))) return 5;
-    if (agent_tool_history_add(&history, &calls, repeated,
+    if (agent_tool_history_add(NULL, &history, &calls, repeated,
                                sizeof(repeated))) return 6;
     calls.calls[0].params[0].value = "https://example.test/two";
-    if (!agent_tool_history_add(&history, &calls, repeated,
+    if (!agent_tool_history_add(NULL, &history, &calls, repeated,
                                 sizeof(repeated))) return 7;
+    if (!agent_more_history_selftest()) return 13;
 
     /* Stream the box border: checking only the completed line would miss
      * false positives before its closing corner arrives. */
@@ -5521,6 +5691,25 @@ static void agent_prefill_progress(void *ud, const char *event,
     }
 }
 
+static bool agent_session_should_interrupt(void *ud) {
+    return agent_should_interrupt((agent_state *)ud);
+}
+
+static int agent_sync_with_progress(agent_state *a, const qw3_tokens *prompt,
+                                    char *err, size_t err_len) {
+    a->progress_start_sec = agent_now_sec();
+    agent_set_activity(a, "prefill", NULL);
+    qw3_session_set_progress(a->session, agent_prefill_progress, a);
+    int rc = qw3_session_sync_interruptible(a->session, prompt,
+                                            agent_session_should_interrupt,
+                                            a, err, err_len);
+    qw3_session_set_progress(a->session, NULL, NULL);
+    if (a->progress_update) {
+        a->progress_update(a->progress_ud, "prefill_done", 0, 0, 0.0);
+    }
+    return rc;
+}
+
 static bool agent_should_compact_context(agent_state *a) {
     if (!a || a->cfg.ctx_size <= 0 || a->transcript.len <= 0) return false;
     int used = a->transcript.len;
@@ -5550,12 +5739,17 @@ static int agent_single_rendered_token_id(qw3_engine *engine,
     return id;
 }
 
-static int agent_message_turn_start(agent_state *a, int target,
+static int agent_message_tail_start(agent_state *a, int target,
                                     int bottom, int sys_len) {
     if (target < sys_len) target = sys_len;
     for (int i = 0; i < a->messages.len; i++) {
         const agent_message *message = &a->messages.items[i];
-        if (message->kind == AGENT_MESSAGE_USER &&
+        /* A long tool turn may have no new user message in the tail window.
+         * Preserve a complete assistant request plus its following results,
+         * including a request whose result is about to be appended. Never
+         * start with a tool result alone. */
+        if ((message->kind == AGENT_MESSAGE_USER ||
+             message->kind == AGENT_MESSAGE_ASSISTANT) &&
             message->token_start >= target &&
             message->token_start >= sys_len &&
             message->token_end <= bottom) {
@@ -5571,8 +5765,36 @@ static int agent_compact_tail_start(agent_state *a, int bottom, int sys_len) {
         tail_budget = QW3_AGENT_COMPACT_TAIL_CAP_TOKENS;
     }
     if (tail_budget < 1) tail_budget = 1;
-    return agent_message_turn_start(a, bottom - tail_budget,
+    return agent_message_tail_start(a, bottom - tail_budget,
                                     bottom, sys_len);
+}
+
+static const agent_message *agent_compact_user_request(const agent_state *a,
+                                                       int bottom) {
+    for (int i = a->messages.len - 1; i >= 0; i--) {
+        const agent_message *message = &a->messages.items[i];
+        if (message->kind == AGENT_MESSAGE_USER && message->token_end <= bottom) {
+            return message;
+        }
+    }
+    return NULL;
+}
+
+static void agent_compact_append_read_cursor(strbuf *out,
+                                             const agent_state *a) {
+    if (!a->last_read_path || a->last_read_next < 1) return;
+    sb_append(out, "\nRuntime read cursor after the most recent read invocation: {\"path\":\"");
+    for (const unsigned char *p = (const unsigned char *)a->last_read_path; *p; p++) {
+        if (*p == '\\' || *p == '"') sb_append(out, "\\");
+        if (*p < 32) sb_printf(out, "\\u%04x", (unsigned)*p);
+        else sb_append_n(out, (const char *)p, 1);
+    }
+    sb_printf(out, "\",\"next_start\":%d}.\n", a->last_read_next);
+    sb_append(out,
+        "more continues from this cursor. The last result may follow this "
+        "summary. Preserve collected requested fields or their compact result "
+        "file; reread earlier ranges only for specific missing facts, not to "
+        "restart the same scan.\n");
 }
 
 typedef struct {
@@ -5628,6 +5850,80 @@ static size_t agent_utf8_tail_boundary(const char *text, size_t len,
         cut++;
     }
     return cut;
+}
+
+/* Bound the rendered message, not bytes: HTML/JSON can have far more tokens
+ * than prose. Keep full tool results on disk before any context compaction. */
+static int agent_rendered_message_tokens(agent_state *a, const char *text) {
+    qw3_tokens tokens = {0};
+    qw3_chat_append_message(a->engine, &tokens, "user", text);
+    int count = tokens.len;
+    qw3_tokens_free(&tokens);
+    return count;
+}
+
+static char *agent_context_tool_response(agent_state *a, const char *tool_name,
+                                         const char *value) {
+    const char *body = value ? value : "";
+    char *response = native_tool_response_text(tool_name, body);
+    int limit = agent_tool_result_token_limit(a);
+    if (!limit || !response) return response;
+    int original_tokens = agent_rendered_message_tokens(a, response);
+    if (original_tokens <= limit) return response;
+    free(response);
+
+    char *path = NULL, *dir = NULL;
+    int fd = agent_create_spill(a, "tool-", &path, &dir);
+    size_t bytes = strlen(body);
+    bool saved = fd >= 0;
+    if (saved && (!agent_write_all(fd, body, bytes) || fsync(fd) != 0)) saved = false;
+    if (fd >= 0 && close(fd) != 0) saved = false;
+    if (saved) agent_prune_spills(dir, "tool-", path, QW3_AGENT_TOOL_SPILL_KEEP);
+    else if (path) (void)unlink(path);
+
+    size_t keep = (size_t)limit * 2u;
+    if (keep > bytes) keep = bytes;
+    int kept_tokens = 0;
+    for (;;) {
+        size_t head = agent_utf8_head_boundary(body, keep * 3u / 4u);
+        size_t tail_start = agent_utf8_tail_boundary(body, bytes,
+                                                     bytes - (keep - head));
+        strbuf excerpt;
+        sb_init(&excerpt);
+        sb_append_n(&excerpt, body, head);
+        sb_printf(&excerpt, "\n[... %zu bytes omitted from tool result; context budget=%d tokens; ",
+                  tail_start - head, limit);
+        if (saved) {
+            sb_printf(&excerpt, "full result saved to %s. Use rg/sed or a smaller read on that file", path);
+        } else {
+            sb_append(&excerpt, "full result could not be saved. Request a smaller read/search output");
+        }
+        sb_append(&excerpt, " ...]\n");
+        sb_append_n(&excerpt, body + tail_start, bytes - tail_start);
+        response = native_tool_response_text(tool_name, excerpt.p);
+        sb_free(&excerpt);
+        if (!response) break;
+        kept_tokens = agent_rendered_message_tokens(a, response);
+        if (kept_tokens <= limit) break;
+        free(response);
+        response = NULL;
+        if (keep == 0) break;
+        keep /= 2u;
+    }
+    agent_trace_begin(a, "tool_context_limit");
+    agent_trace_string(a, "name", tool_name ? tool_name : "");
+    agent_trace_i64(a, "original_tokens", original_tokens);
+    agent_trace_i64(a, "context_tokens", response ? kept_tokens : 0);
+    agent_trace_i64(a, "token_limit", limit);
+    agent_trace_bool(a, "full_result_saved", saved);
+    agent_trace_string(a, "path", saved ? path : "");
+    agent_trace_end(a);
+    agent_statusf(a, "agent: tool result limited %d -> %d tokens%s\n",
+                  original_tokens, response ? kept_tokens : 0,
+                  saved ? " (full result saved)" : " (full result unavailable)");
+    free(path);
+    free(dir);
+    return response;
 }
 
 static char *agent_compact_shorten_tool_result(const char *content,
@@ -5775,6 +6071,41 @@ static int agent_context_ledger_selftest(void) {
         return 2;
     }
 
+    agent_state tool_turn = {0};
+    tool_turn.cfg.ctx_size = 800;
+    bool tail_ok =
+        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_SYSTEM,
+                                  "system", "system", 0, 100) &&
+        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_USER,
+                                  "user", "one long task", 100, 200) &&
+        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_ASSISTANT,
+                                  "assistant", "first request", 200, 300) &&
+        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_TOOL,
+                                  "user", "first result", 300, 350) &&
+        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_ASSISTANT,
+                                  "assistant", "latest request", 350, 400) &&
+        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_TOOL,
+                                  "user", "latest result", 400, 500);
+    tail_ok = tail_ok && agent_compact_tail_start(&tool_turn, 500, 100) == 350 &&
+        agent_message_tail_start(&tool_turn, 360, 500, 100) == 500;
+    const agent_message *request = agent_compact_user_request(&tool_turn, 500);
+    tail_ok = tail_ok && request && request->token_start == 100 &&
+        !strcmp(request->content, "one long task");
+    tail_ok = tail_ok &&
+        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_ASSISTANT,
+                                  "assistant", "pending request", 500, 530);
+    tool_turn.cfg.ctx_size = 600;
+    tail_ok = tail_ok && agent_compact_tail_start(&tool_turn, 530, 100) == 500;
+    tool_turn.last_read_path = "/tmp/page\"notes\\row\n.txt";
+    tool_turn.last_read_next = 196;
+    strbuf cursor = {0};
+    agent_compact_append_read_cursor(&cursor, &tool_turn);
+    tail_ok = tail_ok && cursor.p && strstr(cursor.p, "\"next_start\":196") &&
+        strstr(cursor.p, "page\\\"notes\\\\row\\u000a.txt");
+    sb_free(&cursor);
+    agent_message_ledger_clear(&tool_turn.messages);
+    if (!tail_ok) { agent_message_ledger_clear(&state.messages); return 14; }
+
     char path[] = "/tmp/qw3-agent-messages-XXXXXX";
     int fd = mkstemp(path);
     if (fd < 0) {
@@ -5885,10 +6216,11 @@ static int agent_context_ledger_selftest(void) {
     free(last_archive);
     if (rc != 7) (void)rmdir(store_dir);
     agent_message_ledger_clear(&state.messages);
+    if (rc == 0) puts("PASS long_tool_turn recent_request_and_result=retained pending_request=retained orphan_result=excluded read_cursor=exact user_goal=retained");
     return rc;
 }
 
-static char *agent_compact_make_prompt(const char *reason,
+static char *agent_compact_make_prompt(const agent_state *a, const char *reason,
                                        const char *archive_path) {
     strbuf sb;
     sb_init(&sb);
@@ -5900,9 +6232,11 @@ static char *agent_compact_make_prompt(const char *reason,
         "- commands run and important results\n"
         "- decisions, rejected approaches, known bugs, and pending next steps\n"
         "- reloadable bulky data with exact paths/ranges/commands when available\n\n"
+        "For a list or catalog, retain the collected requested entries as compact field values, or the exact path of a compact result file. A statement that data was read is not a substitute for the collected entries. Preserve the first unread line and completed ranges.\n"
         "Do not invent facts. Do not include generic narration. Do not include raw file contents unless essential.\n"
         "Do not continue the user task. Do not call tools. Do not output thinking tags, XML tool calls, or DSML markup.\n"
         "Output only the compact summary.\n");
+    agent_compact_append_read_cursor(&sb, a);
     if (reason && reason[0]) {
         sb_append(&sb, "\nCompaction reason: ");
         sb_append(&sb, reason);
@@ -5993,7 +6327,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         qw3_tokens_free(&sys);
         return false;
     }
-    char *prompt_text = agent_compact_make_prompt(reason, archive_path);
+    char *prompt_text = agent_compact_make_prompt(a, reason, archive_path);
     qw3_tokens prompt = {0};
     agent_compact_source_stats source_stats;
     agent_compact_build_source(a, &sys, bottom, source_tail_start,
@@ -6025,10 +6359,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
                       summary_room : QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS;
 
     char sync_err[256] = {0};
-    a->progress_start_sec = agent_now_sec();
-    qw3_session_set_progress(a->session, agent_prefill_progress, a);
-    if (qw3_session_sync(a->session, &prompt, sync_err, sizeof(sync_err)) != 0) {
-        qw3_session_set_progress(a->session, NULL, NULL);
+    if (agent_sync_with_progress(a, &prompt, sync_err, sizeof(sync_err)) != 0) {
         qw3_session_invalidate(a->session);
         snprintf(err, err_len, "%s", sync_err);
         qw3_tokens_free(&prompt);
@@ -6036,7 +6367,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         free(archive_path);
         return false;
     }
-    qw3_session_set_progress(a->session, NULL, NULL);
+    agent_set_activity(a, "compacting", NULL);
 
     strbuf summary;
     sb_init(&summary);
@@ -6109,6 +6440,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     sb_append(&summary_msg, "\nReloadable pre-compaction archive: ");
     sb_append(&summary_msg, archive_path);
     sb_append(&summary_msg, "\n");
+    agent_compact_append_read_cursor(&summary_msg, a);
     if (summary_msg.len && summary_msg.p[summary_msg.len - 1] != '\n') {
         sb_append(&summary_msg, "\n");
     }
@@ -6129,12 +6461,47 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         free(archive_path);
         return false;
     }
-    free(archive_path);
     sb_free(&summary_msg);
     sb_free(&summary);
 
     int tail_start = agent_compact_tail_start(a, bottom,
                                               transcript_sys_len);
+    int initial_tail_room = a->cfg.ctx_size - compacted.len - 128;
+    if (initial_tail_room >= 0 && tail_start < bottom - initial_tail_room) {
+        tail_start = agent_message_tail_start(a, bottom - initial_tail_room,
+                                              bottom, transcript_sys_len);
+    }
+    const agent_message *request = agent_compact_user_request(a, bottom);
+    if (request && request->token_start < tail_start) {
+        /* Ground an assistant/tool tail in the actual user task, rather than
+         * depending entirely on the model-generated system summary. Large
+         * requests stay recoverable in the archive without refilling them. */
+        strbuf resume;
+        sb_init(&resume);
+        const char *text = request->content;
+        int request_limit = a->cfg.ctx_size / 16;
+        if (request_limit > 512) request_limit = 512;
+        if (request_limit < 64) request_limit = 64;
+        if (agent_rendered_message_tokens(a, text) > request_limit) {
+            sb_printf(&resume, "Continue my task from the durable summary and recent tool exchanges. My full original request is recoverable in %s.", archive_path);
+            text = resume.p;
+        }
+        int start = compacted.len;
+        qw3_chat_append_message(a->engine, &compacted, "user", text);
+        if (!agent_message_ledger_add(&compacted_messages, AGENT_MESSAGE_USER,
+                                      "user", text, start, compacted.len)) {
+            sb_free(&resume);
+            free(archive_path);
+            agent_message_ledger_clear(&compacted_messages);
+            qw3_session_invalidate(a->session);
+            qw3_tokens_free(&compacted);
+            qw3_tokens_free(&sys);
+            snprintf(err, err_len, "out of memory recording active user task");
+            return false;
+        }
+        sb_free(&resume);
+    }
+    free(archive_path);
     int tail_room = a->cfg.ctx_size - compacted.len - 128;
     if (tail_room < 0) {
         snprintf(err, err_len,
@@ -6148,7 +6515,7 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     }
     int min_tail_start = bottom - tail_room;
     if (tail_start < min_tail_start) {
-        tail_start = agent_message_turn_start(a, min_tail_start,
+        tail_start = agent_message_tail_start(a, min_tail_start,
                                               bottom, transcript_sys_len);
     }
     agent_tokens_append_range(&compacted, &a->transcript, tail_start, bottom);
@@ -6199,8 +6566,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     a->transcript = compacted;
     a->session_stripped = false;
     qw3_session_invalidate(a->session);
-    if (qw3_session_sync(a->session, &a->transcript, sync_err,
-                         sizeof(sync_err)) != 0) {
+    if (agent_sync_with_progress(a, &a->transcript, sync_err,
+                                 sizeof(sync_err)) != 0) {
         qw3_session_invalidate(a->session);
         qw3_tokens_free(&a->transcript);
         a->transcript = old;
@@ -6275,7 +6642,9 @@ static int generate_once(agent_state *a, char **assistant_text,
     a->progress_start_sec = t_prefill0;
     agent_set_activity(a, "prefill", NULL);
     qw3_session_set_progress(a->session, agent_prefill_progress, a);
-    if (qw3_session_sync(a->session, &a->transcript, err, sizeof(err)) != 0) {
+    if (qw3_session_sync_interruptible(a->session, &a->transcript,
+                                       agent_session_should_interrupt, a,
+                                       err, sizeof(err)) != 0) {
         qw3_session_set_progress(a->session, NULL, NULL);
         if (a->progress_update) {
             a->progress_update(a->progress_ud, "prefill_done", 0, 0, 0.0);
@@ -6437,6 +6806,7 @@ static int generate_once(agent_state *a, char **assistant_text,
 }
 
 static int run_agent_turn(agent_state *a, const char *user_message) {
+    if (agent_should_interrupt(a)) return 0;
     memset(&a->turn, 0, sizeof(a->turn));
     a->turn.guard_retry_credits = 2;
     a->turn.empty_retry_credits = 2;
@@ -6474,6 +6844,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
          a->turn.round < a->cfg.max_tool_rounds + final_attempts +
                      verification_attempts;
          a->turn.round++) {
+        if (agent_should_interrupt(a)) return 0;
         const bool verification_extension =
             a->edit_verification_pending &&
             a->turn.round >= a->cfg.max_tool_rounds;
@@ -6576,7 +6947,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 continue;
             }
             char repeat_name[64] = {0};
-            if (!agent_tool_history_add(&a->turn.tool_history, &native_calls,
+            if (!agent_tool_history_add(a, &a->turn.tool_history, &native_calls,
                                         repeat_name, sizeof(repeat_name))) {
                 free_tool_calls(&native_calls);
                 free(assistant);
@@ -6746,7 +7117,7 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             continue;
         }
         char repeat_name[64] = {0};
-        if (!agent_tool_history_add(&a->turn.tool_history, &dsml_calls,
+        if (!agent_tool_history_add(a, &a->turn.tool_history, &dsml_calls,
                                     repeat_name, sizeof(repeat_name))) {
             free_tool_calls(&dsml_calls);
             free(assistant);
@@ -6762,7 +7133,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         char *tool_result = execute_tools(a, &dsml_calls,
                                           &all_guard_rejected);
         free_tool_calls(&dsml_calls);
-        char *response = native_tool_response_text("dsml", tool_result);
+        char *response = agent_context_tool_response(a, "dsml", tool_result);
+        if (!response) { free(tool_result); free(assistant); return -1; }
         if (!agent_ensure_message_room(a, "user", response,
                                        QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS,
                                        "tool result would exceed context",
@@ -6874,6 +7246,34 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
             "- After write or edit succeeds, run the narrowest relevant build, "
             "test, syntax check, or git diff --check with bash before giving the "
             "final answer. A read-back alone is not verification.\n\n");
+        if (!read_only) sb_append(&sb,
+            "Web page reading:\n"
+            "- Use search_web to find sources and visit_url to read web pages. "
+            "visit_url saves the complete parsed readable text in a local file. "
+            "Use its full-page file path to search and read relevant line "
+            "ranges with the adaptive read/more tools.\n"
+            "- If a fetched page is truncated and no complete-page file "
+            "path is provided, download the complete page "
+            "directly into a local file with bash (for example curl -L URL -o FILE). "
+            "If the tool already saved the complete page, use that file. "
+            "A saved truncated tool response is not a complete page.\n"
+            "- Keep the complete page on disk; convert HTML to readable text "
+            "in a second file without printing it. When conversion is needed, "
+            "use an HTML parser that excludes tag attributes and emits "
+            "separate headings and list items. Search that file with search "
+            "or rg to locate the relevant section, then use read with explicit "
+            "start and lines. Its complete-line token budget adapts to the "
+            "session context. Continue with more or from the returned next_start "
+            "until all relevant lines have been read.\n"
+            "- If a tool result has an omission notice, reduce the next range; "
+            "halve it again if it is still limited. Never cat the whole saved "
+            "result or repeat the same oversized extraction. For long lists, "
+            "extract only the requested fields (such as titles and years) "
+            "to a file, then read it in small successive chunks. Keep collected "
+            "requested entries in a compact local result file when they need "
+            "to survive compaction. Do not "
+            "repeatedly fetch the same truncated page prefix. Cite the source "
+            "URL in the answer.\n\n");
         }
     }
     char now_text[96] = {0};
@@ -7716,13 +8116,23 @@ static void *agent_worker_main(void *ud) {
         w->job = NULL;
         w->has_job = false;
         w->busy = true;
-        w->interrupt = false;
         snprintf(w->activity, sizeof(w->activity), "starting");
         pthread_mutex_unlock(&w->mu);
 
-        int rc = run_agent_turn(w->agent, job);
+        int rc;
+        if (!strcmp(job, "/compact")) {
+            char err[160] = {0};
+            rc = agent_compact_context(w->agent, "manual /compact", err, sizeof(err)) ? 0 : -1;
+            if (rc) agent_statusf(w->agent, "agent: %s\n", err);
+        } else {
+            rc = run_agent_turn(w->agent, job);
+        }
         free(job);
-        if (rc == 0 && w->agent->cfg.conversation) {
+        /* User cancellation is a completed worker job, not a fatal TUI error.
+         * Retain the flag until submission of the next job; it also blocks an
+         * autosave from replaying the interrupted transcript. */
+        if (agent_should_interrupt(w->agent)) rc = 0;
+        if (rc == 0 && !agent_should_interrupt(w->agent) && w->agent->cfg.conversation) {
             store_save(w->agent, w->agent->cfg.conversation);
         }
 
@@ -8573,6 +8983,9 @@ static int agent_process_interactive_line(agent_state *a, agent_worker *w,
     if (line[0] == '/' && agent_worker_is_busy(w)) {
         agent_statusf(a, "agent: busy; use /interrupt or wait for the prompt\n");
         return 0;
+    }
+    if (!strcmp(line, "/compact")) {
+        return agent_submit_or_queue(w, q, line);
     }
     if (line[0] == '/') {
         char *message = NULL;

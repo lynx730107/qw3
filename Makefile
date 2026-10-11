@@ -19,6 +19,8 @@ endif
 
 .PHONY: test-rope test-rope-metal test-dense-metal-logits
 .PHONY: test-agent-repeat-format test-agent-store
+.PHONY: test-agent-context-pressure
+.PHONY: test-agent-web-page
 .PHONY: test-short-batch-quant test-short-batch
 .PHONY: test-iq3-stream-quant
 
@@ -571,6 +573,9 @@ qw3-rope-metal-test: tests/test_rope.c qw3.c qw3.h qw3_metal.h qw3_runtime_finge
 qw3-agent: qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(METAL_LDLIBS)
 
+qw3-agent-context-pressure-test: tests/test_agent_context_pressure.m qw3_agent.c qw3_agent_unicode.h qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h linenoise_qw3.o
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_agent_context_pressure.m linenoise_qw3.o $(METAL_LDLIBS)
+
 qw3-eval: qw3_eval_metal.o qw3_metal_core.o qw3_metal.o
 	$(CC) $(CFLAGS) -o $@ qw3_eval_metal.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
 
@@ -595,6 +600,10 @@ qw3-bench: qw3-bench-cpu
 
 qw3-agent: qw3-agent-cpu
 	cp qw3-agent-cpu qw3-agent
+
+qw3-agent-context-pressure-test:
+	@echo "$@ requires Darwin/Apple Metal"
+	@exit 1
 
 qw3-eval: qw3-eval-cpu
 	cp qw3-eval-cpu qw3-eval
@@ -724,6 +733,12 @@ test-agent-color: qw3-agent
 test-agent-context: qw3-agent
 	QW3_AGENT_CONTEXT_LEDGER_SELFTEST=1 ./qw3-agent
 
+test-agent-context-pressure: qw3-agent-context-pressure-test
+	./qw3-agent-context-pressure-test $${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}
+
+test-agent-web-page: qw3-agent
+	python3 tests/test_agent_web_page.py
+
 test-agent-store: qw3_cpu_core.o linenoise_qw3.o
 	@set -e; probe=$$(mktemp "$${TMPDIR:-/tmp}/qw3-agent-store.XXXXXX"); \
 	trap 'rm -f "$$probe"' EXIT; \
@@ -802,6 +817,7 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-agent-context-pressure-test
 	rm -f qw3-gdn-two-columns-test qw3-gdn-two-columns-bench
 	rm -f qw3-gdn-two128-test qw3-gdn-two128-model-test qw3-gdn-two128-native-bench
 	rm -f qw3-gdn-local-gates-test qw3-gdn-local-gates-bench

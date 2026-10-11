@@ -1,0 +1,179 @@
+{
+  "query": "Cerca su Wikipedia le opere di Carlo Emilio Gadda ed elencale.",
+  "command": [
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-agent",
+    "--metal",
+    "-m",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "--ctx",
+    "8192",
+    "--nothink",
+    "--no-prefix-cache",
+    "--temp",
+    "0",
+    "-n",
+    "2048",
+    "--chdir",
+    "/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-h3z_xp5c/work",
+    "--store-dir",
+    "/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-h3z_xp5c/store",
+    "--trace",
+    "/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-h3z_xp5c/trace.jsonl",
+    "-p",
+    "Cerca su Wikipedia le opere di Carlo Emilio Gadda ed elencale."
+  ],
+  "exit_code": -15,
+  "seconds": 721.929827875,
+  "started_utc": "2026-10-11T18:07:38.695223+00:00",
+  "completed_utc": "2026-10-11T18:19:40.645263+00:00",
+  "source_sha256": {
+    "Makefile": "8265cd5453359465c627159a1b48e3cc323cf25d2f0da398539b31faba830654",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_metal.m": "e55854d49fccda69ec7687730fc88f75ddf9793b22d2ee23f0b8f4363c1939f5",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_agent.c": "ac9c3073a4721194c68a020c9a0a3746648b33dc9b6f2c7e65abb74b2efb1ce4",
+    "qw3_agent_unicode.h": "24450ca1f87e461ec16ec28f39bbbda8ebf8d932f103754fc3bd9be08491271b",
+    "qw3_cli.c": "9ebc48714d7226b78b1f0f9e190adf5f475f79e15d10e8246ce88a592c4fb77f",
+    "linenoise.c": "f0ecdd9b7f7a62cfd381ba85381540772f6d0e9aad4a9c634b2c13c6aad6f2c0",
+    "linenoise.h": "7fb72a08f09353164f8c10c647a01b4f27515e53042659113917307c893f8f03",
+    "qw3_runtime_fingerprint.h": "9e02e7401c00314204219b02f1b2c85dff4aa5e67b1ca32cc9ffcc8838ed7ef6",
+    "tools/runtime_fingerprint.py": "789ce0a0d32a4648a04a58b672c1cb33001cf22212e364a111bb122d8ce46309",
+    "tests/test_runtime_fingerprint.py": "cbdb9a4f6e8673a0acd5d3a4bedaa5fdccac352d4ebf9424e5fc69d644ee5f1e",
+    "tests/test_agent_bash_tool.sh": "747f5f1cc061d14a0ce1d3452b4f4f0320df2d38ada8ee6c180f8a0d236e37db",
+    "tests/test_agent_edit_tool.sh": "b747c64efa1bb527fc9991d6b02eeb4527a4053f9c8816cbc5025ac9bfffc486",
+    "tests/test_agent_trace.sh": "35d504cfa56c3952266e149260ab25dc65c3dc832efe1b4f2de6a23f8b2641d1",
+    "tests/test_dense_agent.sh": "ddf383c1e367d7b034716c8b3b1b1b64cca187762cbc1f4e6f15e2f9526f6018",
+    "tests/test_agent_prefix_cache.sh": "e38cf363b66dd03029f6da41b2791ed4ae07959147c7661199ab0a4e133e5fcf",
+    "tests/test_agent_checkpoint.sh": "1ec81e9114da5bd78d62872e9c53c774a2160f26e64a243af097dd3acd6ec4b9",
+    "tests/test_agent_checkpoint_compatibility.sh": "0a0dd1624208a6b779bf3915199ef33fe882c4f621f7151d504e999a5f792f9d",
+    "tests/test_agent_coding_smoke.sh": "754c6d2e408bfcd3d7be0868e33af8c47bd30e2db1630be8c69d8d62fc03ef38",
+    "tests/test_agent_python_smoke.sh": "3376ef5d0d9f02d85b5f96c59c29d3d35ede3d822acea2b6a61a1acce776d6c3",
+    "tests/test_agent_git_smoke.sh": "37971512ba2390af53845f72be40e2e4e1c5c7ca3b49029e2b5b042bc9525be5",
+    "tests/test_agent_repeat_format.py": "542f9ed05755bbda973d7c95ed15dc08dfbd48a4fb12de33ebd5f82765f9859e",
+    "tests/test_runtime_regression.sh": "1a318eb0f27a130ef99b0faef93615a33b1049035059bd565897bde17af070da",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/test_agent_store.c": "3bfa929f692d48c6b36781e2f071fe88998cf911f78aba9f82ce4af5d53665f2",
+    "tests/test_agent_llama_reference.py": "5d27725fb700c15b9d76d74e8f59e5c48603956219fc5747ae166dfef239dfa9"
+  },
+  "binary_sha256": {
+    "qw3-agent": "52aadc0e7ada9534de1c168186c791e16f13dc1d7618abb4e78c759813def839",
+    "qw3-cli": "1b58d64ec1687bf26969f5f42812ca781831738beb7735f31aeeef0308f15f3d",
+    "qw3-bench": "fda23d8577fe2914648de33044b1c8937844885317f0e2b6d5a9e2fe47d0ffd6",
+    "qw3-agent-context-pressure-test": "1dbcb92378c060c3dcf8e619c3e80565d8e00088f8faaeb8519de82a631e8223"
+  },
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "store_before": {
+    "history": {
+      "bytes": 29843,
+      "sha256": "abdfea6a8c4762e9df6668fffc0d41f94b0323fa2fb7c75fa6df3e1d6f95f6f0"
+    },
+    "spills/context-jy1CgC": {
+      "bytes": 8944,
+      "sha256": "ce46ca36d67e28d169e45f86d0162a89208034edb7cf882ab0dfbd373e42cff3"
+    },
+    "spills/context-x35FnX": {
+      "bytes": 85518,
+      "sha256": "14f436d5c1d3ed59eb67fe27e45fd3144ce7493913a09a99f116105f29b03921"
+    },
+    "spills/context-40b9Ne": {
+      "bytes": 83053,
+      "sha256": "ac183be45608d0ee5d3e9d3f858163485340d6cb7efc1a513e0ba2ec5263b30e"
+    },
+    "spills/context-FbA6kr": {
+      "bytes": 30290,
+      "sha256": "e00865d25e9e7ad672d9ce031b9a310757da7b9559ad5164198284a575a32d22"
+    }
+  },
+  "store_after": {
+    "history": {
+      "bytes": 29843,
+      "sha256": "abdfea6a8c4762e9df6668fffc0d41f94b0323fa2fb7c75fa6df3e1d6f95f6f0"
+    },
+    "spills/context-jy1CgC": {
+      "bytes": 8944,
+      "sha256": "ce46ca36d67e28d169e45f86d0162a89208034edb7cf882ab0dfbd373e42cff3"
+    },
+    "spills/context-x35FnX": {
+      "bytes": 85518,
+      "sha256": "14f436d5c1d3ed59eb67fe27e45fd3144ce7493913a09a99f116105f29b03921"
+    },
+    "spills/context-40b9Ne": {
+      "bytes": 83053,
+      "sha256": "ac183be45608d0ee5d3e9d3f858163485340d6cb7efc1a513e0ba2ec5263b30e"
+    },
+    "spills/context-FbA6kr": {
+      "bytes": 30290,
+      "sha256": "e00865d25e9e7ad672d9ce031b9a310757da7b9559ad5164198284a575a32d22"
+    }
+  },
+  "store_unchanged": true,
+  "tool_round_limit": 24,
+  "context": 8192,
+  "prefix_cache": false,
+  "oracle_category": "Romanzi, racconti, saggi",
+  "oracle_titles": 40,
+  "missing_titles": [
+    "La Madonna dei filosofi. Racconti",
+    "Il castello di Udine",
+    "Le meraviglie d'Italia",
+    "Gli anni",
+    "L'Adalgisa. Disegni milanesi",
+    "Il primo libro delle favole",
+    "Novelle dal Ducato in fiamme",
+    "Norme per la redazione di un testo radiofonico",
+    "I sogni e la folgore",
+    "Giornale di guerra e di prigionia",
+    "Quer pasticciaccio brutto de via Merulana",
+    "I viaggi, la morte",
+    "Verso la Certosa",
+    "La cognizione del dolore",
+    "Accoppiamenti giudiziosi. I racconti. 1924-1958",
+    "I Luigi di Francia",
+    "I racconti",
+    "Eros e Priapo (da furore a cenere)",
+    "Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci",
+    "La meccanica",
+    "Novella seconda",
+    "Meditazione milanese",
+    "Le bizze del capitano in congedo e altri racconti",
+    "Il tempo e le opere. Saggi, note, divagazioni",
+    "Un radiodramma per modo di dire e scritti sullo spettacolo",
+    "Racconto italiano di Ignoto del Novecento (Cahier d'etudes)",
+    "Il palazzo degli ori",
+    "Gonnella buffone",
+    "Azoto e altri scritti di divulgazione scientifica",
+    "I miti del somaro",
+    "Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918)",
+    "Gadda al microfono. L'ingegnere e la Rai 1950-1955",
+    "Disegni milanesi",
+    "Racconti dispersi",
+    "Un fulmine sul 220",
+    "I Littoriali del Lavoro e altri scritti giornalistici 1932-1941",
+    "Villa in Brianza",
+    "Divagazioni e garbuglio. Saggi dispersi",
+    "La casa dei ricchi",
+    "Assalto con mine alla montagna"
+  ],
+  "downloaded_workspace_files": [],
+  "one_model_at_a_time": true,
+  "temporary_store_removed": true,
+  "downloaded_files_outside_workspace": [
+    {
+      "path": "/tmp/gadda.html",
+      "bytes": 479461,
+      "sha256": "dd1dda0fe8b412867381b5a549dabee259bbc120739ac1c4ddd4dbadc77b6bb3",
+      "removed_after_test": true
+    }
+  ]
+}

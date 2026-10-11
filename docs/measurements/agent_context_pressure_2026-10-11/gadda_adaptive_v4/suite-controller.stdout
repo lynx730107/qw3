@@ -1,0 +1,51 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+make: `qw3-cli' is up to date.
+make: `qw3-bench' is up to date.
+make: `qw3-agent-context-pressure-test' is up to date.
+RUN test-agent-context-pressure model=True
+DONE test-agent-context-pressure exit=0 seconds=22.097
+RUN test-agent-prefill-interrupt model=True
+DONE test-agent-prefill-interrupt exit=0 seconds=3.476
+RUN test-agent-bash model=False
+DONE test-agent-bash exit=0 seconds=1.974
+RUN test-agent-edit model=False
+DONE test-agent-edit exit=0 seconds=0.231
+RUN test-agent-color model=False
+DONE test-agent-color exit=0 seconds=0.077
+RUN test-agent-context model=False
+DONE test-agent-context exit=0 seconds=0.074
+RUN test-agent-repeat model=False
+DONE test-agent-repeat exit=0 seconds=0.076
+RUN test-agent-status model=False
+DONE test-agent-status exit=0 seconds=0.074
+RUN test-agent-tool-parse model=False
+DONE test-agent-tool-parse exit=0 seconds=0.072
+RUN test-agent-trace model=False
+DONE test-agent-trace exit=0 seconds=0.076
+RUN test-agent-verify model=False
+DONE test-agent-verify exit=0 seconds=0.077
+RUN test-runtime-fingerprint model=False
+DONE test-runtime-fingerprint exit=0 seconds=0.235
+RUN test-agent-store model=False
+DONE test-agent-store exit=0 seconds=1.873
+RUN test-dense-agent model=True
+DONE test-dense-agent exit=0 seconds=4.434
+RUN test-agent-prefix-cache model=True
+DONE test-agent-prefix-cache exit=0 seconds=24.133
+RUN test-agent-checkpoint model=True
+DONE test-agent-checkpoint exit=0 seconds=24.530
+RUN test-agent-checkpoint-compatibility model=True
+DONE test-agent-checkpoint-compatibility exit=0 seconds=28.504
+RUN test-agent-coding-smoke model=True
+DONE test-agent-coding-smoke exit=0 seconds=34.243
+RUN test-agent-python-smoke model=True
+DONE test-agent-python-smoke exit=0 seconds=40.792
+RUN test-agent-git-smoke model=True
+DONE test-agent-git-smoke exit=0 seconds=89.502
+RUN test-agent-repeat-format model=True
+DONE test-agent-repeat-format exit=0 seconds=37.091
+RUN test-runtime-regression model=True
+DONE test-runtime-regression exit=0 seconds=4.050
+RUN live-url-oracle model=True
+DONE live-url-oracle exit=0 seconds=47.557
+PASS targets=23 sources=unchanged binaries=unchanged store=unchanged

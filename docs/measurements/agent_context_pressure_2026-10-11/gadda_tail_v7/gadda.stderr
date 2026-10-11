@@ -1,0 +1,310 @@
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf backend=Metal ctx=8192 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.003s)
+2026-10-11 21:49:50.045 qw3-agent[68307:54724802] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 662.9 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.01 s
+
+[tool] search_web
+--- search_web: 'Carlo Emilio Gadda opere Wikipedia' (5 results) ---
+1. Carlo Emilio Gadda - Wikipedia
+   https://it.wikipedia.org/wiki/Carlo_Emilio_Gadda
+   L'opera gaddiana riporta in differenti occasioni alcuni dei temi che diventeranno il fondamento delle maggiori: il disordine oggettivo del reale, l'affetto dell'autore nei confronti del fratello, l'orrore della guerra, il disprezzo delle gerarchie.
+2. Categoria:Opere di Carlo Emilio Gadda - Wikipedia
+   https://it.wikipedia.org/wiki/Categoria:Opere_di_Carlo_Emilio_Gadda
+   Questa categoria contiene le 4 pagine indicate di seguito, su un totale di 4.
+3. Carlo Emilio Gadda - Wikipedia
+   https://en.wikipedia.org/wiki/Carlo_Emilio_Gadda
+   Gadda was a practising engineer from Milan, and he both loved and hated his job. Critics have compared him to other writers with a scientific background, such as Primo Levi, Robert Musil and Thomas Pynchon —a similar spirit of exactitude pervades some of Gadda's books.
+4. Carlo Emilio Gadda: biografia, opere e poetica
+   https://www.auladiletteratura.it/carlo-emilio-gadda-biografia-opere-principali/
+   La sua opera è stata oggetto di studi attenti che ne hanno messo in luce l'importanza per la storia del romanzo italiano e il ruolo di anticipazione rispetto a pratiche narrative più tarde.
+5. Gadda, Carlo Emilio - Enciclopedia - Treccani
+   https://www.treccani.it/enciclopedia/carlo-emilio-gadda_(Enciclopedia-dell'Italiano)/
+   Schivo e a suo modo timido, lo scrittore fa vita ritirata negli ultimi decenni, nonostante la notorietà derivatagli dal Pasticciaccio. Muore a Roma nel 1973. Dato il successo anche postumo dell'opera di Gadda , dopo la sua morte si sono moltiplicate le edizioni di inediti e rari.
+
+
+[tool] visit_url
+--- visit_url: https://it.wikipedia.org/wiki/Carlo_Emilio_Gadda ---
+Full page text saved to /private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5. Search this file, then use read/more at the relevant line ranges; their token budget adapts to the context.
+Carlo Emilio Gadda - Wikipedia
+Vai al contenuto
+Ricerca
+Ricerca
+Carlo Emilio Gadda
+32 lingue
+- مصرى
+- Azərbaycanca
+- تۆرکجه
+- Беларуская
+- Български
+- Čeština
+- Deutsch
+- Ελληνικά
+- English
+- Esperanto
+- Español
+- Euskara
+- فارسی
+- Suomi
+- Français
+- Magyar
+- Հայերեն
+- ქართული
+- Latina
+- Lombard
+- Malagasy
+- Македонски
+- Nederlands
+- Norsk bokmål
+- Polski
+- Piemontèis
+- Português
+- Română
+- Русский
+- Svenska
+- Türkçe
+- Українська
+Modifica collegamenti
+Da Wikipedia, l'enciclopedia libera.
+Disambiguazione – "Gadda" rimanda qui. Se stai cercando altri significati, vedi Gadda (disambigua).
+Carlo Emilio Gadda nel 1921
+Premio Bagutta 1934
+Premio Viareggio 1953
+Carlo Emilio Gadda (Milano, 14 novembre 1893 – Roma, 21 maggio 1973) è stato uno scrittore e poeta italiano.
+Ingegnere di professione, svolse la sua attività scrivendo al tempo stesso per la rivista Solaria. Dalla nativa Milano si trasferì a Roma dove collaborò a lungo con la Rai in programmi culturali.
+Pur partendo da una posizione fortemente antinovecentista, ancora molto legata agli stilemi del romanzo manzoniano, Gadda è diventato una delle figure più importanti del modernismo italiano; ha segnato la narrativa del Novecento in quanto maestro del pastiche - una vocazione riconosciuta dall'amico Gianfranco Contini -, attraverso un impasto personalissimo di linguaggi diversi (dialetti, termini gergali e tecnici, neologismi) e un incessante stravolgimento delle strutture tradizionali del romanzo. Recentemente, è stato riconosciuto a livello europeo come uno degli scrittori più originali di tutti i tempi anche per la satira della realtà contemporanea e per l'umorismo con cui stempera la pietà e la derisione per l'uomo moderno.
+D'altro canto, ricostruire la sua opera si è rivelato un problema difficile e spinoso, soprattutto per la grande quantità di opere lasciate incompiute (come nel caso del Racconto italiano di ignoto del Novecento) o che hanno avuto una lunghissima gestazione (come La cognizione del dolore, iniziato negli anni '30, ma pubblicato solo nel 1963); questa peculiarità risulta ancora più sorprendente considerando che Gadda adoperò spesso, per le sue opere, il genere giallo e noir. A questa categoria appartiene anche il suo romanzo più celebre, Quer pasticciaccio brutto de via Merulana, in cui l'autore utilizzando il genere giallo, in una fusione straordinaria di italiano, molisano e romanesco, descrive un ambiente affollato e concentrato di avvenimenti, cose, suoni, odori, un garbuglio che riflette la situazione oscura e feroce degli anni del fascismo in cui è ambientata.[1]
+Biografia
+[modifica | modifica wikitesto]
+I primi anni e gli studi
+[modifica | modifica wikitesto]
+Primogenito dei tre figli delle seconde nozze di Francesco Ippolito Gadda (1838-1909), rimasto vedovo quasi trent'anni prima e risposatosi nel 1893 con l'ungherese Adele Lehr (1861-1936), Carlo Emilio Gadda nacque a Milano il 14 novembre 1893. Il padre, industriale tessile, e la madre, insegnante di lettere e poi direttrice in alcune scuole lombarde, assicurarono alla famiglia notevoli agi, non immuni da alcuni vezzi esteriori della borghesia lombarda, come l'oneroso acquisto di una villa a Longone, in Brianza, contro la quale si indirizzarono subito l'odio e il sarcasmo di Gadda, che in essa vide l'origine di tutte le disgrazie familiari.
+Infatti le spese sostenute in questa circostanza, nonché alcuni azzardati investimenti paterni nell'allevamento dei bachi da seta, uniti alla concorrenza dell'industria tessile giapponese e, da ultimo, alla morte stessa del padre, che avvenne nel 1909, segnarono il passaggio, traumatico per il giovane, a una difficile condizione economica, a cui solo il lavoro e i sacrifici materni riuscirono a far fronte. Ciononostante manterrà nei confronti della madre un sentimento ambivalente, caratterizzato da affetto ma anche da ostilità.
+Crebbe in un ambiente ancora fortemente segnato da un'ideologia di stampo risorgimentale e patriottica, che favorì la sua adesione a ideali nazionalisti, e il giovane Carlo Emilio si formò nel segno della cultura illuministica lombarda: suoi maestri furono Parini, Beccaria, ma soprattutto Manzoni che segnò le idee letterarie della prima fase dell'opera gaddiana. Conseguita la maturità al Liceo classico "Giuseppe Parini" (1912), contro la propria volontà e in obbedienza alle aspirazioni materne[2] Gadda si iscrisse, come il fratello Enrico, al corso di laurea in Ingegneria elettrotecnica presso il Regio Istituto Tecnico Superiore di Milano (il futuro Politecnico): la rinuncia alle proprie inclinazioni letterarie fu la nota costante e dolente del ritratto che il Gadda maturo diede di sé.
+Volontario nella prima guerra mondiale
+[modifica | modifica wikitesto]
+Da convinto interventista qual era, nel maggio 1915 scese in piazza inneggiando all'entrata dell'Italia nel conflitto contro l'Austria-Ungheria nella prima guerra mondiale. Partì volontario arruolandosi nel Regio esercito, dove fu inquadrato come sottotenente della seconda sezione dell’89º reparto mitragliatrici del 5º reggimento alpini, venendo dislocato nelle zone arretrate del fronte sull'Adamello e sulle alture vicentine. Dopo la disfatta di Caporetto, l'ufficiale Gadda venne fatto prigioniero ai piedi del monte Krasji, nei pressi di Ternova d'Isonzo, nell'ottobre 1917; deportato a Celle, presso Hannover (Germania), nella baracca 15c (soprannominata la "baracca dei poeti") strinse amicizia con Bonaventura Tecchi, Camillo Corsanego e Ugo Betti[3]. L'esperienza vissuta con questi intellettuali viene raccontata nel capitolo "Compagni di prigionia", de Il castello di Udine.
+Tra il 24 agosto 1915 e il 31 dicembre 1919 Gadda tenne un minuzioso diario, in parte (quella del 1917) andato perduto. Col titolo Giornale di guerra e di prigionia, fu parzialmente pubblicato solamente nel 1955 e, con alcune aggiunte, nel 1965. Solo dopo la sua morte sarà pubblicata anche la parte relativa a Caporetto e alla prigionia, fino al ritrovamento di altri sei taccuini inediti, comprati a un'asta di Finarte dalla Biblioteca Nazionale Centrale di Roma nel 2019, restaurati e finalmente pubblicati nella nuova edizione critica del 2023 (Adelphi). È una denuncia forte e amara dell'incompetenza con cui era stata condotta la guerra e del degrado fisico e morale della vita dei prigionieri di guerra. L'opera gaddiana riporta in differenti occasioni alcuni dei temi che diventeranno il fondamento delle maggiori: il disordine oggettivo del reale, l'affetto dell'autore nei confronti del fratello, l'orrore della guerra, il disprezzo delle gerarchie.
+Il rientro in Italia, a Milano, alla fine del gennaio 1919, è funestato dalla notizia della morte in un incidente di guerra, il 23 aprile 1918, dell'amato fratello Enrico, aviatore, "la parte migliore e più cara di me stesso", come annota nel Giornale. Questo renderà ancora più difficili i rapporti con la madre, e segnerà Carlo Emilio, tanto nella sua misoginia, tanto nella sua aperta misantropia negli ultimi anni.
+Ingegnere e collaboratore a Solaria
+[modifica | modifica wikitesto]
+Tornato a Milano, il 14 luglio 1920 conseguì la laurea in Ingegneria elettrotecnica, discutendo la tesi Turbine ad azione Pelton con due introduttori. Come ingegnere lavorò in Sardegna, in Lombardia, in Belgio e in Argentina[4][5], presso la Compañía General de Fósforos, fondata dagli industriali italiani Dellachà e Lavaggi. Vista la sua formazione, non sorprende né il terrore nei confronti del "pericolo socialista" durante il Biennio Rosso, né l'adesione al Partito Nazionale Fascista, cui si iscrisse nel 1921. Dopo l'instaurazione del regime, tuttavia, i suoi rapporti con il fascismo furono molto ambivalenti, come si constata dalla collaborazione con il quotidiano Solaria, fondato dall'antifascista Alberto Carocci, contemporaneamente a quella con L'Ambrosiano, quotidiano vicino al regime; lo stesso Mussolini fu oggetto, negli scritti di Gadda tanto di aperto supporto quanto di sottili critiche e ironie, fino ad arriva
+...[truncated]
+
+agent: tool result limited 2271 -> 718 tokens (full result saved)
+
+[tool] bash
+$ grep -n -i "opere\|bibliografia\|romanzi\|racconti\|poesie\|saggi" /private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5 | head -50
+48:D'altro canto, ricostruire la sua opera si è rivelato un problema difficile e spinoso, soprattutto per la grande quantità di opere lasciate incompiute (come nel caso del Racconto italiano di ignoto del Novecento) o che hanno avuto una lunghissima gestazione (come La cognizione del dolore, iniziato negli anni '30, ma pubblicato solo nel 1963); questa peculiarità risulta ancora più sorprendente considerando che Gadda adoperò spesso, per le sue opere, il genere giallo e noir. A questa categoria appartiene anche il suo romanzo più celebre, Quer pasticciaccio brutto de via Merulana, in cui l'autore utilizzando il genere giallo, in una fusione straordinaria di italiano, molisano e romanesco, descrive un ambiente affollato e concentrato di avvenimenti, cose, suoni, odori, un garbuglio che riflette la situazione oscura e feroce degli anni del fascismo in cui è ambientata.[1]
+54:Infatti le spese sostenute in questa circostanza, nonché alcuni azzardati investimenti paterni nell'allevamento dei bachi da seta, uniti alla concorrenza dell'industria tessile giapponese e, da ultimo, alla morte stessa del padre, che avvenne nel 1909, segnarono il passaggio, traumatico per il giovane, a una difficile condizione economica, a cui solo il lavoro e i sacrifici materni riuscirono a far fronte. Ciononostante manterrà nei confronti della madre un sentimento ambivalente, caratterizzato da affetto ma anche da ostilità.
+64:Fu docente di matematica e fisica al Liceo Parini di Milano, nel quale aveva studiato[4], fra il 1924 e il 1925[6]. Nel 1924 decise di iscriversi al corso di laurea in filosofia e di dedicarsi alla passione a lungo rimandata: la letteratura e le arti umanistiche. Superò tutti gli esami previsti dall'ordinamento didattico e concordò la tesi col professor Piero Martinetti. La dissertazione di laurea riguardava i Nouveaux Essais sur l'entendement humain di Leibniz, ma per oscuri motivi Gadda non terminò mai la sua stesura e rinunciò così a laurearsi in filosofia. Nel 1926 iniziò la sua collaborazione alla rivista fiorentina Solaria, esordendo nel 1927 sulle pagine di critica con il saggio dal titolo Apologia manzoniana[7].
+67:Negli anni venti iniziò a scrivere ampi abbozzi di romanzi e trattati, come Racconto italiano di ignoto del Novecento, nel 1924-25, contenente molte informazioni sulle caratteristiche che deve avere il romanzo moderno in rapporto alla tradizione (specie quella manzoniana). Nel 1928-29 abbozzò un trattato filosofico, la Meditazione milanese (di cui stese una prima versione e iniziò, senza concluderla, una seconda versione), che trattava di una gnoseologia e nel quale si manifestava il suo interesse per Leibniz, ma anche per Kant e per Spinoza. Nello stesso anno si dedicò al romanzo La meccanica, che tuttavia, rimasto incompiuto, vedrà la luce solamente nel 1970.
+68:Nel 1931 iniziò la sua collaborazione al quotidiano milanese L'Ambrosiano e pubblicò presso le Edizioni di Solaria una raccolta di racconti e prose varie, intitolata La Madonna dei filosofi. Con Il castello di Udine, sua seconda raccolta di racconti, che verrà pubblicata tre anni dopo, lo scrittore otterrà il premio Bagutta.
+72:Nel 1940 lo scrittore, abbandonata ormai definitivamente la professione di ingegnere, si trasferì a Firenze, dove visse fino al 1950. Nel 1944 pubblicò L'Adalgisa, una raccolta di racconti di ambiente milanese, un quadro storico-satirico della borghesia milanese nel primo trentennio del Novecento, affiancato da note che danno un rimando saggistico all'opera: al suo interno, "raccontando i Perego, i Maldifassi, i Lattuada, i Corbetta, i Rusconi, i Ghiringhelli, e in primo luogo le loro donne", queste erano descritte come "le vere custodi e interpreti dei sentimenti e delle istituzioni della tribù".[8]
+80:Nel 1963 venne dato alle stampe La cognizione del dolore. L'opera, già apparsa in parte tra il 1938 e il 1941 sempre su Letteratura, ottenne il Prix International de la Littérature e uscì successivamente ai saggi e alle note autobiografiche raccolte nel 1958 con il titolo I viaggi la morte. Sempre nel 1963 uscirono Le meraviglie d'Italia nella loro stesura definitiva, con modifiche sostanziali rispetto alla pubblicazione del 1938. Il Gadda di questa fase matura è quello maggiormente ricordato come rappresentante della Linea Lombarda.
+85:Tra le ultime opere, il romanzo-saggio del 1967 Eros e Priapo: da furore a cenere, un violento e grottesco pamphlet sui miti del ventennio fascista che dimostra ancora una volta il rapporto di sostanziale ostilità di Gadda col fascismo; proprio Eros e Priapo è un divertente benché amarissimo scritto contro il regime e Benito Mussolini: in tempi più recenti, il libro è stato riletto come una riflessione sui «torbidi moventi» derivati da impulsi latenti sublimati, dato accentuato dal suo orientamento sessuale[12].
+98:Alberto Arbasino ha analizzato la scrittura del Gadda nel saggio Genius Loci (1977)[18]:
+99:«la derisoria violenza della sua scrittura esplodeva esasperata, contestando insieme il linguaggio e la parodia, tra il ron-ron rondesco-neoclassico-fascistello e il pio-pio crepuscolare-ermetico-pretino, in schegge di incandescente (espressionistica) espressività… Proprio come per Rabelais e per Joyce che gli sarebbero poi stati accostati, «a braccio» e «a orecchio», i suoi messaggi fanno a pezzi ogni codice, spiritate e irritate, le sue invenzioni verbali dileggiano significati e significanti; devastano ogni funzione o finalità comunicativa; rappresentano innanzitutto se stesse, e i propri fantasmi, in un foisonnement inaudito e implacabile di spettacolari idioletti.
+105:Opere
+111:- Opere, 5 voll., direzione a cura di Dante Isella, Collana I Libri della Spiga, Garzanti, Milano, 1988-1993
+112:- I. Romanzi e racconti I, 1988, ISBN 88-11-58640-2
+113:- II. Romanzi e racconti II, 1989, ISBN 88-11-58641-0
+114:- III. Saggi, giornali, favole e altri scritti I, 1991, ISBN 88-11-58642-9
+115:- IV. Saggi, giornali, favole a altri scritti II, 1992, ISBN 88-11-58643-7
+117:- V. II. Bibliografia e Indici, 1993, ISBN 88-11-58644-5.
+118:- Romanzi (contiene: L'Adalgisa, La cognizione del dolore, Quer pasticciaccio brutto de via Merulana), a cura di Giorgio Bàrberi Squarotti, Collana Classici italiani n. 97, UTET, 1997, p. 832, ISBN 978-88-02-05210-6.
+119:Romanzi, racconti, saggi
+121:- La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+126:- Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+135:- Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+137:- I racconti, Milano, Garzanti, 1965.
+143:- Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+144:- Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+145:- Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+154:- Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+158:- Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+173:Poesie
+175:- Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 978-88-061-3384-9.
+180:- Lettere a una gentile signora, corrispondenza con Lucia Rodocanachi, a cura di Giuseppe Marcenaro, con un saggio di Giuseppe Pontiggia, Milano, Adelphi, 1983, ISBN 978-88-459-0555-1.
+181:- Lettere agli amici milanesi, a cura di E. Sassi, Milano, Il Saggiatore, 1983.
+200:- Gadda. La vita e le opere in un volume di Mauro Bersani. Le immagini e la voce dello scrittore in una videocassetta di Rai Educational, Torino, Einaudi, 2003.
+204:- Francisco de Quevedo, Il mondo com'è (El mundo por de dentro), in Narratori spagnoli. Raccolta di romanzi e racconti dalle origini ai nostri giorni, a cura di Carlo Bo, Bompiani, 1941.
+230:- ↑ Alberto Arbasino, Genius Loci in The Edinburgh Journal of Gadda Studies (EJGS) 1977 ISSN 1476-9859 (WC · ACNP), già in Certi romanzi, Einaudi, Torino, 1977, pp. 339-71 cfr. (archiviato dall'url originale il 28 agosto 2007)., poi in L'ingegnere in blu (2008).
+231:- ↑ Premio Campiello, opere premiate nelle precedenti edizioni, su premiocampiello.org. URL consultato il 24 febbraio 2019 (archiviato dall'url originale il 14 agosto 2019).
+234:Bibliografia
+252:- Emilio Manzotti, La cognizione del dolore di Carlo Emilio Gadda, in Alberto Asor Rosa (a cura di), Letteratura Italiana. Le Opere, vol. 4: Il novecento, tomo 2: La ricerca letteraria, Torino: Einaudi, 1996, pp. 201-337.
+311:- Opere di Carlo Emilio Gadda, su MLOL, Horizons Unlimited.
+312:- (EN) Opere di Carlo Emilio Gadda, su Open Library, Internet Archive.
+313:- (EN) Opere riguardanti Carlo Emilio Gadda, su Open Library, Internet Archive.
+321:- La bibliografia completa e molte altre informazioni su Carlo Emilio Gadda, su carloemiliogadda.it. URL consultato il 4 luglio 2019 (archiviato dall'url originale il 28 maggio 2019).
+323:- Dall'Archivio Elettronico delle Opere di Carlo Emilio Gadda, su ilc.cnr.it. URL consultato il 2 ottobre 2007 (archiviato dall'url originale il 23 gennaio 2008).
+
+exit=0
+
+agent: tool result limited 3141 -> 700 tokens (full result saved)
+
+[tool] bash
+$ grep -n -i "Pasticciaccio\|Cognizione\|Racconto italiano\|Eros e Psiche\|La Tempesta\|Narrativa\|Poesia\|Saggistica\|Opere\b" /private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5 | head -60
+47:Pur partendo da una posizione fortemente antinovecentista, ancora molto legata agli stilemi del romanzo manzoniano, Gadda è diventato una delle figure più importanti del modernismo italiano; ha segnato la narrativa del Novecento in quanto maestro del pastiche - una vocazione riconosciuta dall'amico Gianfranco Contini -, attraverso un impasto personalissimo di linguaggi diversi (dialetti, termini gergali e tecnici, neologismi) e un incessante stravolgimento delle strutture tradizionali del romanzo. Recentemente, è stato riconosciuto a livello europeo come uno degli scrittori più originali di tutti i tempi anche per la satira della realtà contemporanea e per l'umorismo con cui stempera la pietà e la derisione per l'uomo moderno.
+48:D'altro canto, ricostruire la sua opera si è rivelato un problema difficile e spinoso, soprattutto per la grande quantità di opere lasciate incompiute (come nel caso del Racconto italiano di ignoto del Novecento) o che hanno avuto una lunghissima gestazione (come La cognizione del dolore, iniziato negli anni '30, ma pubblicato solo nel 1963); questa peculiarità risulta ancora più sorprendente considerando che Gadda adoperò spesso, per le sue opere, il genere giallo e noir. A questa categoria appartiene anche il suo romanzo più celebre, Quer pasticciaccio brutto de via Merulana, in cui l'autore utilizzando il genere giallo, in una fusione straordinaria di italiano, molisano e romanesco, descrive un ambiente affollato e concentrato di avvenimenti, cose, suoni, odori, un garbuglio che riflette la situazione oscura e feroce degli anni del fascismo in cui è ambientata.[1]
+63:Tornato a Milano, il 14 luglio 1920 conseguì la laurea in Ingegneria elettrotecnica, discutendo la tesi Turbine ad azione Pelton con due introduttori. Come ingegnere lavorò in Sardegna, in Lombardia, in Belgio e in Argentina[4][5], presso la Compañía General de Fósforos, fondata dagli industriali italiani Dellachà e Lavaggi. Vista la sua formazione, non sorprende né il terrore nei confronti del "pericolo socialista" durante il Biennio Rosso, né l'adesione al Partito Nazionale Fascista, cui si iscrisse nel 1921. Dopo l'instaurazione del regime, tuttavia, i suoi rapporti con il fascismo furono molto ambivalenti, come si constata dalla collaborazione con il quotidiano Solaria, fondato dall'antifascista Alberto Carocci, contemporaneamente a quella con L'Ambrosiano, quotidiano vicino al regime; lo stesso Mussolini fu oggetto, negli scritti di Gadda tanto di aperto supporto quanto di sottili critiche e ironie, fino ad arrivare ai violentissimi attacchi che, già negli anni '30, Gadda rivolge al regime nell'incompiuto La cognizione del dolore e poi, nel dopoguerra, in Eros e Priapo.
+67:Negli anni venti iniziò a scrivere ampi abbozzi di romanzi e trattati, come Racconto italiano di ignoto del Novecento, nel 1924-25, contenente molte informazioni sulle caratteristiche che deve avere il romanzo moderno in rapporto alla tradizione (specie quella manzoniana). Nel 1928-29 abbozzò un trattato filosofico, la Meditazione milanese (di cui stese una prima versione e iniziò, senza concluderla, una seconda versione), che trattava di una gnoseologia e nel quale si manifestava il suo interesse per Leibniz, ma anche per Kant e per Spinoza. Nello stesso anno si dedicò al romanzo La meccanica, che tuttavia, rimasto incompiuto, vedrà la luce solamente nel 1970.
+69:Nel 1936 morì la madre, con la quale Gadda intratteneva un rapporto conflittuale. Fu anche per la morte di Adele Lehr e in relazione alla scelta di vendere la casa paterna in Brianza, in cui la madre aveva vissuto, che lo scrittore cominciò a stendere i primi abbozzi del romanzo La cognizione del dolore, pubblicato successivamente tra il 1938 e il 1941 sulla rivista Letteratura.
+79:Nel 1957 venne pubblicato Quer pasticciaccio brutto de via Merulana, uno sperimentale romanzo giallo ambientato nei primi anni del fascismo, che era già apparso in una prima versione nel 1946-47 sulla rivista Letteratura. Da quest'opera nel 1959 fu tratto il film Un maledetto imbroglio del regista Pietro Germi.
+80:Nel 1963 venne dato alle stampe La cognizione del dolore. L'opera, già apparsa in parte tra il 1938 e il 1941 sempre su Letteratura, ottenne il Prix International de la Littérature e uscì successivamente ai saggi e alle note autobiografiche raccolte nel 1958 con il titolo I viaggi la morte. Sempre nel 1963 uscirono Le meraviglie d'Italia nella loro stesura definitiva, con modifiche sostanziali rispetto alla pubblicazione del 1938. Il Gadda di questa fase matura è quello maggiormente ricordato come rappresentante della Linea Lombarda.
+85:Tra le ultime opere, il romanzo-saggio del 1967 Eros e Priapo: da furore a cenere, un violento e grottesco pamphlet sui miti del ventennio fascista che dimostra ancora una volta il rapporto di sostanziale ostilità di Gadda col fascismo; proprio Eros e Priapo è un divertente benché amarissimo scritto contro il regime e Benito Mussolini: in tempi più recenti, il libro è stato riletto come una riflessione sui «torbidi moventi» derivati da impulsi latenti sublimati, dato accentuato dal suo orientamento sessuale[12].
+88:Gadda morì il 21 maggio 1973 a Roma. È sepolto nel cimitero acattolico di Roma. Dopo la sua morte vennero pubblicati Meditazione milanese (1974) e Racconto italiano di ignoto del novecento (1983).
+93:Fin dalla primissima prova letteraria di Gadda, il Giornale di guerra e prigionia, si può ritrovare un conflitto interiore tra “dover essere” ed “essere”. Tale tormento è stato posto da Andrea Cortellessa alla base di alcuni tratti distintivi dell’opera gaddiana, estesi dall’esperienza diaristica all’intera produzione letteraria: "involontarietà", "impossibilità" e "interminabilità"[14]. I testi di Gadda sono, infatti, il risultato di una lunga e complessa elaborazione, segnata da continue revisioni, riscritture e da un rapporto problematico con gli editori. Molti lavori vengono portati a termine solo dopo lunghi periodi di gestazione, mentre altri, come il Racconto italiano, restano incompiuti o vengono pubblicati a notevole distanza dalla loro stesura originaria. Sul piano teorico ed estetico, il giovane Gadda manifestò l’intenzione di confrontarsi con il modello del romanzo manzoniano, cercando di adattarne gli stilemi alla mutata realtà storica e sociale del Novecento. Il suo progetto narrativo si orientava verso un “realismo totale”, caratterizzato da una prospettiva plurima e centrifuga, che avrebbe dovuto dar luogo a una forma di “romanzo moltiplicato”. Tuttavia, proprio questo ambizioso tentativo di rappresentare la totalità del reale finì per mettere in crisi e far implodere le strutture del romanzo tradizionale.
+94:A rendere ancora più problematica la possibilità di una rappresentazione ordinata e coerente della realtà contribuirono eventi traumatici come la disfatta di Caporetto e la morte del fratello Enrico. Tali esperienze rafforzarono in Gadda la consapevolezza dell’impossibilità di raccontare in modo unitario una realtà percepita come complessa, stratificata e spesso indecifrabile. Questa concezione trova una celebre formulazione simbolica nel Quer pasticciaccio brutto de via Merulana, attraverso l’immagine dello “gnommero”, termine dialettale che indica un groviglio inestricabile. In Gadda la realtà non è costituita da entità stabili, ma da un intreccio potenzialmente infinito di relazioni, reali o possibili, che si attualizzano nel mondo delle apparenze. Tale visione ha profonde conseguenze anche sul piano linguistico e stilistico. L’idea dell’inestricabilità del reale si riflette infatti nell’uso estremamente vario e sperimentale della lingua, che Gadda stesso definì “spastica”. Il ricorso al plurilinguismo, al dialetto, all’espressionismo e al pastiche diventa così uno strumento per imitare la complessità del mondo e per conferire alla parola un particolare statuto di verità. Nel corso della produzione gaddiana, tuttavia, il rapporto tra parola, realtà e verità si fa progressivamente più problematico. La verità non rimanda più a un ordine metafisico trascendente, ma si configura come il risultato del movimento stesso della scrittura e del processo narrativo.
+105:Opere
+111:- Opere, 5 voll., direzione a cura di Dante Isella, Collana I Libri della Spiga, Garzanti, Milano, 1988-1993
+118:- Romanzi (contiene: L'Adalgisa, La cognizione del dolore, Quer pasticciaccio brutto de via Merulana), a cura di Giorgio Bàrberi Squarotti, Collana Classici italiani n. 97, UTET, 1997, p. 832, ISBN 978-88-02-05210-6.
+131:- Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+134:- La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+139:- Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+144:- Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+146:- Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+175:- Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 978-88-061-3384-9.
+182:- L'Ingegner fantasia. Lettere a Ugo Betti 1919-1930. Un capitolo inesplorato della vita dell'autore del "Pasticciaccio", a cura di Giulio Ungarelli, Milano, Rizzoli, 1984.
+200:- Gadda. La vita e le opere in un volume di Mauro Bersani. Le immagini e la voce dello scrittore in una videocassetta di Rai Educational, Torino, Einaudi, 2003.
+231:- ↑ Premio Campiello, opere premiate nelle precedenti edizioni, su premiocampiello.org. URL consultato il 24 febbraio 2019 (archiviato dall'url originale il 14 agosto 2019).
+243:- Angelo R. Dicuonzo, L’ossessione della frode. Socioanalisi del dolore nella «Cognizione» di Gadda, Bologna, Il Mulino, 2021, ISBN 978-88-15-29434-0.
+252:- Emilio Manzotti, La cognizione del dolore di Carlo Emilio Gadda, in Alberto Asor Rosa (a cura di), Letteratura Italiana. Le Opere, vol. 4: Il novecento, tomo 2: La ricerca letteraria, Torino: Einaudi, 1996, pp. 201-337.
+263:- Cesare Garboli, Due furti uguali e distinti: Carlo Emilio Gadda, "Quer pasticciaccio brutto de via Merulana" (1957), in Franco Moretti (a cura di), Il romanzo, vol. 5: Lezioni, Torino, Einaudi, 2003, pp. 539-570.
+266:- Caterina Verbaro, La cognizione della pluralità. Letteratura e conoscenza in Carlo Emilio Gadda, Firenze, Le Lettere, 2005.
+270:- Realino Marra, La cognizione del delitto. Reato e "macchina della giustizia" nel "Pasticciaccio" di Gadda, in "Materiali per una storia della cultura giuridica", a. XL, n. 1, 2010, pp. 157-83.
+311:- Opere di Carlo Emilio Gadda, su MLOL, Horizons Unlimited.
+312:- (EN) Opere di Carlo Emilio Gadda, su Open Library, Internet Archive.
+313:- (EN) Opere riguardanti Carlo Emilio Gadda, su Open Library, Internet Archive.
+323:- Dall'Archivio Elettronico delle Opere di Carlo Emilio Gadda, su ilc.cnr.it. URL consultato il 2 ottobre 2007 (archiviato dall'url originale il 23 gennaio 2008).
+338:Vincitori del Premio Viareggio per la narrativa
+391:- Vincitori del Premio Viareggio per la narrativa
+
+exit=0
+
+agent: tool result limited 3367 -> 696 tokens (full result saved)
+
+[tool] read
+read path=/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5 start=100 lines=120
+  100  […]
+  101  La complessa ricchezza linguistica e tematica dell'opera gaddiana, così visceralmente composta e tramata, e sardanapalesca, e pantagruelica, continua a sollecitare una pluralità di letture, a diversi livelli, lungo differenti parametri, secondo i più svariati presupposti e pregiudizi: a costo di razionalizzare fin troppo lucidamente attraverso nitidi procedimenti di schede e di referti quel suo atrabiliare viluppo di fantasticate irrisioni e di furie compossibili.
+  102  […]
+  103  Non per nulla, gl'interessi enciclopedici dell'Ingegnere coincidono (fino al delirio di riversare tutta la Funzione nell'Espressione) coi manifesti tracciati due secoli fa dagli impeccabili fratelli Verri e da Cesare Beccaria, risoluti a insultare programmaticamente la Crusca in nome di Galileo e di Newton, cioè a sviluppare una cultura extraletteraria cosmopolita e un pensiero intellettuale «assolutamente moderno» a dispetto della grammatica arcaica dei Pedanti, trasgredendo al purismo imbecille che caldeggia l'impiego di qualsiasi grulleria del Piovano Arlotto per definire prodotti e nozioni del nostro tempo»
+  104  (Alberto Arbasino, Genius Loci)
+  105  Opere
+  106  [modifica | modifica wikitesto]
+  107  «Il dirmi che una scarica di mitra è realtà mi va bene, certo; ma io chiedo al romanzo che dietro questi due ettogrammi di piombo ci sia una tensione tragica, una consecuzione operante, un mistero, forse le ragioni o le irragioni del fatto.»
+  108  (I viaggi, la morte, 1958)
+  109  Raccolte
+  110  [modifica | modifica wikitesto]
+  111  - Opere, 5 voll., direzione a cura di Dante Isella, Collana I Libri della Spiga, Garzanti, Milano, 1988-1993
+  112  - I. Romanzi e racconti I, 1988, ISBN 88-11-58640-2
+  113  - II. Romanzi e racconti II, 1989, ISBN 88-11-58641-0
+  114  - III. Saggi, giornali, favole e altri scritti I, 1991, ISBN 88-11-58642-9
+  115  - IV. Saggi, giornali, favole a altri scritti II, 1992, ISBN 88-11-58643-7
+  116  - V. I. Scritti vari e postumi, 1993, ISBN 88-11-58644-5
+  117  - V. II. Bibliografia e Indici, 1993, ISBN 88-11-58644-5.
+  118  - Romanzi (contiene: L'Adalgisa, La cognizione del dolore, Quer pasticciaccio brutto de via Merulana), a cura di Giorgio Bàrberi Squarotti, Collana Classici italiani n. 97, UTET, 1997, p. 832, ISBN 978-88-02-05210-6.
+  119  Romanzi, racconti, saggi
+  120  [modifica | modifica wikitesto]
+
+context_guard: read token limit=1024 returned_lines=21 next_start=121. Continue with more or read at next_start; the remaining file stays on disk.
+
+
+[tool] read
+read path=/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5 start=121 lines=120
+  121  - La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+  122  - Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+  123  - Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+  124  - Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+  125  - L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio Vela, Adelphi, Milano, 2012.
+  126  - Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+  127  - Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+  128  - Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459-3300-4.
+  129  - I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+  130  - Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con taccuini inediti ritrovati, a cura di Paola Italia, Nota di Eleonora Cardinale, Collana Biblioteca n.741, Milano, Adelphi, 2023, ISBN 978-88-459-3731-6.
+  131  - Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+  132  - I viaggi, la morte, Garzanti, Milano, 1958.
+  133  - Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+
+context_guard: read token limit=1024 returned_lines=13 next_start=134. Continue with more or read at next_start; the remaining file stays on disk.
+
+agent: compacting context (soft limit before tool continuation), old=6972 ctx=8192
+agent: compacted context old=6972 new=3874 tail=1066
+
+[tool] more
+read path=/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5 start=134 lines=120
+  134  - La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+  135  - Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+  136  - I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+  137  - I racconti, Milano, Garzanti, 1965.
+  138  - Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+  139  - Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+  140  - La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+  141  - Novella seconda, Garzanti, Milano, 1971.
+  142  - Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+  143  - Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+  144  - Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+  145  - Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+  146  - Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+  147  - Il palazzo degli ori, Einaudi, Torino, 1983.
+  148  - Gonnella buffone, Guanda, Milano, 1985.
+  149  - Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+  150  - I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+
+context_guard: read token limit=1024 returned_lines=17 next_start=151. Continue with more or read at next_start; the remaining file stays on disk.
+
+agent: skipped repeated more tool call
+
+[tool] read
+read path=/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5 start=151 lines=120
+  151  - Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+  152  - Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+  153  - Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di via Keplero, Un fulmine sul 220]
+  154  - Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+  155  - Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+  156  - I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+  157  - Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+  158  - Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+  159  - La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+  160  - Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+  161  Altri testi
+  162  [modifica | modifica wikitesto]
+  163  - Le carte militari di Gadda, a cura di Giulio Ungarelli, Collana Prosa n.51, Milano, Scheiwiller, 1994, ISBN 978-88-764-4195-0.
+  164  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I, Ricciardi, Milano-Napoli, 2001, ISBN 88-7817-556-0.
+  165  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II, Ricciardi, Milano-Napoli, 2003, ISBN 978-88-781-7909-7.
+  166  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III, Einaudi, Torino, 2006, ISBN 978-88-061-8221-2.
+
+context_guard: read token limit=1024 returned_lines=16 next_start=167. Continue with more or read at next_start; the remaining file stays on disk.
+
+
+[tool] read
+read path=/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-6r5hxwrz/store/spills/web-FOw3W5 start=167 lines=120
+  167  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV, Einaudi, Torino, 2007, ISBN 978-88-061-8933-4.
+  168  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2010, ISBN 978-88-608-8126-7.
+  169  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2011, ISBN 978-88-608-8528-9.
+  170  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2012, ISBN 978-88-608-8960-7.
+  171  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2013, ISBN 978-88-235-0481-3.
+  172  - I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. V. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2014, ISBN 978-88-235-1038-8.
+  173  Poesie
+  174  [modifica | modifica wikitesto]
+  175  - Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 978-88-061-3384-9.
+  176  Epistolari
+  177  [modifica | modifica wikitesto]
+  178  - Piero Gadda Conti, Le confessioni di Carlo Emilio Gadda[20], Milano, Pan editrice, 1974.
+  179  - Carteggio dell'Ing. Carlo Emilio Gadda con l'Ammonia Casale, s.a., 1927-1940, a cura di Dante Isella, Verona, Stamperia Valdonega, 1982.
+  180  - Lettere a una gentile signora, corrispondenza con Lucia Rodocanachi, a cura di Giuseppe Marcenaro, con un saggio di Giuseppe Pontiggia, Milano, Adelphi, 1983, ISBN 978-88-459-0555-1.
+  181  - Lettere agli amici milanesi, a cura di E. Sassi, Milano, Il Saggiatore, 1983.
+  182  - L'Ingegner fantasia. Lettere a Ugo Betti 1919-1930. Un capitolo inesplorato della vita dell'autore del "Pasticciaccio", a cura di Giulio Ungarelli, Milano, Rizzoli, 1984.
+  183  - A un amico fraterno. Lettere a Bonaventura Tecchi, a cura di Marcello Carlino, Milano, Garzanti, 1984.
+
+context_guard: read token limit=1024 returned_lines=17 next_start=184. Continue with more or read at next_start; the remaining file stays on disk.
+
+agent: compacting context (soft limit before tool continuation), old=7307 ctx=8192
+agent: compacted context old=7307 new=3615 tail=1117
+agent: stopped repeated token loop

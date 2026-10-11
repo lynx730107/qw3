@@ -1,0 +1,422 @@
+{
+  "observed_utc": "2026-10-11T18:04:38.703111+00:00",
+  "scope": "metadata only; no production message text copied",
+  "archives": [
+    {
+      "file": "context-40b9Ne",
+      "file_bytes": 83053,
+      "mtime_ns": 1791739193857146570,
+      "sha256": "ac183be45608d0ee5d3e9d3f858163485340d6cb7efc1a513e0ba2ec5263b30e",
+      "messages": 6,
+      "total_tokens": 31796,
+      "message_metadata_only": [
+        {
+          "index": 1,
+          "kind": "control",
+          "role": "system",
+          "tokens": 531,
+          "content_bytes": 1785,
+          "contains_html_markup": false
+        },
+        {
+          "index": 2,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 88,
+          "content_bytes": 174,
+          "contains_html_markup": true
+        },
+        {
+          "index": 3,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 440,
+          "content_bytes": 1132,
+          "contains_html_markup": true
+        },
+        {
+          "index": 4,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 62,
+          "content_bytes": 156,
+          "contains_html_markup": false
+        },
+        {
+          "index": 5,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 29229,
+          "content_bytes": 79321,
+          "contains_html_markup": true
+        }
+      ]
+    },
+    {
+      "file": "context-FbA6kr",
+      "file_bytes": 30290,
+      "mtime_ns": 1791739721859408976,
+      "sha256": "e00865d25e9e7ad672d9ce031b9a310757da7b9559ad5164198284a575a32d22",
+      "messages": 10,
+      "total_tokens": 12504,
+      "message_metadata_only": [
+        {
+          "index": 1,
+          "kind": "control",
+          "role": "system",
+          "tokens": 835,
+          "content_bytes": 2311,
+          "contains_html_markup": false
+        },
+        {
+          "index": 2,
+          "kind": "user",
+          "role": "user",
+          "tokens": 9,
+          "content_bytes": 8,
+          "contains_html_markup": false
+        },
+        {
+          "index": 3,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 61,
+          "content_bytes": 141,
+          "contains_html_markup": false
+        },
+        {
+          "index": 4,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 65,
+          "content_bytes": 161,
+          "contains_html_markup": false
+        },
+        {
+          "index": 5,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 71,
+          "content_bytes": 190,
+          "contains_html_markup": false
+        },
+        {
+          "index": 6,
+          "kind": "user",
+          "role": "user",
+          "tokens": 12,
+          "content_bytes": 16,
+          "contains_html_markup": false
+        },
+        {
+          "index": 7,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 116,
+          "content_bytes": 345,
+          "contains_html_markup": false
+        },
+        {
+          "index": 8,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 9825,
+          "content_bytes": 26143,
+          "contains_html_markup": true
+        },
+        {
+          "index": 9,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 64,
+          "content_bytes": 155,
+          "contains_html_markup": false
+        }
+      ]
+    },
+    {
+      "file": "context-jy1CgC",
+      "file_bytes": 8944,
+      "mtime_ns": 1791739388834116195,
+      "sha256": "ce46ca36d67e28d169e45f86d0162a89208034edb7cf882ab0dfbd373e42cff3",
+      "messages": 5,
+      "total_tokens": 4745,
+      "message_metadata_only": [
+        {
+          "index": 1,
+          "kind": "control",
+          "role": "system",
+          "tokens": 835,
+          "content_bytes": 2311,
+          "contains_html_markup": false
+        },
+        {
+          "index": 2,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 190,
+          "content_bytes": 525,
+          "contains_html_markup": true
+        },
+        {
+          "index": 3,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 2173,
+          "content_bytes": 5430,
+          "contains_html_markup": true
+        },
+        {
+          "index": 4,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 101,
+          "content_bytes": 273,
+          "contains_html_markup": false
+        }
+      ]
+    },
+    {
+      "file": "context-x35FnX",
+      "file_bytes": 85518,
+      "mtime_ns": 1791738989230697778,
+      "sha256": "14f436d5c1d3ed59eb67fe27e45fd3144ce7493913a09a99f116105f29b03921",
+      "messages": 30,
+      "total_tokens": 30055,
+      "message_metadata_only": [
+        {
+          "index": 1,
+          "kind": "user",
+          "role": "user",
+          "tokens": 7,
+          "content_bytes": 4,
+          "contains_html_markup": false
+        },
+        {
+          "index": 2,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 18,
+          "content_bytes": 31,
+          "contains_html_markup": false
+        },
+        {
+          "index": 3,
+          "kind": "user",
+          "role": "user",
+          "tokens": 16,
+          "content_bytes": 42,
+          "contains_html_markup": false
+        },
+        {
+          "index": 4,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 43,
+          "content_bytes": 120,
+          "contains_html_markup": false
+        },
+        {
+          "index": 5,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 2154,
+          "content_bytes": 3729,
+          "contains_html_markup": false
+        },
+        {
+          "index": 6,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 48,
+          "content_bytes": 122,
+          "contains_html_markup": false
+        },
+        {
+          "index": 7,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 2204,
+          "content_bytes": 8271,
+          "contains_html_markup": false
+        },
+        {
+          "index": 8,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 371,
+          "content_bytes": 1015,
+          "contains_html_markup": false
+        },
+        {
+          "index": 9,
+          "kind": "user",
+          "role": "user",
+          "tokens": 8,
+          "content_bytes": 17,
+          "contains_html_markup": false
+        },
+        {
+          "index": 10,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 51,
+          "content_bytes": 128,
+          "contains_html_markup": false
+        },
+        {
+          "index": 11,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 2207,
+          "content_bytes": 8277,
+          "contains_html_markup": false
+        },
+        {
+          "index": 12,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 93,
+          "content_bytes": 344,
+          "contains_html_markup": false
+        },
+        {
+          "index": 13,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 573,
+          "content_bytes": 1904,
+          "contains_html_markup": false
+        },
+        {
+          "index": 14,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 53,
+          "content_bytes": 141,
+          "contains_html_markup": false
+        },
+        {
+          "index": 15,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 310,
+          "content_bytes": 1002,
+          "contains_html_markup": false
+        },
+        {
+          "index": 16,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 72,
+          "content_bytes": 232,
+          "contains_html_markup": false
+        },
+        {
+          "index": 17,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 34,
+          "content_bytes": 90,
+          "contains_html_markup": false
+        },
+        {
+          "index": 18,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 48,
+          "content_bytes": 130,
+          "contains_html_markup": false
+        },
+        {
+          "index": 19,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 513,
+          "content_bytes": 1791,
+          "contains_html_markup": false
+        },
+        {
+          "index": 20,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 57,
+          "content_bytes": 140,
+          "contains_html_markup": false
+        },
+        {
+          "index": 21,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 2223,
+          "content_bytes": 8223,
+          "contains_html_markup": false
+        },
+        {
+          "index": 22,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 576,
+          "content_bytes": 1450,
+          "contains_html_markup": false
+        },
+        {
+          "index": 23,
+          "kind": "user",
+          "role": "user",
+          "tokens": 25,
+          "content_bytes": 84,
+          "contains_html_markup": false
+        },
+        {
+          "index": 24,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 82,
+          "content_bytes": 212,
+          "contains_html_markup": false
+        },
+        {
+          "index": 25,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 70,
+          "content_bytes": 170,
+          "contains_html_markup": false
+        },
+        {
+          "index": 26,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 85,
+          "content_bytes": 179,
+          "contains_html_markup": false
+        },
+        {
+          "index": 27,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 6780,
+          "content_bytes": 18860,
+          "contains_html_markup": true
+        },
+        {
+          "index": 28,
+          "kind": "assistant",
+          "role": "assistant",
+          "tokens": 63,
+          "content_bytes": 154,
+          "contains_html_markup": false
+        },
+        {
+          "index": 29,
+          "kind": "tool",
+          "role": "user",
+          "tokens": 9825,
+          "content_bytes": 26143,
+          "contains_html_markup": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+PASS tool_limit raw_tokens=21820 cap=2048 UTF8=valid full_result=exact retention=8 mode=0600 native_and_dsml=bounded
+PASS native_read old=12504 new=14336 appended=1832 source_result_tokens=21820 compaction=not_needed
+PASS sync phase=0 prefix=192 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact canceled_at=0 sessions=1
+PASS sync phase=1 prefix=192 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact canceled_at=0 sessions=1
+PASS sync phase=2 prefix=192 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact canceled_at=128 sessions=1
+PASS agent_prefill interrupt=observed progress=cleared transcript=restored immediate_cancel_state=exact

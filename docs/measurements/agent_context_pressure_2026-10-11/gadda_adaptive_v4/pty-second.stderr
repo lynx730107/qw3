@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/tests/test_agent_prefill_interrupt.py", line 91, in <module>
+    assert proc.wait(timeout=10)==0
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1189, in wait
+    return self._wait(timeout=timeout)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1909, in _wait
+    raise TimeoutExpired(self.args, timeout)
+subprocess.TimeoutExpired: Command '['./qw3-agent', '--metal', '-m', '/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf', '--ctx', '4096', '--nothink', '--no-tools', '--no-prefix-cache', '--temp', '0', '-n', '1', '--store-dir', '/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-pty-interrupt-7gljob6i', '--conversation', 'interrupt-fixture', '--trace', '/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-pty-interrupt-7gljob6i/trace.jsonl']' timed out after 10 seconds

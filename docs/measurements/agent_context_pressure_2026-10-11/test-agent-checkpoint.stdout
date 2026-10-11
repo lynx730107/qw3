@@ -1,0 +1,23 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+sh tests/test_agent_checkpoint.sh
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf backend=Metal ctx=4096 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.004s)
+2026-10-11 22:16:02.537 qw3-agent[69950:54743347] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 406.9 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.01 s
+agent: switched to checkpoint-test (1844 tokens, KV resumed)
+
+[tool] bash
+$ uuidgen
+41CDD163-16C8-438B-9A31-D2B7C887143B
+
+exit=0
+
+L'UUID ottenuto è: 41CDD163-16C8-438B-9A31-D2B7C887143B
+agent: saved checkpoint-test (2040 tokens, KV ready)
+test-agent-checkpoint: ok

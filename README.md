@@ -596,6 +596,11 @@ validation details are recorded in `docs/metal_prefill_validation.md`.
 
 ## Agent
 
+The [context-pressure regression suite](docs/agent_context_pressure_2026-10-11.md)
+passes 24 checks after limiting incoming tool results, adapting reads to the
+token budget and making prefill interruptible. It includes bit-exact
+interrupt/resume validation and real terminal cancellation.
+
 The [fresh agent regression suite](docs/agent_regressions_retry_2026-10-11.md)
 passes 21 checks, including store retention and a live URL oracle. Production
 binaries and inference sources are unchanged; the personal store stays
@@ -616,7 +621,8 @@ direct A/B comparison or troubleshooting. Full conversation checkpoints always
 take precedence over the prefix cache.
 
 Store retention keeps four prefix caches, eight bash spills, eight context
-archives and the latest 1,000 interactive history entries. These are count
+archives, eight full tool-result spills, eight readable web pages and the latest 1,000 interactive
+history entries. These are count
 limits; saved conversations and requested trace logs have no global byte
 quota. `make test-agent-store` checks eviction and history rewriting without
 loading a model. The [store audit and authorized cleanup](docs/agent_store_2026-10-11.md)
@@ -632,12 +638,35 @@ The main tools are:
 - `get_skeleton`: file outline through `codenav`.
 - `get_function`: function or method body through `codenav`.
 - `semantic_search`: semantic code search through `colgrep`.
-- `google_search`: web search with compact Markdown links.
-- `visit_page`: fetch a URL and return readable text with a temp full-output path.
+- `search_web`: web search with compact Markdown links.
+- `visit_url`: fetch a URL, save the complete readable page, and return a preview.
 
 To avoid filling the context by reading large source files, the agent is
 instructed to prefer `get_skeleton`, `get_function`, and `semantic_search`
 before sequential file reads.
+
+Tool responses are also limited before context compaction: the rendered
+message uses at most `ctx/8` tokens, with a minimum of 128 and maximum of
+2,048. Larger responses are saved in private `spills/tool-*` files and replaced
+by a UTF-8 excerpt with a reload path. `visit_url` uses an HTML parser that
+keeps headings and list items without tag attributes. It stores the complete
+readable page in private `spills/web-*` files and returns an 8,000-character
+preview; eight files are retained. A download beyond its 2 MB fetch cap is
+explicitly marked incomplete. The system prompt requests searches and small
+reads of saved pages, or a complete download when only a prefix is available.
+`read` and `more` return the complete lines that fit the token budget and
+provide `next_start` when limited, so continuation does not skip omitted lines.
+Compaction retains recent assistant/tool exchanges inside a single long user
+turn, restores the active user request and includes the runtime read cursor.
+Repeated `more` calls are distinguished by their file cursor; retries that
+make no progress remain blocked. The summary prompt requests collected
+fields or their compact result-file path.
+
+Ordinary and compaction prefill check `/interrupt` between batches; manual
+`/compact` runs on the worker so the terminal can receive that command.
+Cancellation skips conversation autosave. The [context-pressure investigation](docs/agent_context_pressure_2026-10-11.md)
+records the cause, numerical validation, terminal tests and live Wikipedia
+request, including unsuccessful attempts.
 
 For performance or tool-loop diagnostics, `--trace PATH` appends private JSONL
 events with prefill/decode timing, cache reuse, tool-result sizes, and context

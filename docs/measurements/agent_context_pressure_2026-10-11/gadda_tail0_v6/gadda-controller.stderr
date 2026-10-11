@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/agent_context_pressure_2026-10-11/run_gadda.py", line 114, in <module>
+    assert result.returncode==0
+AssertionError

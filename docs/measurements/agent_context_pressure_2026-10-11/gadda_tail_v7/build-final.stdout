@@ -1,0 +1,6 @@
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_metal_agent.o qw3_agent.c
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-agent qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o -lm -pthread -framework Foundation -framework Metal
+make: `qw3-cli' is up to date.
+make: `qw3-bench' is up to date.
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-agent-context-pressure-test tests/test_agent_context_pressure.m linenoise_qw3.o -lm -pthread -framework Foundation -framework Metal

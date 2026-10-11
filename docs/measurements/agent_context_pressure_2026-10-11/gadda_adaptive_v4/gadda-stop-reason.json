@@ -1,0 +1,6 @@
+{
+  "stopped_utc": "2026-10-11T18:57:57.500221+00:00",
+  "pid": 61536,
+  "signal": "SIGTERM",
+  "reason": "Three repeated compactions after malformed regex HTML extraction; stop owned test to replace visit_url regex with HTMLParser and complete readable-page spill. This run is not a pass."
+}

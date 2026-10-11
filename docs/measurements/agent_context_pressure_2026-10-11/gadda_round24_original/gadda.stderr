@@ -1,0 +1,874 @@
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf backend=Metal ctx=8192 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.006s)
+2026-10-11 20:07:38.754 qw3-agent[58872:54639602] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 662.9 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.01 s
+
+[tool] search_web
+--- search_web: 'Carlo Emilio Gadda opere Wikipedia' (5 results) ---
+1. Carlo Emilio Gadda - Wikipedia
+   https://it.wikipedia.org/wiki/Carlo_Emilio_Gadda
+   L'opera gaddiana riporta in differenti occasioni alcuni dei temi che diventeranno il fondamento delle maggiori: il disordine oggettivo del reale, l'affetto dell'autore nei confronti del fratello, l'orrore della guerra, il disprezzo delle gerarchie.
+2. Categoria:Opere di Carlo Emilio Gadda - Wikipedia
+   https://it.wikipedia.org/wiki/Categoria:Opere_di_Carlo_Emilio_Gadda
+   Questa categoria contiene le 4 pagine indicate di seguito, su un totale di 4.
+3. Carlo Emilio Gadda - Wikipedia
+   https://en.wikipedia.org/wiki/Carlo_Emilio_Gadda
+   Gadda was a practising engineer from Milan, and he both loved and hated his job. Critics have compared him to other writers with a scientific background, such as Primo Levi, Robert Musil and Thomas Pynchon —a similar spirit of exactitude pervades some of Gadda's books.
+4. Carlo Emilio Gadda: biografia, opere e poetica
+   https://www.auladiletteratura.it/carlo-emilio-gadda-biografia-opere-principali/
+   La sua opera è stata oggetto di studi attenti che ne hanno messo in luce l'importanza per la storia del romanzo italiano e il ruolo di anticipazione rispetto a pratiche narrative più tarde.
+5. I migliori libri di Carlo Emilio Gadda in ordine
+   https://www.larivistadeilibri.it/carlo-emilio-gadda/
+   I migliori libri di Carlo Emilio Gadda : si comincia da «La cognizione del dolore di Carlo Emilio Gadda ». Tutti i titoli in ordine cronologico.
+
+
+[tool] bash
+$ curl -sL "https://it.wikipedia.org/wiki/Carlo_Emilio_Gadda" -o /tmp/gadda.html && wc -c /tmp/gadda.html
+  479461 /tmp/gadda.html
+
+exit=0
+
+
+[tool] bash
+$ python3 - <<'EOF'
+import re, html
+with open('/tmp/gadda.html', encoding='utf-8') as f:
+    content = f.read()
+# Find the "Opere" section
+idx = content.find('Opere')
+print("First Opere idx:", idx)
+# find all occurrences
+for m in re.finditer(r'>Opere<', content):
+    print(m.start())
+EOF
+First Opere idx: 28288
+28505
+127310
+129704
+
+exit=0
+
+
+[tool] bash
+$ python3 - <<'EOF'
+import re, html
+with open('/tmp/gadda.html', encoding='utf-8') as f:
+    content = f.read()
+# Extract text around the main Opere section (the one at ~127310 is likely the body heading)
+start = 127310
+end = 129704
+seg = content[start:end]
+# strip tags
+text = re.sub(r'<[^>]+>', ' ', seg)
+text = html.unescape(text)
+text = re.sub(r'\s+', ' ', text)
+print(text[:4000])
+EOF
+>Opere [ modifica | modifica wikitesto ] «Il dirmi che una scarica di mitra è realtà mi va bene, certo; ma io chiedo al romanzo che dietro questi due ettogrammi di piombo ci sia una tensione tragica, una consecuzione operante, un mistero, forse le ragioni o le irragioni del fatto.» ( I viaggi, la morte , 1958) Raccolte [ modifica | modifica wikitesto ] <i id="mwASk"
+
+exit=0
+
+
+[tool] bash
+$ python3 - <<'EOF'
+import re, html
+with open('/tmp/gadda.html', encoding='utf-8') as f:
+    content = f.read()
+# The Opere section starts at 127310. Let's find where it ends (next major h2).
+# Look for the next section heading after 127310
+seg = content[127310:]
+# Find headings like <h2 ...> or mw-heading
+m = re.search(r'<h2[^>]*id="mwBc"', seg)
+# Instead, let's just take a big chunk and extract list items
+chunk = content[127310:135000]
+# Extract all list items
+items = re.findall(r'<li[^>]*>(.*?)</li>', chunk, re.DOTALL)
+for it in items:
+    t = re.sub(r'<[^>]+>', '', it)
+    t = html.unescape(t)
+    t = re.sub(r'\s+',' ',t).strip()
+    if t:
+        print("-", t)
+EOF
+- «Il dirmi che una scarica di mitra è realtà mi va bene, certo; ma io chiedo al romanzo che dietro questi due ettogrammi di piombo ci sia una tensione tragica, una consecuzione operante, un mistero, forse le ragioni o le irragioni del fatto.» (I viaggi, la morte, 1958) Raccolte[modifica | modifica wikitesto] Opere, 5 voll., direzione a cura di Dante Isella, Collana I Libri della Spiga, Garzanti, Milano, 1988-1993 I. Romanzi e racconti I, 1988, ISBN 88-11-58640-2
+- II. Romanzi e racconti II, 1989, ISBN 88-11-58641-0
+- III. Saggi, giornali, favole e altri scritti I, 1991, ISBN 88-11-58642-9
+- IV. Saggi, giornali, favole a altri scritti II, 1992, ISBN 88-11-58643-7
+- V. I. Scritti vari e postumi, 1993, ISBN 88-11-58644-5
+- V. II. Bibliografia e Indici, 1993, ISBN 88-11-58644-5.
+- Romanzi (contiene: L'Adalgisa, La cognizione del dolore, Quer pasticciaccio brutto de via Merulana), a cura di Giorgio Bàrberi Squarotti, Collana Classici italiani n. 97, UTET, 1997, p. 832, ISBN 978-88-02-05210-6.
+
+exit=0
+
+
+[tool] bash
+$ python3 - <<'EOF'
+import re, html
+with open('/tmp/gadda.html', encoding='utf-8') as f:
+    content = f.read()
+# Find all h2/h3 headings with their positions to map sections
+for m in re.finditer(r'<h([23])[^>]*>(.*?)</h\1>', content, re.DOTALL):
+    txt = re.sub(r'<[^>]+>','',m.group(2))
+    txt = html.unescape(txt).strip()
+    print(m.start(), m.group(1), txt)
+EOF
+22352 2 Indice
+73089 2 Biografia
+73761 3 I primi anni e gli studi
+78766 3 Volontario nella prima guerra mondiale
+84376 3 Ingegnere e collaboratore a Solaria
+91081 3 I primi scritti
+95073 3 L'abbandono della professione e l'attività letteraria
+101806 3 Il lavoro in Rai e la produzione letteraria matura
+106942 3 Gli ultimi anni
+112115 2 Pensiero e poetica
+112851 3 Il mondo come "gnommero" e la tecnica del pastiche
+117082 3 Giudizi critici
+127296 2 Opere
+129112 3 Raccolte
+132744 3 Romanzi, racconti, saggi
+156212 3 Altri testi
+160179 3 Poesie
+162109 3 Epistolari
+178597 3 Mélanges
+181601 3 Traduzioni
+184109 2 Riconoscimenti
+185589 2 Note
+216868 2 Bibliografia
+232106 2 Voci correlate
+233181 2 Altri progetti
+239707 2 Collegamenti esterni
+
+exit=0
+
+
+[tool] bash
+$ python3 - <<'EOF'
+import re, html
+with open('/tmp/gadda.html', encoding='utf-8') as f:
+    content = f.read()
+sections = {
+ 'Romanzi, racconti, saggi': (132744, 156212),
+ 'Altri testi': (156212, 160179),
+ 'Poesie': (160179, 162109),
+ 'Epistolari': (162109, 178597),
+ 'Mélanges': (178597, 181601),
+ 'Traduzioni': (181601, 184109),
+}
+for name,(s,e) in sections.items():
+    chunk = content[s:e]
+    items = re.findall(r'<li[^>]*>(.*?)</li>', chunk, re.DOTALL)
+    print(f"\n=== {name} ===")
+    for it in items:
+        t = re.sub(r'<[^>]+>', '', it)
+        t = html.unescape(t)
+        t = re.sub(r'\s+',' ',t).strip()
+        if t:
+            print("-", t)
+EOF
+
+=== Romanzi, racconti, saggi ===
+- La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+- Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+- Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+- Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+- L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio Vela, Adelphi, Milano, 2012.
+- Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+- Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+- Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459-3300-4.
+- I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+- Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con taccuini inediti ritrovati, a cura di Paola Italia, Nota di Eleonora Cardinale, Collana Biblioteca n.741, Milano, Adelphi, 2023, ISBN 978-88-459-3731-6.
+- Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+- I viaggi, la morte, Garzanti, Milano, 1958.
+- Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+- La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+- Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+- I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+- I racconti, Milano, Garzanti, 1965.
+- Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+- Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+- La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+- Novella seconda, Garzanti, Milano, 1971.
+- Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+- Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+- Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+- Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+- Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+- Il palazzo degli ori, Einaudi, Torino, 1983.
+- Gonnella buffone, Guanda, Milano, 1985.
+- Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+- I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+- Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+- Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+- Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di via Keplero, Un fulmine sul 220]
+- Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+- Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+- I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+- Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+- Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+- La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+- Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+
+=== Altri testi ===
+- Le carte militari di Gadda, a cura di Giulio Ungarelli, Collana Prosa n.51, Milano, Scheiwiller, 1994, ISBN 978-88-764-4195-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I, Ricciardi, Milano-Napoli, 2001, ISBN 88-7817-556-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II, Ricciardi, Milano-Napoli, 2003, ISBN 978-88-781-7909-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III, Einaudi, Torino, 2006, ISBN 978-88-061-8221-2.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV, Einaudi, Torino, 2007, ISBN 978-88-061-8933-4.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2010, ISBN 978-88-608-8126-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2011, ISBN 978-88-608-8528-9.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2012, ISBN 978-88-608-8960-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2013, ISBN 978-88-235-0481-3.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. V. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2014, ISBN 978-88-235-1038-8.
+
+=== Poesie ===
+- Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 978-88-061-3384-9.
+
+=== Epistolari ===
+- Piero Gadda Conti, Le confessioni di Carlo Emilio Gadda[20], Milano, Pan editrice, 1974.
+- Carteggio dell'Ing. Carlo Emilio Gadda con l'Ammonia Casale, s.a., 1927-1940, a cura di Dante Isella, Verona, Stamperia Valdonega, 1982.
+- Lettere a una gentile signora, corrispondenza con Lucia Rodocanachi, a cura di Giuseppe Marcenaro, con un saggio di Giuseppe Pontiggia, Milano, Adelphi, 1983, ISBN 978-88-459-0555-1.
+- Lettere agli amici milanesi, a cura di E. Sassi, Milano, Il Saggiatore, 1983.
+- L'Ingegner fantasia. Lettere a Ugo Betti 1919-1930. Un capitolo inesplorato della vita dell'autore del "Pasticciaccio", a cura di Giulio Ungarelli, Milano, Rizzoli, 1984.
+- A un amico fraterno. Lettere a Bonaventura Tecchi, a cura di Marcello Carlino, Milano, Garzanti, 1984.
+- Lettere alla sorella. 1920-1924, a cura di Gianfranco Colombo, Milano, Archinto, 1987.
+- Carissimo Gianfranco. Lettere ritrovate, 1943-63, a cura di Giulio Ungarelli, Milano, Archinto, 1998.
+- Lettere a Piero [Bigongiari], a cura di Simona Priami, Firenze, Polistampa, 1999, ISBN 978-88-830-4049-8.
+- Cara Anita, Caro Emilio, a cura di Federico Roncoroni, Roma, Benincasa, 2002, ISBN 978-88-864-1810-2.
+- 8 lettere di Carlo Emilio Gadda a Leone Piccioni, a cura di Silvia Zoppi Garampi, Erreciedizioni, 2007, ISBN 978-88-899-7013-3.
+- C.E. Gadda-Gianfranco Contini, Carteggio 1934-1963. Con 62 lettere inedite, a cura di Dante Isella, G. Contini, Giulio Ungarelli, Milano, Garzanti, 2009 [1988].
+- Un gomitolo di concause. Lettere a Pietro Citati (1957-1969), a cura di Giorgio Pinotti, Milano, Adelphi, 2013, ISBN 978-88-459-2811-6.
+- C.E. Gadda-Goffredo Parise, «Se mi vede Cecchi, sono fritto». Corrispondenza e scritti 1962-1973, a cura di Domenico Scarpa, Milano, Adelphi, 2015, ISBN 978-88-459-2990-8.
+- Gadda in "zona Guarnieri": cinque lettere di Carlo Emilio Gadda a Silvio Guarnieri (1934-1939), a cura di Maria Antonietta Grignani e Anna Modena, Novara, Interlinea, 2015.
+- Dediche e lettere tra Carlo Emilio Gadda e Cesare Angelini, a cura di Fabio Maggi, in “Margini. Giornale della dedica ed altro”, n. 9, Università di Basilea, 2015, pp. 3-20.
+- La guerra di Gadda. Lettere e immagini (1915-1919), A cura di Giulia Fanfani, Arnaldo Liberati, Alessia Vezzoni, cronologia di Francesco Cutolo, La collana dei casi n.138, Milano, Adelphi, 2021, ISBN 978-88-459-3479-7.
+- C. E. Gadda - Alessandro Bonsanti, «Sono il pero e la zucca di me stesso». Carteggio 1930-1970, a cura di Roberta Colbertaldo, Collana Gabinetto scient. lett. Vieusseux, Firenze, Olschki, 2021, ISBN 978-88-222-6719-1.
+- C. E. Gadda - Leone Piccioni, «Col nuovo sole ti disturberò». Scritti, lettere, detti memorabili, A cura di Silvia Zoppi Garampi, Prefazione di Emanuele Trevi, Roma, Succedeoggi Libri, 2022, ISBN 978-88-994-6713-5.
+
+=== Mélanges ===
+- «Per favore, mi lasci nell'ombra». Interviste 1950-1972, a cura di Claudio Vela, Milano, Adelphi, 1993.
+- Gadda. La vita e le opere in un volume di Mauro Bersani. Le immagini e la voce dello scrittore in una videocassetta di Rai Educational, Torino, Einaudi, 2003.
+- Federico Roncoroni, "E sapremo chi fu l'autore del delitto?" Piero Chiara intervista Carlo Emilio Gadda, Mauro Pagliai Editore, 2013, ISBN 978-88-5640-282-7. [intervista del 1957 per la Radio della Svizzera Italiana].
+
+=== Traduzioni ===
+- Francisco de Quevedo, Il mondo com'è (El mundo por de dentro), in Narratori spagnoli. Raccolta di romanzi e racconti dalle origini ai nostri giorni, a cura di Carlo Bo, Bompiani, 1941.
+- Alonso J. de Salas Barbadillo, Il viaggio di saggezza (La Peregrinación sabia), in Narratori spagnoli, Bompiani, 1941.
+- Juan Ruiz de Alarcón, La verità sospetta (La verdad sospechosa), 1957.
+- La verità sospetta. Tre traduzioni, a cura di Manuela Benuzzi Billeter, Milano, Bompiani, 1977. [edizione in volume unico].
+
+exit=0
+
+agent: tool result limited 4510 -> 931 tokens (full result saved)
+
+[tool] bash
+$ cat "/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-h3z_xp5c/store/spills/tool-XKRG9a"
+$ python3 - <<'EOF'
+import re, html
+with open('/tmp/gadda.html', encoding='utf-8') as f:
+    content = f.read()
+sections = {
+ 'Romanzi, racconti, saggi': (132744, 156212),
+ 'Altri testi': (156212, 160179),
+ 'Poesie': (160179, 162109),
+ 'Epistolari': (162109, 178597),
+ 'Mélanges': (178597, 181601),
+ 'Traduzioni': (181601, 184109),
+}
+for name,(s,e) in sections.items():
+    chunk = content[s:e]
+    items = re.findall(r'<li[^>]*>(.*?)</li>', chunk, re.DOTALL)
+    print(f"\n=== {name} ===")
+    for it in items:
+        t = re.sub(r'<[^>]+>', '', it)
+        t = html.unescape(t)
+        t = re.sub(r'\s+',' ',t).strip()
+        if t:
+            print("-", t)
+EOF
+
+=== Romanzi, racconti, saggi ===
+- La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+- Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+- Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+- Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+- L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio Vela, Adelphi, Milano, 2012.
+- Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+- Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+- Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459-3300-4.
+- I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+- Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con taccuini inediti ritrovati, a cura di Paola Italia, Nota di Eleonora Cardinale, Collana Biblioteca n.741, Milano, Adelphi, 2023, ISBN 978-88-459-3731-6.
+- Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+- I viaggi, la morte, Garzanti, Milano, 1958.
+- Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+- La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+- Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+- I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+- I racconti, Milano, Garzanti, 1965.
+- Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+- Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+- La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+- Novella seconda, Garzanti, Milano, 1971.
+- Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+- Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+- Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+- Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+- Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+- Il palazzo degli ori, Einaudi, Torino, 1983.
+- Gonnella buffone, Guanda, Milano, 1985.
+- Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+- I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+- Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+- Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+- Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di via Keplero, Un fulmine sul 220]
+- Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+- Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+- I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+- Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+- Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+- La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+- Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+
+=== Altri testi ===
+- Le carte militari di Gadda, a cura di Giulio Ungarelli, Collana Prosa n.51, Milano, Scheiwiller, 1994, ISBN 978-88-764-4195-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I, Ricciardi, Milano-Napoli, 2001, ISBN 88-7817-556-0.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II, Ricciardi, Milano-Napoli, 2003, ISBN 978-88-781-7909-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III, Einaudi, Torino, 2006, ISBN 978-88-061-8221-2.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV, Einaudi, Torino, 2007, ISBN 978-88-061-8933-4.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. I. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2010, ISBN 978-88-608-8126-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. II. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2011, ISBN 978-88-608-8528-9.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. III. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2012, ISBN 978-88-608-8960-7.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. IV. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2013, ISBN 978-88-235-0481-3.
+- I quaderni dell'Ingegnere. Testi e studi gaddiani, Vol. V. nuova serie, Fondazione Pietro Bembo/Ugo Guanda Editore, Milano, 2014, ISBN 978-88-235-1038-8.
+
+=== Poesie ===
+- Carlo Emilio Gadda, Poesie, edizione critica e commento a cura di Maria Antonietta Terzoli, Collezione di poesia n.240, Torino, Einaudi, 1993, ISBN 978-88-061-3384-9.
+
+=== Epistolari ===
+- Piero Gadda Conti, Le confessioni di Carlo Emilio Gadda[20], Milano, Pan editrice, 1974.
+- Carteggio dell'Ing. Carlo Emilio Gadda con l'Ammonia Casale, s.a., 1927-1940, a cura di Dante Isella, Verona, Stamperia Valdonega, 1982.
+- Lettere a una gentile signora, corrispondenza con Lucia Rodocanachi, a cura di Giuseppe Marcenaro, con un saggio di Giuseppe Pontiggia, Milano, Adelphi, 1983, ISBN 978-88-459-0555-1.
+- Lettere agli amici milanesi, a cura di E. Sassi, Milano, Il Saggiatore, 1983.
+- L'Ingegner fantasia. Lettere a Ugo Betti 1919-1930. Un capitolo inesplorato della vita dell'autore del "Pasticciaccio", a cura di Giulio Ungarelli, Milano, Rizzoli, 1984.
+- A un amico fraterno. Lettere a Bonaventura Tecchi, a cura di Marcello Carlino, Milano, Garzanti, 1984.
+- Lettere alla sorella. 1920-1924, a cura di Gianfranco Colombo, Milano, Archinto, 1987.
+- Carissimo Gianfranco. Lettere ritrovate, 1943-63, a cura di Giulio Ungarelli, Milano, Archinto, 1998.
+- Lettere a Piero [Bigongiari], a cura di Simona Priami, Firenze, Polistampa, 1999, ISBN 978-88-830-4049-8.
+- Cara Anita, Caro Emilio, a cura di Federico Roncoroni, Roma, Benincasa, 2002, ISBN 978-88-864-1810-2.
+- 8 lettere di Carlo Emilio Gadda a Leone Piccioni, a cura di Silvia Zoppi Garampi, Erreciedizioni, 2007, ISBN 978-88-899-7013-3.
+- C.E. Gadda-Gianfranco Contini, Carteggio 1934-1963. Con 62 lettere inedite, a cura di Dante Isella, G. Contini, Giulio Ungarelli, Milano, Garzanti, 2009 [1988].
+- Un gomitolo di concause. Lettere a Pietro Citati (1957-1969), a cura di Giorgio Pinotti, Milano, Adelphi, 2013, ISBN 978-88-459-2811-6.
+- C.E. Gadda-Goffredo Parise, «Se mi vede Cecchi, sono fritto». Corrispondenza e scritti 1962-1973, a cura di Domenico Scarpa, Milano, Adelphi, 2015, ISBN 978-88-459-2990-8.
+- Gadda in "zona Guarnieri": cinque lettere di Carlo Emilio Gadda a Silvio Guarnieri (1934-1939), a cura di Maria Antonietta Grignani e Anna Modena, Novara, Interlinea, 2015.
+- Dediche e lettere tra Carlo Emilio Gadda e Cesare Angelini, a cura di Fabio Maggi, in “Margini. Giornale della dedica ed altro”, n. 9, Università di Basilea, 2015, pp. 3-20.
+- La guerra di Gadda. Lettere e immagini (1915-1919), A cura di Giulia Fanfani, Arnaldo Liberati, Alessia Vezzoni, cronologia di Francesco Cutolo, La collana dei casi n.138, Milano, Adelphi, 2021, ISBN 978-88-459-3479-7.
+- C. E. Gadda - Alessandro Bonsanti, «Sono il pero e la zucca di me stesso». Carteggio 1930-1970, a cura di Roberta Colbertaldo, Collana Gabinetto scient. lett. Vieusseux, Firenze, Olschki, 2021, ISBN 978-88-222-6719-1.
+- C. E. Gadda - Leone Piccioni, «Col nuovo sole ti disturberò». Scritti, lettere, detti memorabili, A cura di Silvia Zoppi Garampi, Prefazione di Emanuele Trevi, Roma, Succedeoggi Libri, 2022, ISBN 978-88-994-6713-5.
+
+=== Mélanges ===
+- «Per favore, mi lasci nell'ombra». Interviste 1950-1972, a cura di Claudio Vela, Milano, Adelphi, 1993.
+- Gadda. La vita e le opere in un volume di Mauro Bersani. Le immagini e la voce dello scrittore in una videocassetta di Rai Educational, Torino, Einaudi, 2003.
+- Federico Roncoroni, "E sapremo chi fu l'autore del delitto?" Piero Chiara intervista Carlo Emilio Gadda, Mauro Pagliai Editore, 2013, ISBN 978-88-5640-282-7. [intervista del 1957 per la Radio della Svizzera Italiana].
+
+=== Traduzioni ===
+- Francisco de Quevedo, Il mondo com'è (El mundo por de dentro), in Narratori spagnoli. Raccolta di romanzi e racconti dalle origini ai nostri giorni, a cura di Carlo Bo, Bompiani, 1941.
+- Alonso J. de Salas Barbadillo, Il viaggio di saggezza (La Peregrinación sabia), in Narratori spagnoli, Bompiani, 1941.
+- Juan Ruiz de Alarcón, La verità sospetta (La verdad sospechosa), 1957.
+- La verità sospetta. Tre traduzioni, a cura di Manuela Benuzzi Billeter, Milano, Bompiani, 1977. [edizione in volume unico].
+
+exit=0
+
+exit=0
+
+agent: tool result limited 4575 -> 941 tokens (full result saved)
+
+[tool] bash
+$ python3 - <<'EOF' > /tmp/gadda_opere.txt
+import re, html
+with open('/tmp/gadda.html', encoding='utf-8') as f:
+    content = f.read()
+sections = {
+ 'Romanzi, racconti, saggi': (132744, 156212),
+ 'Altri testi': (156212, 160179),
+ 'Poesie': (160179, 162109),
+ 'Epistolari': (162109, 178597),
+ 'Mélanges': (178597, 181601),
+ 'Traduzioni': (181601, 184109),
+}
+for name,(s,e) in sections.items():
+    chunk = content[s:e]
+    items = re.findall(r'<li[^>]*>(.*?)</li>', chunk, re.DOTALL)
+    print(f"\n=== {name} ===")
+    for it in items:
+        t = re.sub(r'<[^>]+>', '', it)
+        t = html.unescape(t)
+        t = re.sub(r'\s+',' ',t).strip()
+        if t:
+            print("-", t)
+EOF
+wc -l /tmp/gadda_opere.txt
+      89 /tmp/gadda_opere.txt
+
+exit=0
+
+agent: compacting context (soft limit before tool continuation), old=7530 ctx=8192
+agent: compacted context old=7530 new=2078 tail=0
+
+[tool] bash
+$ python3 << 'EOF'
+import re
+html = open('/tmp/gadda.html', encoding='utf-8').read()
+# Find the Opere section
+start = html.find('id="Opere"')
+if start == -1:
+    # try alternative
+    m = re.search(r'<h2[^>]*>.*?Opere.*?</h2>', html)
+    start = m.start() if m else 0
+print("Opere section starts at:", start)
+# Find next h2 after Opere
+next_h2 = re.search(r'<h2[^>]*>', html[start+10:])
+end = start + 10 + next_h2.start() if next_h2 else len(html)
+section = html[start:end]
+# Remove tags to get text
+text = re.sub(r'<[^>]+>', '\n', section)
+lines = [l.strip() for l in text.split('\n') if l.strip()]
+print('\n'.join(lines[:200]))
+EOF
+Opere section starts at: 127300
+id="Opere">Opere
+[
+modifica
+|
+modifica wikitesto
+]
+«Il dirmi che una scarica di mitra è realtà mi va bene, certo; ma io chiedo al romanzo che dietro questi due ettogrammi di piombo ci sia una tensione tragica, una consecuzione operante, un mistero, forse le ragioni o le irragioni del fatto.»
+(
+I viaggi, la morte
+, 1958)
+Raccolte
+[
+modifica
+|
+modifica wikitesto
+]
+Opere
+, 5 voll., direzione a cura di Dante Isella, Collana I Libri della Spiga, Garzanti, Milano, 1988-1993
+I.
+Romanzi e racconti I
+, 1988,
+ISBN 88-11-58640-2
+II.
+Romanzi e racconti II
+, 1989,
+ISBN 88-11-58641-0
+III.
+Saggi, giornali, favole e altri scritti I
+, 1991,
+ISBN 88-11-58642-9
+IV.
+Saggi, giornali, favole a altri scritti II
+, 1992,
+ISBN 88-11-58643-7
+V. I.
+Scritti vari e postumi
+, 1993,
+ISBN 88-11-58644-5
+V. II.
+Bibliografia e Indici
+, 1993,
+ISBN 88-11-58644-5
+.
+Romanzi (contiene: L'Adalgisa, La cognizione del dolore, Quer pasticciaccio brutto de via Merulana)
+, a cura di
+Giorgio Bàrberi Squarotti
+, Collana Classici italiani n. 97, UTET, 1997,  p.
+832,
+ISBN
+978-88-02-05210-6
+.
+Romanzi, racconti, saggi
+[
+modifica
+|
+modifica wikitesto
+]
+{{Cita web|url = http://www.premiocampiello.org/confindustria/campiello/istituzionale.nsf/($linkacross)/A0DA0F82AD480CE0C12573A3004FE715?opendocument&amp;language=IT|titolo = Premio Campiello, opere premiate nelle precedenti edizioni|sito = premiocampiello.org|accesso = 24 febbraio 2019|urlarchivio = https://web.archive.org/web/20190814165815/http://www.premiocampiello.org/confindustria/campiello/istituzionale.nsf/($linkacross)/A0DA0F82AD480CE0C12573A3004FE715?opendocument&amp;language=IT|urlmorto = sì}}&lt;/ref>\n* &apos;&apos;[[Novella seconda]]&apos;&apos;, Garzanti, Milano, 1971.\n* &apos;&apos;[[Meditazione milanese]]&apos;&apos;, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]\n* &apos;&apos;[[Le bizze del capitano in congedo e altri racconti]]&apos;&apos;, a cura di Dante Isella, Milano, Adelphi, 1981; All&apos;insegna del pesce d&apos;oro, Milano, 1981.\n* &apos;&apos;Il tempo e le opere. Saggi, note, divagazioni&apos;&apos;, a cura di Dante Isella, Adelphi, Milano, 1982.\n* &apos;&apos;Un radiodramma per modo di dire e scritti sullo spettacolo&apos;&apos;, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.\n* &apos;&apos;[[Racconto italiano di Ignoto del Novecento (Cahier d&apos;etudes)]]&apos;&apos;, a cura di Dante Isella, Einaudi, Torino, 1983.\n* &apos;&apos;[[Il palazzo degli ori]]&apos;&apos;, Einaudi, Torino, 1983.\n* &apos;&apos;Gonnella buffone&apos;&apos;, Guanda, Milano, 1985.\n* &apos;&apos;[[Azoto e altri scritti di divulgazione scientifica]]&apos;&apos;, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.\n* &apos;&apos;I miti del somaro&apos;&apos;, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988. \n* &apos;&apos;[[Taccuino di Caporetto]]. Diario di guerra e di prigionia (ottobre 1917-aprile 1918)&apos;&apos;, Garzanti, Milano, 1991, ISBN 88-11-66114-5.\n* &apos;&apos;Gadda al microfono. L&apos;ingegnere e la Rai 1950-1955&apos;&apos;, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.\n* &apos;&apos;Disegni milanesi&apos;&apos;, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: &apos;&apos;San Giorgio in casa Brocchi&apos;&apos;, &apos;&apos;L&apos;incendio di via Keplero&apos;&apos;, &apos;&apos;Un fulmine sul 220&apos;&apos;]\n* &apos;&apos;Racconti dispersi&apos;&apos;, Milano, Garzanti, 1996. [edizione fuori commercio]\n* &apos;&apos;Un fulmine sul 220&apos;&apos;, a cura di D. Isella, Garzanti, Milano, 2000. \n* &apos;&apos;I Littoriali del Lavoro e altri scritti giornalistici 1932-1941&apos;&apos;, a cura di Manuela Bertone, ETS, Pisa, 2005.\n* &apos;&apos;Villa in Brianza&apos;&apos;, a cura di G. Pinotti, Adelphi, Milano, 2007.\n* ",{"template":{"target":{"wt":"Cita libro","href":"./Template:Cita_libro"},"params":{"titolo":{"wt":"Divagazioni e garbuglio. Saggi dispersi"},"altri":{"wt":"A cura di Liliana Orlando"},"edizione":{"wt":"Collana Biblioteca n.698"},"editore":{"wt":"Adelphi"},"città":{"wt":"Milano"},"anno":{"wt":"2019"},"isbn":{"wt":"978-88-459-3403-2"}},"i":2}}," [scritti fra il 1927 e il 1968]\n* ",{"template":{"target":{"wt":"Cita libro","href":"./Template:Cita_libro"},"params":{"titolo":{"wt":"La casa dei ricchi"},"altri":{"wt":"a cura di G. Pinotti"},"edizione":{"wt":"Collana Microgrammi"},"editore":{"wt":"Adelphi"},"città":{"wt":"Milano"},"anno":{"wt":"2021"},"isbn":{"wt":"978-88-459-3543-5"}},"i":3}},"\n* ",{"template":{"target":{"wt":"Cita libro","href":"./Template:Cita_libro"},"params":{"titolo":{"wt":"Assalto con mine alla montagna"},"editore":{"wt":"De Piante"},"città":{"wt":"Bursto Arsizio"},"anno":{"wt":"2023"},"isbn":{"wt":"979-12-803-6245-2"}},"i":4}},"\n",{"template":{"target":{"wt":"div col end","href":"./Template:Div_col_end"},"params":{},"i":5}}]}'>
+.mw-parser-output .colonne{column-width:30em}.mw-parser-output .colonne_strette{column-width:20em}.mw-parser-output .colonne li,.mw-parser-output .colonne dd,.mw-parser-output .colonne_strette li,.mw-parser-output .colonne_strette dd{page-break-inside:avoid;break-inside:avoid-column}
+La Madonna dei filosofi
+. Racconti
+, Edizioni di
+Solaria
+, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+Il castello di Udine
+, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+Le meraviglie d'Italia
+, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+Gli anni
+, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+L'Adalgisa
+. Disegni milanesi
+, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di
+Gianfranco Contini
+, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio Vela, Adelphi, Milano, 2012.
+Il primo libro delle favole
+, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+Novelle dal Ducato in fiamme
+, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+Norme per la redazione di un testo radiofonico
+, Roma, Edizioni Radio Italiana, 1953.
+- a cura di Mariarosa Bricchi, Milano, Adelphi, 2018,
+ISBN 978-88-459-3300-4
+.
+I sogni e la folgore
+, Einaudi, Torino, 1955. [contiene:
+La Madonna dei filosofi
+,
+Il castello di Udine
+e
+L'Adalgisa
+]
+Giornale di guerra e di prigionia
+, a cura di
+Alessandro Bonsanti
+, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con taccuini inediti ritrovati, a cura di Paola Italia, Nota di Eleonora Cardinale, Collana Biblioteca n.741, Milano, Adelphi, 2023,
+ISBN 978-88-459-3731-6
+.
+Quer pasticciaccio brutto de via Merulana
+, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018,
+ISBN 978-88-459-3306-6
+.
+I viaggi, la morte
+, Garzanti, Milano, 1958.
+Verso la Certosa
+, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+La cognizione del dolore
+, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+Accoppiamenti giudiziosi. I racconti. 1924-1958
+, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+I Luigi di Francia
+, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021,
+ISBN 978-88-459-3612-8
+.
+I racconti
+, Milano, Garzanti, 1965.
+Eros e Priapo (da furore a cenere)
+, Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci
+, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+La meccanica
+, Garzanti, Milano, 1970. [ma 1928-29]
+Premio Selezione Campiello
+[
+19
+]
+Novella seconda
+, Garzanti, Milano, 1971.
+Meditazione milanese
+, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+Le bizze del capitano in congedo e altri racconti
+, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+Il tempo e le opere. Saggi, note, divagazioni
+, a cura di Dante Isella, Adelphi, Milano, 1982.
+Un radiodramma per modo di dire e scritti sullo spettacolo
+, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+Racconto italiano di Ignoto del Novecento (Cahier d'etudes)
+, a cura di Dante Isella, Einaudi, Torino, 1983.
+Il palazzo degli ori
+, Einaudi, Torino, 1983.
+Gonnella buffone
+, Guanda, Milano, 1985.
+Azoto e altri scritti di divulgazione scientifica
+, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+I miti del somaro
+, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+Taccuino di Caporetto
+. Diario di guerra e di prigionia (ottobre 1917-aprile 1918)
+, Garzanti, Milano, 1991,
+ISBN 88-11-66114-5
+.
+Gadda al microfono. L'ingegnere e la Rai 1950-1955
+, a cura di G. Ungarelli, Nuova ERI, Torino, 1993,
+ISBN 88-397-0793-X
+.
+Disegni milanesi
+, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene:
+San Giorgio in casa Brocchi
+,
+L'incendio di via Keplero
+,
+Un fulmine sul 220
+]
+Racconti dispersi
+, Milano, Garzanti, 1996. [edizione fuori commercio]
+Un fulmine sul 220
+, a cura di D. Isella, Garzanti, Milano, 2000.
+I Littoriali del Lavoro e altri scritti giornalistici 1932-1941
+, a cura di Manuela Bertone, ETS, Pisa, 2005.
+Villa in Brianza
+, a cura di G. Pinotti, Adelphi, Milano, 2007.
+Divagazioni e garbuglio. Saggi dispersi
+, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019,
+ISBN
+978-88-459-3403-2
+.
+[scritti fra il 1927 e il 1968]
+La casa dei ricchi
+, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021,
+ISBN
+978-88-459-3543-5
+.
+Assalto con mine alla montagna
+, Bursto Arsizio, De Piante, 2023,
+ISBN
+979-12-803-6245-2
+.
+Altri testi
+[
+modifica
+|
+modifica wikitesto
+]
+Le carte militari di Gadda
+, a cura di Giulio Ungarelli, Collana Prosa n.51, Milano, Scheiwiller, 1994,
+ISBN 978-88-764-4195-0
+.
+I quaderni dell'Ingegnere. Testi e studi gaddiani
+, Vol. I, Ricciardi, Milano-Napoli, 2001,
+ISBN 88-7817-556-0
+
+exit=0
+
+agent: tool result limited 4474 -> 976 tokens (full result saved)
+
+[tool] bash
+$ python3 << 'EOF'
+import re
+html = open('/tmp/gadda.html', encoding='utf-8').read()
+start = html.find('id="Opere"')
+next_h2 = re.search(r'<h2[^>]*>', html[start+10:])
+end = start + 10 + next_h2.start() if next_h2 else len(html)
+section = html[start:end]
+
+# Extract list items
+items = re.findall(r'<li>(.*?)</li>', section, re.DOTALL)
+for item in items:
+    # Clean HTML
+    clean = re.sub(r'<[^>]+>', '', item).strip()
+    clean = re.sub(r'\s+', ' ', clean)
+    print(clean)
+EOF
+La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio Vela, Adelphi, Milano, 2012.
+Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459-3300-4.
+I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con taccuini inediti ritrovati, a cura di Paola Italia, Nota di Eleonora Cardinale, Collana Biblioteca n.741, Milano, Adelphi, 2023, ISBN 978-88-459-3731-6.
+Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+I viaggi, la morte, Garzanti, Milano, 1958.
+Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+I racconti, Milano, Garzanti, 1965.
+Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+Novella seconda, Garzanti, Milano, 1971.
+Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+Il palazzo degli ori, Einaudi, Torino, 1983.
+Gonnella buffone, Guanda, Milano, 1985.
+Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di via Keplero, Un fulmine sul 220]
+Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+
+exit=0
+
+agent: tool result limited 2145 -> 953 tokens (full result saved)
+
+[tool] bash
+$ python3 << 'EOF'
+import re
+html = open('/tmp/gadda.html', encoding='utf-8').read()
+start = html.find('id="Opere"')
+next_h2 = re.search(r'<h2[^>]*>', html[start+10:])
+end = start + 10 + next_h2.start() if next_h2 else len(html)
+section = html[start:end]
+
+# Find subsection headings (h3) and their positions
+h3s = [(m.start(), m.group(1)) for m in re.finditer(r'<h3[^>]*>(.*?)</h3>', section, re.DOTALL)]
+print("Subsections:")
+for pos, title in h3s:
+    clean = re.sub(r'<[^>]+>', '', title).strip()
+    print(f"  [{pos}] {clean}")
+
+# Now extract items grouped by subsection
+items = re.findall(r'<li>(.*?)</li>', section, re.DOTALL)
+print(f"\nTotal list items: {len(items)}")
+print("\n--- ALL ITEMS ---")
+for i, item in enumerate(items):
+    clean = re.sub(r'<[^>]+>', '', item).strip()
+    clean = re.sub(r'\s+', ' ', clean)
+    print(f"{i+1}. {clean}")
+EOF
+Subsections:
+  [1812] Raccolte
+  [5444] Romanzi, racconti, saggi
+  [28912] Altri testi
+  [32879] Poesie
+  [34809] Epistolari
+  [51297] Mélanges
+  [54301] Traduzioni
+
+Total list items: 40
+
+--- ALL ITEMS ---
+1. La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+2. Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+3. Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+4. Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+5. L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio Vela, Adelphi, Milano, 2012.
+6. Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+7. Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+8. Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459-3300-4.
+9. I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+10. Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con taccuini inediti ritrovati, a cura di Paola Italia, Nota di Eleonora Cardinale, Collana Biblioteca n.741, Milano, Adelphi, 2023, ISBN 978-88-459-3731-6.
+11. Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+12. I viaggi, la morte, Garzanti, Milano, 1958.
+13. Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+14. La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+15. Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+16. I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+17. I racconti, Milano, Garzanti, 1965.
+18. Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+19. Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+20. La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+21. Novella seconda, Garzanti, Milano, 1971.
+22. Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+23. Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+24. Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+25. Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+26. Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+27. Il palazzo degli ori, Einaudi, Torino, 1983.
+28. Gonnella buffone, Guanda, Milano, 1985.
+29. Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+30. I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+31. Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+32. Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+33. Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di via Keplero, Un fulmine sul 220]
+34. Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+35. Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+36. I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+37. Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+38. Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+39. La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+40. Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+
+exit=0
+
+agent: tool result limited 2481 -> 946 tokens (full result saved)
+
+[tool] bash
+$ python3 << 'EOF'
+import re
+html = open('/tmp/gadda.html', encoding='utf-8').read()
+start = html.find('id="Opere"')
+next_h2 = re.search(r'<h2[^>]*>', html[start+10:])
+end = start + 10 + next_h2.start() if next_h2 else len(html)
+section = html[start:end]
+
+# Subsection boundaries
+h3s = [(m.start(), re.sub(r'<[^>]+>', '', m.group(1)).strip()) for m in re.finditer(r'<h3[^>]*>(.*?)</h3>', section, re.DOTALL)]
+h3s.append((len(section), None))
+
+for i in range(len(h3s)-1):
+    s_start, s_title = h3s[i]
+    s_end = h3s[i+1][0]
+    sub = section[s_start:s_end]
+    items = re.findall(r'<li>(.*?)</li>', sub, re.DOTALL)
+    print(f"\n=== {s_title} ===")
+    for item in items:
+        clean = re.sub(r'<[^>]+>', '', item).strip()
+        clean = re.sub(r'\s+', ' ', clean)
+        print(f"  - {clean}")
+EOF
+
+=== Raccolte ===
+
+=== Romanzi, racconti, saggi ===
+  - La Madonna dei filosofi. Racconti, Edizioni di Solaria, Firenze, 1931; Einaudi, Torino, 1963; Garzanti, Milano, 1989.
+  - Il castello di Udine, Edizioni di Solaria, Firenze, 1934; Einaudi, Torino, 1961; Garzanti, Milano, 1989; Milano, Adelphi, 2024.
+  - Le meraviglie d'Italia, Parenti, Firenze, 1939; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+  - Gli anni, Collezione di Letteratura, Parenti, Firenze, 1943; Einaudi, Torino, 1964; Garzanti, Milano, 1993.
+  - L'Adalgisa. Disegni milanesi, Le Monnier, Firenze, 1944; Einaudi, Torino, 1960; Nota di Gianfranco Contini, Einaudi, 1963; Nota al testo di Guido Lucchini, Garzanti, Milano, 1985; a cura di Claudio Vela, Adelphi, Milano, 2012.
+  - Il primo libro delle favole, Neri Pozza, Venezia, 1952; Il Saggiatore, Milano, 1969; Garzanti, Milano, 1976; Mondadori, Milano, 1990.
+  - Novelle dal Ducato in fiamme, Vallecchi, Firenze, 1953; UTET, Torino, 2006.
+  - Norme per la redazione di un testo radiofonico, Roma, Edizioni Radio Italiana, 1953. - a cura di Mariarosa Bricchi, Milano, Adelphi, 2018, ISBN 978-88-459-3300-4.
+  - I sogni e la folgore, Einaudi, Torino, 1955. [contiene: La Madonna dei filosofi, Il castello di Udine e L'Adalgisa]
+  - Giornale di guerra e di prigionia, a cura di Alessandro Bonsanti, Sansoni, Firenze, 1955; con anteposto "Il giornale di campagna", Einaudi, Torino, 1965; Garzanti, Milano, 1999; Nuova edizione con taccuini inediti ritrovati, a cura di Paola Italia, Nota di Eleonora Cardinale, Collana Biblioteca n.741, Milano, Adelphi, 2023, ISBN 978-88-459-3731-6.
+  - Quer pasticciaccio brutto de via Merulana, Garzanti, Milano, 1957; nuova ed., Milano, Adelphi, 2018, ISBN 978-88-459-3306-6.
+  - I viaggi, la morte, Garzanti, Milano, 1958.
+  - Verso la Certosa, Ricciardi, Milano-Napoli, 1961; a cura di Liliana Orlando, Adelphi, Milano, 2013.
+  - La cognizione del dolore, Torino, Einaudi, 1963; Garzanti, Milano, 1994; nuova ed. riveduta filologicamente, a cura di Paola Italia, Giorgio Pinotti e Claudio Vela, Milano, Adelphi, 2017.
+  - Accoppiamenti giudiziosi. I racconti. 1924-1958, Garzanti, Milano, 1963; nuova ed. a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2011; ed. riveduta, Collana gli Adelphi, 2015.
+  - I Luigi di Francia, Garzanti, Milano, 1964, 1992; a cura di Martina Bertoldi, Collana Piccola Biblioteca, Milano, Adelphi, 2021, ISBN 978-88-459-3612-8.
+  - I racconti, Milano, Garzanti, 1965.
+  - Eros e Priapo (da furore a cenere), Garzanti, Milano, 1967; nuova ed. condotta sull'autografo redatto nel 1944, a cura di Paola Italia e Giorgio Pinotti, Milano, Adelphi, 2016.
+  - Il Guerriero, l'Amazzone, lo Spirito della poesia nel verso immortale del Foscolo. Conversazione a tre voci, Garzanti, Milano, 1967; a cura di Claudio Vela, Adelphi, Milano, 2015.
+  - La meccanica, Garzanti, Milano, 1970. [ma 1928-29] Premio Selezione Campiello[19]
+  - Novella seconda, Garzanti, Milano, 1971.
+  - Meditazione milanese, a cura di Gian Carlo Roscioni, Collana Letteratura n.34, Torino, Einaudi, 1974; Garzanti, Milano, 2002. [quaderni filosofici del 1928]
+  - Le bizze del capitano in congedo e altri racconti, a cura di Dante Isella, Milano, Adelphi, 1981; All'insegna del pesce d'oro, Milano, 1981.
+  - Il tempo e le opere. Saggi, note, divagazioni, a cura di Dante Isella, Adelphi, Milano, 1982.
+  - Un radiodramma per modo di dire e scritti sullo spettacolo, a cura di Claudio Vela, Il Saggiatore, Milano, 1982.
+  - Racconto italiano di Ignoto del Novecento (Cahier d'etudes), a cura di Dante Isella, Einaudi, Torino, 1983.
+  - Il palazzo degli ori, Einaudi, Torino, 1983.
+  - Gonnella buffone, Guanda, Milano, 1985.
+  - Azoto e altri scritti di divulgazione scientifica, a cura di Vanni Scheiwiller e A. Silvestri, Libri Scheiwiller, Milano, 1986.
+  - I miti del somaro, a cura di Alba Andreini, Libri Scheiwiller, Milano, 1988.
+  - Taccuino di Caporetto. Diario di guerra e di prigionia (ottobre 1917-aprile 1918), Garzanti, Milano, 1991, ISBN 88-11-66114-5.
+  - Gadda al microfono. L'ingegnere e la Rai 1950-1955, a cura di G. Ungarelli, Nuova ERI, Torino, 1993, ISBN 88-397-0793-X.
+  - Disegni milanesi, a cura di Dante Isella, Paola Italia e Giorgio Pinotti, Can bianco, Pistoia, 1995. [Contiene: San Giorgio in casa Brocchi, L'incendio di via Keplero, Un fulmine sul 220]
+  - Racconti dispersi, Milano, Garzanti, 1996. [edizione fuori commercio]
+  - Un fulmine sul 220, a cura di D. Isella, Garzanti, Milano, 2000.
+  - I Littoriali del Lavoro e altri scritti giornalistici 1932-1941, a cura di Manuela Bertone, ETS, Pisa, 2005.
+  - Villa in Brianza, a cura di G. Pinotti, Adelphi, Milano, 2007.
+  - Divagazioni e garbuglio. Saggi dispersi, A cura di Liliana Orlando, Collana Biblioteca n.698, Milano, Adelphi, 2019, ISBN 978-88-459-3403-2. [scritti fra il 1927 e il 1968]
+  - La casa dei ricchi, a cura di G. Pinotti, Collana Microgrammi, Milano, Adelphi, 2021, ISBN 978-88-459-3543-5.
+  - Assalto con mine alla montagna, Bursto Arsizio, De Piante, 2023, ISBN 979-12-803-6245-2.
+
+=== Altri testi ===
+
+=== Poesie ===
+
+=== Epistolari ===
+
+=== Mélanges ===
+
+=== Traduzioni ===
+
+exit=0
+
+agent: tool result limited 2391 -> 921 tokens (full result saved)
+agent: compacting context (soft limit before tool continuation), old=6978 ctx=8192

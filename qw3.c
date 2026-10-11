@@ -5606,7 +5606,14 @@ int qw3_session_eval_gpu_logits(qw3_session *s, int token,
 
 int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
                      char *err, size_t errlen) {
+    return qw3_session_sync_interruptible(s, prompt, NULL, NULL, err, errlen);
+}
+
+int qw3_session_sync_interruptible(qw3_session *s, const qw3_tokens *prompt,
+                                   qw3_session_interrupt_fn should_interrupt,
+                                   void *ud, char *err, size_t errlen) {
     if (!s || !prompt) return -1;
+    if (should_interrupt && should_interrupt(ud)) goto interrupted;
 #ifndef QW3_NO_METAL
     const qw3_model_spec *sync_spec =
         s->engine ? s->engine->model.spec : NULL;
@@ -5638,6 +5645,7 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
         if (dense_batch > 128) dense_batch = 128;
         if (dense_batch < 1) dense_batch = 1;
         for (int i = common; i < prompt->len;) {
+            if (should_interrupt && should_interrupt(ud)) goto interrupted;
             int n = prompt->len - i;
             if (n > dense_batch) n = dense_batch;
             const int logits_mode = i + 1 == prompt->len ?
@@ -5664,6 +5672,7 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
             1 : qw3_metal_prefill_batch_size();
         if (prefill_batch > 1) {
             for (int i = common; i < prompt->len;) {
+                if (should_interrupt && should_interrupt(ud)) goto interrupted;
                 int n = prompt->len - i;
                 if (n > prefill_batch) n = prefill_batch;
                 const int last = i + n == prompt->len;
@@ -5690,6 +5699,7 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
             const int defer_interval = qw3_prefill_defer_interval();
             int deferred = 0;
             for (int i = common; i < prompt->len; i++) {
+                if (should_interrupt && should_interrupt(ud)) goto interrupted;
                 const int last = i + 1 == prompt->len;
                 int rc = last ?
                     qw3_metal_session_eval_token_slow_ex(
@@ -5714,11 +5724,23 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
     }
 #endif
     for (int i = common; i < prompt->len; i++) {
+        if (should_interrupt && should_interrupt(ud)) goto interrupted;
         if (qw3_session_eval(s, prompt->v[i], err, errlen) != 0) return -1;
         done_prefill++;
         qw3_session_progress(s, "prefill_chunk", done_prefill, total_prefill);
     }
     return 0;
+
+interrupted:
+#ifndef QW3_NO_METAL
+    if (s->engine && s->engine->backend == QW3_BACKEND_METAL && s->metal &&
+        !qw3_metal_synchronize()) {
+        if (err && errlen) snprintf(err, errlen, "Metal interrupted prefill drain failed");
+        return -1;
+    }
+#endif
+    if (err && errlen) snprintf(err, errlen, "prefill interrupted");
+    return -2;
 }
 
 int qw3_engine_trace_prompt(qw3_engine *e, const qw3_tokens *prompt,

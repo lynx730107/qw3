@@ -1,0 +1,21 @@
+test-agent-llama-reference: ok
+{
+  "expected": {
+    "archived": false,
+    "default_branch": "master",
+    "full_name": "ggml-org/llama.cpp",
+    "license": "MIT"
+  },
+  "quality": "match",
+  "qw3_agent": {
+    "generation_seconds": 23.634,
+    "generation_tokens": 159,
+    "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "prefill_seconds": 22.294,
+    "prefill_tokens": 2696,
+    "think": false,
+    "tool_rounds": 2,
+    "wall_seconds": 46.896
+  },
+  "reference_url": "https://api.github.com/repos/ggerganov/llama.cpp"
+}

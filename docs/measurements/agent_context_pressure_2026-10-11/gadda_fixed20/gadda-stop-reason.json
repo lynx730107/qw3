@@ -1,0 +1,6 @@
+{
+  "pid": 59583,
+  "command": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-agent --metal -m /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ctx 8192 --nothink --no-prefix-cache --temp 0 -n 2048 --chdir /var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-4gs7c1g1/work --store-dir /var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-4gs7c1g1/store --trace /var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-gadda-web-4gs7c1g1/trace.jsonl -p Cerca su Wikipedia le opere di Carlo Emilio Gadda ed elencale.",
+  "action": "SIGTERM only owned test model",
+  "reason": "User steered implementation to token-budget-adaptive line reads instead of a fixed 20-line prompt. End the preliminary run before changing the frozen runtime."
+}

@@ -1,0 +1,8 @@
+[
+  {
+    "utc": "2026-10-11T19:30:05.908524+00:00",
+    "swap": "vm.swapusage: total = 2048.00M  used = 844.31M  free = 1203.69M  (encrypted)",
+    "owned_model_process": "65919 1901840 450128384   0.4 10:02",
+    "scope": "One observation during test; not peak-memory measurement or allocation attribution."
+  }
+]

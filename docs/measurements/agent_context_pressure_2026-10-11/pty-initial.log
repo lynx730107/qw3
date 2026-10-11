@@ -1,0 +1,14 @@
+[32mqw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf backend=Metal ctx=4096 think=none tools=off
+[0m[36mqw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+[0m2026-10-11 19:50:56.806 qw3-agent[57899:54627876] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+[32mqw3: Metal backend initialized for graph bring-up (Apple M5)
+[0m[36mqw3-agent: memory estimate 406.9 MB
+[0m[36mqw3-agent: initializing Metal session and kernels...
+[0m[36mqw3-agent: session ready in 0.01 s
+[0mqw3-agent ready. /help for commands. /interrupt stops generation. store=/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/qw3-pty-interrupt-tpdg5gxg
+[1;22r[23;1H[0K[24;1H[0K[22;1H7[23;1H[1;22r[22;1H
+[22;1H7[23;1H[23;1HRispondi soltanto OK. x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x[?2004hqw3> [0K[0K[0Kqw3> 
+[?7l ● ready  │  ctx 86/4096  │  tools off                                                                                  [?7h[23;6H
