@@ -1,0 +1,330 @@
+{
+  "observed_utc": "2026-10-11T11:53:03.441980+00:00",
+  "files": [
+    {
+      "path": ".prefix-v1-2ff0d392fed94cdd.kvc",
+      "bytes": 103195528,
+      "allocated_bytes": 103198720,
+      "mtime_ns": 1790520164882289312,
+      "regular": true
+    },
+    {
+      "path": ".prefix-v1-7afcf7dee9644db3.kvc",
+      "bytes": 97214200,
+      "allocated_bytes": 97214464,
+      "mtime_ns": 1790538039619712624,
+      "regular": true
+    },
+    {
+      "path": ".prefix-v1-92c878e77b1e9688.kvc",
+      "bytes": 278348680,
+      "allocated_bytes": 278351872,
+      "mtime_ns": 1790520286114751961,
+      "regular": true
+    },
+    {
+      "path": ".prefix-v1-d37779bcf4048c1a.kvc",
+      "bytes": 259211000,
+      "allocated_bytes": 259211264,
+      "mtime_ns": 1790538637067933656,
+      "regular": true
+    },
+    {
+      "path": "history",
+      "bytes": 30109,
+      "allocated_bytes": 32768,
+      "mtime_ns": 1791719096736475929,
+      "regular": true
+    },
+    {
+      "path": "hybrid/engine.lock",
+      "bytes": 0,
+      "allocated_bytes": 0,
+      "mtime_ns": 1791049062267604602,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-0tJC5i/pending",
+      "bytes": 1,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049144769616835,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-0tJC5i/phase",
+      "bytes": 2,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049149301992625,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-0tJC5i/request-base.txt",
+      "bytes": 1333,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049144209405407,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-0tJC5i/request.txt",
+      "bytes": 1333,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049144209738695,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-0tJC5i/result.txt",
+      "bytes": 166,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049144769499294,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-0tJC5i/user-request.txt",
+      "bytes": 64,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049136319731007,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-QShloP/moe-tools.jsonl",
+      "bytes": 32366,
+      "allocated_bytes": 32768,
+      "mtime_ns": 1791049549495581203,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-QShloP/pending",
+      "bytes": 1,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049538156756120,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-QShloP/phase",
+      "bytes": 2,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049599123080370,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-QShloP/request-base.txt",
+      "bytes": 1276,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049537601843971,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-QShloP/request.txt",
+      "bytes": 1591,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049537602163884,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-QShloP/result.txt",
+      "bytes": 166,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049538156618079,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-QShloP/user-request.txt",
+      "bytes": 7,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049529947811525,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-Vb8CZx/phase",
+      "bytes": 2,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049069493687076,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-Vb8CZx/user-request.txt",
+      "bytes": 4,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049062259540725,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-fbrlwP/phase",
+      "bytes": 2,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049097691559977,
+      "regular": true
+    },
+    {
+      "path": "hybrid/job-fbrlwP/user-request.txt",
+      "bytes": 22,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049086180013846,
+      "regular": true
+    },
+    {
+      "path": "hybrid/moe-c9c17f2bfdf4dfe0/hybrid-1791049056-52636.hybrid-state",
+      "bytes": 728,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049599122575875,
+      "regular": true
+    },
+    {
+      "path": "hybrid/moe-c9c17f2bfdf4dfe0/hybrid-1791049056-52636.kvc",
+      "bytes": 375591760,
+      "allocated_bytes": 375595008,
+      "mtime_ns": 1791049599120675228,
+      "regular": true
+    },
+    {
+      "path": "hybrid/moe-c9c17f2bfdf4dfe0/hybrid-1791049056-52636.meta",
+      "bytes": 231,
+      "allocated_bytes": 4096,
+      "mtime_ns": 1791049599122125296,
+      "regular": true
+    },
+    {
+      "path": "hybrid/moe-c9c17f2bfdf4dfe0/hybrid-1791049056-52636.msgs",
+      "bytes": 48856,
+      "allocated_bytes": 49152,
+      "mtime_ns": 1791049598083845986,
+      "regular": true
+    },
+    {
+      "path": "hybrid/moe-c9c17f2bfdf4dfe0/hybrid-1791049056-52636.qw3a",
+      "bytes": 60052,
+      "allocated_bytes": 61440,
+      "mtime_ns": 1791049598083744320,
+      "regular": true
+    },
+    {
+      "path": "hybrid/moe-c9c17f2bfdf4dfe0/hybrid-1791049056-52636.txt",
+      "bytes": 48987,
+      "allocated_bytes": 49152,
+      "mtime_ns": 1791049598083166826,
+      "regular": true
+    },
+    {
+      "path": "hybrid/moe-c9c17f2bfdf4dfe0/moe.trace.jsonl",
+      "bytes": 5456,
+      "allocated_bytes": 8192,
+      "mtime_ns": 1791049665398562986,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-BTUI1E",
+      "bytes": 76549,
+      "allocated_bytes": 77824,
+      "mtime_ns": 1790097593001491186,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-Ql57Hl",
+      "bytes": 55833,
+      "allocated_bytes": 57344,
+      "mtime_ns": 1790098020256460425,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-UWlYK9",
+      "bytes": 33618,
+      "allocated_bytes": 36864,
+      "mtime_ns": 1790097642562013677,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-dHE3VS",
+      "bytes": 473535,
+      "allocated_bytes": 475136,
+      "mtime_ns": 1789307764149616869,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-ey6zre",
+      "bytes": 426256,
+      "allocated_bytes": 430080,
+      "mtime_ns": 1789307878412009087,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-kubzii",
+      "bytes": 51394,
+      "allocated_bytes": 53248,
+      "mtime_ns": 1789307677703322424,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-qRWwZJ",
+      "bytes": 89982,
+      "allocated_bytes": 90112,
+      "mtime_ns": 1790527861044319528,
+      "regular": true
+    },
+    {
+      "path": "spills/bash-si7fV7",
+      "bytes": 55833,
+      "allocated_bytes": 57344,
+      "mtime_ns": 1790097898170987856,
+      "regular": true
+    },
+    {
+      "path": "spills/context-CC3dyi",
+      "bytes": 49668,
+      "allocated_bytes": 53248,
+      "mtime_ns": 1790097831976529121,
+      "regular": true
+    },
+    {
+      "path": "spills/context-EzZdR5",
+      "bytes": 54585,
+      "allocated_bytes": 57344,
+      "mtime_ns": 1790097642599305499,
+      "regular": true
+    },
+    {
+      "path": "spills/context-MU5bDE",
+      "bytes": 65802,
+      "allocated_bytes": 69632,
+      "mtime_ns": 1790882898213950571,
+      "regular": true
+    },
+    {
+      "path": "spills/context-PMdMbP",
+      "bytes": 92093,
+      "allocated_bytes": 94208,
+      "mtime_ns": 1791025995885242928,
+      "regular": true
+    },
+    {
+      "path": "spills/context-SaWK9D",
+      "bytes": 87791,
+      "allocated_bytes": 90112,
+      "mtime_ns": 1791018463156873837,
+      "regular": true
+    },
+    {
+      "path": "spills/context-ZpSZOB",
+      "bytes": 97090,
+      "allocated_bytes": 98304,
+      "mtime_ns": 1791035779131375643,
+      "regular": true
+    },
+    {
+      "path": "spills/context-eBRqGM",
+      "bytes": 45367,
+      "allocated_bytes": 49152,
+      "mtime_ns": 1790098020270108160,
+      "regular": true
+    },
+    {
+      "path": "spills/context-mjzGRj",
+      "bytes": 130624,
+      "allocated_bytes": 131072,
+      "mtime_ns": 1791019318266622504,
+      "regular": true
+    }
+  ],
+  "file_count": 46,
+  "logical_bytes": 1115679945,
+  "allocated_bytes": 1115799552
+}

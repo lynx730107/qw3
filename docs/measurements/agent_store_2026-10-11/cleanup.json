@@ -1,0 +1,29 @@
+{
+  "store": "/Users/pasqualecapasso/.qw3/agent_store",
+  "revision": "41e5201a0569f9932cdbbc64dec9f1319fc60696",
+  "removed_top_level": [
+    ".prefix-v1-2ff0d392fed94cdd.kvc",
+    ".prefix-v1-7afcf7dee9644db3.kvc",
+    ".prefix-v1-92c878e77b1e9688.kvc",
+    ".prefix-v1-d37779bcf4048c1a.kvc",
+    "hybrid",
+    "spills"
+  ],
+  "removed_files": 45,
+  "removed_logical_bytes": 1115649836,
+  "removed_allocated_bytes": 1115766784,
+  "remaining_logical_bytes": 30109,
+  "history_preserved": true,
+  "history_entries": 1000,
+  "history_sha256": "3f2fe63f82730e87e86be76795bd335884effe2552ccbc309f4c4d28a8084948",
+  "store_mode_octal": "0o755",
+  "no_qw3_processes_or_open_store_files_observed": true,
+  "production_sources_unchanged": true,
+  "source_sha256": {
+    "qw3_agent.c": "76166374c408f5fc6680fa7e0d3be49684a2423bad0aa844154d811ac8978f67",
+    "linenoise.c": "f0ecdd9b7f7a62cfd381ba85381540772f6d0e9aad4a9c634b2c13c6aad6f2c0",
+    "../qw3-exp-lopped/qw3_agent.c": "38d217aff5227424a5c1eb230e65f45e3e7fac84af700a68294aeea9aebe830a",
+    "../qw3-exp-lopped/qw3_agent_hybrid.inc": "013915f1b679d170a02c386c93e33e1d44f2e5d7fcf41ef91f7827bb50b3fb9e"
+  },
+  "experimental_checkout_modified": false
+}

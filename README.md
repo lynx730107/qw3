@@ -557,6 +557,14 @@ prefix again. At most four variants are retained. Use `--no-prefix-cache` for a
 direct A/B comparison or troubleshooting. Full conversation checkpoints always
 take precedence over the prefix cache.
 
+Store retention keeps four prefix caches, eight bash spills, eight context
+archives and the latest 1,000 interactive history entries. These are count
+limits; saved conversations and requested trace logs have no global byte
+quota. `make test-agent-store` checks eviction and history rewriting without
+loading a model. The [store audit and authorized cleanup](docs/agent_store_2026-10-11.md)
+correct the earlier directory-only analysis and record removal of the failed
+hybrid experiment's stored artifacts.
+
 The main tools are:
 
 - `read`, `more`, `list`: file reading and navigation.

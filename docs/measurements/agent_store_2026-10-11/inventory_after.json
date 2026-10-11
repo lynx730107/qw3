@@ -1,0 +1,15 @@
+{
+  "observed_utc": "2026-10-11T11:53:03.468935+00:00",
+  "files": [
+    {
+      "path": "history",
+      "bytes": 30109,
+      "allocated_bytes": 32768,
+      "mtime_ns": 1791719096736475929,
+      "regular": true
+    }
+  ],
+  "file_count": 1,
+  "logical_bytes": 30109,
+  "allocated_bytes": 32768
+}

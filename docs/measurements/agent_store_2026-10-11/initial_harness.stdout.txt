@@ -1,0 +1,2 @@
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -DQW3_NO_METAL -c -o qw3_cpu_core.o qw3.c
+PASS prefix retention: 4 files across versions; current cache protected; unrelated entries preserved

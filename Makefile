@@ -18,7 +18,7 @@ endif
 	qw3-metal qw3-bench-metal qw3-eval-metal
 
 .PHONY: test-rope test-rope-metal test-dense-metal-logits
-.PHONY: test-agent-repeat-format
+.PHONY: test-agent-repeat-format test-agent-store
 .PHONY: test-short-batch-quant test-short-batch
 .PHONY: test-iq3-stream-quant
 
@@ -598,6 +598,13 @@ test-agent-color: qw3-agent
 
 test-agent-context: qw3-agent
 	QW3_AGENT_CONTEXT_LEDGER_SELFTEST=1 ./qw3-agent
+
+test-agent-store: qw3_cpu_core.o linenoise_qw3.o
+	@set -e; probe=$$(mktemp "$${TMPDIR:-/tmp}/qw3-agent-store.XXXXXX"); \
+	trap 'rm -f "$$probe"' EXIT; \
+	$(CC) $(CFLAGS) -DQW3_NO_METAL -o "$$probe" tests/test_agent_store.c \
+		qw3_cpu_core.o linenoise_qw3.o $(LDLIBS); \
+	"$$probe"
 
 test-agent-llama-reference: qw3-agent
 	python3 tests/test_agent_llama_reference.py
