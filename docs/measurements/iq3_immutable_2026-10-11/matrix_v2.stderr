@@ -1,0 +1,9 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.031s)
+2026-10-11 16:23:25.087 qw3-iq3-immutable-test[44047:54477295] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+iq3_immutable_metadata variant=0 thread_width=32 max_threads=1024 static_threadgroup_bytes=1024 immutable_weight=0 immutable_grid=0
+iq3_immutable_metadata variant=1 thread_width=32 max_threads=1024 static_threadgroup_bytes=1024 immutable_weight=1 immutable_grid=0
+iq3_immutable_metadata variant=2 thread_width=32 max_threads=1024 static_threadgroup_bytes=1024 immutable_weight=1 immutable_grid=1

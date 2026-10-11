@@ -414,6 +414,12 @@ records the bit-for-bit requirement and excludes additional weight or session
 data allocations. Archived bandwidth evidence leaves plausible room for
 small decode gains; weights-only ceilings do not predict reachable speed.
 
+The [IQ3_S immutable-buffer screen](docs/m5_iq3_immutable_2026-10-11.md)
+changes only pipeline descriptors for original readonly weight/grid buffers.
+Both variants pass 36 guarded matrix cases and one-session model checks, but
+15 ordinary samples show no speed gain (−0.060% / −0.281% against nearby
+controls). No variant is adopted and no extra data buffer is introduced.
+
 The [model-residency replication](docs/m5_model_residency_retry_2026-10-11.md)
 uses the original buffer without copying weights. Twenty-one samples retain
 a +0.301% aggregate point estimate, but nearby comparisons approach zero and

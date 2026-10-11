@@ -208,6 +208,21 @@ tests/.iq3_hint/hooks.inc: tests/prepare_iq3_hint.py tests/.iq3_words/hooks.inc 
 tests/.iq3_hint/matrix.inc tests/.iq3_hint/model.inc tests/.iq3_hint/native.inc: tests/.iq3_hint/hooks.inc
 	@test -f $@ || python3 tests/prepare_iq3_hint.py
 
+tests/.iq3_immutable/hooks.inc: tests/prepare_iq3_immutable.py tests/.iq3_hint/hooks.inc tests/.iq3_hint/matrix.inc tests/.iq3_hint/model.inc tests/.iq3_hint/native.inc
+	python3 tests/prepare_iq3_immutable.py
+
+tests/.iq3_immutable/matrix.inc tests/.iq3_immutable/model.inc tests/.iq3_immutable/native.inc: tests/.iq3_immutable/hooks.inc
+	@test -f $@ || python3 tests/prepare_iq3_immutable.py
+
+qw3-iq3-immutable-test: tests/test_iq3_immutable.m tests/.iq3_immutable/hooks.inc tests/.iq3_immutable/matrix.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_immutable.m $(METAL_LDLIBS)
+
+qw3-iq3-immutable-model-test: tests/test_iq3_immutable_model.m tests/.iq3_immutable/hooks.inc tests/.iq3_immutable/model.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_immutable_model.m $(METAL_LDLIBS)
+
+qw3-iq3-immutable-native-bench: tests/bench_iq3_immutable_native.m tests/.iq3_immutable/hooks.inc tests/.iq3_immutable/native.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_immutable_native.m $(METAL_LDLIBS)
+
 qw3-iq3-hint-test: tests/test_iq3_hint.m tests/.iq3_hint/hooks.inc tests/.iq3_hint/matrix.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_hint.m $(METAL_LDLIBS)
 
@@ -528,6 +543,10 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
+qw3-iq3-immutable-test qw3-iq3-immutable-model-test qw3-iq3-immutable-native-bench:
+	@echo "$@ requires Darwin/Apple Metal"
+	@exit 1
+
 qw3-iq3-hint-test qw3-iq3-hint-model-test qw3-iq3-hint-native-bench qw3-iq3-words-test qw3-iq3-words-model-test qw3-iq3-words-native-bench qw3-iq3-grid-test qw3-iq3-grid-model-test qw3-iq3-grid-native-bench qw3-iq3-private-native-bench qw3-iq3-private-test qw3-iq3-private-bench qw3-iq3-layout-test qw3-iq3-layout-bench qw3-iq4-packed-lut-test qw3-iq4-packed-lut-bench qw3-iq3-signed-test qw3-iq3-signed-bench qw3-iq4-rows-test qw3-iq4-rows-bench qw3-iq4-rows-cost-bench qw3-iq4-loads-test qw3-iq4-loads-bench qw3-decode-profile-test qw3-hazard-fences-native-bench qw3-hazard-fences-test qw3-weight-tracking-native-bench qw3-weight-tracking-bench qw3-weight-tracking-test qw3-hazard-tracking-test qw3-gdn-two-columns-test qw3-gdn-two-columns-bench qw3-gdn-local-gates-test qw3-gdn-local-gates-bench qw3-gdn-windows-test qw3-gdn-windows-bench qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
@@ -714,6 +733,7 @@ clean:
 	rm -f qw3-iq3-grid-test qw3-iq3-grid-model-test qw3-iq3-grid-native-bench
 	rm -f qw3-iq3-words-test qw3-iq3-words-model-test qw3-iq3-words-native-bench
 	rm -f qw3-iq3-hint-test qw3-iq3-hint-model-test qw3-iq3-hint-native-bench
+	rm -f qw3-iq3-immutable-test qw3-iq3-immutable-model-test qw3-iq3-immutable-native-bench
 	rm -f qw3-iq3-signed-test qw3-iq3-signed-bench
 	rm -f qw3-iq3-layout-test qw3-iq3-layout-bench
 	rm -f qw3-iq3-private-test qw3-iq3-private-bench qw3-iq3-private-native-bench

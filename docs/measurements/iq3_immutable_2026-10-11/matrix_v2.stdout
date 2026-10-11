@@ -1,0 +1,19 @@
+matrix_exact variant=2 n_in=256 n_out=1 pattern=0 guards=exact input=unchanged
+matrix_exact variant=2 n_in=256 n_out=1 pattern=1 guards=exact input=unchanged
+matrix_exact variant=2 n_in=256 n_out=1 pattern=2 guards=exact input=unchanged
+matrix_exact variant=2 n_in=4352 n_out=33 pattern=0 guards=exact input=unchanged
+matrix_exact variant=2 n_in=4352 n_out=33 pattern=1 guards=exact input=unchanged
+matrix_exact variant=2 n_in=4352 n_out=33 pattern=2 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=4097 pattern=0 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=4097 pattern=1 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=4097 pattern=2 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=4111 pattern=0 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=4111 pattern=1 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=4111 pattern=2 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=17408 pattern=0 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=17408 pattern=1 guards=exact input=unchanged
+matrix_exact variant=2 n_in=5120 n_out=17408 pattern=2 guards=exact input=unchanged
+matrix_exact variant=2 n_in=17408 n_out=5120 pattern=0 guards=exact input=unchanged
+matrix_exact variant=2 n_in=17408 n_out=5120 pattern=1 guards=exact input=unchanged
+matrix_exact variant=2 n_in=17408 n_out=5120 pattern=2 guards=exact input=unchanged
+PASS iq3_immutable=2 matrix_cases=18 finite_bit_exact=all

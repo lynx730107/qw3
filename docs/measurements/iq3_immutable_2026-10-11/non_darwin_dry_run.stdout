@@ -1,0 +1,2 @@
+echo "qw3-iq3-immutable-test requires Darwin/Apple Metal"
+exit 1

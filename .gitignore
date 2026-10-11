@@ -137,6 +137,10 @@ tests/.iq3_words/
 /qw3-iq3-hint-model-test
 /qw3-iq3-hint-native-bench
 tests/.iq3_hint/
+/qw3-iq3-immutable-test
+/qw3-iq3-immutable-model-test
+/qw3-iq3-immutable-native-bench
+tests/.iq3_immutable/
 /qw3-iq4-packed-lut-test
 /qw3-iq4-packed-lut-bench
 tests/.iq4_packed_lut/
