@@ -1,0 +1,7 @@
+In file included from tests/bench_iq3_words_native.m:2:
+tests/.iq3_words/native.inc:9:10: error: '../qw3_bench.c' file not found, did you mean 'qw3_bench.c'?
+    9 | #include "../qw3_bench.c"
+      |          ^~~~~~~~~~~~~~~~
+      |          "qw3_bench.c"
+1 error generated.
+make: *** [qw3-iq3-words-native-bench] Error 1

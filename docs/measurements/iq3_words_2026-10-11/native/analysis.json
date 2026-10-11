@@ -1,0 +1,71 @@
+{
+  "adopted": false,
+  "runs": 5,
+  "validated_samples": 15,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3484.1536666666666,
+    3503.8283333333334,
+    3492.403333333333,
+    3495.143666666667,
+    3501.749333333333
+  ],
+  "off_mean_spread_pct": 0.5037741627392118,
+  "candidate_blocks_per_variant": 1,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "variants": [
+    {
+      "variant": 1,
+      "name": "QS-word",
+      "candidate_mean_ms": 3503.8283333333334,
+      "adjacent_off_mean_ms": 3488.2785,
+      "candidate_tps": 9.132867525378193,
+      "adjacent_off_tps": 9.173579460470258,
+      "point_gain_vs_adjacent_mean_pct": -0.44379552460951377,
+      "gain_vs_left_off_pct": -0.5615191383520068,
+      "gain_vs_right_off_pct": -0.3260719108670207,
+      "neighbor_interpolated_saved_ms": -15.549833333333481
+    },
+    {
+      "variant": 2,
+      "name": "QS-and-sign-word",
+      "candidate_mean_ms": 3495.143666666667,
+      "adjacent_off_mean_ms": 3497.0763333333334,
+      "candidate_tps": 9.155560701319764,
+      "adjacent_off_tps": 9.150500861243234,
+      "point_gain_vs_adjacent_mean_pct": 0.05529577181901946,
+      "gain_vs_left_off_pct": -0.07840402554745163,
+      "gain_vs_right_off_pct": 0.18899556918545724,
+      "neighbor_interpolated_saved_ms": 1.9326666666665915
+    }
+  ],
+  "swap_observations": [
+    {
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)"
+    },
+    {
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)"
+    },
+    {
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)"
+    },
+    {
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)"
+    },
+    {
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1181.06M  free = 866.94M  (encrypted)"
+    }
+  ],
+  "reason": "QS-word is slower than both neighboring controls. QS-and-sign-word has a +0.055% point gain versus their mean, loses versus the preceding control and wins versus the following control; one candidate block does not establish a repeatable benefit. No production adoption or new direct llama.cpp comparison."
+}

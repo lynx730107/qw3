@@ -129,6 +129,10 @@ tests/.iq3_signed/
 /qw3-iq3-grid-model-test
 /qw3-iq3-grid-native-bench
 tests/.iq3_grid/
+/qw3-iq3-words-test
+/qw3-iq3-words-model-test
+/qw3-iq3-words-native-bench
+tests/.iq3_words/
 /qw3-iq4-packed-lut-test
 /qw3-iq4-packed-lut-bench
 tests/.iq4_packed_lut/

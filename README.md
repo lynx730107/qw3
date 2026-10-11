@@ -483,6 +483,12 @@ Device reads lose ordinary throughput. The [constant-grid replication](docs/m5_i
 run after the requested agent regressions, fails to reproduce its initial
 gain. Neither is adopted; production inference remains unchanged.
 
+The [IQ3_S aligned integer-load screening](docs/m5_iq3_words_2026-10-11.md)
+keeps the original weight layout and data buffers. Both variants pass
+36 guarded matrices and a one-session disk-oracle model check. QS-word
+loses ordinary throughput; QS-and-sign-word shows only +0.055% against
+adjacent controls with mixed neighbor comparisons. Neither is adopted.
+
 The [agent regression run](docs/agent_regressions_2026-10-11.md) passes all
 19 selected targets on the rebuilt production agent: tools and guards,
 checkpoints, prefix cache, C/Python/Git tasks and conversation formatting.
