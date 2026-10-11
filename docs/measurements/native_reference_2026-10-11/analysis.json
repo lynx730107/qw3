@@ -1,0 +1,49 @@
+{
+  "validated_runs": 20,
+  "validated_samples": 100,
+  "model_identity_after_run": "size and mtime unchanged; same resolved GGUF path in all commands",
+  "source_snapshot_hashes_valid": true,
+  "sources_and_binaries_match_completed_run": true,
+  "swap_before_after_identical_all_runs": true,
+  "analysis": {
+    "pp128": {
+      "rate_delta_pct": 0.07271580970165115,
+      "paired_saved_ms": [
+        2.9484830000000573,
+        -3.442557999999929,
+        3.6891329999999556,
+        -3.7329090000000065,
+        3.481815999999971
+      ],
+      "paired_saved_ci95_ms": [
+        -4.158034129698903,
+        5.335620129698922
+      ],
+      "both_engines_stable_5pct": true,
+      "lead_confirmed": false,
+      "saved_ms_qw3_first_mean": 3.3731439999999946,
+      "saved_ms_qw3_second_mean": -3.5877334999999677,
+      "order_effect_scope": "descriptive association; does not identify its cause"
+    },
+    "tg32_d128": {
+      "rate_delta_pct": -2.3976150264947815,
+      "paired_saved_ms": [
+        -68.58245899999993,
+        -165.57819999999967,
+        -15.170433999999844,
+        -198.62695899999983,
+        8.97248300000042
+      ],
+      "paired_saved_ci95_ms": [
+        -201.14045679475498,
+        25.54622919475547
+      ],
+      "both_engines_stable_5pct": true,
+      "lead_confirmed": false,
+      "saved_ms_qw3_first_mean": -24.92680333333312,
+      "saved_ms_qw3_second_mean": -182.10257949999976,
+      "order_effect_scope": "descriptive association; does not identify its cause"
+    }
+  },
+  "goal_completion": "not demonstrated; decode point estimate remains slower and neither phase confirms a lead"
+}

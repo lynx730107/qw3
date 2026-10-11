@@ -390,6 +390,12 @@ bit-exact on the measured 27B model. Seven ordinary benchmark blocks confirm
 `QW3_METAL_DENSE_GDN_CACHE=0`. The fallback also fixes a normalization reduction
 that read unwritten threadgroup slots, exposed by head dimension 32 tests.
 
+The [2026-10-11 direct ordinary comparison](docs/m5_native_reference_2026-10-11.md)
+retains 100 samples with stable run means: pp128 is 158.08 versus 157.96
+token/s for llama.cpp; tg32 at depth 128 is 8.74 versus 8.95. Paired intervals
+confirm no lead in either phase. Prefill is close; matching both phases
+remains the objective.
+
 The [DeltaNet cache-window trials](docs/m5_gdn_windows_2026-10-10.md)
 compare first48/80/96 and middle/last64 against the adopted native first64
 cache. All ten guarded matrix cases and 448 timed greedy forward pairs pass
