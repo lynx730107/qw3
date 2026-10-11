@@ -1,0 +1,5 @@
+python3 tests/prepare_gdn_two128.py
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-gdn-two128-test tests/test_gdn_two128.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-gdn-two128-model-test tests/test_gdn_two128_model.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-gdn-two128-native-bench tests/bench_gdn_two128_native.m -lm -pthread -framework Foundation -framework Metal

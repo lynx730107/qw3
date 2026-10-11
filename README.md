@@ -420,6 +420,12 @@ Both variants pass 36 guarded matrix cases and one-session model checks, but
 15 ordinary samples show no speed gain (−0.060% / −0.281% against nearby
 controls). No variant is adopted and no extra data buffer is introduced.
 
+The [two-column DeltaNet screen with native 128-thread RMS](docs/m5_gdn_two128_2026-10-11.md)
+passes 18 guarded cases and one-session 27B checks using the existing output
+buffer for intermediate cores. Thirty-six ordinary timing samples retain
+an initial +0.685% cache32 point estimate followed by −0.666% in replication;
+cache64 gives −0.673%. No variant is adopted or additional data buffer added.
+
 The [model-residency replication](docs/m5_model_residency_retry_2026-10-11.md)
 uses the original buffer without copying weights. Twenty-one samples retain
 a +0.301% aggregate point estimate, but nearby comparisons approach zero and

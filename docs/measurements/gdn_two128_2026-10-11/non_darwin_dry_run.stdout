@@ -1,0 +1,2 @@
+echo "qw3-gdn-two128-test requires Darwin/Apple Metal"
+exit 1

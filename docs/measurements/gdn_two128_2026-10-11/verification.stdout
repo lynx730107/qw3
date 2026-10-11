@@ -1,0 +1,105 @@
+{
+  "adopted": false,
+  "numeric_guarded_cases": 18,
+  "numeric_model_processes": 2,
+  "numeric_sessions": "one at a time; one reused session and disk oracle in each model process",
+  "numeric_full_vocab_checks_per_phase": 33,
+  "numeric_checkpoint_suite_repeated": false,
+  "native_runs": 5,
+  "native_samples_retained": 15,
+  "native_samples_discarded": 0,
+  "block_means_ms": [
+    3622.373666666667,
+    3561.192666666667,
+    3548.828666666667,
+    3575.0376666666666,
+    3553.1136666666666
+  ],
+  "off_max_over_min_spread_pct": 2.0723739269464136,
+  "control_stability_gate_passed": true,
+  "comparisons": [
+    {
+      "block": 1,
+      "variant": 1,
+      "candidate_mean_ms": 3561.192666666667,
+      "adjacent_off_mean_ms": 3585.601166666667,
+      "point_gain_pct": 0.6854023998327241,
+      "gain_vs_left_off_pct": 1.7179918562863605,
+      "gain_vs_right_off_pct": -0.3471870566209234
+    },
+    {
+      "block": 3,
+      "variant": 2,
+      "candidate_mean_ms": 3575.0376666666666,
+      "adjacent_off_mean_ms": 3550.9711666666667,
+      "point_gain_pct": -0.6731817184583488,
+      "gain_vs_left_off_pct": -0.7331111569640281,
+      "gain_vs_right_off_pct": -0.6132522799526696
+    }
+  ],
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "dynamic_threadgroup_bytes": 128,
+  "static_threadgroup_bytes": 0,
+  "dispatch_threads": 128,
+  "swap_observations": [
+    {
+      "stage": "numeric",
+      "name": "matrix_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "matrix_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "model_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "model_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1157.06M  free = 890.94M  (encrypted)"
+    }
+  ],
+  "all_swap_observations_equal": true,
+  "store_history_only_bytes_unchanged": 30109,
+  "scope": "screening; each variant has one ON process, no replicated gain established yet"
+}

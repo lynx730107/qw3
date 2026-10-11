@@ -1,0 +1,10 @@
+matrix_exact variant=2 heads=3 pattern=0 state=exact inner=exact cpu_norm_max=1.65258983e-07 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=3 pattern=1 state=exact inner=exact cpu_norm_max=0 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=3 pattern=2 state=exact inner=exact cpu_norm_max=1.15654403e-07 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=7 pattern=0 state=exact inner=exact cpu_norm_max=3.81399085e-07 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=7 pattern=1 state=exact inner=exact cpu_norm_max=0 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=7 pattern=2 state=exact inner=exact cpu_norm_max=3.19495779e-07 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=48 pattern=0 state=exact inner=exact cpu_norm_max=1.71336694e-07 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=48 pattern=1 state=exact inner=exact cpu_norm_max=0 guards=ok inputs=unchanged
+matrix_exact variant=2 heads=48 pattern=2 state=exact inner=exact cpu_norm_max=2.42666529e-07 guards=ok inputs=unchanged
+PASS gdn_two128_matrix variant=2 cases=9
