@@ -402,6 +402,13 @@ engine run. qw3 measures 8.86247 versus llama's 9.13410 token/s, with about
 0.60% spread for each. The paired interval confirms a llama lead in this
 series; qw3 needs about 3.06% more decode throughput to reach that rate.
 
+The [ordinary decode comparison after store cleanup](docs/m5_native_reference_after_store_cleanup_2026-10-11.md)
+retains another 60 samples with the same production sources and executables.
+qw3 measures 9.07176 versus llama's 9.34049 token/s; all six pairs favor llama,
+and qw3 needs about 2.96% more throughput to reach that rate. The store stays
+history-only at 30,109 bytes. No inference change or cleanup performance
+effect is established by this comparison.
+
 The [decode headroom and memory constraint](docs/m5_decode_headroom_2026-10-11.md)
 records the bit-for-bit requirement and excludes additional weight or session
 data allocations. Archived bandwidth evidence leaves plausible room for

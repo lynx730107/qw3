@@ -1,0 +1,53 @@
+{
+  "summary": {
+    "qw3_tps": 9.071756173873437,
+    "llama_tps": 9.340492196021032,
+    "paired_saved_ms": -101.48800883333327,
+    "ci95_radius_ms": 6.154862611741175,
+    "lead_confirmed_in_this_series": false,
+    "saved_ms_qw3_first_mean": -102.02578399999985,
+    "saved_ms_qw3_second_mean": -100.9502336666667,
+    "qw3_spread_pct": 0.9423467050585721,
+    "llama_spread_pct": 0.584253868175022,
+    "both_engines_stable_5pct": true
+  },
+  "analysis": {
+    "validated_runs": 12,
+    "validated_samples": 60,
+    "all_recorded_sources_snapshots_and_binaries_match": true,
+    "same_sources_and_binaries_as_previous_balanced_comparison": true,
+    "eight_direct_llama_libraries_unchanged": true,
+    "model_size_mtime_unchanged": true,
+    "paired_saved_ms": [
+      -94.90664199999976,
+      -102.61509200000019,
+      -103.12393399999964,
+      -106.35869999999991,
+      -108.04677600000012,
+      -93.87690900000001
+    ],
+    "rate_delta_pct": -2.877107720962213,
+    "qw3_speedup_needed_pct": 2.9623373578045564,
+    "paired_saved_ci95_ms": [
+      -107.64287144507445,
+      -95.33314622159209
+    ],
+    "llama_lead_confirmed_in_this_series": true,
+    "qw3_lead_confirmed_in_this_series": false,
+    "both_engines_stable_5pct": true,
+    "swap_before_after_all_runs_equal": false,
+    "swap_before_after_each_run_equal": true,
+    "swap_usage_values": [
+      "vm.swapusage: total = 2048.00M  used = 1165.06M  free = 882.94M  (encrypted)",
+      "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    ],
+    "swap_used_delta_mib": -8.0,
+    "swap_used_never_increased_at_recorded_boundaries": true,
+    "qw3_first_mean_saved_ms": -102.02578399999985,
+    "qw3_second_mean_saved_ms": -100.9502336666667,
+    "store_history_only_bytes_unchanged": 30109,
+    "qw3_session_bytes_all_runs": 176761680,
+    "interval_experimental_units": "six paired engine-run means; five repetitions each",
+    "samples_discarded": 0
+  }
+}
