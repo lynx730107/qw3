@@ -1,0 +1,67 @@
+{
+  "adopted": false,
+  "runs": 5,
+  "validated_samples": 15,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3601.6856666666667,
+    3613.383,
+    3568.763,
+    3562.578666666667,
+    3663.744333333333
+  ],
+  "off_mean_spread_pct": 2.661463743412873,
+  "candidate_blocks_per_variant": 1,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "variants": [
+    {
+      "variant": 1,
+      "space": "device",
+      "adjacent_off_tps": 8.925522373169953,
+      "candidate_tps": 8.855966832190223,
+      "point_gain_vs_adjacent_mean_pct": -0.7792881813709296,
+      "gain_vs_left_off_pct": -0.32372248757834843,
+      "gain_vs_right_off_pct": -1.2348538751635219,
+      "neighbor_interpolated_saved_ms": -28.15866666666625
+    },
+    {
+      "variant": 2,
+      "space": "constant",
+      "adjacent_off_tps": 8.848936758769042,
+      "candidate_tps": 8.982257795289854,
+      "point_gain_vs_adjacent_mean_pct": 1.506633397381818,
+      "gain_vs_left_off_pct": 0.1735914884125167,
+      "gain_vs_right_off_pct": 2.8396753063511193,
+      "neighbor_interpolated_saved_ms": 53.67499999999973
+    }
+  ],
+  "swap_observations": [
+    {
+      "name": "block_0_v0",
+      "before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)"
+    },
+    {
+      "name": "block_1_v1",
+      "before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)"
+    },
+    {
+      "name": "block_2_v0",
+      "before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)"
+    },
+    {
+      "name": "block_3_v2",
+      "before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)"
+    },
+    {
+      "name": "block_4_v0",
+      "before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)"
+    }
+  ],
+  "reason": "Device reads are slower than both neighboring controls. Constant reads show a small gain versus the preceding control and a larger gain versus a slower following control; one candidate block does not establish repeatability. Replica postponed to run agent regressions first at user request."
+}

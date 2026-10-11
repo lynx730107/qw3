@@ -1,0 +1,23 @@
+{
+  "adopted": false,
+  "matrix_cases": 36,
+  "variants": [
+    "device",
+    "constant"
+  ],
+  "matrix_validation": "all finite output bytes equal, exact output guards, unchanged input, Metal API validation enabled",
+  "single_session_model_phases": 3,
+  "model_prefix": 128,
+  "model_greedy_continuation": 32,
+  "full_finite_vocabulary_checks_per_phase": 33,
+  "canonical_live_state_checks_per_phase": 2,
+  "candidate_model_dispatches_per_variant": 2336,
+  "model_state_scope": "history, position, live GQA K/V, full DeltaNet and conv before and after continuation; temporary Flash Attention tail excluded",
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "quality_simultaneous_sessions": 1,
+  "checkpoint_roundtrips_tested": false,
+  "eight_prefix_quality_suite_tested": false,
+  "model_quality_swap_before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+  "model_quality_swap_after": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)"
+}

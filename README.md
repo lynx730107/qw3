@@ -476,6 +476,13 @@ fails bit-for-bit guarded matrices for both implicit and explicit FMA
 accumulation. Differences of one or two ULP reject both candidates before
 timing; production keeps the original FP32 expressions.
 
+The [IQ3_S direct-grid screening](docs/m5_iq3_grid_2026-10-11.md) reads the
+existing packed table without new weight or session buffers. Both address
+spaces pass guarded matrices and a one-session disk-oracle model screen.
+Device reads lose ordinary throughput; constant reads remain inconclusive
+after one candidate block. Neither is adopted; agent regressions precede
+further performance work.
+
 The [IQ3_S aligned layout trial](docs/m5_iq3_layout_2026-10-11.md) copies
 110-byte blocks into an aligned 112-byte representation. Scalar and vector
 loads pass 72 guarded matrices and full-vocabulary/state checks, but both
