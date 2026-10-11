@@ -1,0 +1,45 @@
+{
+  "search_tool_direct_exit_code": 0,
+  "agent_exit_code": 0,
+  "final_answer": {
+    "chip": "Apple M5",
+    "memory_bandwidth_gb_s": 153,
+    "source_url": "https://www.apple.com/macbook-air/specs/"
+  },
+  "final_answer_json_exact_after_empty_thinking_prefix": true,
+  "tool_sequence": [
+    "search_web",
+    "visit_url",
+    "search_web",
+    "visit_url"
+  ],
+  "context_compaction_completed": true,
+  "guard_rejections": 0,
+  "same_model_sequential_only": true,
+  "source_supported_by_visited_page": true,
+  "swap_before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+  "swap_after": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+  "live_url_reference_exit_code": 0,
+  "live_url_reference_summary": {
+    "expected": {
+      "archived": false,
+      "default_branch": "master",
+      "full_name": "ggml-org/llama.cpp",
+      "license": "MIT"
+    },
+    "quality": "match",
+    "qw3_agent": {
+      "generation_seconds": 7.405,
+      "generation_tokens": 65,
+      "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "prefill_seconds": 26.212,
+      "prefill_tokens": 3771,
+      "think": false,
+      "tool_rounds": 1,
+      "wall_seconds": 34.585
+    },
+    "reference_url": "https://api.github.com/repos/ggerganov/llama.cpp"
+  },
+  "live_url_reference_swap_before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+  "live_url_reference_swap_after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+}

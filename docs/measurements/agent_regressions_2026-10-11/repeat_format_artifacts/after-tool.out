@@ -1,0 +1,38 @@
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf backend=Metal ctx=8192 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+2026-10-11 13:08:16.762 qw3-agent[31336:54336617] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 662.9 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.01 s
+
+[tool] read
+read path=README.md start=1 lines=200
+    1  # Progetto di prova
+    2  Core coordina i tool e genera la risposta.
+    3  
+    4  Diagramma da riportare nella risposta:
+    5  ┌────────────────────────────────────────────────────────────────────────────────┐
+    6  │ Core -> Tools -> Risposta │
+    7  └────────────────────────────────────────────────────────────────────────────────┘
+    8  
+    9  Separatore da riportare nella risposta:
+   10  ========================================================================================================================
+
+Diagramma da riportare nella risposta:
+
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Core -> Tools -> Risposta │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+
+Separatore da riportare nella risposta:
+
+========================================================================================================================
+
+
+AGENT_DIAGRAM_OK
+agent: saved repeat-format (1790 tokens, KV ready)

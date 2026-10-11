@@ -483,6 +483,13 @@ Device reads lose ordinary throughput; constant reads remain inconclusive
 after one candidate block. Neither is adopted; agent regressions precede
 further performance work.
 
+The [agent regression run](docs/agent_regressions_2026-10-11.md) passes all
+19 selected targets on the rebuilt production agent: tools and guards,
+checkpoints, prefix cache, C/Python/Git tasks and conversation formatting.
+Live web search/source reading and a four-field URL oracle also pass.
+Model processes run sequentially with Metal API validation; no private
+optimization candidate or extra weight copies are enabled.
+
 The [IQ3_S aligned layout trial](docs/m5_iq3_layout_2026-10-11.md) copies
 110-byte blocks into an aligned 112-byte representation. Scalar and vector
 loads pass 72 guarded matrices and full-vocabulary/state checks, but both

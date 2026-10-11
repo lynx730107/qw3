@@ -1,0 +1,50 @@
+{
+  "started_utc": "2026-10-11T11:16:47.277064+00:00",
+  "scope": "Existing live URL/JSON oracle test, candidate-only; no llama-server",
+  "command": [
+    "caffeinate",
+    "-disu",
+    "python3",
+    "tests/test_agent_llama_reference.py",
+    "--candidate-only",
+    "--model",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "--agent",
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-agent",
+    "--timeout",
+    "300"
+  ],
+  "environment": {
+    "QW3_MODEL": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "QW3_DENSE_MODEL": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "QW3_AGENT_BIN": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-agent",
+    "QW3_CLI_BIN": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/qw3-cli",
+    "QW3_CTX": "4096",
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_KV_Q8_0": "0",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_KERNEL_DIR": "/Users/pasqualecapasso/Downloads/ds4-main/qw3/metal",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1"
+  },
+  "source_sha256": {
+    "tests/test_agent_llama_reference.py": "5d27725fb700c15b9d76d74e8f59e5c48603956219fc5747ae166dfef239dfa9"
+  },
+  "source_snapshot_paths": {
+    "tests/test_agent_llama_reference.py": "source_snapshot/tests/test_agent_llama_reference.py"
+  },
+  "agent_source_manifest": "manifest.json",
+  "binary_sha256": {
+    "qw3-agent": "d2d092488fd4457ba8279f2f47c4924bd943f362495262bcf2221e44de55f9ee"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "swap_before": "vm.swapusage: total = 2048.00M  used = 1309.06M  free = 738.94M  (encrypted)",
+  "exit_code": 0,
+  "seconds": 35.244738917,
+  "swap_after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+  "completed_utc": "2026-10-11T11:17:22.526976+00:00"
+}

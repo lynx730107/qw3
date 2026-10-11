@@ -1,0 +1,10 @@
+{
+  "query": "Apple M5 153 GB/s memory bandwidth site:apple.com",
+  "command": [
+    "./qw3-agent",
+    "--tool-native",
+    "<tool_call><function=search_web><parameter=query>Apple M5 153 GB/s memory bandwidth site:apple.com</parameter></function></tool_call>"
+  ],
+  "exit_code": 0,
+  "seconds": 0.897729625
+}
