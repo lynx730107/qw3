@@ -154,6 +154,21 @@ tests/.decode_profile/hooks.inc: tests/prepare_decode_profile.py tests/projectio
 tests/.iq4_loads/quality.inc: tests/prepare_iq4_loads.py tests/test_native_prefill.m tests/bench_iq3_groups.m
 	python3 tests/prepare_iq4_loads.py
 
+tests/.iq4_rows/hooks.inc: tests/prepare_iq4_rows.py tests/iq4_load_candidates.inc tests/test_iq4_loads.m tests/test_native_prefill.m tests/bench_iq3_groups.m $(METAL_SRCS)
+	python3 tests/prepare_iq4_rows.py
+
+tests/.iq4_rows/kernels.metal tests/.iq4_rows/quality.inc tests/.iq4_rows/matrix.inc tests/.iq4_rows/bench.inc: tests/.iq4_rows/hooks.inc
+	@test -f $@ || python3 tests/prepare_iq4_rows.py
+
+qw3-iq4-rows-test: tests/test_iq4_rows.m tests/.iq4_rows/hooks.inc tests/.iq4_rows/matrix.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq4_rows.m $(METAL_LDLIBS)
+
+qw3-iq4-rows-bench: tests/bench_iq4_rows.m tests/.iq4_rows/hooks.inc tests/.iq4_rows/bench.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq4_rows.m $(METAL_LDLIBS)
+
+qw3-iq4-rows-cost-bench: tests/bench_iq4_rows_cost.m tests/.iq4_rows/hooks.inc tests/.iq4_rows/quality.inc tests/.iq4_rows/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq4_rows_cost.m $(METAL_LDLIBS)
+
 qw3-iq4-loads-test: tests/test_iq4_loads.m tests/iq4_load_candidates.inc tests/.iq4_loads/quality.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq4_loads.m $(METAL_LDLIBS)
 
@@ -417,7 +432,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-iq4-loads-test qw3-iq4-loads-bench qw3-decode-profile-test qw3-hazard-fences-native-bench qw3-hazard-fences-test qw3-weight-tracking-native-bench qw3-weight-tracking-bench qw3-weight-tracking-test qw3-hazard-tracking-test qw3-gdn-two-columns-test qw3-gdn-two-columns-bench qw3-gdn-local-gates-test qw3-gdn-local-gates-bench qw3-gdn-windows-test qw3-gdn-windows-bench qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
+qw3-iq4-rows-test qw3-iq4-rows-bench qw3-iq4-rows-cost-bench qw3-iq4-loads-test qw3-iq4-loads-bench qw3-decode-profile-test qw3-hazard-fences-native-bench qw3-hazard-fences-test qw3-weight-tracking-native-bench qw3-weight-tracking-bench qw3-weight-tracking-test qw3-hazard-tracking-test qw3-gdn-two-columns-test qw3-gdn-two-columns-bench qw3-gdn-local-gates-test qw3-gdn-local-gates-bench qw3-gdn-windows-test qw3-gdn-windows-bench qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -593,6 +608,7 @@ clean:
 	rm -f qw3-gdn-local-gates-test qw3-gdn-local-gates-bench
 	rm -f qw3-gdn-windows-test qw3-gdn-windows-bench
 	rm -f qw3-model-residency-bench
+	rm -f qw3-iq4-rows-test qw3-iq4-rows-bench qw3-iq4-rows-cost-bench
 	rm -f qw3-iq4-loads-test qw3-iq4-loads-bench
 	rm -f qw3-model-residency-test qw3-decode-profile-test qw3-hazard-fences-test qw3-hazard-fences-native-bench qw3-hazard-tracking-test qw3-weight-tracking-test qw3-weight-tracking-bench qw3-weight-tracking-native-bench
 	rm -f qw3-native-gdn-cache-test

@@ -432,6 +432,12 @@ preserves every FP32 operation and passes 108 guarded matrix cases plus
 full-vocabulary/state checks. Header, payload and combined loads show no
 gain in paired decode screening, so all three remain private diagnostics.
 
+The [IQ4_XS row-reuse trial](docs/m5_iq4_rows_2026-10-11.md) extends the
+native two rows per SIMD to four or eight while preserving per-row FP32
+operations. Both pass exact matrices and model-state checks, but lose
+throughput in paired screening. Isolated controls do not establish a useful
+partial candidate; production retains two rows.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

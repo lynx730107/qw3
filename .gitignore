@@ -118,3 +118,7 @@ tests/.decode_profile/
 /qw3-iq4-loads-test
 /qw3-iq4-loads-bench
 tests/.iq4_loads/
+/qw3-iq4-rows-test
+/qw3-iq4-rows-bench
+tests/.iq4_rows/
+/qw3-iq4-rows-cost-bench

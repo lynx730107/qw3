@@ -1,0 +1,28 @@
+{
+  "started_utc": "2026-10-11T07:47:59.839077+00:00",
+  "source_sha256": {
+    "Makefile": "7f74b0a764e526039d25a81a810ba7b24fdaf4d68e21643380bf83d028b537be",
+    "tests/bench_iq4_rows_cost.m": "aef2042433f9538d305edde009777085ef2511367f2c6a5358825e9abf31f5aa"
+  },
+  "base_source_snapshot": "source_snapshot; only Makefile and cost harness differ",
+  "binary_sha256": "091d52c66fca8041f70602e160b18be5db0a89802f97b68382b36600fda1d95e",
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1"
+  },
+  "warmup_commands_per_block": 16,
+  "timed_commands_per_block": 5,
+  "replays_per_command": 8,
+  "command": [
+    "caffeinate",
+    "-disu",
+    "./qw3-iq4-rows-cost-bench",
+    "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+  ],
+  "exit_code": 0,
+  "source_unchanged": true,
+  "binary_unchanged": true
+}
