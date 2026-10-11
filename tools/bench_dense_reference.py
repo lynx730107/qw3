@@ -34,7 +34,9 @@ def main():
                         help="enable the combined private candidate in its optional diagnostic binary")
     parser.add_argument("--jobs", default="pp128,tg32_d0,tg32_d128")
     parser.add_argument("--cooldown", type=float, default=40,
-                        help="idle seconds before each engine pair (0..60)")
+                        help="idle seconds before a pair or engine run (0..60)")
+    parser.add_argument("--cooldown-scope", choices=("pair", "run"), default="pair",
+                        help="pair preserves the legacy protocol; run cools before both engines")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--pairs", type=int, default=3)
     parser.add_argument("--repetitions", type=int, default=3)
@@ -53,7 +55,7 @@ def main():
     qw3 = args.qw3.resolve(strict=True)
     if args.qw3_packed8_scratch and qw3.name != 'qw3-packed8-scratch-bench':
         parser.error('--qw3-packed8-scratch requires the combined diagnostic executable')
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("QW3_", "GGML_"))}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("QW3_", "GGML_", "MTL_"))}
     env.update(QW3_METAL_KV_F16="1", QW3_METAL_KV_Q8_0="0", QW3_BENCH_PRINT_SAMPLES="1")
     data = {
         "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -73,7 +75,11 @@ def main():
                                         'tools/bench_dense_reference.py') if (root / n).exists()])},
         "llama_checkout_revision": run(["git", "-C", str(root / '../../llama.cpp'), 'rev-parse', 'HEAD']).stdout.strip(),
         "qw3_variant": "packed8+direct_scratch" if args.qw3_packed8_scratch else "ordinary",
-        "cooldown_seconds_before_pair": args.cooldown,
+        "cooldown_scope": args.cooldown_scope,
+        "cooldown_seconds_before_pair": args.cooldown if args.cooldown_scope == "pair" else 0,
+        "cooldown_seconds_before_engine_run": args.cooldown if args.cooldown_scope == "run" else 0,
+        "order_balanced": args.pairs % 2 == 0,
+        "environment_prefixes_cleared": ["QW3_", "GGML_", "MTL_"],
         "kv": "f16", "context": 256, "full_trunk_and_head_offload": True,
         "mtp": False, "same_token_stream": False,
         "workload": "synthetic fixed input tokens, no sampling",
@@ -90,9 +96,13 @@ def main():
     for label, pp, tg, depth in jobs:
         timings = {"qw3": [], "llama": []}
         for pair in range(args.pairs):
-            print(f'{label} pair={pair + 1}/{args.pairs} cooling {args.cooldown:g}s', flush=True)
-            time.sleep(args.cooldown)
+            if args.cooldown_scope == "pair":
+                print(f'{label} pair={pair + 1}/{args.pairs} cooling {args.cooldown:g}s', flush=True)
+                time.sleep(args.cooldown)
             for engine in (["qw3", "llama"] if pair % 2 == 0 else ["llama", "qw3"]):
+                if args.cooldown_scope == "run":
+                    print(f'{label} pair={pair + 1}/{args.pairs} engine={engine} cooling {args.cooldown:g}s', flush=True)
+                    time.sleep(args.cooldown)
                 if engine == "qw3":
                     command = [str(qw3), "-m", str(model), "--metal", "--ngl", "64",
                                "--llama-style", "--ctx-alloc", "256", "-p", str(pp),
@@ -193,6 +203,8 @@ def main():
             "llama_tps": (pp + tg) / statistics.mean(timings["llama"]),
             "paired_saved_ms": mean, "ci95_radius_ms": radius,
             "lead_confirmed_in_this_series": mean - radius > 0,
+            "saved_ms_qw3_first_mean": statistics.mean(differences[::2]),
+            "saved_ms_qw3_second_mean": statistics.mean(differences[1::2]),
             "qw3_spread_pct": 100 * (max(timings['qw3']) / min(timings['qw3']) - 1),
             "llama_spread_pct": 100 * (max(timings['llama']) / min(timings['llama']) - 1),
             "both_engines_stable_5pct": all(max(v) / min(v) - 1 <= .05 for v in timings.values()),

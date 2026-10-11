@@ -68,3 +68,21 @@ python3 tools/bench_dense_reference.py \
   --output /tmp/qw3-native-reference \
   --jobs pp128,tg32_d128 --pairs 5 --repetitions 5 --cooldown 60
 ```
+
+The runner now also accepts `--cooldown-scope run`, inserting the same pause
+before each engine instead of only before the pair. The default remains
+`pair` for legacy reproduction. Scope and both idle intervals are recorded;
+even pair counts balance AB and BA. The runner clears QW3/GGML/MTL overrides
+itself and reports saved-time means separately by order. Three
+`tests/test_bench_dense_reference.py` fixture tests verify legacy pacing,
+equal per-engine pacing and preservation of failed stdout/stderr, without
+running inference.
+
+The next decode replication uses six balanced pairs:
+
+```sh
+python3 tools/bench_dense_reference.py \
+  --output /tmp/qw3-run-cooled-reference \
+  --jobs tg32_d128 --pairs 6 --repetitions 5 \
+  --cooldown 60 --cooldown-scope run
+```
