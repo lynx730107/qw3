@@ -1,0 +1,24 @@
+{
+  "command": [
+    "python3",
+    "tools/bench_dense_reference.py",
+    "--output",
+    "docs/measurements/native_reference_run_cooldown_2026-10-11",
+    "--jobs",
+    "tg32_d128",
+    "--pairs",
+    "6",
+    "--repetitions",
+    "5",
+    "--cooldown",
+    "60",
+    "--cooldown-scope",
+    "run"
+  ],
+  "environment_overrides_cleared": [
+    "QW3_",
+    "GGML_",
+    "MTL_"
+  ],
+  "benchmark_pid": 20612
+}

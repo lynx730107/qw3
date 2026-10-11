@@ -396,6 +396,12 @@ token/s for llama.cpp; tg32 at depth 128 is 8.74 versus 8.95. Paired intervals
 confirm no lead in either phase. Prefill is close; matching both phases
 remains the objective.
 
+The [balanced decode replication with per-run cooldowns](docs/m5_native_reference_run_cooldown_2026-10-11.md)
+retains 60 samples across six AB/BA pairs, with 60 seconds idle before each
+engine run. qw3 measures 8.86247 versus llama's 9.13410 token/s, with about
+0.60% spread for each. The paired interval confirms a llama lead in this
+series; qw3 needs about 3.06% more decode throughput to reach that rate.
+
 The [DeltaNet cache-window trials](docs/m5_gdn_windows_2026-10-10.md)
 compare first48/80/96 and middle/last64 against the adopted native first64
 cache. All ten guarded matrix cases and 448 timed greedy forward pairs pass

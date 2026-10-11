@@ -1,0 +1,24 @@
+{
+  "validated_runs": 12,
+  "validated_samples": 60,
+  "all_recorded_sources_snapshots_and_binaries_match": true,
+  "model_size_mtime_unchanged": true,
+  "paired_saved_ms": [
+    -102.26545100000007,
+    -116.1738670000001,
+    -108.13798399999985,
+    -112.50856699999989,
+    -98.62809999999955,
+    -106.53784199999983
+  ],
+  "rate_delta_pct": -2.973782372824707,
+  "qw3_speedup_needed_pct": 3.064926620402253,
+  "paired_saved_ci95_ms": [
+    -114.13972447306686,
+    -100.61087919359956
+  ],
+  "llama_lead_confirmed": true,
+  "swap_before_after_all_runs_equal": true,
+  "qw3_first_mean_saved_ms": -103.01051166666649,
+  "qw3_second_mean_saved_ms": -111.74009199999993
+}
