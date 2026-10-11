@@ -465,6 +465,12 @@ fails bit-for-bit guarded matrices for both implicit and explicit FMA
 accumulation. Differences of one or two ULP reject both candidates before
 timing; production keeps the original FP32 expressions.
 
+The [IQ3_S aligned layout trial](docs/m5_iq3_layout_2026-10-11.md) copies
+110-byte blocks into an aligned 112-byte representation. Scalar and vector
+loads pass 72 guarded matrices and full-vocabulary/state checks, but both
+lose paired decode throughput while requiring an additional 3.59 GB.
+Production retains the original layout.
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. The block probe computes
 **only the last logit row**.

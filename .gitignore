@@ -128,3 +128,6 @@ tests/.iq3_signed/
 /qw3-iq4-packed-lut-test
 /qw3-iq4-packed-lut-bench
 tests/.iq4_packed_lut/
+/qw3-iq3-layout-test
+/qw3-iq3-layout-bench
+tests/.iq3_layout/

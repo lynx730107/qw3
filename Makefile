@@ -166,6 +166,18 @@ qw3-iq4-packed-lut-test: tests/test_iq4_packed_lut.m tests/.iq4_packed_lut/hooks
 qw3-iq4-packed-lut-bench: tests/bench_iq4_packed_lut.m tests/.iq4_packed_lut/hooks.inc tests/.iq4_packed_lut/quality.inc tests/.iq4_packed_lut/bench.inc tests/.iq4_packed_lut/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq4_packed_lut.m $(METAL_LDLIBS)
 
+tests/.iq3_layout/hooks.inc: tests/prepare_iq3_layout.py tests/iq4_load_candidates.inc tests/test_native_prefill.m tests/bench_iq3_groups.m metal/qw3_core_moe.metal
+	python3 tests/prepare_iq3_layout.py
+
+tests/.iq3_layout/kernels.metal tests/.iq3_layout/quality.inc tests/.iq3_layout/bench.inc: tests/.iq3_layout/hooks.inc
+	@test -f $@ || python3 tests/prepare_iq3_layout.py
+
+qw3-iq3-layout-test: tests/test_iq3_layout.m tests/.iq3_layout/hooks.inc tests/.iq3_layout/quality.inc tests/.iq3_layout/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_layout.m $(METAL_LDLIBS)
+
+qw3-iq3-layout-bench: tests/bench_iq3_layout.m tests/.iq3_layout/hooks.inc tests/.iq3_layout/quality.inc tests/.iq3_layout/bench.inc tests/.iq3_layout/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_layout.m $(METAL_LDLIBS)
+
 tests/.iq3_signed/hooks.inc: tests/prepare_iq3_signed.py tests/iq4_load_candidates.inc tests/test_native_prefill.m tests/bench_iq3_groups.m metal/qw3_core_moe.metal
 	python3 tests/prepare_iq3_signed.py
 
@@ -456,7 +468,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-iq4-packed-lut-test qw3-iq4-packed-lut-bench qw3-iq3-signed-test qw3-iq3-signed-bench qw3-iq4-rows-test qw3-iq4-rows-bench qw3-iq4-rows-cost-bench qw3-iq4-loads-test qw3-iq4-loads-bench qw3-decode-profile-test qw3-hazard-fences-native-bench qw3-hazard-fences-test qw3-weight-tracking-native-bench qw3-weight-tracking-bench qw3-weight-tracking-test qw3-hazard-tracking-test qw3-gdn-two-columns-test qw3-gdn-two-columns-bench qw3-gdn-local-gates-test qw3-gdn-local-gates-bench qw3-gdn-windows-test qw3-gdn-windows-bench qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
+qw3-iq3-layout-test qw3-iq3-layout-bench qw3-iq4-packed-lut-test qw3-iq4-packed-lut-bench qw3-iq3-signed-test qw3-iq3-signed-bench qw3-iq4-rows-test qw3-iq4-rows-bench qw3-iq4-rows-cost-bench qw3-iq4-loads-test qw3-iq4-loads-bench qw3-decode-profile-test qw3-hazard-fences-native-bench qw3-hazard-fences-test qw3-weight-tracking-native-bench qw3-weight-tracking-bench qw3-weight-tracking-test qw3-hazard-tracking-test qw3-gdn-two-columns-test qw3-gdn-two-columns-bench qw3-gdn-local-gates-test qw3-gdn-local-gates-bench qw3-gdn-windows-test qw3-gdn-windows-bench qw3-model-residency-test qw3-model-residency-bench qw3-native-gdn-cache-test qw3-gdn-cache-test qw3-gdn-cache-bench qw3-iq3-groups-test qw3-iq3-groups-bench qw3-native-kstage-test qw3-kstage-paired-bench qw3-kstage-matrix-test qw3-kstage-prefill-test qw3-kstage-prefill-bench qw3-register-iq4-cached-test qw3-register-iq4-test qw3-epilogue-matrix-test qw3-sum8-matrix-test qw3-epilogue-test qw3-epilogue-campaign qw3-combination-campaign qw3-combination-bench qw3-combination-test qw3-sum8-bench qw3-sum8-test:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -633,6 +645,7 @@ clean:
 	rm -f qw3-gdn-windows-test qw3-gdn-windows-bench
 	rm -f qw3-model-residency-bench
 	rm -f qw3-iq3-signed-test qw3-iq3-signed-bench
+	rm -f qw3-iq3-layout-test qw3-iq3-layout-bench
 	rm -f qw3-iq4-packed-lut-test qw3-iq4-packed-lut-bench
 	rm -f qw3-iq4-rows-test qw3-iq4-rows-bench qw3-iq4-rows-cost-bench
 	rm -f qw3-iq4-loads-test qw3-iq4-loads-bench

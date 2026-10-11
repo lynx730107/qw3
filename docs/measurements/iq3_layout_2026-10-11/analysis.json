@@ -1,0 +1,36 @@
+{
+  "adopted": false,
+  "reason": "Both exact candidates lose throughput in initial paired decode screening.",
+  "matrix_cases": 72,
+  "timed_pairs": 128,
+  "checkpoint_runs": 0,
+  "ordinary_native_runs": 0,
+  "variants": {
+    "1": {
+      "baseline_tps": 9.134094936072039,
+      "candidate_tps": 9.101484395220584,
+      "gain_pct": -0.3570199464718704,
+      "mean_saved_ms": -0.39226562499997897,
+      "single_candidate_dispatches": 5256,
+      "paired_candidate_dispatches": 1368,
+      "redirected_weight_bindings": 7992,
+      "additional_shared_buffer_bytes": 3592035264,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 807.06M  free = 1240.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1573.12M  free = 474.88M  (encrypted)",
+      "swap_before_after_equal": false
+    },
+    "2": {
+      "baseline_tps": 9.11328842760461,
+      "candidate_tps": 9.06220738096968,
+      "gain_pct": -0.5605116862120174,
+      "mean_saved_ms": -0.6185156250000148,
+      "single_candidate_dispatches": 5256,
+      "paired_candidate_dispatches": 1368,
+      "redirected_weight_bindings": 7992,
+      "additional_shared_buffer_bytes": 3592035264,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1573.12M  free = 474.88M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1573.12M  free = 474.88M  (encrypted)",
+      "swap_before_after_equal": true
+    }
+  }
+}
