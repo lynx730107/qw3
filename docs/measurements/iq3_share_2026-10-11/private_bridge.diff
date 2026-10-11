@@ -1,0 +1,60 @@
+--- qw3_metal.m
++++ tests/.iq3_share/core.inc
+@@ -7525,9 +7525,9 @@
+     const int iq2_fast = g_dense_iq2_vector &&
+         (pipeline == g_matvec_iq2_xxs_pipeline ||
+          pipeline == g_matvec_iq2_xs_pipeline || pipeline == g_matvec_iq2_s_pipeline);
+-    NSUInteger threads = grouped ? 256u : (iq3s_fast || iq3xxs_fast || iq2_fast) ? 64u :
++    NSUInteger threads = grouped ? 256u : iq3s_fast ? iq3_share_threads() : (iq3xxs_fast || iq2_fast) ? 64u :
+         qw3_metal_matvec_threads(pipeline, n_in / 256u);
+-    NSUInteger groups = grouped ? (n_out + 15u) / 16u : iq3s_fast ? (n_out + 7u) / 8u :
++    NSUInteger groups = grouped ? (n_out + 15u) / 16u : iq3s_fast ? iq3_share_groups(n_out) :
+         (iq3xxs_fast || iq2_fast) ? (n_out + 3u) / 4u : n_out;
+     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
+         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+@@ -9297,8 +9297,8 @@
+     [enc setBuffer:obj.scratch offset:(NSUInteger)out_offset_bytes atIndex:3];
+     [enc setBuffer:kgb offset:0 atIndex:4];
+     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+-    NSUInteger threads = 64u;
+-    [enc dispatchThreadgroups:MTLSizeMake((n_out + 7u) / 8u, 1, 1)
++    NSUInteger threads = iq3_share_threads();
++    [enc dispatchThreadgroups:MTLSizeMake(iq3_share_groups(n_out), 1, 1)
+         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+     qw3_metal_end_compute_encoder(cb, enc);
+     id<MTLBuffer> readback = nil;
+@@ -9370,9 +9370,9 @@
+                              pipeline == g_matvec_iq4_xs_pipeline;
+     const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
+     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
+-    NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
++    NSUInteger threads = packed_rows8 ? iq3_share_threads() : (packed_rows2 || packed_rows4) ? 64u :
+         qw3_metal_matvec_threads(pipeline, n_in / block_elems);
+-    NSUInteger groups = packed_rows8 ? (n_out + 7u) / 8u :
++    NSUInteger groups = packed_rows8 ? iq3_share_groups(n_out) :
+         packed_rows4 ? (n_out + 3u) / 4u :
+         packed_rows2 ? (n_out + 1u) / 2u : n_out;
+     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
+@@ -9589,9 +9589,9 @@
+                              pipeline == g_matvec_iq4_xs_pipeline;
+     const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
+     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
+-    NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
++    NSUInteger threads = packed_rows8 ? iq3_share_threads() : (packed_rows2 || packed_rows4) ? 64u :
+         qw3_metal_matvec_threads(pipeline, n_in / 256);
+-    NSUInteger groups = packed_rows8 ? (n_out + 7u) / 8u :
++    NSUInteger groups = packed_rows8 ? iq3_share_groups(n_out) :
+         packed_rows4 ? (n_out + 3u) / 4u :
+         packed_rows2 ? (n_out + 1u) / 2u : n_out;
+     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
+@@ -13716,8 +13716,8 @@
+     [enc setBuffer:outb offset:0 atIndex:3];
+     [enc setBuffer:kgb offset:0 atIndex:4];
+     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+-    NSUInteger threads = 64u;
+-    [enc dispatchThreadgroups:MTLSizeMake((n_out + 7u) / 8u, 1, 1)
++    NSUInteger threads = iq3_share_threads();
++    [enc dispatchThreadgroups:MTLSizeMake(iq3_share_groups(n_out), 1, 1)
+         threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+     qw3_metal_end_compute_encoder(cb, enc);
+     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;

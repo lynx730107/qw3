@@ -433,6 +433,13 @@ Thirty-six ordinary timing samples retain a −5.330% eight-row result and
 a +0.674% two-row pilot followed by +0.188% with mixed local comparisons.
 Neither variant is adopted; production inference remains unchanged.
 
+The [two-row IQ3_S shared-grid screen](docs/m5_iq3_share_2026-10-11.md)
+uses 4/8 SIMD groups with the original 1 KiB grid and data buffers.
+Both variants pass 36 guarded cases and one-session 27B checks, but
+57 ordinary timing samples retain initial +0.273% / +1.595% estimates
+followed by −0.427% / −1.589% in separate seven-block replicas.
+Neither is adopted; no weight or session data buffer is added.
+
 The [model-residency replication](docs/m5_model_residency_retry_2026-10-11.md)
 uses the original buffer without copying weights. Twenty-one samples retain
 a +0.301% aggregate point estimate, but nearby comparisons approach zero and

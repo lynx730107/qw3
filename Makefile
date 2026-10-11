@@ -214,6 +214,21 @@ tests/.iq3_immutable/hooks.inc: tests/prepare_iq3_immutable.py tests/.iq3_hint/h
 tests/.iq3_rows/hooks.inc: tests/prepare_iq3_rows.py tests/.iq3_immutable/hooks.inc tests/.iq3_immutable/matrix.inc tests/.iq3_immutable/model.inc tests/.iq3_immutable/native.inc qw3_metal.m metal/qw3_core_moe.metal
 	python3 tests/prepare_iq3_rows.py
 
+tests/.iq3_share/hooks.inc: tests/prepare_iq3_share.py tests/.iq3_rows/hooks.inc tests/.iq3_rows/kernels.metal tests/.iq3_rows/matrix.inc tests/.iq3_rows/model.inc tests/.iq3_rows/native.inc qw3_metal.m
+	python3 tests/prepare_iq3_share.py
+
+tests/.iq3_share/core.inc tests/.iq3_share/kernels.metal tests/.iq3_share/matrix.inc tests/.iq3_share/model.inc tests/.iq3_share/native.inc: tests/.iq3_share/hooks.inc
+	@test -f $@ || python3 tests/prepare_iq3_share.py
+
+qw3-iq3-share-test: tests/test_iq3_share.m tests/.iq3_share/hooks.inc tests/.iq3_share/core.inc tests/.iq3_share/kernels.metal tests/.iq3_share/matrix.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_share.m $(METAL_LDLIBS)
+
+qw3-iq3-share-model-test: tests/test_iq3_share_model.m tests/.iq3_share/hooks.inc tests/.iq3_share/core.inc tests/.iq3_share/kernels.metal tests/.iq3_share/model.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_share_model.m $(METAL_LDLIBS)
+
+qw3-iq3-share-native-bench: tests/bench_iq3_share_native.m tests/.iq3_share/hooks.inc tests/.iq3_share/core.inc tests/.iq3_share/kernels.metal tests/.iq3_share/native.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_share_native.m $(METAL_LDLIBS)
+
 tests/.iq3_rows/core.inc tests/.iq3_rows/kernels.metal tests/.iq3_rows/matrix.inc tests/.iq3_rows/model.inc tests/.iq3_rows/native.inc: tests/.iq3_rows/hooks.inc
 	@test -f $@ || python3 tests/prepare_iq3_rows.py
 
@@ -581,6 +596,10 @@ qw3-iq3-rows-test qw3-iq3-rows-model-test qw3-iq3-rows-native-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
+qw3-iq3-share-test qw3-iq3-share-model-test qw3-iq3-share-native-bench:
+	@echo "$@ requires Darwin/Apple Metal"
+	@exit 1
+
 qw3-gdn-two128-test qw3-gdn-two128-model-test qw3-gdn-two128-native-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
@@ -774,6 +793,7 @@ clean:
 	rm -f qw3-iq3-hint-test qw3-iq3-hint-model-test qw3-iq3-hint-native-bench
 	rm -f qw3-iq3-immutable-test qw3-iq3-immutable-model-test qw3-iq3-immutable-native-bench
 	rm -f qw3-iq3-rows-test qw3-iq3-rows-model-test qw3-iq3-rows-native-bench
+	rm -f qw3-iq3-share-test qw3-iq3-share-model-test qw3-iq3-share-native-bench
 	rm -f qw3-iq3-signed-test qw3-iq3-signed-bench
 	rm -f qw3-iq3-layout-test qw3-iq3-layout-bench
 	rm -f qw3-iq3-private-test qw3-iq3-private-bench qw3-iq3-private-native-bench

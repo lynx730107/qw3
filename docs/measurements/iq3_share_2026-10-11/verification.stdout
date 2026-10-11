@@ -1,0 +1,114 @@
+{
+  "adopted": false,
+  "numeric_guarded_matrices": 36,
+  "extra_tail_threadgroup_in_matrix_tests": true,
+  "numeric_session_count": 1,
+  "numeric_full_vocab_checks_per_phase": 33,
+  "numeric_checkpoint_suite_repeated": false,
+  "native_runs": 5,
+  "native_samples_retained": 15,
+  "native_samples_discarded": 0,
+  "block_means_ms": [
+    3549.982,
+    3543.924666666667,
+    3557.249333333333,
+    3552.8533333333335,
+    3661.7833333333333
+  ],
+  "off_max_over_min_spread_pct": 3.149349301865012,
+  "control_stability_gate_passed": true,
+  "comparisons": [
+    {
+      "block": 1,
+      "variant": 1,
+      "candidate_mean_ms": 3543.924666666667,
+      "adjacent_off_mean_ms": 3553.6156666666666,
+      "point_gain_pct": 0.27345389395974085,
+      "gain_vs_left_off_pct": 0.17092161665588357,
+      "gain_vs_right_off_pct": 0.3759861712635981
+    },
+    {
+      "block": 3,
+      "variant": 2,
+      "candidate_mean_ms": 3552.8533333333335,
+      "adjacent_off_mean_ms": 3609.516333333333,
+      "point_gain_pct": 1.5948589678155267,
+      "gain_vs_left_off_pct": 0.12373153596731967,
+      "gain_vs_right_off_pct": 3.0659863996637338
+    }
+  ],
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "rows_per_simd_by_variant": [
+    4,
+    2,
+    2
+  ],
+  "simdgroups_by_variant": [
+    2,
+    4,
+    8
+  ],
+  "threads_per_threadgroup_by_variant": [
+    64,
+    128,
+    256
+  ],
+  "threadgroup_grid_bytes": 1024,
+  "swap_observations": [
+    {
+      "stage": "numeric",
+      "name": "matrix_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "matrix_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "model",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    }
+  ],
+  "all_swap_observations_equal": true,
+  "store_history_only_bytes_at_observation_and_end": 30100,
+  "store_history_records": 1000,
+  "store_history_unchanged_from_numeric_preflight": true,
+  "scope": "screening; each variant has one ON run; adjacent controls are shared, no independent-sample CI"
+}

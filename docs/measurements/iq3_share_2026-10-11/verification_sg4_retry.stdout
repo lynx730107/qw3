@@ -1,0 +1,157 @@
+{
+  "adopted": false,
+  "replica_variant": 1,
+  "rows_per_simd": 2,
+  "simdgroups": 4,
+  "threads": 128,
+  "runs": 7,
+  "samples_retained": 21,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3615.1286666666665,
+    3736.5106666666666,
+    3652.5236666666665,
+    3615.689,
+    3624.8303333333333,
+    3654.015,
+    3748.549
+  ],
+  "run_mean_spread_pct": {
+    "off": 3.690610919703552,
+    "on": 3.341594552702598
+  },
+  "control_stability_gate_passed": true,
+  "both_modes_stable_5pct": true,
+  "comparisons": [
+    {
+      "block": 1,
+      "candidate_mean_ms": 3736.5106666666666,
+      "adjacent_off_mean_ms": 3633.8261666666667,
+      "point_gain_pct": -2.748138816143253,
+      "gain_vs_left_off_pct": -3.2485388328433396,
+      "gain_vs_right_off_pct": -2.2477387994431886,
+      "saved_ms": -102.68449999999984
+    },
+    {
+      "block": 3,
+      "candidate_mean_ms": 3615.689,
+      "adjacent_off_mean_ms": 3638.6769999999997,
+      "point_gain_pct": 0.6357847702056274,
+      "gain_vs_left_off_pct": 1.0187454359782189,
+      "gain_vs_right_off_pct": 0.25282410443303593,
+      "saved_ms": 22.98799999999983
+    },
+    {
+      "block": 5,
+      "candidate_mean_ms": 3654.015,
+      "adjacent_off_mean_ms": 3686.6896666666667,
+      "point_gain_pct": 0.8942127130476152,
+      "gain_vs_left_off_pct": -0.7987013372048657,
+      "gain_vs_right_off_pct": 2.587126763300107,
+      "saved_ms": 32.67466666666678
+    }
+  ],
+  "neighbor_weighted_control_mean_ms": 3653.0642777777775,
+  "candidate_mean_ms": 3668.7382222222222,
+  "gain_vs_neighbor_weighted_controls_pct": -0.4272298402078656,
+  "all_three_local_comparisons_positive": false,
+  "all_three_candidates_faster_than_both_neighbors": false,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "swap_observations": [
+    {
+      "stage": "numeric",
+      "name": "matrix_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "matrix_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "model",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "pilot",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_3_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_5_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "retry",
+      "name": "block_6_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    }
+  ],
+  "all_numeric_and_timing_swap_observations_equal": true,
+  "scope": "seven-block replication; adjacent interpolated controls are shared; no independent-sample CI asserted",
+  "numeric_checkpoint_suite_repeated": false
+}
