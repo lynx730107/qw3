@@ -1,0 +1,99 @@
+--- qw3_metal.m
++++ tests/.iq4_share/core.inc
+@@ -7436,8 +7436,8 @@
+     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+     // The fast kernel assigns two rows to each of two SIMD groups, so one
+     // 64-thread group covers four output rows.
+-    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u, 1u, 1u)
+-        threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
++    [enc dispatchThreadgroups:MTLSizeMake(iq4_share_groups(n_out), 1u, 1u)
++        threadsPerThreadgroup:MTLSizeMake(iq4_share_threads(), 1u, 1u)];
+     qw3_metal_end_compute_encoder(cb, enc);
+ 
+     id<MTLBuffer> readback = nil;
+@@ -7683,8 +7683,8 @@
+     [enc setBuffer:obj.x1 offset:0 atIndex:3];
+     [enc setBuffer:obj.scratch offset:0 atIndex:4];
+     [enc setThreadgroupMemoryLength:32u * sizeof(float) atIndex:0];
+-    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u, 1u, 1u)
+-         threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
++    [enc dispatchThreadgroups:MTLSizeMake(iq4_share_groups(n_out), 1u, 1u)
++         threadsPerThreadgroup:MTLSizeMake(iq4_share_threads(), 1u, 1u)];
+     qw3_metal_end_compute_encoder(cb, enc);
+     return qw3_metal_finish_command_buffer(cb, owned,
+                                             "dense IQ4_XS gate/up pair");
+@@ -7776,9 +7776,11 @@
+                              pipeline == g_matvec_iq4_xs_pipeline;
+     const int packed_rows8 = 0;
+     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
+-    NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
++    NSUInteger threads = pipeline == g_matvec_iq4_xs_pipeline ? iq4_share_threads() :
++        (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
+         qw3_metal_matvec_threads(pipeline, n_in / block_elems);
+-    NSUInteger groups = packed_rows8 ? (n_out + 7u) / 8u :
++    NSUInteger groups = pipeline == g_matvec_iq4_xs_pipeline ? iq4_share_groups(n_out) :
++        packed_rows8 ? (n_out + 7u) / 8u :
+         packed_rows4 ? (n_out + 3u) / 4u :
+         packed_rows2 ? (n_out + 1u) / 2u : n_out;
+     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
+@@ -9370,9 +9372,11 @@
+                              pipeline == g_matvec_iq4_xs_pipeline;
+     const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
+     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
+-    NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
++    NSUInteger threads = pipeline == g_matvec_iq4_xs_pipeline ? iq4_share_threads() :
++        (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
+         qw3_metal_matvec_threads(pipeline, n_in / block_elems);
+-    NSUInteger groups = packed_rows8 ? (n_out + 7u) / 8u :
++    NSUInteger groups = pipeline == g_matvec_iq4_xs_pipeline ? iq4_share_groups(n_out) :
++        packed_rows8 ? (n_out + 7u) / 8u :
+         packed_rows4 ? (n_out + 3u) / 4u :
+         packed_rows2 ? (n_out + 1u) / 2u : n_out;
+     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
+@@ -9468,8 +9472,8 @@
+     [enc setBuffer:obj.inner offset:0 atIndex:3];
+     [enc setBuffer:obj.x0 offset:0 atIndex:4];
+     [enc setThreadgroupMemoryLength:32u * sizeof(float) atIndex:0];
+-    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u, 1u, 1u)
+-         threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
++    [enc dispatchThreadgroups:MTLSizeMake(iq4_share_groups(n_out), 1u, 1u)
++         threadsPerThreadgroup:MTLSizeMake(iq4_share_threads(), 1u, 1u)];
+     qw3_metal_end_compute_encoder(cb, enc);
+     if (!qw3_metal_finish_command_buffer(cb, owned, "dense IQ4_XS down add"))
+         return 0;
+@@ -9589,9 +9593,11 @@
+                              pipeline == g_matvec_iq4_xs_pipeline;
+     const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
+     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
+-    NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
++    NSUInteger threads = pipeline == g_matvec_iq4_xs_pipeline ? iq4_share_threads() :
++        (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
+         qw3_metal_matvec_threads(pipeline, n_in / 256);
+-    NSUInteger groups = packed_rows8 ? (n_out + 7u) / 8u :
++    NSUInteger groups = pipeline == g_matvec_iq4_xs_pipeline ? iq4_share_groups(n_out) :
++        packed_rows8 ? (n_out + 7u) / 8u :
+         packed_rows4 ? (n_out + 3u) / 4u :
+         packed_rows2 ? (n_out + 1u) / 2u : n_out;
+     [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
+@@ -10404,8 +10410,8 @@
+         [enc setBuffer:obj.x0 offset:0 atIndex:4];
+         [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+         if (down_type == 23) {
+-            threads = 64;
+-            [enc dispatchThreadgroups:MTLSizeMake((n_embd + 3u) / 4u, 1, 1)
++            threads = iq4_share_threads();
++            [enc dispatchThreadgroups:MTLSizeMake(iq4_share_groups(n_embd), 1, 1)
+                 threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+         } else {
+             threads = down_add_pipeline.maxTotalThreadsPerThreadgroup;
+@@ -13544,8 +13550,8 @@
+     [enc setBuffer:xb offset:0 atIndex:2];
+     [enc setBuffer:outb offset:0 atIndex:3];
+     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
+-    [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u, 1u, 1u)
+-        threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
++    [enc dispatchThreadgroups:MTLSizeMake(iq4_share_groups(n_out), 1u, 1u)
++        threadsPerThreadgroup:MTLSizeMake(iq4_share_threads(), 1u, 1u)];
+     qw3_metal_end_compute_encoder(cb, enc);
+     if (!qw3_metal_finish_command_buffer(cb, owned, "operation")) return 0;
+     if (cb.status == MTLCommandBufferStatusError) {

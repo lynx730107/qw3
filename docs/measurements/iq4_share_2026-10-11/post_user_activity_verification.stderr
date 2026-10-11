@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/iq4_share_2026-10-11/verify_campaign.py", line 107, in <module>
+    assert sorted(str(p.relative_to(store)) for p in store.rglob("*") if p.is_file()) == ["history"]
+AssertionError

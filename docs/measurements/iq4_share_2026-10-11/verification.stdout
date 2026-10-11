@@ -1,0 +1,118 @@
+{
+  "adopted": false,
+  "numeric_guarded_matrices": 108,
+  "extra_tail_threadgroup_in_matrix_tests": true,
+  "numeric_session_count": 1,
+  "numeric_full_vocab_checks_per_phase": 33,
+  "numeric_checkpoint_suite_repeated": false,
+  "native_runs": 5,
+  "native_samples_retained": 15,
+  "native_samples_discarded": 0,
+  "block_means_ms": [
+    3543.941333333333,
+    3501.820333333333,
+    3501.6059999999998,
+    3509.991666666667,
+    3504.2336666666665
+  ],
+  "off_max_over_min_spread_pct": 1.2090261820814074,
+  "control_stability_gate_passed": true,
+  "comparisons": [
+    {
+      "block": 1,
+      "variant": 1,
+      "candidate_mean_ms": 3501.820333333333,
+      "adjacent_off_mean_ms": 3522.7736666666665,
+      "point_gain_pct": 0.5983554648387068,
+      "gain_vs_left_off_pct": 1.2028315558926916,
+      "gain_vs_right_off_pct": -0.0061206262152557755
+    },
+    {
+      "block": 3,
+      "variant": 2,
+      "candidate_mean_ms": 3509.991666666667,
+      "adjacent_off_mean_ms": 3502.9198333333334,
+      "point_gain_pct": -0.2014772114843577,
+      "gain_vs_left_off_pct": -0.23890844945027023,
+      "gain_vs_right_off_pct": -0.1640459735184674
+    }
+  ],
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "rows_per_simd_by_variant": [
+    2,
+    2,
+    2
+  ],
+  "simdgroups_by_variant": [
+    2,
+    4,
+    8
+  ],
+  "threads_per_threadgroup_by_variant": [
+    64,
+    128,
+    256
+  ],
+  "threadgroup_lut_bytes": 64,
+  "dynamic_threadgroup_bytes": 128,
+  "static_threadgroup_bytes": 0,
+  "swap_observations": [
+    {
+      "stage": "numeric",
+      "name": "matrix_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "matrix_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "numeric",
+      "name": "model",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    },
+    {
+      "stage": "native",
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 868.31M  free = 1179.69M  (encrypted)"
+    }
+  ],
+  "all_swap_observations_equal": true,
+  "store_history_only_bytes_at_observation_and_end": 30100,
+  "store_history_records": 1000,
+  "store_unchanged_during_numeric_screen": true,
+  "live_store_still_matches_numeric_inventory": false,
+  "post_campaign_activity_record": "post_campaign_store_activity.json",
+  "scope": "screening; each variant has one ON run; adjacent controls are shared, no independent-sample CI"
+}

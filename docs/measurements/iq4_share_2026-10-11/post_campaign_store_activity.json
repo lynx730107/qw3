@@ -1,0 +1,40 @@
+{
+  "observed_utc": "2026-10-11T17:38:57.004874+00:00",
+  "reason": "User reported a production-agent compaction problem after the IQ4 replica and its successful verification; store is live external state, no cleanup performed.",
+  "files": [
+    {
+      "path": "history",
+      "bytes": 29843,
+      "mtime_utc": "2026-10-11T17:35:55.680470+00:00"
+    },
+    {
+      "path": "spills/context-40b9Ne",
+      "bytes": 83053,
+      "mtime_utc": "2026-10-11T17:19:53.857147+00:00"
+    },
+    {
+      "path": "spills/context-FbA6kr",
+      "bytes": 30290,
+      "mtime_utc": "2026-10-11T17:28:41.859409+00:00"
+    },
+    {
+      "path": "spills/context-jy1CgC",
+      "bytes": 8944,
+      "mtime_utc": "2026-10-11T17:23:08.834116+00:00"
+    },
+    {
+      "path": "spills/context-x35FnX",
+      "bytes": 85518,
+      "mtime_utc": "2026-10-11T17:16:29.230698+00:00"
+    }
+  ],
+  "prior_verified_inventory": [
+    {
+      "path": "history",
+      "bytes": 30100,
+      "mtime_ns": 1791731259260092889,
+      "sha256": "6d70dfc9a49f1ae9f338713fc47f47701d8808b68fc108207a5d60025498e8b3",
+      "records": 1000
+    }
+  ]
+}

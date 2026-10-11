@@ -1,0 +1,6 @@
+echo "qw3-iq4-share-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq4-share-model-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq4-share-native-bench requires Darwin/Apple Metal"
+exit 1

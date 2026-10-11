@@ -440,6 +440,13 @@ Both variants pass 36 guarded cases and one-session 27B checks, but
 followed by −0.427% / −1.589% in separate seven-block replicas.
 Neither is adopted; no weight or session data buffer is added.
 
+The [IQ4_XS SIMD-group screen](docs/m5_iq4_share_2026-10-11.md)
+keeps two rows per group in single, pair and add_x0 projections with 4/8
+SIMD groups and the original buffers. Both variants pass 108 guarded
+matrix cases and one-session 27B checks. All 36 ordinary timing samples
+are retained: SG8 gives −0.201%; SG4's +0.598% pilot falls to +0.056%
+with mixed local comparisons in replication. Neither variant is adopted.
+
 The [model-residency replication](docs/m5_model_residency_retry_2026-10-11.md)
 uses the original buffer without copying weights. Twenty-one samples retain
 a +0.301% aggregate point estimate, but nearby comparisons approach zero and

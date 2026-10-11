@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/iq4_share_2026-10-11/verify_retry.py", line 14, in <module>
+    common = runpy.run_path(str(screen/'verify_campaign.py'))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 268, in run_path
+    return _run_module_code(code, init_globals, run_name,
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 97, in _run_module_code
+    _run_code(code, mod_globals, init_globals,
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/iq4_share_2026-10-11/verify_campaign.py", line 107, in <module>
+    assert sorted(str(p.relative_to(store)) for p in store.rglob("*") if p.is_file()) == ["history"]
+AssertionError
