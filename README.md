@@ -402,6 +402,17 @@ engine run. qw3 measures 8.86247 versus llama's 9.13410 token/s, with about
 0.60% spread for each. The paired interval confirms a llama lead in this
 series; qw3 needs about 3.06% more decode throughput to reach that rate.
 
+The [decode headroom and memory constraint](docs/m5_decode_headroom_2026-10-11.md)
+records the bit-for-bit requirement and excludes additional weight or session
+data allocations. Archived bandwidth evidence leaves plausible room for
+small decode gains; weights-only ceilings do not predict reachable speed.
+
+The [model-residency replication](docs/m5_model_residency_retry_2026-10-11.md)
+uses the original buffer without copying weights. Twenty-one samples retain
+a +0.301% aggregate point estimate, but nearby comparisons approach zero and
+the last is negative. The earlier apparent +4.407% is not reproduced;
+explicit model residency remains a private diagnostic.
+
 The [DeltaNet cache-window trials](docs/m5_gdn_windows_2026-10-10.md)
 compare first48/80/96 and middle/last64 against the adopted native first64
 cache. All ten guarded matrix cases and 448 timed greedy forward pairs pass

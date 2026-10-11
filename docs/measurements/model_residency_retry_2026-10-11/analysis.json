@@ -1,0 +1,81 @@
+{
+  "adopted": false,
+  "validated_runs": 7,
+  "validated_samples": 21,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3514.7129999999997,
+    3474.1293333333333,
+    3474.3636666666666,
+    3473.431666666667,
+    3476.2496666666666,
+    3475.6093333333333,
+    3474.104333333333
+  ],
+  "off_tps": 9.182584501538226,
+  "on_tps": 9.2102495622653,
+  "aggregate_gain_pct": 0.3012774967923182,
+  "off_mean_spread_pct": 1.165289103629575,
+  "on_mean_spread_pct": 0.0626776670732022,
+  "both_stable_5pct": true,
+  "local_gain_vs_left_right_off_pct": [
+    [
+      1.168167986069979,
+      0.0067450952699221745
+    ],
+    [
+      0.02683225378934395,
+      0.08113014074937475
+    ],
+    [
+      0.01842362797199737,
+      -0.043301759653080474
+    ]
+  ],
+  "neighbor_interpolated_saved_ms": [
+    20.40899999999965,
+    1.8749999999995453,
+    -0.432333333333645
+  ],
+  "all_three_neighbor_interpolated_comparisons_positive": false,
+  "swap_before_after_equal_each_run": true,
+  "swap_observations": [
+    {
+      "name": "block_0_off",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)"
+    },
+    {
+      "name": "block_1_on",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)"
+    },
+    {
+      "name": "block_2_off",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)"
+    },
+    {
+      "name": "block_3_on",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1397.06M  free = 650.94M  (encrypted)"
+    },
+    {
+      "name": "block_4_off",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1389.06M  free = 658.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1389.06M  free = 658.94M  (encrypted)"
+    },
+    {
+      "name": "block_5_on",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1389.06M  free = 658.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1389.06M  free = 658.94M  (encrypted)"
+    },
+    {
+      "name": "block_6_off",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1389.06M  free = 658.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1389.06M  free = 658.94M  (encrypted)"
+    }
+  ],
+  "additional_weight_buffer_bytes": 0,
+  "reason": "Prior apparent 4.407% gain is not reproduced. Current aggregate point gain is small, later nearby comparisons are near zero, and the last interpolated comparison is negative."
+}
