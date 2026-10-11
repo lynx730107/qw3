@@ -1,0 +1,68 @@
+{
+  "adopted": false,
+  "runs": 5,
+  "samples_retained": 15,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3494.000666666667,
+    3544.534666666667,
+    3518.906,
+    3506.6523333333334,
+    3704.691333333333
+  ],
+  "off_mean_spread_pct": 5.897515469417674,
+  "control_stability_gate_passed": false,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "comparisons": [
+    {
+      "block": 1,
+      "variant": 1,
+      "candidate_mean_ms": 3544.534666666667,
+      "adjacent_off_mean_ms": 3506.4533333333334,
+      "point_gain_pct": -1.0743676367861776,
+      "gain_vs_left_off_pct": -1.425687847694912,
+      "gain_vs_right_off_pct": -0.7230474258774433,
+      "neighbor_interpolated_saved_ms": -38.08133333333353
+    },
+    {
+      "block": 3,
+      "variant": 2,
+      "candidate_mean_ms": 3506.6523333333334,
+      "adjacent_off_mean_ms": 3611.7986666666666,
+      "point_gain_pct": 2.9984818379010347,
+      "gain_vs_left_off_pct": 0.34944059181989395,
+      "gain_vs_right_off_pct": 5.6475230839821755,
+      "neighbor_interpolated_saved_ms": 105.14633333333313
+    }
+  ],
+  "swap_observations": [
+    {
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_1_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    }
+  ],
+  "reason": "OFF mean spread exceeds 5%; asymmetric apparent SIMD gain is inconclusive. Retain all samples and replicate mode 2."
+}

@@ -1,0 +1,134 @@
+{
+  "adopted": false,
+  "matrix_cases": 36,
+  "matrix_variants": 2,
+  "shapes": [
+    [
+      256,
+      1
+    ],
+    [
+      4352,
+      33
+    ],
+    [
+      5120,
+      4097
+    ],
+    [
+      5120,
+      4111
+    ],
+    [
+      5120,
+      17408
+    ],
+    [
+      17408,
+      5120
+    ]
+  ],
+  "patterns": [
+    "mixed",
+    "signed_zero",
+    "dynamic_range"
+  ],
+  "finite_bit_exact": true,
+  "guards_exact": true,
+  "inputs_unchanged": true,
+  "metal_api_validation": true,
+  "model_sessions": 1,
+  "model_phases": 3,
+  "model_prefix_tokens": 128,
+  "model_greedy_continuation_tokens": 32,
+  "full_vocabulary_checks_per_phase": 33,
+  "canonical_state_checks_per_phase": 2,
+  "candidate_calls_each": 2336,
+  "baseline_calls": 0,
+  "canonical_state": "history, position, live GQA K/V, DeltaNet and convolution; excludes temporary flash tail",
+  "checkpoint_roundtrips": false,
+  "eight_prefix_suite": false,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "swap_observations": [
+    {
+      "name": "matrix_v1",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "matrix_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "model",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    }
+  ],
+  "timing_status": "completed pilot and replica; neither hint variant adopted; see native_retry/analysis.json",
+  "pipeline_metadata": {
+    "matrix_v1": [
+      {
+        "variant": 0,
+        "thread_width": 32,
+        "max_threads": 1024,
+        "static_threadgroup_bytes": 1024
+      },
+      {
+        "variant": 1,
+        "thread_width": 32,
+        "max_threads": 64,
+        "static_threadgroup_bytes": 1024
+      },
+      {
+        "variant": 2,
+        "thread_width": 32,
+        "max_threads": 64,
+        "static_threadgroup_bytes": 1024
+      }
+    ],
+    "matrix_v2": [
+      {
+        "variant": 0,
+        "thread_width": 32,
+        "max_threads": 1024,
+        "static_threadgroup_bytes": 1024
+      },
+      {
+        "variant": 1,
+        "thread_width": 32,
+        "max_threads": 64,
+        "static_threadgroup_bytes": 1024
+      },
+      {
+        "variant": 2,
+        "thread_width": 32,
+        "max_threads": 64,
+        "static_threadgroup_bytes": 1024
+      }
+    ],
+    "model": [
+      {
+        "variant": 0,
+        "thread_width": 32,
+        "max_threads": 1024,
+        "static_threadgroup_bytes": 1024
+      },
+      {
+        "variant": 1,
+        "thread_width": 32,
+        "max_threads": 64,
+        "static_threadgroup_bytes": 1024
+      },
+      {
+        "variant": 2,
+        "thread_width": 32,
+        "max_threads": 64,
+        "static_threadgroup_bytes": 1024
+      }
+    ]
+  },
+  "shader_changed": false
+}

@@ -489,6 +489,13 @@ keeps the original weight layout and data buffers. Both variants pass
 loses ordinary throughput; QS-and-sign-word shows only +0.055% against
 adjacent controls with mixed neighbor comparisons. Neither is adopted.
 
+The [IQ3_S pipeline-hint screening](docs/m5_iq3_hint_2026-10-11.md) uses
+the original shader and data buffers with an explicit 64-thread limit,
+with or without the SIMD-multiple hint. Both pass guarded matrices and
+one-session logits/state checks. An unstable pilot's apparent gain fails
+independent replication; neither hint is adopted. All 30 timing samples
+and actual pipeline metadata are retained.
+
 The [agent regression run](docs/agent_regressions_2026-10-11.md) passes all
 19 selected targets on the rebuilt production agent: tools and guards,
 checkpoints, prefix cache, C/Python/Git tasks and conversation formatting.

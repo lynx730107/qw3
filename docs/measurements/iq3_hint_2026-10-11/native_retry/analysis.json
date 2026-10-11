@@ -1,0 +1,71 @@
+{
+  "adopted": false,
+  "runs": 5,
+  "samples_retained": 15,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3643.581,
+    3656.063,
+    3562.2713333333336,
+    3553.103333333333,
+    3611.4853333333335
+  ],
+  "off_mean_spread_pct": 2.2549818404177233,
+  "control_stability_gate_passed": true,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "native_session_bytes": 176761680,
+  "comparisons": [
+    {
+      "block": 1,
+      "variant": 2,
+      "candidate_mean_ms": 3656.063,
+      "adjacent_off_mean_ms": 3602.926166666667,
+      "point_gain_pct": -1.45338943375245,
+      "gain_vs_left_off_pct": -0.34140549547423404,
+      "gain_vs_right_off_pct": -2.565373372030688,
+      "neighbor_interpolated_saved_ms": -53.136833333333016
+    },
+    {
+      "block": 3,
+      "variant": 2,
+      "candidate_mean_ms": 3553.103333333333,
+      "adjacent_off_mean_ms": 3586.8783333333336,
+      "point_gain_pct": 0.9505774764032804,
+      "gain_vs_left_off_pct": 0.2580279586577472,
+      "gain_vs_right_off_pct": 1.6431269941487914,
+      "neighbor_interpolated_saved_ms": 33.775000000000546
+    }
+  ],
+  "swap_observations": [
+    {
+      "name": "block_0_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_1_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_2_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_3_v2",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    },
+    {
+      "name": "block_4_v0",
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1173.06M  free = 874.94M  (encrypted)"
+    }
+  ],
+  "neighbor_weighted_control_mean_ms": 3594.90225,
+  "candidate_mean_ms": 3604.5831666666663,
+  "gain_vs_neighbor_weighted_controls_pct": -0.2685724317915694,
+  "reason": "The apparent +2.998% pilot gain is not reproduced. Stable retry controls show -1.453% and +0.951% in the two local comparisons, and a negative aggregate point estimate. Neither hint variant is adopted; no new direct llama.cpp comparison."
+}
