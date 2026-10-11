@@ -1,0 +1,113 @@
+{
+  "adopted": false,
+  "matrix_cases": 36,
+  "checkpoint_runs": 0,
+  "full_eight_prefix_runs": 0,
+  "paired_runs": [
+    {
+      "name": "paired_v1_r1",
+      "baseline_tps": 8.84516307094664,
+      "candidate_tps": 8.85442549720366,
+      "gain_pct": 0.10471741654423106,
+      "mean_saved_ms": 0.11826562499994964,
+      "eight_token_block_saved_means_ms": [
+        0.04125,
+        0.5545,
+        -0.38425,
+        -0.003875000000000011,
+        0.572,
+        0.09825,
+        0.18925000000000003,
+        -0.121
+      ],
+      "descriptive_block_t_radius_ms": 0.27043457216896455,
+      "block_independence_established": false,
+      "swap_before_after_equal": true
+    },
+    {
+      "name": "paired_v1_r2",
+      "baseline_tps": 8.847290648565847,
+      "candidate_tps": 8.849249168861927,
+      "gain_pct": 0.022136949874007605,
+      "mean_saved_ms": 0.02501562500002308,
+      "eight_token_block_saved_means_ms": [
+        -0.7108749999999999,
+        -0.37875,
+        0.16437500000000002,
+        0.567625,
+        -0.02687499999999999,
+        -0.19125,
+        0.26587500000000003,
+        0.51
+      ],
+      "descriptive_block_t_radius_ms": 0.36870686462839186,
+      "block_independence_established": false,
+      "swap_before_after_equal": true
+    }
+  ],
+  "native": {
+    "ordinary_tg32_d128": true,
+    "runs": 5,
+    "samples_retained": 15,
+    "samples_discarded": 0,
+    "block_means_ms": [
+      3639.087,
+      3606.4996666666666,
+      3607.756,
+      3599.6563333333334,
+      3612.5926666666664
+    ],
+    "off_tps": 8.840238383167057,
+    "on_tps": 8.881295381337845,
+    "gain_pct": 0.4644331565647253,
+    "off_mean_spread_pct": 0.8655422149469006,
+    "on_mean_spread_pct": 0.18993020226964968,
+    "both_stable_5pct": true,
+    "local_gain_vs_left_and_right_off_pct": [
+      [
+        0.903572337314329,
+        0.03483525438654489
+      ],
+      [
+        0.22501222107407237,
+        0.35937689977625364
+      ]
+    ],
+    "neighbor_interpolated_saved_ms": [
+      16.921833333333325,
+      10.518000000000029
+    ],
+    "independent_replication_native_gain_confirmed": false,
+    "all_swap_observations": [
+      {
+        "name": "block_0_off",
+        "swap_before": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)",
+        "swap_after": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)"
+      },
+      {
+        "name": "block_1_on",
+        "swap_before": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)",
+        "swap_after": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)"
+      },
+      {
+        "name": "block_2_off",
+        "swap_before": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)",
+        "swap_after": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)"
+      },
+      {
+        "name": "block_3_on",
+        "swap_before": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)",
+        "swap_after": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)"
+      },
+      {
+        "name": "block_4_off",
+        "swap_before": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)",
+        "swap_after": "vm.swapusage: total = 2048.00M  used = 1557.12M  free = 490.88M  (encrypted)"
+      }
+    ]
+  },
+  "additional_private_bytes": 3527891904,
+  "reported_metal_allocated_before": 13137182720,
+  "reported_metal_allocated_after": 16666312704,
+  "decision": "Paired gains are small and inconclusive; ordinary screening gives a small positive point estimate with only two ON blocks and unequal adjacent OFF effects. No proven repeatable benefit justifies adopting the additional 3.53 GB from this campaign."
+}

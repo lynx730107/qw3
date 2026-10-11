@@ -131,3 +131,7 @@ tests/.iq4_packed_lut/
 /qw3-iq3-layout-test
 /qw3-iq3-layout-bench
 tests/.iq3_layout/
+/qw3-iq3-private-test
+/qw3-iq3-private-bench
+/qw3-iq3-private-native-bench
+tests/.iq3_private/

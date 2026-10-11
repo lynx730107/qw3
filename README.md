@@ -471,6 +471,12 @@ loads pass 72 guarded matrices and full-vocabulary/state checks, but both
 lose paired decode throughput while requiring an additional 3.59 GB.
 Production retains the original layout.
 
+The [IQ3_S private-buffer screening](docs/m5_iq3_private_2026-10-11.md)
+keeps native bytes and compiled functions. Matrix and paired model-state
+checks pass. Paired gains are +0.105% and +0.022%; five ordinary controls
+give a small +0.464% point estimate without independent confirmation.
+The 3.53 GB additional allocation is not adopted from this campaign.
+
 The optional `qw3-q5-head-bench` and `qw3-block-cost-bench` targets isolate
 LM-head geometry and short-block backbone cost. The block probe computes
 **only the last logit row**.
