@@ -1,0 +1,386 @@
+{
+  "started_utc": "2026-10-11T11:20:03.669053+00:00",
+  "revision": "41e5201a0569f9932cdbbc64dec9f1319fc60696",
+  "reason": "Replicate inconclusive constant-grid pilot after all requested agent/web regressions pass",
+  "source_sha256": {
+    "Makefile": "e0f0466ec6115d8a3a5e0d008f74b5d01000fd3e7b555fd0aa3fc2ce6ca0b4d0",
+    ".gitignore": "788509a1bbf2b8c25cb48ab57a79a40da7ea98089340d69ebeac6d748cd0f834",
+    "qw3.c": "506a5cb13932695645d38383ac73a0f62b24a74f2672dad44f81e6fe3a2a2bc8",
+    "qw3.h": "446f802a06282cebd38ecb6cf54cf1b63cf6508d3e359eff47e3f0bfcb1d91d1",
+    "qw3_metal.m": "e55854d49fccda69ec7687730fc88f75ddf9793b22d2ee23f0b8f4363c1939f5",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_runtime_fingerprint.h": "f6a22aaeb5f390a891feb0aa42bba33f484ba283582409df3b2059384b86978d",
+    "tests/prepare_iq3_grid.py": "7dfdec1002656b751b50d1fcec75e8532ab386f5660060b37f0318c4539a396a",
+    "tests/test_iq3_grid.m": "7fbed24145c2eb96d617cfe43b35b36f2729ed07531548f9fd0b19882fc7c531",
+    "tests/test_iq3_signed.m": "6e96e7c3ac9d2f9e36c8028df2007fddc5b52692567827c38361f1842d331276",
+    "tests/iq4_load_candidates.inc": "c36fb026adcc0c8853ecf9d69332a9bebc9595d9bf8064df989cd6a920b3259a",
+    "tests/.iq3_grid/hooks.inc": "fe8c3ee9373e1b173da95606f020fd137141404c9dffe43916c41a87730e224a",
+    "tests/.iq3_grid/matrix.inc": "10e4b55ce42be91ab13364841d904ec27dac341b553d04d957822cca220fc90d",
+    "tests/.iq3_grid/kernels.metal": "0a0cce8e74ba62a1ff7380b341e89ab22d8740fdeacf598ce27a193cd6dca525",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "91b453bbdda935b4a41f8e0baab3eee54f2e15db6deab5dc2cd42bb06c30348b",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/test_iq3_grid_model.m": "69de930a2f451edd85e833af240eb3194e07b1050faf440815ad50fc4ab563a6",
+    "tests/bench_iq3_grid_native.m": "da07d463e309a6fbd4637093272ff0d58f06aa3e5ff1918b0ccf93e59ad35c44",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6"
+  },
+  "source_snapshot_paths": {
+    "Makefile": "../native/../model/source_snapshot/Makefile",
+    ".gitignore": "../native/../model/source_snapshot/.gitignore",
+    "qw3.c": "../native/../model/../source_snapshot/qw3.c",
+    "qw3.h": "../native/../model/../source_snapshot/qw3.h",
+    "qw3_metal.m": "../native/../model/../source_snapshot/qw3_metal.m",
+    "qw3_metal.h": "../native/../model/../source_snapshot/qw3_metal.h",
+    "qw3_runtime_fingerprint.h": "../native/../model/../source_snapshot/qw3_runtime_fingerprint.h",
+    "tests/prepare_iq3_grid.py": "../native/../model/../source_snapshot/tests/prepare_iq3_grid.py",
+    "tests/test_iq3_grid.m": "../native/../model/../source_snapshot/tests/test_iq3_grid.m",
+    "tests/test_iq3_signed.m": "../native/../model/../source_snapshot/tests/test_iq3_signed.m",
+    "tests/iq4_load_candidates.inc": "../native/../model/../source_snapshot/tests/iq4_load_candidates.inc",
+    "tests/.iq3_grid/hooks.inc": "../native/../model/../source_snapshot/tests/.iq3_grid/hooks.inc",
+    "tests/.iq3_grid/matrix.inc": "../native/../model/../source_snapshot/tests/.iq3_grid/matrix.inc",
+    "tests/.iq3_grid/kernels.metal": "../native/../model/../source_snapshot/tests/.iq3_grid/kernels.metal",
+    "metal/flash_attn.metal": "../native/../model/../source_snapshot/metal/flash_attn.metal",
+    "metal/qw3_core_argmax.metal": "../native/../model/../source_snapshot/metal/qw3_core_argmax.metal",
+    "metal/qw3_core_common.metal": "../native/../model/../source_snapshot/metal/qw3_core_common.metal",
+    "metal/qw3_core_deltanet.metal": "../native/../model/../source_snapshot/metal/qw3_core_deltanet.metal",
+    "metal/qw3_core_linear.metal": "../native/../model/../source_snapshot/metal/qw3_core_linear.metal",
+    "metal/qw3_core_moe.metal": "../native/../model/../source_snapshot/metal/qw3_core_moe.metal",
+    "metal/qw3_core_sequence.metal": "../native/../model/../source_snapshot/metal/qw3_core_sequence.metal",
+    "tests/test_iq3_grid_model.m": "../native/../model/source_snapshot/tests/test_iq3_grid_model.m",
+    "tests/bench_iq3_grid_native.m": "../native/../model/source_snapshot/tests/bench_iq3_grid_native.m",
+    "qw3_bench.c": "../native/../model/source_snapshot/qw3_bench.c"
+  },
+  "binary_sha256": {
+    "qw3-iq3-grid-native-bench": "a22094a57997fbf296bb41c4d62e9dc54feed4ddff29da0c4c1d4d2f23ccaad4"
+  },
+  "production_binary_sha256": {
+    "qw3-bench": "cf2e56850dd858eef1ab04a8a5004efaa7b8ddfed1910ba7cda49eb3c685d837"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "scope": "ordinary single-session tg32 depth128 ctx256, original weight and session data buffers",
+  "context": 256,
+  "gpu_layers": 64,
+  "kv": "f16",
+  "repetitions": 3,
+  "warmup": true,
+  "cooldown_seconds_before_every_process": 60,
+  "order": [
+    0,
+    2,
+    0,
+    2,
+    0
+  ],
+  "runs": [
+    {
+      "name": "block_0_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-grid-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_PRIVATE_IQ3_GRID": "0"
+      },
+      "exit_code": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.149,
+          "ms": 3497.614
+        },
+        {
+          "repetition": 2,
+          "tps": 9.077,
+          "ms": 3525.585
+        },
+        {
+          "repetition": 3,
+          "tps": 9.068,
+          "ms": 3528.747
+        }
+      ],
+      "candidate_calls": 0,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_1_v2",
+      "variant": 2,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-grid-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_PRIVATE_IQ3_GRID": "2"
+      },
+      "exit_code": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.147,
+          "ms": 3498.481
+        },
+        {
+          "repetition": 2,
+          "tps": 9.091,
+          "ms": 3519.961
+        },
+        {
+          "repetition": 3,
+          "tps": 9.062,
+          "ms": 3531.245
+        }
+      ],
+      "candidate_calls": 7081,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_2_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-grid-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_PRIVATE_IQ3_GRID": "0"
+      },
+      "exit_code": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.187,
+          "ms": 3483.047
+        },
+        {
+          "repetition": 2,
+          "tps": 9.138,
+          "ms": 3501.729
+        },
+        {
+          "repetition": 3,
+          "tps": 9.089,
+          "ms": 3520.926
+        }
+      ],
+      "candidate_calls": 0,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_3_v2",
+      "variant": 2,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-grid-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_PRIVATE_IQ3_GRID": "2"
+      },
+      "exit_code": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 8.913,
+          "ms": 3590.205
+        },
+        {
+          "repetition": 2,
+          "tps": 8.877,
+          "ms": 3604.755
+        },
+        {
+          "repetition": 3,
+          "tps": 8.826,
+          "ms": 3625.85
+        }
+      ],
+      "candidate_calls": 7081,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_4_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-grid-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_PRIVATE_IQ3_GRID": "0"
+      },
+      "exit_code": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.191,
+          "ms": 3481.853
+        },
+        {
+          "repetition": 2,
+          "tps": 9.07,
+          "ms": 3527.973
+        },
+        {
+          "repetition": 3,
+          "tps": 9.089,
+          "ms": 3520.603
+        }
+      ],
+      "candidate_calls": 0,
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    }
+  ],
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "model_unchanged": true,
+  "completed_utc": "2026-10-11T11:26:15.351195+00:00"
+}

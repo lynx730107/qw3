@@ -479,9 +479,9 @@ timing; production keeps the original FP32 expressions.
 The [IQ3_S direct-grid screening](docs/m5_iq3_grid_2026-10-11.md) reads the
 existing packed table without new weight or session buffers. Both address
 spaces pass guarded matrices and a one-session disk-oracle model screen.
-Device reads lose ordinary throughput; constant reads remain inconclusive
-after one candidate block. Neither is adopted; agent regressions precede
-further performance work.
+Device reads lose ordinary throughput. The [constant-grid replication](docs/m5_iq3_grid_retry_2026-10-11.md),
+run after the requested agent regressions, fails to reproduce its initial
+gain. Neither is adopted; production inference remains unchanged.
 
 The [agent regression run](docs/agent_regressions_2026-10-11.md) passes all
 19 selected targets on the rebuilt production agent: tools and guards,

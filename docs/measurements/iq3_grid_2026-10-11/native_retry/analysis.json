@@ -1,0 +1,72 @@
+{
+  "adopted": false,
+  "variant": 2,
+  "space": "constant",
+  "runs": 5,
+  "validated_samples": 15,
+  "samples_discarded": 0,
+  "block_means_ms": [
+    3517.3153333333335,
+    3516.5623333333333,
+    3501.9006666666664,
+    3606.9366666666665,
+    3510.143
+  ],
+  "off_mean_spread_pct": 0.43919102767795315,
+  "on_mean_spread_pct": 2.5373579285498096,
+  "candidate_blocks": 2,
+  "additional_weight_buffer_bytes": 0,
+  "additional_session_data_buffers": 0,
+  "local_comparisons": [
+    {
+      "block": 1,
+      "neighbor_off_mean_ms": 3509.608,
+      "candidate_mean_ms": 3516.5623333333333,
+      "gain_vs_neighbor_mean_pct": -0.1977594216776235,
+      "gain_vs_left_off_pct": 0.021412957559796553,
+      "gain_vs_right_off_pct": -0.41693180091504356,
+      "neighbor_interpolated_saved_ms": -6.954333333333125
+    },
+    {
+      "block": 3,
+      "neighbor_off_mean_ms": 3506.0218333333332,
+      "candidate_mean_ms": 3606.9366666666665,
+      "gain_vs_neighbor_mean_pct": -2.7977988708793533,
+      "gain_vs_left_off_pct": -2.91205556700469,
+      "gain_vs_right_off_pct": -2.6835421747540056,
+      "neighbor_interpolated_saved_ms": -100.91483333333326
+    }
+  ],
+  "neighbor_weighted_control_mean_ms": 3507.8149166666667,
+  "candidate_mean_ms": 3561.7495,
+  "gain_vs_neighbor_weighted_control_pct": -1.5142722230559236,
+  "mean_neighbor_interpolated_saved_ms": -53.934583333333194,
+  "swap_observations": [
+    {
+      "name": "block_0_v0",
+      "before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_1_v2",
+      "before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_2_v0",
+      "before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_3_v2",
+      "before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    },
+    {
+      "name": "block_4_v0",
+      "before": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)",
+      "after": "vm.swapusage: total = 2048.00M  used = 1301.06M  free = 746.94M  (encrypted)"
+    }
+  ],
+  "reason": "The +1.507% single-block pilot gain does not reproduce. Both candidate blocks lose versus the adjacent-control mean; the second loses versus both controls. Retain all samples and reject the candidate without a production change. No new direct llama.cpp comparison."
+}
