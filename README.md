@@ -421,6 +421,12 @@ and states; full fence checks pass with Metal API validation enabled.
 Ordinary decode screening shows no gain; session fences remain private
 and production keeps tracked session buffers.
 
+The [native decode pipeline profile](docs/m5_native_decode_profile_2026-10-10.md)
+identifies IQ4_XS and IQ3_S projections as the largest measured targets.
+Full-vocabulary and canonical-state checks remain bit-exact with profiling.
+Timestamp collection changes encoder boundaries, so these diagnostic times
+must not be treated as ordinary native throughput.
+
 The [IQ3_S decode grouping trial](docs/m5_iq3_decode_groups_2026-10-10.md)
 shares the existing FP32 lookup table across four or eight SIMD groups.
 Guarded matrices and paired full-vocabulary/state checks pass, but neither

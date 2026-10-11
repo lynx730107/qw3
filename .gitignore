@@ -113,3 +113,5 @@ tests/.weight_tracking/
 /qw3-hazard-fences-test
 tests/.hazard_fences/
 /qw3-hazard-fences-native-bench
+/qw3-decode-profile-test
+tests/.decode_profile/

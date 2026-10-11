@@ -1,0 +1,1 @@
+PASS decode_profile depth=128 tokens=32 profiled_steps=0,8,16,24 full_logits=finite_bit_exact canonical_state=exact native_k64=1 native_gdn_cache64=1
