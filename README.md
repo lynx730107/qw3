@@ -563,6 +563,11 @@ validation details are recorded in `docs/metal_prefill_validation.md`.
 
 ## Agent
 
+The [fresh agent regression suite](docs/agent_regressions_retry_2026-10-11.md)
+passes 21 checks, including store retention and a live URL oracle. Production
+binaries and inference sources are unchanged; the personal store stays
+history-only, and model processes run sequentially.
+
 `qw3-agent` uses Qwen-native tool calling and keeps the session local. On a
 full-Metal F16 run, saved conversations include an atomic inference checkpoint:
 occupied KV rows, recurrent DeltaNet and convolution state, tokens, and logits.
