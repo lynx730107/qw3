@@ -1,0 +1,14 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+2026-10-12 19:10:52.790 qw3-iq4-shape-test[88471:55190411] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+IQ4 shape compile variant=1 n_in=256 kind=0: program_source:11228:42: error: 'function_constant' has a duplicate index '100'
+constant uint private_iq4_shape_blocks [[function_constant(100)]];
+                                         ^
+program_source:9899:48: note: duplicate 'function_constant' index '100' here
+constant bool FC_flash_attn_ext_pad_has_mask [[function_constant(FC_FLASH_ATTN_EXT_PAD + 0)]];
+                                               ^
+
+IQ4 shape matrix failed after 0 cases

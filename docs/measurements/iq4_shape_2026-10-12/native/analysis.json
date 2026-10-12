@@ -1,0 +1,34 @@
+{
+  "scope": "initial five-run screening, not independent-replica evidence or a llama comparison",
+  "samples_retained": 15,
+  "run_means_ms": [
+    3775.846666666667,
+    3601.2833333333333,
+    3648.3236666666667,
+    3562.829333333333,
+    3548.594
+  ],
+  "off_spread_percent": 6.213183654450128,
+  "off_spread_within_5_percent": false,
+  "comparisons": [
+    {
+      "variant": 1,
+      "candidate_mean_ms": 3601.2833333333333,
+      "adjacent_control_mean_ms": 3712.0851666666667,
+      "throughput_change_percent": 3.076731905755814,
+      "before_change_percent": 4.847253525363637,
+      "after_change_percent": 1.3062102861479907,
+      "beats_both_neighbors": true
+    },
+    {
+      "variant": 2,
+      "candidate_mean_ms": 3562.829333333333,
+      "adjacent_control_mean_ms": 3598.458833333333,
+      "throughput_change_percent": 1.0000338682141008,
+      "before_change_percent": 2.399619104217554,
+      "after_change_percent": -0.3995513677893414,
+      "beats_both_neighbors": false
+    }
+  ],
+  "replication_required_before_adoption": true
+}

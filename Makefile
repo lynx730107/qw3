@@ -225,6 +225,21 @@ tests/.iq4_share/hooks.inc: tests/prepare_iq4_share.py tests/.iq3_share/hooks.in
 tests/.iq4_share/core.inc tests/.iq4_share/kernels.metal tests/.iq4_share/matrix.inc tests/.iq4_share/model.inc tests/.iq4_share/native.inc: tests/.iq4_share/hooks.inc
 	@test -f $@ || python3 tests/prepare_iq4_share.py
 
+tests/.iq4_shape/hooks.inc: tests/prepare_iq4_shape.py tests/.iq4_unroll/hooks.inc tests/.iq4_unroll/matrix.inc tests/.iq4_unroll/model.inc tests/.iq4_unroll/native.inc metal/qw3_core_linear.metal
+	python3 tests/prepare_iq4_shape.py
+
+tests/.iq4_shape/kernels.metal tests/.iq4_shape/matrix.inc tests/.iq4_shape/model.inc tests/.iq4_shape/native.inc: tests/.iq4_shape/hooks.inc
+	@test -f $@ || python3 tests/prepare_iq4_shape.py
+
+qw3-iq4-shape-test: tests/test_iq4_shape.m tests/.iq4_shape/hooks.inc tests/.iq4_shape/kernels.metal tests/.iq4_shape/matrix.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq4_shape.m $(METAL_LDLIBS)
+
+qw3-iq4-shape-model-test: tests/test_iq4_shape_model.m tests/.iq4_shape/hooks.inc tests/.iq4_shape/kernels.metal tests/.iq4_shape/model.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq4_shape_model.m $(METAL_LDLIBS)
+
+qw3-iq4-shape-native-bench: tests/bench_iq4_shape_native.m tests/.iq4_shape/hooks.inc tests/.iq4_shape/kernels.metal tests/.iq4_shape/native.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq4_shape_native.m $(METAL_LDLIBS)
+
 tests/.iq4_simd_lut/hooks.inc: tests/prepare_iq4_simd_lut.py tests/.iq4_share/hooks.inc tests/.iq4_share/matrix.inc tests/.iq4_share/model.inc tests/.iq4_share/native.inc metal/qw3_core_linear.metal
 	python3 tests/prepare_iq4_simd_lut.py
 
@@ -654,7 +669,7 @@ qw3-iq3-share-test qw3-iq3-share-model-test qw3-iq3-share-native-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-iq4-simd-lut-test qw3-iq4-simd-lut-model-test qw3-iq4-simd-lut-native-bench qw3-iq4-unroll-test qw3-iq4-unroll-model-test qw3-iq4-unroll-native-bench qw3-iq4-share-test qw3-iq4-share-model-test qw3-iq4-share-native-bench:
+qw3-iq4-shape-test qw3-iq4-shape-model-test qw3-iq4-shape-native-bench qw3-iq4-simd-lut-test qw3-iq4-simd-lut-model-test qw3-iq4-simd-lut-native-bench qw3-iq4-unroll-test qw3-iq4-unroll-model-test qw3-iq4-unroll-native-bench qw3-iq4-share-test qw3-iq4-share-model-test qw3-iq4-share-native-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -847,6 +862,7 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-iq4-shape-test qw3-iq4-shape-model-test qw3-iq4-shape-native-bench
 	rm -f qw3-iq4-simd-lut-test qw3-iq4-simd-lut-model-test qw3-iq4-simd-lut-native-bench
 	rm -f qw3-iq4-unroll-test qw3-iq4-unroll-model-test qw3-iq4-unroll-native-bench
 	rm -f qw3-agent-context-pressure-test

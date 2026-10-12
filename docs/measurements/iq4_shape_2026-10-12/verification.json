@@ -1,0 +1,93 @@
+{
+  "index_verified": false,
+  "frozen_source_references_verified": 54,
+  "replica_frozen_source_references_verified": 55,
+  "initial_attempt_frozen_references_verified": 108,
+  "matrix_cases_passed": 126,
+  "one_session_model_phases_passed": 3,
+  "ordinary_samples_verified": 36,
+  "production_unchanged": true,
+  "numerical_store_unchanged": true,
+  "analysis": {
+    "scope": "initial five-run screening, not independent-replica evidence or a llama comparison",
+    "samples_retained": 15,
+    "run_means_ms": [
+      3775.846666666667,
+      3601.2833333333333,
+      3648.3236666666667,
+      3562.829333333333,
+      3548.594
+    ],
+    "off_spread_percent": 6.213183654450128,
+    "off_spread_within_5_percent": false,
+    "comparisons": [
+      {
+        "variant": 1,
+        "candidate_mean_ms": 3601.2833333333333,
+        "adjacent_control_mean_ms": 3712.0851666666667,
+        "throughput_change_percent": 3.076731905755814,
+        "before_change_percent": 4.847253525363637,
+        "after_change_percent": 1.3062102861479907,
+        "beats_both_neighbors": true
+      },
+      {
+        "variant": 2,
+        "candidate_mean_ms": 3562.829333333333,
+        "adjacent_control_mean_ms": 3598.458833333333,
+        "throughput_change_percent": 1.0000338682141008,
+        "before_change_percent": 2.399619104217554,
+        "after_change_percent": -0.3995513677893414,
+        "beats_both_neighbors": false
+      }
+    ],
+    "replication_required_before_adoption": true
+  },
+  "replica_analysis": {
+    "scope": "fresh constant-K replica, no discarded samples; nearby controls are shared, no independence-based confidence interval",
+    "samples_retained": 21,
+    "run_means_ms": [
+      3545.8269999999998,
+      3552.543,
+      3581.455,
+      3590.577,
+      3553.8496666666665,
+      3578.6206666666667,
+      3592.166
+    ],
+    "off_spread_percent": 1.2986207135080996,
+    "on_spread_percent": 1.0642115263497978,
+    "candidate_mean_ms": 3573.913555555556,
+    "adjacent_control_mean_ms": 3568.1003888888886,
+    "throughput_change_percent": -0.16265549169847127,
+    "comparisons": [
+      {
+        "block": 1,
+        "candidate_mean_ms": 3552.543,
+        "adjacent_control_mean_ms": 3563.6409999999996,
+        "throughput_change_percent": 0.3123959372201668,
+        "before_change_percent": -0.1890476765517124,
+        "after_change_percent": 0.8138395509920571,
+        "beats_both_neighbors": false
+      },
+      {
+        "block": 3,
+        "candidate_mean_ms": 3590.577,
+        "adjacent_control_mean_ms": 3567.6523333333334,
+        "throughput_change_percent": -0.6384674849381211,
+        "before_change_percent": -0.254053874906468,
+        "after_change_percent": -1.0228810949697964,
+        "beats_both_neighbors": false
+      },
+      {
+        "block": 5,
+        "candidate_mean_ms": 3578.6206666666667,
+        "adjacent_control_mean_ms": 3573.007833333333,
+        "throughput_change_percent": -0.15684348401647785,
+        "before_change_percent": -0.6921940688134787,
+        "after_change_percent": 0.37850710078055627,
+        "beats_both_neighbors": false
+      }
+    ]
+  },
+  "scope": "private screen; no production adoption, no eight-prefix/checkpoint gate, no fresh llama comparison"
+}

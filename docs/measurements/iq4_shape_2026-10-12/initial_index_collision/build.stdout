@@ -1,0 +1,5 @@
+python3 tests/prepare_iq4_shape.py
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-iq4-shape-test tests/test_iq4_shape.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-iq4-shape-model-test tests/test_iq4_shape_model.m -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc -fno-finite-math-only -I. -o qw3-iq4-shape-native-bench tests/bench_iq4_shape_native.m -lm -pthread -framework Foundation -framework Metal
