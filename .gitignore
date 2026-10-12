@@ -168,6 +168,10 @@ tests/.iq4_simd_lut/
 /qw3-iq4-shape-model-test
 /qw3-iq4-shape-native-bench
 tests/.iq4_shape/
+/qw3-gqa-barrier-test
+/qw3-gqa-barrier-model-test
+/qw3-gqa-barrier-native-bench
+tests/.gqa_barrier/
 /qw3-agent-context-pressure-test
 tests/.iq4_share/
 /qw3-iq4-packed-lut-test

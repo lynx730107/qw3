@@ -1,0 +1,7 @@
+{
+  "observed_error": "AssertionError at numerical PASS marker assertion",
+  "expected_before": "PASS gqa_barriers={v} matrix_cases=288 finite_bit_exact=all",
+  "actual_and_expected_after": "PASS gqa_barrier={v} matrix_cases=288 finite_bit_exact=all",
+  "correction": "Verifier string only; numerical outputs and binaries unchanged",
+  "verification_after": "passed: 576 primitive cases, 3 model phases, 15 ordinary samples"
+}

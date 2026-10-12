@@ -1,0 +1,10 @@
+{
+  "files_removed_and_regenerated": 4,
+  "byte_exact": true,
+  "sha256": {
+    "tests/.gqa_barrier/hooks.inc": "2fbdfc85e00406c5a52ce47db68ff5ecb564466d8afefeb8d5083b002fa870b8",
+    "tests/.gqa_barrier/kernels.metal": "0005601d17aa86cd09391b4ffa692f8a37feee02432e47db9153866690db460d",
+    "tests/.gqa_barrier/model.inc": "b7b2bddc54f7ab0d0575bc50f33203927669d150b4bacecd29b0b7f01fae02dc",
+    "tests/.gqa_barrier/native.inc": "dbd44aa021926e3ae54c9487e3f327de8805d31fbdf1de48ebe83303bc96f747"
+  }
+}

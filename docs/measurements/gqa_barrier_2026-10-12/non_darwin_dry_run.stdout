@@ -1,0 +1,6 @@
+echo "qw3-gqa-barrier-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-gqa-barrier-model-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-gqa-barrier-native-bench requires Darwin/Apple Metal"
+exit 1

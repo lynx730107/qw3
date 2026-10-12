@@ -1,0 +1,7 @@
+2026-10-12 19:58:20.925 qw3-gqa-barrier-test[92394:55229892] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+gqa_barrier_metadata variant=0 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 dynamic_threadgroup_bytes=256 barriers_per_context=3
+gqa_barrier_metadata variant=1 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 dynamic_threadgroup_bytes=256 barriers_per_context=2
+gqa_barrier_metadata variant=2 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 dynamic_threadgroup_bytes=256 barriers_per_context=2
+gqa_barrier_dispatch_counts calls=216 fallbacks=72
