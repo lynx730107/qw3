@@ -1,0 +1,11 @@
+{
+  "files_removed_and_regenerated": 5,
+  "byte_exact": true,
+  "sha256": {
+    "tests/.iq3_input/hooks.inc": "e62602765eadbd0ecb3cf8f17d1119927c1530d69b6b6ae9dc0c6b2de58bdc33",
+    "tests/.iq3_input/matrix.inc": "74ddb388e0abefa0340980cd31d112654bb5b025622ca24db88d60a2c3339ddc",
+    "tests/.iq3_input/kernels.metal": "b61edd594eef53040cf5f54b3da75e9a9fca98edcf92f6d3622ec00640083130",
+    "tests/.iq3_input/model.inc": "01c55b5d1e2825f9b1e7f7b01c607b0d211eb65105b6c8340cba8048647c3c63",
+    "tests/.iq3_input/native.inc": "59f48c797e2dbeabdb320fda8ac5300fc6adadb4b5f0249a4a236616c76b2356"
+  }
+}

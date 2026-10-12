@@ -198,6 +198,12 @@ qw3-iq3-layout-bench: tests/bench_iq3_layout.m tests/.iq3_layout/hooks.inc tests
 tests/.iq3_grid/hooks.inc: tests/prepare_iq3_grid.py tests/iq4_load_candidates.inc tests/test_iq3_signed.m metal/qw3_core_moe.metal
 	python3 tests/prepare_iq3_grid.py
 
+tests/.iq3_input/hooks.inc: tests/prepare_iq3_input.py tests/.iq3_words/hooks.inc tests/.iq3_words/matrix.inc tests/.iq3_words/model.inc tests/.iq3_words/native.inc metal/qw3_core_moe.metal
+	python3 tests/prepare_iq3_input.py
+
+tests/.iq3_input/kernels.metal tests/.iq3_input/matrix.inc tests/.iq3_input/model.inc tests/.iq3_input/native.inc: tests/.iq3_input/hooks.inc
+	@test -f $@ || python3 tests/prepare_iq3_input.py
+
 tests/.iq3_words/hooks.inc: tests/prepare_iq3_words.py tests/.iq3_grid/hooks.inc tests/.iq3_grid/matrix.inc tests/test_iq3_grid_model.m tests/bench_iq3_grid_native.m metal/qw3_core_moe.metal
 	python3 tests/prepare_iq3_words.py
 
@@ -353,6 +359,15 @@ qw3-iq3-hint-model-test: tests/test_iq3_hint_model.m tests/.iq3_hint/hooks.inc t
 
 qw3-iq3-hint-native-bench: tests/bench_iq3_hint_native.m tests/.iq3_hint/hooks.inc tests/.iq3_hint/native.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_hint_native.m $(METAL_LDLIBS)
+
+qw3-iq3-input-test: tests/test_iq3_input.m tests/.iq3_input/hooks.inc tests/.iq3_input/matrix.inc tests/.iq3_input/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_input.m $(METAL_LDLIBS)
+
+qw3-iq3-input-model-test: tests/test_iq3_input_model.m tests/.iq3_input/hooks.inc tests/.iq3_input/model.inc tests/.iq3_input/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_input_model.m $(METAL_LDLIBS)
+
+qw3-iq3-input-native-bench: tests/bench_iq3_input_native.m tests/.iq3_input/hooks.inc tests/.iq3_input/native.inc tests/.iq3_input/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_input_native.m $(METAL_LDLIBS)
 
 qw3-iq3-words-test: tests/test_iq3_words.m tests/.iq3_words/hooks.inc tests/.iq3_words/matrix.inc tests/.iq3_words/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_words.m $(METAL_LDLIBS)
@@ -672,6 +687,10 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
+qw3-iq3-input-test qw3-iq3-input-model-test qw3-iq3-input-native-bench:
+	@echo "$@ requires Darwin/Apple Metal"
+	@exit 1
+
 qw3-iq3-immutable-test qw3-iq3-immutable-model-test qw3-iq3-immutable-native-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
@@ -877,6 +896,7 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-iq3-input-test qw3-iq3-input-model-test qw3-iq3-input-native-bench
 	rm -f qw3-gqa-barrier-test qw3-gqa-barrier-model-test qw3-gqa-barrier-native-bench
 	rm -f qw3-iq4-shape-test qw3-iq4-shape-model-test qw3-iq4-shape-native-bench
 	rm -f qw3-iq4-simd-lut-test qw3-iq4-simd-lut-model-test qw3-iq4-simd-lut-native-bench

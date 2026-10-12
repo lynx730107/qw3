@@ -1,0 +1,48 @@
+{
+  "index_verified": true,
+  "source_references_verified": 31,
+  "guarded_matrix_cases_passed": 72,
+  "input_offsets_checked": [
+    4,
+    16
+  ],
+  "one_reused_session_model_phases": 3,
+  "ordinary_samples_verified": 15,
+  "production_unchanged": true,
+  "additional_weight_and_session_data_buffers": 0,
+  "scope": "private screen; no eight-prefix/checkpoint gate and no fresh llama comparison",
+  "analysis": {
+    "scope": "initial five-run screening, not independent-replica evidence or a llama comparison",
+    "samples_retained": 15,
+    "run_means_ms": [
+      3791.089,
+      3532.6786666666667,
+      3526.2503333333334,
+      3650.2253333333333,
+      3530.442666666667
+    ],
+    "off_spread_percent": 7.324225357773595,
+    "off_spread_within_5_percent": false,
+    "comparisons": [
+      {
+        "variant": 1,
+        "candidate_mean_ms": 3532.6786666666667,
+        "adjacent_control_mean_ms": 3658.6696666666667,
+        "throughput_change_percent": 3.5664438203455884,
+        "before_change_percent": 7.314855318475977,
+        "after_change_percent": -0.18196767778482226,
+        "beats_both_neighbors": false
+      },
+      {
+        "variant": 2,
+        "candidate_mean_ms": 3650.2253333333333,
+        "adjacent_control_mean_ms": 3528.3465,
+        "throughput_change_percent": -3.3389399887276294,
+        "before_change_percent": -3.396365667288481,
+        "after_change_percent": -3.2815143101667887,
+        "beats_both_neighbors": false
+      }
+    ],
+    "replication_required_before_adoption": true
+  }
+}

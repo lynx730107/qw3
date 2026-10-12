@@ -1,0 +1,8 @@
+{
+  "store_unchanged": true,
+  "file_count": 9,
+  "swap_boundary_readings": [
+    "vm.swapusage: total = 2048.00M  used = 812.31M  free = 1235.69M  (encrypted)"
+  ],
+  "peak_ram_measured": false
+}

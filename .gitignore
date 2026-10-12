@@ -184,3 +184,8 @@ tests/.iq3_layout/
 /qw3-iq3-private-bench
 /qw3-iq3-private-native-bench
 tests/.iq3_private/
+
+/qw3-iq3-input-test
+/qw3-iq3-input-model-test
+/qw3-iq3-input-native-bench
+tests/.iq3_input/

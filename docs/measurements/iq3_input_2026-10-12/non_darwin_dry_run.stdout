@@ -1,0 +1,6 @@
+echo "qw3-iq3-input-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq3-input-model-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq3-input-native-bench requires Darwin/Apple Metal"
+exit 1
