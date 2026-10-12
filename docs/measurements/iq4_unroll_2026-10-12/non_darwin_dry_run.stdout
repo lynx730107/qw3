@@ -1,0 +1,6 @@
+echo "qw3-iq4-unroll-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq4-unroll-model-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq4-unroll-native-bench requires Darwin/Apple Metal"
+exit 1
