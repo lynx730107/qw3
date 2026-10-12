@@ -160,6 +160,10 @@ tests/.iq3_share/
 /qw3-iq4-unroll-model-test
 /qw3-iq4-unroll-native-bench
 tests/.iq4_unroll/
+/qw3-iq4-simd-lut-test
+/qw3-iq4-simd-lut-model-test
+/qw3-iq4-simd-lut-native-bench
+tests/.iq4_simd_lut/
 /qw3-agent-context-pressure-test
 tests/.iq4_share/
 /qw3-iq4-packed-lut-test

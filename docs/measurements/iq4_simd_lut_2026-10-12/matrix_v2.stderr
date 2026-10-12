@@ -1,0 +1,15 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.040s)
+2026-10-12 18:42:01.243 qw3-iq4-simd-lut-test[86557:55166367] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+iq4_simd_lut_metadata variant=0 kind=0 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=64
+iq4_simd_lut_metadata variant=0 kind=1 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=64
+iq4_simd_lut_metadata variant=0 kind=2 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=64
+iq4_simd_lut_metadata variant=1 kind=0 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=128
+iq4_simd_lut_metadata variant=1 kind=1 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=128
+iq4_simd_lut_metadata variant=1 kind=2 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=128
+iq4_simd_lut_metadata variant=2 kind=0 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=128
+iq4_simd_lut_metadata variant=2 kind=1 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=128
+iq4_simd_lut_metadata variant=2 kind=2 thread_width=32 max_threads=1024 static_threadgroup_bytes=0 rows_per_simd=2 simdgroups=2 threads=64 dynamic_threadgroup_bytes=128 lut_bytes=128

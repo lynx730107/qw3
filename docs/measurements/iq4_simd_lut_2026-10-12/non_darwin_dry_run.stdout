@@ -1,0 +1,6 @@
+echo "qw3-iq4-simd-lut-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq4-simd-lut-model-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-iq4-simd-lut-native-bench requires Darwin/Apple Metal"
+exit 1
