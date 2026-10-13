@@ -1,0 +1,66 @@
+{
+  "complete": true,
+  "validated_runs": 24,
+  "validated_samples": 120,
+  "all_sources_snapshots_binaries_libraries_match": true,
+  "jobs": {
+    "pp128": {
+      "paired_saved_ms": [
+        1.7713409999999818,
+        1.172850000000003,
+        1.9934409999999847,
+        1.7357329999999616,
+        -0.19450900000006488,
+        1.1399659999999923
+      ],
+      "paired_saved_ci95_ms": [
+        0.435020085491169,
+        2.104587247842117
+      ],
+      "rate_delta_pct": 0.1612742636754927,
+      "qw3_speedup_needed_pct": -0.1610145885833525,
+      "qw3_lead_confirmed_in_this_series": true,
+      "llama_lead_confirmed_in_this_series": false,
+      "both_engines_stable_5pct": true,
+      "qw3_session_bytes": 174664400
+    },
+    "tg32_d128": {
+      "paired_saved_ms": [
+        -94.99202499999981,
+        -49.638975000000144,
+        -80.66610900000003,
+        -100.9038250000005,
+        -78.60131699999995,
+        -84.39405000000022
+      ],
+      "paired_saved_ci95_ms": [
+        -100.25655817918735,
+        -62.80887548747953
+      ],
+      "rate_delta_pct": -2.3273827355612675,
+      "qw3_speedup_needed_pct": 2.382840555260346,
+      "qw3_lead_confirmed_in_this_series": false,
+      "llama_lead_confirmed_in_this_series": true,
+      "both_engines_stable_5pct": true,
+      "qw3_session_bytes": 176761680
+    }
+  },
+  "swap_usage_values": [
+    "vm.swapusage: total = 3072.00M  used = 1862.25M  free = 1209.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1870.25M  free = 1201.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1878.25M  free = 1193.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1886.25M  free = 1185.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1894.25M  free = 1177.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1902.25M  free = 1169.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1950.25M  free = 1121.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1966.25M  free = 1105.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1982.25M  free = 1089.75M  (encrypted)",
+    "vm.swapusage: total = 3072.00M  used = 1990.25M  free = 1081.75M  (encrypted)"
+  ],
+  "swap_before_after_each_run_equal": false,
+  "interval_experimental_units": "six paired engine-run means per job; five repetitions each",
+  "interval_scope": "conditional on independence of temporally separated paired means",
+  "streams": "native synthetic token streams differ between engines; no sampling or MTP",
+  "memory_scope": "session_bytes is reported by qw3; process peak RAM was not measured",
+  "samples_discarded": 0
+}

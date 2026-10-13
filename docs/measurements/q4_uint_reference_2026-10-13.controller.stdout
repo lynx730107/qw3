@@ -1,0 +1,50 @@
+pp128 pair=1/6 engine=qw3 cooling 60s
+pp128 pair=1/6 engine=qw3
+pp128 pair=1/6 engine=llama cooling 60s
+pp128 pair=1/6 engine=llama
+pp128 pair=2/6 engine=llama cooling 60s
+pp128 pair=2/6 engine=llama
+pp128 pair=2/6 engine=qw3 cooling 60s
+pp128 pair=2/6 engine=qw3
+pp128 pair=3/6 engine=qw3 cooling 60s
+pp128 pair=3/6 engine=qw3
+pp128 pair=3/6 engine=llama cooling 60s
+pp128 pair=3/6 engine=llama
+pp128 pair=4/6 engine=llama cooling 60s
+pp128 pair=4/6 engine=llama
+pp128 pair=4/6 engine=qw3 cooling 60s
+pp128 pair=4/6 engine=qw3
+pp128 pair=5/6 engine=qw3 cooling 60s
+pp128 pair=5/6 engine=qw3
+pp128 pair=5/6 engine=llama cooling 60s
+pp128 pair=5/6 engine=llama
+pp128 pair=6/6 engine=llama cooling 60s
+pp128 pair=6/6 engine=llama
+pp128 pair=6/6 engine=qw3 cooling 60s
+pp128 pair=6/6 engine=qw3
+{"pp128": {"qw3_tps": 162.56927186747217, "llama_tps": 162.3075116232118, "paired_saved_ms": 1.269803666666643, "ci95_radius_ms": 0.834783581175474, "lead_confirmed_in_this_series": true, "saved_ms_qw3_first_mean": 1.1900909999999671, "saved_ms_qw3_second_mean": 1.3495163333333189, "qw3_spread_pct": 0.51845152414558, "llama_spread_pct": 0.46162859806311296, "both_engines_stable_5pct": true}}
+tg32_d128 pair=1/6 engine=qw3 cooling 60s
+tg32_d128 pair=1/6 engine=qw3
+tg32_d128 pair=1/6 engine=llama cooling 60s
+tg32_d128 pair=1/6 engine=llama
+tg32_d128 pair=2/6 engine=llama cooling 60s
+tg32_d128 pair=2/6 engine=llama
+tg32_d128 pair=2/6 engine=qw3 cooling 60s
+tg32_d128 pair=2/6 engine=qw3
+tg32_d128 pair=3/6 engine=qw3 cooling 60s
+tg32_d128 pair=3/6 engine=qw3
+tg32_d128 pair=3/6 engine=llama cooling 60s
+tg32_d128 pair=3/6 engine=llama
+tg32_d128 pair=4/6 engine=llama cooling 60s
+tg32_d128 pair=4/6 engine=llama
+tg32_d128 pair=4/6 engine=qw3 cooling 60s
+tg32_d128 pair=4/6 engine=qw3
+tg32_d128 pair=5/6 engine=qw3 cooling 60s
+tg32_d128 pair=5/6 engine=qw3
+tg32_d128 pair=5/6 engine=llama cooling 60s
+tg32_d128 pair=5/6 engine=llama
+tg32_d128 pair=6/6 engine=llama cooling 60s
+tg32_d128 pair=6/6 engine=llama
+tg32_d128 pair=6/6 engine=qw3 cooling 60s
+tg32_d128 pair=6/6 engine=qw3
+{"tg32_d128": {"qw3_tps": 9.134522978082854, "llama_tps": 9.352184096134188, "paired_saved_ms": -81.53271683333344, "ci95_radius_ms": 18.723841345853906, "lead_confirmed_in_this_series": false, "saved_ms_qw3_first_mean": -84.75315033333327, "saved_ms_qw3_second_mean": -78.31228333333362, "qw3_spread_pct": 0.6769895158265093, "llama_spread_pct": 1.0127728465056496, "both_engines_stable_5pct": true}}

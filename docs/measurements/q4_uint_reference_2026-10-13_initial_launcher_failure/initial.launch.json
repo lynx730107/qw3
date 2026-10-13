@@ -1,0 +1,28 @@
+{
+  "command": [
+    "caffeinate",
+    "-disu",
+    "python3",
+    "tools/bench_dense_reference.py",
+    "--model",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "--llama",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/llama-bench",
+    "--qw3",
+    "/tmp/qw3-q4-uint-integration/qw3-bench",
+    "--jobs",
+    "pp128,tg32_d128",
+    "--pairs",
+    "6",
+    "--repetitions",
+    "5",
+    "--cooldown",
+    "60",
+    "--cooldown-scope",
+    "run",
+    "--output",
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/q4_uint_reference_2026-10-13"
+  ],
+  "revision": "1c27f967b6b81b31d0a07e0152833a8e1995cf25",
+  "purpose": "Fresh pp128/tg32 direct comparison of isolated production integration, after eight-prefix/checkpoint and agent checks; same GGUF, no duplicate simultaneous model processes"
+}

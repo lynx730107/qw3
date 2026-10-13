@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/private/tmp/qw3-q4-uint-integration/tools/bench_dense_reference.py", line 225, in <module>
+    main()
+  File "/private/tmp/qw3-q4-uint-integration/tools/bench_dense_reference.py", line 76, in main
+    "llama_checkout_revision": run(["git", "-C", str(root / '../../llama.cpp'), 'rev-parse', 'HEAD']).stdout.strip(),
+  File "/private/tmp/qw3-q4-uint-integration/tools/bench_dense_reference.py", line 24, in run
+    return subprocess.run(args, env=env, text=True, capture_output=True, check=True)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 528, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['git', '-C', '/private/tmp/qw3-q4-uint-integration/../../llama.cpp', 'rev-parse', 'HEAD']' returned non-zero exit status 128.

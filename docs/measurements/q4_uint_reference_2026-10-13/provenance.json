@@ -1,0 +1,38 @@
+{
+  "revision": "571bbe113042dfe03eb255fd52ea27e05f55aed6",
+  "source_snapshot_paths": {
+    "qw3.c": "source_snapshot/qw3.c",
+    "qw3_metal.m": "source_snapshot/qw3_metal.m",
+    "qw3_bench.c": "source_snapshot/qw3_bench.c",
+    "metal/flash_attn.metal": "source_snapshot/metal/flash_attn.metal",
+    "metal/qw3_core_argmax.metal": "source_snapshot/metal/qw3_core_argmax.metal",
+    "metal/qw3_core_common.metal": "source_snapshot/metal/qw3_core_common.metal",
+    "metal/qw3_core_deltanet.metal": "source_snapshot/metal/qw3_core_deltanet.metal",
+    "metal/qw3_core_linear.metal": "source_snapshot/metal/qw3_core_linear.metal",
+    "metal/qw3_core_moe.metal": "source_snapshot/metal/qw3_core_moe.metal",
+    "metal/qw3_core_sequence.metal": "source_snapshot/metal/qw3_core_sequence.metal",
+    "tests/scratch_candidates.inc": "source_snapshot/tests/scratch_candidates.inc",
+    "tests/scratch_matmul.inc": "source_snapshot/tests/scratch_matmul.inc",
+    "tests/gdn_prefill_dispatch.inc": "source_snapshot/tests/gdn_prefill_dispatch.inc",
+    "tests/gdn_prefill_candidates.metal": "source_snapshot/tests/gdn_prefill_candidates.metal",
+    "tests/bench_packed8_scratch.m": "source_snapshot/tests/bench_packed8_scratch.m",
+    "tests/bench_scratch_prefill.m": "source_snapshot/tests/bench_scratch_prefill.m",
+    "qw3.h": "source_snapshot/qw3.h",
+    "qw3_metal.h": "source_snapshot/qw3_metal.h",
+    "qw3_runtime_fingerprint.h": "source_snapshot/qw3_runtime_fingerprint.h",
+    "tools/bench_dense_reference.py": "source_snapshot/tools/bench_dense_reference.py"
+  },
+  "llama_direct_shared_library_sha256": {
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libllama-bench-impl.dylib": "1d7ccbfa01338866907908ae7db2ac3500ce5579f421d7a4a0a0e7109013f684",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libllama-common.0.4.1.dylib": "6fb857d45e93f80dabaaf853cb126f3b8c1866708c7e7b948cf22240dcf8d0c0",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libllama.0.4.1.dylib": "d12adf1f48d4a0362c28e3f7ecf20c5f66176639929d89c7d00dab2a425e90eb",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libggml.0.24.0.dylib": "4263fd56b11a3da93e0b43e0370961fffeb2440b622d12558b7fdcf572c2f696",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libggml-cpu.0.24.0.dylib": "9fb576d19d1cc4e135c266303961b9f6ebdb5a2159a08a49efc52873785f6296",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libggml-blas.0.24.0.dylib": "fe62ec4a90822d7b16c76f9512f661418beff3ab58c720603bc658a3d63056a0",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libggml-metal.0.24.0.dylib": "f93f555e9e8d62a9ae75d663889b2f7cc1b02710a44c2af9d87725c0e0b05b25",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/libggml-base.0.24.0.dylib": "09d1e2795780a1a7d55d091eb04793b45d91dde6f934a1017f55d23a75eb6421"
+  },
+  "dyld_overrides_absent": true,
+  "source_worktree": "/tmp/qw3-q4-uint-integration",
+  "purpose": "public integrated policy; no private candidate switch in reference runs"
+}

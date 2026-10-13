@@ -46,5 +46,6 @@ su pp128 e tg32 a profondità 128 è avviato separatamente, con processi
 sequenziali e lo stesso GGUF/precisione. Le sorgenti dell'integrazione
 sono ora nel branch corrente, commit `1dc41c8`, dopo le verifiche nel
 worktree isolato. Il confronto usa ancora i binari congelati di quel
-worktree; la ricostruzione dei binari del branch avverrà al suo termine.
+worktree. Il [confronto concluso](m5_q4_uint_reference_2026-10-13.md)
+conferma +0,161% in pp128 e richiede ancora +2,383% nel decoding.
 L'obiettivo resta aperto.

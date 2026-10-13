@@ -1,0 +1,32 @@
+{
+  "command": [
+    "caffeinate",
+    "-disu",
+    "python3",
+    "tools/bench_dense_reference.py",
+    "--model",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "--llama",
+    "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/llama-bench",
+    "--llama-checkout",
+    "/Users/pasqualecapasso/Downloads/llama.cpp",
+    "--qw3",
+    "/tmp/qw3-q4-uint-integration/qw3-bench",
+    "--jobs",
+    "pp128,tg32_d128",
+    "--pairs",
+    "6",
+    "--repetitions",
+    "5",
+    "--cooldown",
+    "60",
+    "--cooldown-scope",
+    "run",
+    "--output",
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/q4_uint_reference_2026-10-13"
+  ],
+  "revision": "571bbe113042dfe03eb255fd52ea27e05f55aed6",
+  "initial_failure": "Hard-coded relative llama checkout from detached worktree; stopped before any model/timing run. Explicit --llama-checkout added.",
+  "exit_code": 0,
+  "completed_utc": "2026-10-13T18:27:27.157978+00:00"
+}
