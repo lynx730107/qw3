@@ -29,6 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, default=root / "../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf")
     parser.add_argument("--llama", type=Path, default=root / "../../llama.cpp/build/bin/llama-bench")
+    parser.add_argument("--llama-checkout", type=Path, default=root / "../../llama.cpp")
     parser.add_argument("--qw3", type=Path, default=root / "qw3-bench")
     parser.add_argument("--qw3-packed8-scratch", action="store_true",
                         help="enable the combined private candidate in its optional diagnostic binary")
@@ -73,7 +74,7 @@ def main():
                                         'tests/bench_packed8_scratch.m', 'tests/bench_scratch_prefill.m',
                                         'qw3.h', 'qw3_metal.h', 'qw3_runtime_fingerprint.h',
                                         'tools/bench_dense_reference.py') if (root / n).exists()])},
-        "llama_checkout_revision": run(["git", "-C", str(root / '../../llama.cpp'), 'rev-parse', 'HEAD']).stdout.strip(),
+        "llama_checkout_revision": run(["git", "-C", str(args.llama_checkout.resolve()), 'rev-parse', 'HEAD']).stdout.strip(),
         "qw3_variant": "packed8+direct_scratch" if args.qw3_packed8_scratch else "ordinary",
         "cooldown_scope": args.cooldown_scope,
         "cooldown_seconds_before_pair": args.cooldown if args.cooldown_scope == "pair" else 0,
