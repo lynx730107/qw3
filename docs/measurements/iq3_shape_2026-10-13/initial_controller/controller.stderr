@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/iq3_shape_2026-10-13/run_screen.py", line 109, in <module>
+    assert run['matrix_cases_passed'] == 48
+AssertionError

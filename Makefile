@@ -414,6 +414,15 @@ qw3-iq3-input-model-test: tests/test_iq3_input_model.m tests/.iq3_input/hooks.in
 qw3-iq3-input-native-bench: tests/bench_iq3_input_native.m tests/.iq3_input/hooks.inc tests/.iq3_input/native.inc tests/.iq3_input/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_input_native.m $(METAL_LDLIBS)
 
+qw3-iq3-shape-test: tests/test_iq3_shape.m tests/.iq3_shape/hooks.inc tests/.iq3_shape/matrix.inc tests/.iq3_shape/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_shape.m $(METAL_LDLIBS)
+
+qw3-iq3-shape-model-test: tests/test_iq3_shape_model.m tests/.iq3_shape/hooks.inc tests/.iq3_shape/model.inc tests/.iq3_shape/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_shape_model.m $(METAL_LDLIBS)
+
+qw3-iq3-shape-native-bench: tests/bench_iq3_shape_native.m tests/.iq3_shape/hooks.inc tests/.iq3_shape/native.inc tests/.iq3_shape/kernels.metal qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_iq3_shape_native.m $(METAL_LDLIBS)
+
 qw3-iq3-words-test: tests/test_iq3_words.m tests/.iq3_words/hooks.inc tests/.iq3_words/matrix.inc tests/.iq3_words/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_iq3_words.m $(METAL_LDLIBS)
 
@@ -736,6 +745,10 @@ qw3-q4-words-test qw3-q4-words-model-test qw3-q4-words-native-bench qw3-q4-rows-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
+qw3-iq3-shape-test qw3-iq3-shape-model-test qw3-iq3-shape-native-bench:
+	@echo "$@ requires Darwin/Apple Metal"
+	@exit 1
+
 qw3-iq3-immutable-test qw3-iq3-immutable-model-test qw3-iq3-immutable-native-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
@@ -945,6 +958,7 @@ clean:
 	rm -f qw3-q4-rows-test qw3-q4-rows-model-test qw3-q4-rows-native-bench
 	rm -f qw3-q4-narrow-test qw3-q4-narrow-model-test qw3-q4-narrow-native-bench
 	rm -f qw3-iq3-input-test qw3-iq3-input-model-test qw3-iq3-input-native-bench
+	rm -f qw3-iq3-shape-test qw3-iq3-shape-model-test qw3-iq3-shape-native-bench
 	rm -f qw3-gqa-barrier-test qw3-gqa-barrier-model-test qw3-gqa-barrier-native-bench
 	rm -f qw3-iq4-shape-test qw3-iq4-shape-model-test qw3-iq4-shape-native-bench
 	rm -f qw3-iq4-simd-lut-test qw3-iq4-simd-lut-model-test qw3-iq4-simd-lut-native-bench

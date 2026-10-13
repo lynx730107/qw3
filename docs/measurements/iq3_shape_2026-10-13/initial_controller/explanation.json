@@ -1,0 +1,4 @@
+{
+  "exit_code": 1,
+  "cause": "Controller retained hyphenated qw3-iq3-input executable names; old test returned 36 cases, rejected by the new 48-case gate. No IQ3 shape candidate or timing evidence in this attempt."
+}

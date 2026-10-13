@@ -1,0 +1,16 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+2026-10-13 20:29:23.066 qw3-iq3-shape-model-test[13854:55583964] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+iq3_shape_metadata variant=1 n_in=256 nb32=8 stride_constant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=1 n_in=4352 nb32=136 stride_constant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=1 n_in=5120 nb32=160 stride_constant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=1 n_in=6144 nb32=192 stride_constant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=1 n_in=17408 nb32=544 stride_constant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=2 n_in=256 nb32=8 stride_constant=110 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=2 n_in=4352 nb32=136 stride_constant=1870 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=2 n_in=5120 nb32=160 stride_constant=2200 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=2 n_in=6144 nb32=192 stride_constant=2640 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64
+iq3_shape_metadata variant=2 n_in=17408 nb32=544 stride_constant=7480 width=32 max_threads=1024 static_threadgroup_bytes=1024 matrix_dynamic_threadgroup_bytes=256 native_dynamic_threadgroup_bytes=128 threads=64

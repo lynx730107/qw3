@@ -1,0 +1,10 @@
+{
+  "index_verified": true,
+  "source_references_verified": 29,
+  "integer_only_shader_changes_verified": true,
+  "matrix_cases_completed": 96,
+  "numerical_gate_passed": true,
+  "production_binaries_unchanged_during_candidate_gate": true,
+  "additional_weight_and_session_data_buffers": 0,
+  "scope": "private numerical screen; extended prefix/checkpoint gate required before adoption"
+}
