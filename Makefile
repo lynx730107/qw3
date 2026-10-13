@@ -198,6 +198,21 @@ qw3-iq3-layout-bench: tests/bench_iq3_layout.m tests/.iq3_layout/hooks.inc tests
 tests/.iq3_grid/hooks.inc: tests/prepare_iq3_grid.py tests/iq4_load_candidates.inc tests/test_iq3_signed.m metal/qw3_core_moe.metal
 	python3 tests/prepare_iq3_grid.py
 
+tests/.q4_words/hooks.inc: tests/prepare_q4_words.py tests/.q4_rows/hooks.inc tests/.q4_rows/model.inc tests/.q4_rows/native.inc metal/qw3_core_linear.metal
+	python3 tests/prepare_q4_words.py
+
+tests/.q4_words/kernels.metal tests/.q4_words/model.inc tests/.q4_words/native.inc: tests/.q4_words/hooks.inc
+	@test -f $@ || python3 tests/prepare_q4_words.py
+
+qw3-q4-words-test: tests/test_q4_words.m tests/.q4_words/hooks.inc tests/.q4_words/kernels.metal qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_q4_words.m $(METAL_LDLIBS)
+
+qw3-q4-words-model-test: tests/test_q4_words_model.m tests/.q4_words/hooks.inc tests/.q4_words/kernels.metal tests/.q4_words/model.inc qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/test_q4_words_model.m $(METAL_LDLIBS)
+
+qw3-q4-words-native-bench: tests/bench_q4_words_native.m tests/.q4_words/hooks.inc tests/.q4_words/kernels.metal tests/.q4_words/native.inc qw3_bench.c qw3.c qw3.h qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ tests/bench_q4_words_native.m $(METAL_LDLIBS)
+
 tests/.q4_rows/hooks.inc: tests/prepare_q4_rows.py tests/.gqa_barrier/hooks.inc tests/.q4_narrow/model.inc tests/.q4_narrow/native.inc metal/qw3_core_linear.metal
 	python3 tests/prepare_q4_rows.py
 
@@ -717,7 +732,7 @@ qw3-metal qw3-bench-metal qw3-eval-metal qw3-sampled-decode-bench qw3-decode-ab-
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
-qw3-q4-rows-test qw3-q4-rows-model-test qw3-q4-rows-native-bench qw3-q4-narrow-test qw3-q4-narrow-model-test qw3-q4-narrow-native-bench qw3-iq3-input-test qw3-iq3-input-model-test qw3-iq3-input-native-bench:
+qw3-q4-words-test qw3-q4-words-model-test qw3-q4-words-native-bench qw3-q4-rows-test qw3-q4-rows-model-test qw3-q4-rows-native-bench qw3-q4-narrow-test qw3-q4-narrow-model-test qw3-q4-narrow-native-bench qw3-iq3-input-test qw3-iq3-input-model-test qw3-iq3-input-native-bench:
 	@echo "$@ requires Darwin/Apple Metal"
 	@exit 1
 
@@ -926,6 +941,7 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-q4-words-test qw3-q4-words-model-test qw3-q4-words-native-bench
 	rm -f qw3-q4-rows-test qw3-q4-rows-model-test qw3-q4-rows-native-bench
 	rm -f qw3-q4-narrow-test qw3-q4-narrow-model-test qw3-q4-narrow-native-bench
 	rm -f qw3-iq3-input-test qw3-iq3-input-model-test qw3-iq3-input-native-bench

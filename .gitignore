@@ -199,3 +199,8 @@ tests/.q4_narrow/
 /qw3-q4-rows-model-test
 /qw3-q4-rows-native-bench
 tests/.q4_rows/
+
+/qw3-q4-words-test
+/qw3-q4-words-model-test
+/qw3-q4-words-native-bench
+tests/.q4_words/

@@ -1,0 +1,3 @@
+PASS q4_words_model phase=0 prefix=128 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact calls=0 sessions=1 additional_weight_buffer_bytes=0
+PASS q4_words_model phase=1 prefix=128 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact calls=1152 sessions=1 additional_weight_buffer_bytes=0
+PASS q4_words_model phase=2 prefix=128 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact calls=1152 sessions=1 additional_weight_buffer_bytes=0
