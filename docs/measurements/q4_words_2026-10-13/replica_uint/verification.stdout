@@ -1,0 +1,112 @@
+{
+  "index_verified": false,
+  "frozen_references_verified": 30,
+  "ordinary_samples_verified": 36,
+  "process_pairs": 6,
+  "production_unchanged": true,
+  "scope": "private replica; no quality/checkpoint runtime gate or fresh llama comparison",
+  "analysis": {
+    "scope": "independent six-pair replica; process-run means are units, not the 36 individual repetitions",
+    "samples_retained": 36,
+    "run_means_ms": [
+      3650.217,
+      3636.186,
+      3551.5186666666664,
+      3681.8456666666666,
+      3747.3416666666667,
+      3602.1723333333334,
+      3584.9736666666668,
+      3756.5473333333334,
+      3755.09,
+      3495.9733333333334,
+      3488.7019999999998,
+      3514.434333333333
+    ],
+    "pairs": [
+      {
+        "pair": 0,
+        "order": [
+          0,
+          2
+        ],
+        "off_ms": 3650.217,
+        "on_ms": 3636.186,
+        "saved_ms": 14.030999999999949,
+        "throughput_change_percent": 0.3858713498154476
+      },
+      {
+        "pair": 1,
+        "order": [
+          2,
+          0
+        ],
+        "off_ms": 3681.8456666666666,
+        "on_ms": 3551.5186666666664,
+        "saved_ms": 130.32700000000023,
+        "throughput_change_percent": 3.669613262157534
+      },
+      {
+        "pair": 2,
+        "order": [
+          0,
+          2
+        ],
+        "off_ms": 3747.3416666666667,
+        "on_ms": 3602.1723333333334,
+        "saved_ms": 145.16933333333327,
+        "throughput_change_percent": 4.030049645042899
+      },
+      {
+        "pair": 3,
+        "order": [
+          2,
+          0
+        ],
+        "off_ms": 3756.5473333333334,
+        "on_ms": 3584.9736666666668,
+        "saved_ms": 171.57366666666667,
+        "throughput_change_percent": 4.785911491121131
+      },
+      {
+        "pair": 4,
+        "order": [
+          0,
+          2
+        ],
+        "off_ms": 3755.09,
+        "on_ms": 3495.9733333333334,
+        "saved_ms": 259.1166666666668,
+        "throughput_change_percent": 7.411860502368439
+      },
+      {
+        "pair": 5,
+        "order": [
+          2,
+          0
+        ],
+        "off_ms": 3514.434333333333,
+        "on_ms": 3488.7019999999998,
+        "saved_ms": 25.732333333333372,
+        "throughput_change_percent": 0.7375904658332377
+      }
+    ],
+    "candidate_mean_ms": 3559.921,
+    "control_mean_ms": 3684.246,
+    "throughput_change_percent": 3.49235277973865,
+    "off_spread_percent": 6.571575296546437,
+    "on_spread_percent": 4.1429009239250085,
+    "saved_ms_mean": 124.32500000000005,
+    "saved_ms_ci95": [
+      27.263909525367325,
+      221.38609047463277
+    ],
+    "ci_assumption": "Student t df=5, critical 2.571; pairs treated as independent, time/thermal correlation may weaken this assumption",
+    "order_group_saved_ms": {
+      "0": 139.439,
+      "2": 109.21100000000008
+    },
+    "candidate_wins_all_pairs": true,
+    "both_order_groups_positive": true,
+    "ci_lower_positive": true
+  }
+}
