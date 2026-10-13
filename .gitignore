@@ -194,3 +194,8 @@ tests/.iq3_input/
 /qw3-q4-narrow-model-test
 /qw3-q4-narrow-native-bench
 tests/.q4_narrow/
+
+/qw3-q4-rows-test
+/qw3-q4-rows-model-test
+/qw3-q4-rows-native-bench
+tests/.q4_rows/

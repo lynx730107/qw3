@@ -1,0 +1,6 @@
+2026-10-13 17:53:12.792 qw3-q4-rows-test[1184:55462101] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+q4_rows_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=0 dynamic_threadgroup_bytes=128 threads=64
+q4_rows_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=0 dynamic_threadgroup_bytes=128 threads=64
+q4_rows_dispatch_counts calls=18 fallbacks=6

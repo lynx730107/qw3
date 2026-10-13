@@ -1,0 +1,26 @@
+{
+  "command": [
+    "cc",
+    "-O3",
+    "-ffast-math",
+    "-mcpu=native",
+    "-Wall",
+    "-Wextra",
+    "-fobjc-arc",
+    "-fno-finite-math-only",
+    "-I.",
+    "-o",
+    "/tmp/qw3-q4-rows-quality-test",
+    "tests/test_q4_rows_quality.m",
+    "-lm",
+    "-pthread",
+    "-framework",
+    "Foundation",
+    "-framework",
+    "Metal"
+  ],
+  "exit_code": 0,
+  "source_sha256": "5b87c3836ea03924dc2626fc82a78c4f2ae37156ac7c87771920d24329f763a4",
+  "binary_sha256": "71b01ea9b1977a75e0dd0f37ad63049f7e22b04a1816b3bc1def93907cbe56a4",
+  "executed": false
+}

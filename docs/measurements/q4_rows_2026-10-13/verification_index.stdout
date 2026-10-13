@@ -1,0 +1,59 @@
+{
+  "index_verified": true,
+  "source_references_verified": 29,
+  "guarded_matrix_cases_passed": 24,
+  "candidate_dispatches_checked": 18,
+  "fallbacks_checked": 6,
+  "one_reused_session_model_phases": 2,
+  "ordinary_samples_verified": 21,
+  "production_unchanged": true,
+  "additional_weight_and_session_data_buffers": 0,
+  "scope": "private screen; no eight-prefix/checkpoint gate and no fresh llama comparison",
+  "analysis": {
+    "scope": "seven-run Q4_K two-row64 screen, no discarded samples; nearby controls are shared, no independence-based confidence interval",
+    "samples_retained": 21,
+    "run_means_ms": [
+      3497.3576666666663,
+      3527.841,
+      3526.612,
+      3533.832,
+      3608.5653333333335,
+      3550.254,
+      3574.472
+    ],
+    "off_spread_percent": 3.131065302260135,
+    "on_spread_percent": 0.6336172497228829,
+    "candidate_mean_ms": 3537.3089999999997,
+    "adjacent_control_mean_ms": 3557.0307222222223,
+    "throughput_change_percent": 0.5575346180450413,
+    "comparisons": [
+      {
+        "block": 1,
+        "candidate_mean_ms": 3527.841,
+        "adjacent_control_mean_ms": 3511.984833333333,
+        "throughput_change_percent": -0.4494580868771303,
+        "before_change_percent": -0.8640790028046519,
+        "after_change_percent": -0.034837170949597596,
+        "beats_both_neighbors": false
+      },
+      {
+        "block": 3,
+        "candidate_mean_ms": 3533.832,
+        "adjacent_control_mean_ms": 3567.5886666666665,
+        "throughput_change_percent": 0.9552425431278655,
+        "before_change_percent": -0.20431078783597068,
+        "after_change_percent": 2.114795874091735,
+        "beats_both_neighbors": false
+      },
+      {
+        "block": 5,
+        "candidate_mean_ms": 3550.254,
+        "adjacent_control_mean_ms": 3591.518666666667,
+        "throughput_change_percent": 1.1623018146495134,
+        "before_change_percent": 1.6424552534363368,
+        "after_change_percent": 0.6821483758626901,
+        "beats_both_neighbors": true
+      }
+    ]
+  }
+}
