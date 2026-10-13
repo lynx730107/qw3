@@ -1,0 +1,149 @@
+{
+  "store_unchanged": true,
+  "file_count": 9,
+  "swap_observations": {
+    "manifest.json": [
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      }
+    ],
+    "native/manifest.json": [
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      }
+    ],
+    "replica_uint/manifest.json": [
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      }
+    ],
+    "replica_uint_retry/manifest.json": [
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      },
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)"
+      }
+    ],
+    "quality/manifest.json": [
+      {
+        "before": "vm.swapusage: total = 2048.00M  used = 804.31M  free = 1243.69M  (encrypted)",
+        "after": "vm.swapusage: total = 5120.00M  used = 2683.31M  free = 2436.69M  (encrypted)"
+      }
+    ]
+  },
+  "peak_ram_measured": false
+}

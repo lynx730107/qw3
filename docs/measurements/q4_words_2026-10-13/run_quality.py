@@ -1,5 +1,6 @@
 """Run the one-session checkpoint gate only after a positive balanced replica."""
 from datetime import datetime,timezone
+import argparse
 import hashlib
 import json
 import os
@@ -8,8 +9,12 @@ import shutil
 import subprocess
 import time
 b=Path(__file__).resolve().parent;root=b.parents[2]
+parser=argparse.ArgumentParser()
+parser.add_argument('--performance-analysis',default='replica_uint/analysis.json')
+args=parser.parse_args()
 m=json.loads((b/'manifest.json').read_text())
-a=json.loads((b/'replica_uint/analysis.json').read_text())
+performance_path=(b/args.performance_analysis).resolve()
+a=json.loads(performance_path.read_text())
 assert a['ci_lower_positive'] and a['both_order_groups_positive']
 assert a['off_spread_percent']<=5 and a['on_spread_percent']<=5
 archive=b/'quality';archive.mkdir(exist_ok=False)
@@ -31,6 +36,8 @@ env={k:v for k,v in os.environ.items() if not k.startswith(('QW3_','GGML_','MTL_
 env.update(m['environment'])
 command=['caffeinate','-disu',str(binary),m['model']]
 result={'started_utc':datetime.now(timezone.utc).isoformat(),'revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
+        'performance_analysis':str(performance_path.relative_to(b)),
+        'performance_analysis_sha256':sha(performance_path),
         'source_sha256':sources,'source_snapshot_paths':snapshots,'command':command,'environment':m['environment'],
         'binary_sha256':meta['binary_sha256'],'model_size':m['model_size'],'model_mtime_ns':m['model_mtime_ns'],
         'context':256,'sessions':1,'additional_weight_and_session_data_buffers':0,

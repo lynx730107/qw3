@@ -1,0 +1,25 @@
+{
+  "index_verified": true,
+  "source_references_verified": 31,
+  "prefix_lengths": [
+    1,
+    15,
+    16,
+    31,
+    127,
+    128,
+    129,
+    159
+  ],
+  "extension_checked": [
+    128,
+    159
+  ],
+  "baseline_candidate_phases": 16,
+  "checkpoint_roundtrips_passed": 16,
+  "continuation_tokens_checked_per_phase": 32,
+  "sessions": 1,
+  "full_finite_logits": "bit_exact",
+  "canonical_state_history": "exact",
+  "scope": "private uint candidate; no production or agent regression claim"
+}
