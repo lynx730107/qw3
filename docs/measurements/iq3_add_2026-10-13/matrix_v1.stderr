@@ -1,0 +1,6 @@
+2026-10-13 20:59:22.218 qw3-iq3-add-test[16432:55605108] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+iq3_add_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+iq3_add_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+iq3_add_metadata variant=2 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64

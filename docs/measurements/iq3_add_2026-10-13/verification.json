@@ -1,0 +1,21 @@
+{
+  "index_verified": false,
+  "source_references_verified": 30,
+  "guarded_matrix_cases": 288,
+  "input_offsets": [
+    4,
+    16
+  ],
+  "scales": [
+    1.0,
+    0.5,
+    -1.0
+  ],
+  "model_phases": 3,
+  "candidate_dispatches_per_continuation": 544,
+  "single_reused_ctx256_session": true,
+  "native_dot_helper_loop_and_reduction_preserved": true,
+  "private_core_has_only_targeted_ffn_branch": true,
+  "production_unchanged_during_gate": true,
+  "scope": "private prefix128/greedy32 gate; eight-prefix/checkpoint gate required before adoption"
+}

@@ -1,0 +1,14 @@
+--- qw3.c
++++ private/core.inc
+@@ -15640,6 +15640,11 @@
+             lw->ffn_down->type == QW3_TENSOR_IQ4_XS) {
+             ok = qw3_metal_session_matvec_iq4_xs_inner_add_x0(
+                 s->metal, lw->ffn_down->offset, n_ff, n_embd);
++        } else if (ok && iq3_add_mode &&
++                   lw->ffn_down->type == QW3_TENSOR_IQ3_S &&
++                   n_ff == 17408u && n_embd == 5120u) {
++            ok = private_iq3_inner_add_x0(
++                s->metal, lw->ffn_down->offset, n_ff, n_embd);
+         } else if (ok) {
+             ok = qw3_metal_session_matvec_quant_inner_to_x1(
+                      s->metal, lw->ffn_down->offset, lw->ffn_down->type,
