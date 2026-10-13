@@ -43,6 +43,8 @@ Il guadagno privato di +0,934% è documentato nelle
 [prove Q4_K word](m5_q4_words_2026-10-13.md). Non è una misura diretta
 del vantaggio della versione integrata rispetto a llama. Quel confronto
 su pp128 e tg32 a profondità 128 è avviato separatamente, con processi
-sequenziali e lo stesso GGUF/precisione. L'integrazione è per ora nel
-worktree isolato; il branch corrente mantiene il runtime precedente.
+sequenziali e lo stesso GGUF/precisione. Le sorgenti dell'integrazione
+sono ora nel branch corrente, commit `1dc41c8`, dopo le verifiche nel
+worktree isolato. Il confronto usa ancora i binari congelati di quel
+worktree; la ricostruzione dei binari del branch avverrà al suo termine.
 L'obiettivo resta aperto.
