@@ -1,0 +1,6 @@
+echo "qw3-q4-narrow-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-q4-narrow-model-test requires Darwin/Apple Metal"
+exit 1
+echo "qw3-q4-narrow-native-bench requires Darwin/Apple Metal"
+exit 1

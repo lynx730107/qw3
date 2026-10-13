@@ -1,0 +1,47 @@
+{
+  "scope": "seven-run Q4_K narrow32 screen, no discarded samples; nearby controls are shared, no independence-based confidence interval",
+  "samples_retained": 21,
+  "run_means_ms": [
+    3548.7983333333336,
+    3503.645666666667,
+    3500.8946666666666,
+    3507.2633333333333,
+    3515.197,
+    3519.506,
+    3516.745
+  ],
+  "off_spread_percent": 1.3607416089585351,
+  "on_spread_percent": 0.4518435408291052,
+  "candidate_mean_ms": 3510.1383333333333,
+  "adjacent_control_mean_ms": 3516.287777777778,
+  "throughput_change_percent": 0.17519094293372284,
+  "comparisons": [
+    {
+      "block": 1,
+      "candidate_mean_ms": 3503.645666666667,
+      "adjacent_control_mean_ms": 3524.8465,
+      "throughput_change_percent": 0.6051078034241764,
+      "before_change_percent": 1.2887338207811627,
+      "after_change_percent": -0.0785182139327878,
+      "beats_both_neighbors": false
+    },
+    {
+      "block": 3,
+      "candidate_mean_ms": 3507.2633333333333,
+      "adjacent_control_mean_ms": 3508.0458333333336,
+      "throughput_change_percent": 0.022310842546757748,
+      "before_change_percent": -0.1815850725019219,
+      "after_change_percent": 0.2262067575954374,
+      "beats_both_neighbors": false
+    },
+    {
+      "block": 5,
+      "candidate_mean_ms": 3519.506,
+      "adjacent_control_mean_ms": 3515.971,
+      "throughput_change_percent": -0.10044023223713117,
+      "before_change_percent": -0.1224319549391284,
+      "after_change_percent": -0.07844850953514504,
+      "beats_both_neighbors": false
+    }
+  ]
+}

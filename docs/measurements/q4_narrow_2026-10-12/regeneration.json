@@ -1,0 +1,10 @@
+{
+  "files_removed_and_regenerated": 4,
+  "byte_exact": true,
+  "sha256": {
+    "tests/.q4_narrow/hooks.inc": "b466abdec726d861c199c474b5f2867f9fa0a6c9e01dd3d82bebb1bf7d490656",
+    "tests/.q4_narrow/core.inc": "35cfdf0472e3f564172a3b2b0b3b57f48369de0681b9412d0bd586aed89ef559",
+    "tests/.q4_narrow/model.inc": "236b5072ac158721bc9445db77c35ec29e7a9564ed390fc283eb95afbf8af7ba",
+    "tests/.q4_narrow/native.inc": "89a8df6d938cd79fa3925a0836adf7b433fa36434acabfd61fee2c8423b8609b"
+  }
+}
