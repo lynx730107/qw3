@@ -84,6 +84,8 @@ static id<MTLComputePipelineState> g_matvec_q2_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q2_k_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_q2_k_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_q4_k_pipeline;
+static id<MTLComputePipelineState> g_matvec_q4_k_words_pipeline;
+static int g_dense_q4_words;
 static id<MTLComputePipelineState> g_matvec_q3_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q3_k_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_q3_k_mpp_pipeline;
@@ -653,6 +655,21 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 @implementation QW3MetalSessionObj
 @end
 
+/* The measured dense profile retains the original buffer layout and reductions.
+ * Unaligned views, other profiles and other devices keep the byte kernel. */
+static id<MTLComputePipelineState> qw3_metal_dense_q4_pipeline(
+    QW3MetalSessionObj *obj, id<MTLComputePipelineState> pipeline,
+    uint64_t row_bytes, uint64_t weight_offset) {
+    if (g_dense_q4_words && g_matvec_q4_k_words_pipeline &&
+        pipeline == g_matvec_q4_k_pipeline &&
+        obj.metalFullLayers == 16u && obj.metalLinearLayers == 48u &&
+        obj.x0.length == 5120u * sizeof(float) &&
+        ((row_bytes | weight_offset) & 3u) == 0u) {
+        return g_matvec_q4_k_words_pipeline;
+    }
+    return pipeline;
+}
+
 struct qw3_metal_session {
     void *obj;
 };
@@ -923,7 +940,7 @@ static int qw3_metal_compile_kernels(void) {
         g_matvec_q5_k_pipeline &&
         g_matvec_q2_k_pipeline && g_matmul_q2_k_batch4_pipeline &&
         g_matvec_iq2_xxs_pipeline &&
-        g_matvec_q4_k_pipeline && g_matvec_q3_k_pipeline &&
+        g_matvec_q4_k_pipeline && (!g_dense_q4_words || g_matvec_q4_k_words_pipeline) && g_matvec_q3_k_pipeline &&
         g_matmul_q3_k_batch4_pipeline &&
         g_matvec_iq4_nl_pipeline &&
         g_matvec_iq2_xs_pipeline && g_matvec_iq2_s_pipeline &&
@@ -1345,6 +1362,20 @@ static int qw3_metal_compile_kernels(void) {
         fprintf(stderr, "qw3: Metal pipeline qw3_matvec_q4_k failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
+    }
+    g_dense_q4_words = strcmp(g_device_name, "Apple M5") == 0;
+    if (g_dense_q4_words) {
+        fn = [g_library newFunctionWithName:@"qw3_matvec_q4_k_words"];
+        g_matvec_q4_k_words_pipeline = fn ?
+            [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+        if (!g_matvec_q4_k_words_pipeline ||
+            g_matvec_q4_k_words_pipeline.threadExecutionWidth != 32u ||
+            g_matvec_q4_k_words_pipeline.maxTotalThreadsPerThreadgroup < 256u ||
+            g_matvec_q4_k_words_pipeline.staticThreadgroupMemoryLength !=
+                g_matvec_q4_k_pipeline.staticThreadgroupMemoryLength) {
+            g_matvec_q4_k_words_pipeline = nil;
+            g_dense_q4_words = 0;
+        }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_q3_k_fast"];
     if (!fn) {
@@ -7764,6 +7795,7 @@ int qw3_metal_session_matvec_quant_x1_to_scratch(
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    pipeline = qw3_metal_dense_q4_pipeline(obj, pipeline, row_bytes, model_offset);
     [enc setComputePipelineState:pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:wb offset:(NSUInteger)model_offset atIndex:1];
@@ -9359,6 +9391,7 @@ static int qw3_metal_session_matvec_k_expert_inner_to_x1(qw3_metal_session *s,
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    pipeline = qw3_metal_dense_q4_pipeline(obj, pipeline, row_bytes, inner);
     [enc setComputePipelineState:pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:wb offset:(NSUInteger)inner atIndex:1];
@@ -9578,6 +9611,7 @@ static int qw3_metal_session_matvec_k_expert_inner_to_scratch(qw3_metal_session 
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    pipeline = qw3_metal_dense_q4_pipeline(obj, pipeline, row_bytes, inner);
     [enc setComputePipelineState:pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:wb offset:(NSUInteger)inner atIndex:1];
@@ -13041,6 +13075,8 @@ void qw3_metal_cleanup(void) {
     g_matmul_q2_k_batch4_pipeline = nil;
     g_matmul_q2_k_mpp_pipeline = nil;
     g_matvec_q4_k_pipeline = nil;
+    g_matvec_q4_k_words_pipeline = nil;
+    g_dense_q4_words = 0;
     g_matvec_q3_k_pipeline = nil;
     g_matmul_q3_k_batch4_pipeline = nil;
     g_matmul_q3_k_mpp_pipeline = nil;
