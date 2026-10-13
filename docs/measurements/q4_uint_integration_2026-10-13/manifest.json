@@ -1,0 +1,76 @@
+{
+  "base_revision": "9bc5f20a4633b27f456e9b7dce7a40d256802873",
+  "source_sha256": {
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_metal.m": "6934be44b8828fd8337a03bcae0573ef217b11c3c30185e17bc4c077243396e1",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_agent.c": "d0dbf0ab85cc63ce4e31579667a7f5494d72928b81fb1738eeeb7a5a9f3bd555",
+    "qw3_cli.c": "9ebc48714d7226b78b1f0f9e190adf5f475f79e15d10e8246ce88a592c4fb77f",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "c97aebb315f70eb40b07beb416bbfa2824d4d361796e77d3464495c02924b113",
+    "Makefile": "91ec71c0bded3d696cbfe7f917717928b702b801f73d3164d03566f2874bc3bb",
+    "tests/test_dense_agent.sh": "ddf383c1e367d7b034716c8b3b1b1b64cca187762cbc1f4e6f15e2f9526f6018",
+    "tests/test_agent_bash_tool.sh": "747f5f1cc061d14a0ce1d3452b4f4f0320df2d38ada8ee6c180f8a0d236e37db",
+    "tests/test_agent_edit_tool.sh": "b747c64efa1bb527fc9991d6b02eeb4527a4053f9c8816cbc5025ac9bfffc486",
+    "tests/test_q4_words_quality.m": "68f3ff21f92606791967a08ca09fee9f2be90024515748798fc1247084e23927",
+    "tests/.q4_words/hooks.inc": "fff8c2c4eca5f48350faacd47ec66b39298599b01ba4a2a445bc79ff20cbdfd9",
+    "tests/.q4_words/model.inc": "924f61035619eb58c9991a9cc58c10cde4b5e7095e72ba5a4a0fd1ad00809684",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "52bf06334d7e2f65a521c8e916a020f87f9279adbf54fcc01012d7dfeabf72e9",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/test_runtime_fingerprint.py": "cbdb9a4f6e8673a0acd5d3a4bedaa5fdccac352d4ebf9424e5fc69d644ee5f1e",
+    "tools/runtime_fingerprint.py": "789ce0a0d32a4648a04a58b672c1cb33001cf22212e364a111bb122d8ce46309"
+  },
+  "binary_sha256": {
+    "qw3-cli": "1cb2d6c5be0f206565541faaef0b1153a4e775d3b82d9c2a681b7887bf02d122",
+    "qw3-agent": "d6dc0b344f3acc05139983e05ea7c55a997a318e225600e01dd4285295531288",
+    "qw3-bench": "22aa7fdc3c604e55e1f7952ec87325f6ebfd77a47ed808682a7b759a55cb948b"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "tests": [
+    {
+      "name": "agent_bash",
+      "command": [
+        "sh",
+        "tests/test_agent_bash_tool.sh"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "agent_edit",
+      "command": [
+        "sh",
+        "tests/test_agent_edit_tool.sh"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "runtime_fingerprint",
+      "command": [
+        "python3",
+        "tests/test_runtime_fingerprint.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "dense_agent",
+      "command": [
+        "sh",
+        "tests/test_dense_agent.sh"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "integration_worktree": "/tmp/qw3-q4-uint-integration",
+  "scope": "isolated public routing plus one-session eight-prefix checkpoint check; no fresh performance/reference yet",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "additional_test_sources_verified_against_base_commit": true
+}

@@ -1,0 +1,14 @@
+{
+  "index_verified": true,
+  "source_references_verified": 24,
+  "public_shader_matches_validated_candidate": true,
+  "full_quality_phases": 16,
+  "checkpoint_roundtrips": 16,
+  "agent_checks_passed": [
+    "agent_bash",
+    "agent_edit",
+    "runtime_fingerprint",
+    "dense_agent"
+  ],
+  "scope": "isolated integrated policy; performance/reference and main-branch merge remain separate"
+}
