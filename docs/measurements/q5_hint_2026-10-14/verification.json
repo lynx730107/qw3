@@ -1,0 +1,26 @@
+{
+  "index_verified": false,
+  "source_references_verified": 27,
+  "guarded_matrix_cases": 384,
+  "weight_offsets": [
+    0,
+    2,
+    4,
+    8
+  ],
+  "model_phases": 3,
+  "candidate_dispatches_per_continuation": 832,
+  "single_reused_ctx256_session": true,
+  "original_function_from_original_library": true,
+  "descriptor_only_changes": true,
+  "native_and_candidate_threads": 64,
+  "static_threadgroup_bytes": [
+    0,
+    0,
+    0
+  ],
+  "fixture_dynamic_threadgroup_bytes": 128,
+  "additional_weight_or_session_data_buffers": 0,
+  "production_unchanged_during_gate": true,
+  "scope": "private prefix128/greedy32 gate; extended prefix/checkpoint gate required before adoption"
+}

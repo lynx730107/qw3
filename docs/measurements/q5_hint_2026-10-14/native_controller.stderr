@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/q5_hint_2026-10-14/run_native.py", line 79, in <module>
+    assert len(run['samples']) == 3 and run['candidate_calls'] == (2522 if variant else 0)
+AssertionError

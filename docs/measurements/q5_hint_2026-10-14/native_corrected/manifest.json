@@ -1,0 +1,408 @@
+{
+  "started_utc": "2026-10-14T07:14:36.674128+00:00",
+  "revision": "3fe801c8c51d7bae189cd321cbc7755878901273",
+  "source_sha256": {
+    "Makefile": "a0d28a23750e967a852a1e2810c037afb625b236fae6fb5f49bc5cf1e6ca3c50",
+    ".gitignore": "74c0b00e0d8b6c3b72ae85fe6d80ccbb3343da8857c0306cb59f2f4e771a0a71",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_metal.m": "6934be44b8828fd8337a03bcae0573ef217b11c3c30185e17bc4c077243396e1",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "c97aebb315f70eb40b07beb416bbfa2824d4d361796e77d3464495c02924b113",
+    "tools/runtime_fingerprint.py": "789ce0a0d32a4648a04a58b672c1cb33001cf22212e364a111bb122d8ce46309",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "52bf06334d7e2f65a521c8e916a020f87f9279adbf54fcc01012d7dfeabf72e9",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/prepare_q5_hint.py": "b59bd0fc5b12d44b29ecdbf244c7f3f3a4d1682e2ecabf92e46884cb9ff4117a",
+    "tests/test_q5_hint.m": "bfa9f2a47ab2616a146d0754a3fc40a2a6ca84ed5d9902c34ccbbce9522403e5",
+    "tests/test_q5_hint_model.m": "7be3734869e564c47924cb78bbb9f3cac4e94f1ca90fe8fcc67c00c59a8d1735",
+    "tests/bench_q5_hint_native.m": "a1097bcf74d5511292563ad3f895b0458c2e2d231dc03b11d0badc3df6e10164",
+    "docs/measurements/iq3_input_2026-10-12/manifest.json": "64f4848fa45ff78cb27ccb65b3b0a14240db8a24cde83484da9fcae3f4832955",
+    "tests/.q5_hint/hooks.inc": "bc244f8d06abd7be96afa06f5ce56440a317a1af684a42911a434cb3b1ba25be",
+    "tests/.q5_hint/model.inc": "1c5ef9e9b7e057da0d6d8adda5c79e9cc4f02e5319e11548b9d18b4f0d052d6f",
+    "tests/.q5_hint/native.inc": "570ceb2e23e8302ca67c5d88bd40cc6e4cec1b3ecb86906bf4410b0d91fa9ecf",
+    "docs/measurements/q5_hint_2026-10-14/run_screen.py": "1f70b737c72068e6ca85379077ee0be920d3b97abb9acba756f3be906fe11dd4",
+    "docs/measurements/q5_hint_2026-10-14/run_native.py": "1e34eb009fde26a4e59e0872fb4afb449039a8f3ee078437d453472417f74cb4",
+    "docs/measurements/q5_hint_2026-10-14/analyze_native.py": "67d41e692d591bb625b94951db097a377477602e7826eff37849ffb4378b7dae",
+    "docs/measurements/q5_hint_2026-10-14/run_native_corrected.py": "c2d38603d2fde0cac649db98b3648c25c718c8992ba0e2897d7a63e1977e751e"
+  },
+  "source_snapshot_paths": {
+    "Makefile": "../source_snapshot/Makefile",
+    ".gitignore": "../source_snapshot/.gitignore",
+    "qw3.c": "../../agent_context_pressure_2026-10-11/source_snapshot/qw3.c",
+    "qw3.h": "../../agent_context_pressure_2026-10-11/source_snapshot/qw3.h",
+    "qw3_metal.m": "../source_snapshot/qw3_metal.m",
+    "qw3_metal.h": "../../agent_context_pressure_2026-10-11/source_snapshot/qw3_metal.h",
+    "qw3_bench.c": "../../agent_regressions_2026-10-11/source_snapshot/qw3_bench.c",
+    "qw3_runtime_fingerprint.h": "../source_snapshot/qw3_runtime_fingerprint.h",
+    "tools/runtime_fingerprint.py": "../../agent_regressions_2026-10-11/source_snapshot/tools/runtime_fingerprint.py",
+    "metal/flash_attn.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/flash_attn.metal",
+    "metal/qw3_core_argmax.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_argmax.metal",
+    "metal/qw3_core_common.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_common.metal",
+    "metal/qw3_core_deltanet.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_deltanet.metal",
+    "metal/qw3_core_linear.metal": "../source_snapshot/metal/qw3_core_linear.metal",
+    "metal/qw3_core_moe.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_moe.metal",
+    "metal/qw3_core_sequence.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_sequence.metal",
+    "tests/prepare_q5_hint.py": "../source_snapshot/tests/prepare_q5_hint.py",
+    "tests/test_q5_hint.m": "../source_snapshot/tests/test_q5_hint.m",
+    "tests/test_q5_hint_model.m": "../source_snapshot/tests/test_q5_hint_model.m",
+    "tests/bench_q5_hint_native.m": "../source_snapshot/tests/bench_q5_hint_native.m",
+    "docs/measurements/iq3_input_2026-10-12/manifest.json": "../source_snapshot/docs/measurements/iq3_input_2026-10-12/manifest.json",
+    "tests/.q5_hint/hooks.inc": "../source_snapshot/tests/.q5_hint/hooks.inc",
+    "tests/.q5_hint/model.inc": "../source_snapshot/tests/.q5_hint/model.inc",
+    "tests/.q5_hint/native.inc": "../source_snapshot/tests/.q5_hint/native.inc",
+    "docs/measurements/q5_hint_2026-10-14/run_screen.py": "../source_snapshot/docs/measurements/q5_hint_2026-10-14/run_screen.py",
+    "docs/measurements/q5_hint_2026-10-14/run_native.py": "../source_snapshot/docs/measurements/q5_hint_2026-10-14/run_native.py",
+    "docs/measurements/q5_hint_2026-10-14/analyze_native.py": "../source_snapshot/docs/measurements/q5_hint_2026-10-14/analyze_native.py",
+    "docs/measurements/q5_hint_2026-10-14/run_native_corrected.py": "source_snapshot/docs/measurements/q5_hint_2026-10-14/run_native_corrected.py"
+  },
+  "binary_sha256": {
+    "qw3-q5-hint-native-bench": "bb3b1b9cfcd5ed89c8d718e72b7c1cd34115c66f617f872c6ad6e6422de5c0c7"
+  },
+  "production_binary_sha256": {
+    "qw3-cli": "1cb2d6c5be0f206565541faaef0b1153a4e775d3b82d9c2a681b7887bf02d122",
+    "qw3-agent": "d6dc0b344f3acc05139983e05ea7c55a997a318e225600e01dd4285295531288",
+    "qw3-bench": "22aa7fdc3c604e55e1f7952ec87325f6ebfd77a47ed808682a7b759a55cb948b"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "scope": "ordinary single-session tg32 depth128 ctx256; original weight/session data buffers",
+  "controller_power_command": [
+    "caffeinate",
+    "-disu",
+    "python3",
+    "docs/measurements/q5_hint_2026-10-14/run_native_corrected.py"
+  ],
+  "context": 256,
+  "gpu_layers": 64,
+  "kv": "f16",
+  "repetitions": 3,
+  "warmup": true,
+  "cooldown_seconds_before_every_process": 60,
+  "order": [
+    0,
+    1,
+    0,
+    2,
+    0
+  ],
+  "runs": [
+    {
+      "name": "block_0_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-q5-hint-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_Q5_HINT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.921359957999996,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.286,
+          "ms": 3445.896
+        },
+        {
+          "repetition": 2,
+          "tps": 9.261,
+          "ms": 3455.267
+        },
+        {
+          "repetition": 3,
+          "tps": 9.227,
+          "ms": 3468.19
+        }
+      ],
+      "candidate_calls": 0
+    },
+    {
+      "name": "block_1_v1",
+      "variant": 1,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-q5-hint-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_Q5_HINT": "1"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.94229495799999,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.279,
+          "ms": 3448.561
+        },
+        {
+          "repetition": 2,
+          "tps": 9.244,
+          "ms": 3461.556
+        },
+        {
+          "repetition": 3,
+          "tps": 9.239,
+          "ms": 3463.419
+        }
+      ],
+      "candidate_calls": 2526
+    },
+    {
+      "name": "block_2_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-q5-hint-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_Q5_HINT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.046255542000011,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.206,
+          "ms": 3476.043
+        },
+        {
+          "repetition": 2,
+          "tps": 9.241,
+          "ms": 3462.977
+        },
+        {
+          "repetition": 3,
+          "tps": 9.159,
+          "ms": 3493.854
+        }
+      ],
+      "candidate_calls": 0
+    },
+    {
+      "name": "block_3_v2",
+      "variant": 2,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-q5-hint-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_Q5_HINT": "2"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.132623792000004,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 8.987,
+          "ms": 3560.643
+        },
+        {
+          "repetition": 2,
+          "tps": 9.217,
+          "ms": 3471.896
+        },
+        {
+          "repetition": 3,
+          "tps": 9.19,
+          "ms": 3482.117
+        }
+      ],
+      "candidate_calls": 2526
+    },
+    {
+      "name": "block_4_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-q5-hint-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_Q5_HINT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.042259042000012,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.268,
+          "ms": 3452.777
+        },
+        {
+          "repetition": 2,
+          "tps": 9.239,
+          "ms": 3463.52
+        },
+        {
+          "repetition": 3,
+          "tps": 9.17,
+          "ms": 3489.781
+        }
+      ],
+      "candidate_calls": 0
+    }
+  ],
+  "initial_partial_native_manifest_sha256": "b917f691a39ebf1331ad4b4f5381f56ec951181ed0e92fb5a9d7e1f0b37f8b6f",
+  "counter_correction": "97 decode forwards * 26 Q5_K selections + 4 prefill frontier logits heads = 2526; prefill is outside each timer. The first two successful process logs are preserved separately.",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "model_unchanged": true,
+  "completed_utc": "2026-10-14T07:20:46.848974+00:00"
+}

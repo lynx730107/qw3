@@ -1,0 +1,18 @@
+{
+  "decode_forwards": 97,
+  "decode_forwards_breakdown": "one warmup generation + three repetitions of 32 timed tokens",
+  "q5_selections_per_decode": 26,
+  "q5_per_decode_evidence": "two full-model phases record 832 selections across 32 continuations",
+  "decode_selections": 2522,
+  "depth_prefills": 4,
+  "depth_prefills_breakdown": "one warmup depth plus one depth setup per repetition, outside timers",
+  "q5_frontier_logits_heads_per_depth_prefill": 1,
+  "total_process_selections": 2526,
+  "original_expected_counter": 2522,
+  "initial_partial_campaign_retained": true,
+  "sources": {
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3_metal.m": "6934be44b8828fd8337a03bcae0573ef217b11c3c30185e17bc4c077243396e1"
+  }
+}
