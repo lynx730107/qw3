@@ -1,0 +1,6 @@
+{
+  "stage": "generator, before shader/test execution",
+  "error": "Python int.bit_count unavailable in system interpreter",
+  "correction": "Use bin(index).count for exhaustive parity assertion",
+  "scope": "Following shell print did not establish a successful generator or numerical evidence"
+}

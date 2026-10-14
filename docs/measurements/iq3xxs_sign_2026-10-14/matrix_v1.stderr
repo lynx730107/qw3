@@ -1,0 +1,6 @@
+2026-10-14 10:00:16.848 qw3-iq3xxs-sign-test[35390:56098609] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+iq3xxs_sign_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=4224 dynamic_threadgroup_bytes=128 threads=64
+iq3xxs_sign_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=4096 dynamic_threadgroup_bytes=128 threads=64
+iq3xxs_sign_metadata variant=2 width=32 max_threads=1024 static_threadgroup_bytes=4096 dynamic_threadgroup_bytes=128 threads=64

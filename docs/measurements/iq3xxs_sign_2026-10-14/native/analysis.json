@@ -1,0 +1,41 @@
+{
+  "block_means_ms": [
+    3553.2270000000003,
+    3548.936,
+    3557.021,
+    3575.6906666666664,
+    3559.8566666666666
+  ],
+  "samples_retained": 15,
+  "samples_discarded": 0,
+  "off_max_min_spread_pct": 0.1865815684352956,
+  "controls_stable_5pct": true,
+  "variants": {
+    "1": {
+      "reference_interpolated_ms": 3555.1240000000003,
+      "candidate_ms": 3548.936,
+      "reference_interpolated_tps": 9.00109250760311,
+      "candidate_tps": 9.016787003203213,
+      "rate_delta_pct": 0.17436211867445373,
+      "rate_delta_left_pct": 0.12090947822107623,
+      "rate_delta_right_pct": 0.22781475912780902,
+      "beats_both_controls": true
+    },
+    "2": {
+      "reference_interpolated_ms": 3558.4388333333336,
+      "candidate_ms": 3575.6906666666664,
+      "reference_interpolated_tps": 8.992707616678157,
+      "candidate_tps": 8.94932000083527,
+      "rate_delta_pct": -0.48247555344085313,
+      "rate_delta_left_pct": -0.5221275665903913,
+      "rate_delta_right_pct": -0.4428235402913261,
+      "beats_both_controls": false
+    }
+  },
+  "source_snapshot_binary_model_checks_passed": true,
+  "swap_before_after_each_run_equal": true,
+  "swap_usage_values": [
+    "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)"
+  ],
+  "scope": "one screening block per variant; no independent paired interval or adoption evidence"
+}

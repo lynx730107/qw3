@@ -1,0 +1,19 @@
+{
+  "index_verified": true,
+  "source_references_verified": 29,
+  "guarded_matrix_cases": 384,
+  "model_phases": 3,
+  "candidate_dispatches_per_continuation": 1088,
+  "single_reused_ctx256_session": true,
+  "all_original_sign_entries_match_parity": 128,
+  "floating_point_expressions_loops_reductions_preserved": true,
+  "static_threadgroup_bytes": [
+    4224,
+    4096,
+    4096
+  ],
+  "fixture_dynamic_threadgroup_bytes": 128,
+  "additional_weight_or_session_data_buffers": 0,
+  "production_unchanged_during_gate": true,
+  "scope": "private prefix128/greedy32 gate; extended prefix/checkpoint gate required before adoption"
+}

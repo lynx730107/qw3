@@ -1,0 +1,7 @@
+{
+  "entries_checked": 128,
+  "all_parity_values_match_original_table": true,
+  "formula": "index | ((popcount(index) & 1) << 7)",
+  "source": "qw3_ksigns_iq2xs in qw3.c",
+  "floating_point_products_and_accumulators_unchanged": true
+}
