@@ -1,0 +1,57 @@
+{
+  "index_verified": false,
+  "complete": true,
+  "source_references_verified": 20,
+  "compiled_parent_source_references_verified": 28,
+  "same_native_binary_as_complete_compile_envelope": true,
+  "validated_runs": 5,
+  "validated_samples": 15,
+  "sources_snapshots_binaries_model_match": true,
+  "scope": "screening only; no independent paired confidence interval or fresh llama comparison",
+  "analysis": {
+    "block_means_ms": [
+      3571.0696666666668,
+      3525.142,
+      3637.41,
+      3530.4676666666664,
+      3635.344
+    ],
+    "samples_retained": 15,
+    "samples_discarded": 0,
+    "off_max_min_spread_pct": 1.8577160214086952,
+    "controls_stable_5pct": true,
+    "candidate_blocks": [
+      {
+        "block": 1,
+        "reference_interpolated_ms": 3604.239833333333,
+        "candidate_ms": 3525.142,
+        "reference_interpolated_tps": 8.878432479451632,
+        "candidate_tps": 9.0776485032376,
+        "rate_delta_pct": 2.2438197761489587,
+        "rate_delta_left_pct": 1.3028600455433192,
+        "rate_delta_right_pct": 3.1847795067546203,
+        "beats_both_controls": true
+      },
+      {
+        "block": 3,
+        "reference_interpolated_ms": 3636.377,
+        "candidate_ms": 3530.4676666666664,
+        "reference_interpolated_tps": 8.799967660118849,
+        "candidate_tps": 9.063954983112247,
+        "rate_delta_pct": 2.9998669675773915,
+        "rate_delta_left_pct": 3.0291265472572437,
+        "rate_delta_right_pct": 2.970607387897539,
+        "beats_both_controls": true
+      }
+    ],
+    "aggregate_rate_delta_pct": 2.6221287090286483,
+    "beats_all_adjacent_controls": true,
+    "source_snapshot_binary_model_checks_passed": true,
+    "swap_before_after_each_run_equal": true,
+    "swap_usage_values": [
+      "vm.swapusage: total = 2048.00M  used = 933.31M  free = 1114.69M  (encrypted)"
+    ],
+    "scope": "two screening ON blocks with shared controls; no independent paired interval or adoption evidence"
+  },
+  "swap_before_after_each_run_equal": true
+}

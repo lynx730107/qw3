@@ -1,8 +1,9 @@
 # GQA: suddivisione degli head query indipendenti
 
 La variante con tre head per threadgroup passa 432 fixture e il gate sul
-27B, bit per bit. Quella con un head fallisce e viene esclusa. La velocità
-della variante selezionata non è ancora misurata; nessuna adozione.
+27B, bit per bit. Quella con un head fallisce e viene esclusa. Lo screening
+ordinario dà +2,622%, positivo in entrambi i blocchi; serve una replica
+indipendente prima di un'eventuale adozione.
 
 Nel 27B ci sono 24 head query, quattro head KV e dimensione 256. Il
 kernel originale assegna tutti i sei head query associati a un head KV
@@ -63,3 +64,30 @@ Lo screening selezionato usa OFF/variante2/OFF/variante2/OFF, tg32 depth128
 ctx256, tre ripetizioni, warmup e 60 secondi prima di ogni processo,
 API Validation disattiva per i tempi. Tutti i campioni saranno conservati.
 Non c'è ancora un nuovo confronto con llama.
+
+## Screening ordinario della variante2
+
+Tutti i 15 campioni dei cinque processi sono conservati. Medie in ms:
+3571,070 /3525,142 /3637,410 /3530,468 /3635,344. Primo ON +2,244% sugli
+OFF interpolati, +1,303%/+3,185% sui singoli vicini. Secondo ON +3,000%,
++3,029%/+2,971% sui singoli vicini. L'aggregato è +2,622%; i controlli
+sono condivisi, quindi non si calcola un intervallo paired indipendente
+da questi due effetti. Spread max/min OFF 1,858%, entro il limite del 5%.
+Il segnale è coerente nei due blocchi, ma la dispersione richiede replica.
+
+Ogni ON conta 1552 selezioni, 97 forward×16, zero fallback; OFF zero.
+Le righe CSV mantengono 176.761.680 byte di sessione. Swap 933,31 MiB
+prima/dopo ciascun processo; sorgenti, snapshot, binari e stat del GGUF
+invariati. Il manifest dei tempi eredita il sottoinsieme dei sorgenti
+del modello selezionato. Il verificatore lo unisce all'intero envelope
+di compilazione iniziale, verificando che il binario nativo sia identico
+a quello già congelato e che tutti i sorgenti corrispondano agli snapshot.
+Non si riscrivono i manifest o i dati grezzi originari.
+
+[Analisi](measurements/gqa_groups_2026-10-14/selected_native/analysis.json)
+e [verifica](measurements/gqa_groups_2026-10-14/selected_native/verification.json)
+rileggono comandi, log, CSV, contatori e campioni. Non si confrontano i
+tassi assoluti con quelli di llama ottenuti in una campagna diversa e
+non si dichiara il raggiungimento dell'obiettivo da questo incremento.
+La replica preparata usa sei coppie AB/BA tra processi indipendenti,
+stesso binario e workload, conservando ogni campione.
