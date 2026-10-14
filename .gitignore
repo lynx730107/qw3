@@ -230,6 +230,11 @@ tests/.iq3xxs_sign/
 /qw3-iq2s-grid-native-bench
 tests/.iq2s_grid/
 
+/qw3-iq3-nibble-test
+/qw3-iq3-nibble-model-test
+/qw3-iq3-nibble-native-bench
+tests/.iq3_nibble/
+
 /qw3-q4-narrow-test
 /qw3-q4-narrow-model-test
 /qw3-q4-narrow-native-bench

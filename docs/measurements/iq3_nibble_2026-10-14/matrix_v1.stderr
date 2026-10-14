@@ -1,0 +1,6 @@
+2026-10-14 10:52:58.721 qw3-iq3-nibble-test[39946:56137033] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+iq3_nibble_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+iq3_nibble_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+IQ3 nibble mismatch n_in=256 n_out=1 pattern=0 index=5 bits=c15ab463/c15ab465

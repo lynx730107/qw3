@@ -1,0 +1,10 @@
+{
+  "packed_words": 65536,
+  "scalar_magnitudes": 262144,
+  "cpu_float32_bits_equal": true,
+  "static_threadgroup_bytes_before_after": [
+    1024,
+    1024
+  ],
+  "gpu_or_model_equivalence_proven": false
+}

@@ -1,0 +1,26 @@
+{
+  "index_verified": true,
+  "source_references_verified": 29,
+  "completed_exact_matrix_cases": 2,
+  "first_failure_ulp_distance": 2,
+  "first_failure_bits": [
+    "c15ab463",
+    "c15ab465"
+  ],
+  "finite_failure": true,
+  "first_failure_shape": [
+    256,
+    1
+  ],
+  "pattern": 0,
+  "output_index": 5,
+  "static_threadgroup_bytes_before_after": [
+    1024,
+    1024
+  ],
+  "model_test_executed": false,
+  "timing_executed": false,
+  "production_unchanged": true,
+  "adopted": false,
+  "scope": "CPU magnitude equality does not establish compiled GPU bit equality; no codegen cause established"
+}
