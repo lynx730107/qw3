@@ -169,3 +169,25 @@ questi binari pubblici, sei coppie AB/BA per workload, tre ripetizioni e
 60 secondi prima di ogni processo, senza compilazioni o altri carichi GPU
 durante le misure. Il risultato della replica privata non viene sommato
 ad altri esperimenti né convertito in una vittoria su llama.
+
+## Prefill della nuova campagna, decoding ancora in corso
+
+Le sei coppie pp128 sono concluse: 162,0715 tok/s per qw3 contro 162,4736
+per llama, −0,2475%. Risparmio paired −1,9546 ms, intervallo t95%
+[−9,0384; 5,1293] ms: nessun vantaggio confermato di uno dei due motori.
+Spread qw3/llama 2,453%/0,319%, entro il limite del 5%. Il primo processo
+qw3 è più lento degli altri, ma resta integralmente nel calcolo.
+Questa serie non dimostra superiorità o parità; non conferma neppure
+un'inferiorità statisticamente distinta da zero.
+
+Tutti i 36 campioni e i dodici processi del workload sono conservati.
+174.664.400 byte di sessione in ogni processo qw3, come nel riferimento
+precedente; swap invariato prima/dopo ciascun processo. La RAM totale e
+di picco non sono misurate.
+
+[Snapshot del workload](measurements/gqa_groups_2026-10-14/public_reference/prefill_results_snapshot.json),
+[envelope congelato](measurements/gqa_groups_2026-10-14/public_reference/prefill_envelope_snapshot.json)
+e [verifica](measurements/gqa_groups_2026-10-14/public_reference/prefill_verification.json).
+La campagna tg32 depth128 prosegue con gli stessi sorgenti e binari.
+Gli snapshot intermedi sono file distinti; i risultati e i log originali
+della campagna non vengono riscritti per escludere campioni.

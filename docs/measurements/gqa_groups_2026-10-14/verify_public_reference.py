@@ -14,12 +14,15 @@ import subprocess
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--partial', action='store_true', help='validate the completed prefix without writing final analysis')
 parser.add_argument('--index', action='store_true', help='also verify staged source snapshots')
+parser.add_argument('--results-file', type=Path, default=None,
+                    help='validate an immutable intermediate snapshot against the same raw logs')
+parser.add_argument('--envelope-file', type=Path, default=None)
 args = parser.parse_args()
 base = Path(__file__).resolve().parent
 root = base.parents[2]
 archive = base/'public_reference/runs'
-data = json.loads((archive / 'results.json').read_text())
-envelope = json.loads((archive.parent/'envelope.json').read_text())
+data = json.loads((args.results_file or (archive / 'results.json')).read_text())
+envelope = json.loads((args.envelope_file or (archive.parent/'envelope.json')).read_text())
 integration = json.loads((base/'public_integration_v2/manifest.json').read_text())
 worktree = Path(integration['worktree'])
 
@@ -42,7 +45,7 @@ assert data['environment_prefixes_cleared'] == ['QW3_', 'GGML_', 'MTL_']
 assert envelope['dyld_overrides_absent']
 assert set(data['source_sha256']).issubset(envelope['source_snapshot_paths'])
 for name, expected in data['source_sha256'].items():
-    snapshot = archive.parent / envelope['source_snapshot_paths'][name]
+    snapshot = (archive.parent / envelope['source_snapshot_paths'][name]).resolve()
     assert sha(worktree / name) == sha(snapshot) == expected, name
     if args.index:
         staged = subprocess.run(['git', '-C', str(root), 'show', ':' + str(snapshot.relative_to(root))],
