@@ -89,5 +89,42 @@ e [verifica](measurements/gqa_groups_2026-10-14/selected_native/verification.jso
 rileggono comandi, log, CSV, contatori e campioni. Non si confrontano i
 tassi assoluti con quelli di llama ottenuti in una campagna diversa e
 non si dichiara il raggiungimento dell'obiettivo da questo incremento.
-La replica preparata usa sei coppie AB/BA tra processi indipendenti,
+La replica usa sei coppie AB/BA tra processi indipendenti,
 stesso binario e workload, conservando ogni campione.
+
+## Replica indipendente
+
+La replica conclusa conserva 36 campioni di dodici processi. La media
+OFF è 3599,788 ms, quella ON 3557,449 ms: **+1,190%**, inferiore al primo
+screening. Tutte le sei coppie sono positive; il risparmio medio è
+42,338 ms, intervallo paired t95% [10,819; 73,858] ms. L'unità statistica
+è la media del processo, non ciascuna delle tre ripetizioni. Le coppie
+sono trattate come indipendenti; correlazioni termiche/temporali possono
+indebolire questa ipotesi. I due ordini risparmiano 42,004 e 42,673 ms.
+Gli spread OFF/ON sono 1,271%/1,676%, entro il limite del 5%.
+
+Il verificatore ricontrolla tutti i log, i 1552 dispatch per ON, i CSV,
+33 dipendenze congelate, binari e stat del modello. Byte di sessione
+176.761.680; swap 933,31 MiB invariato prima/dopo ciascun processo.
+Non si misura la RAM totale o di picco. Nessun campione viene scartato.
+
+[Manifest](measurements/gqa_groups_2026-10-14/replica_v2/manifest.json),
+[analisi](measurements/gqa_groups_2026-10-14/replica_v2/analysis.json) e
+[verifica](measurements/gqa_groups_2026-10-14/replica_v2/verification.json).
+Il segnale supera il gate di prestazione privato; da solo non dimostra
+di aver raggiunto llama. Non c'è ancora un confronto diretto aggiornato
+della versione pubblica.
+
+## Gate esteso della variante privata
+
+Build senza warning e Metal API Validation attiva. Passano i prefissi
+1/15/16/31/127/128/129/159, estensione 128→159, 32 token greedy per fase
+e sedici roundtrip di checkpoint. Vocabolari completi finiti, token,
+history, posizione e stato canonico coincidono bit per bit. Una sola
+sessione ctx256 viene riutilizzata con oracoli temporanei su disco;
+ogni seguito ON conta 512 dispatch effettivi e zero fallback.
+
+[Manifest](measurements/gqa_groups_2026-10-14/quality_v2/manifest.json) e
+[verifica](measurements/gqa_groups_2026-10-14/quality_v2/verification.json).
+Questo gate riguarda ancora il candidato privato; integrazione pubblica,
+regressioni dell'agente e confronto aggiornato con llama sono separati.

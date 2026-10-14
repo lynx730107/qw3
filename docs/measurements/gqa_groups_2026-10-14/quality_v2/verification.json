@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "index_verified": false,
+  "prefix_phases": 16,
+  "checkpoint_roundtrips": 16,
+  "source_references_verified": 21,
+  "scope": "eight prefixes and sixteen checkpoint roundtrips, one reused session and disk oracles; not agent regressions"
+}

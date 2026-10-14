@@ -1,0 +1,30 @@
+{
+  "command": [
+    "cc",
+    "-O3",
+    "-ffast-math",
+    "-mcpu=native",
+    "-Wall",
+    "-Wextra",
+    "-fobjc-arc",
+    "-fno-finite-math-only",
+    "-I.",
+    "-o",
+    "/tmp/qw3-gqa-groups-quality-test",
+    "/Users/pasqualecapasso/Downloads/ds4-main/qw3/tests/test_gqa_groups_quality.m",
+    "-lm",
+    "-pthread",
+    "-framework",
+    "Foundation",
+    "-framework",
+    "Metal"
+  ],
+  "exit_code": 0,
+  "warning_free": true,
+  "binary": "/tmp/qw3-gqa-groups-quality-test",
+  "binary_sha256": "6436e9e12eb8e1fe76709bb23dec41f80b0a41cac4aac1d9b5023d07c065a672",
+  "source_sha256": "15452310e32562509e348b249cfba45f2b736f4ed0d06eca4951f8197f027209",
+  "performance_analysis_sha256": "a8f0373aea0848b394d381c9dcdde5043771f5205d306148ed169abb9370b5af",
+  "variant": 2,
+  "scope": "quality binary only; runtime gate remains separate"
+}
