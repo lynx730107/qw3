@@ -1,0 +1,31 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-bench: context buffers 166.93 MiB (ctx=256, backend=Metal, gqa_kv=16.00 MiB, deltanet=144.00 MiB, scratch=6.93 MiB)
+paired_sample repetition=1 variant=0 calls=0 dispatches=0 barriers=0 independent_skips=0 sessions=1
+qw3-bench: sample 1/12 8.997 tok/s 3556.791 ms
+paired_sample repetition=2 variant=1 calls=2528 dispatches=31296 barriers=25696 independent_skips=5600 sessions=1
+qw3-bench: sample 2/12 9.024 tok/s 3546.002 ms
+paired_sample repetition=3 variant=1 calls=2528 dispatches=31296 barriers=25696 independent_skips=5600 sessions=1
+qw3-bench: sample 3/12 9.025 tok/s 3545.632 ms
+paired_sample repetition=4 variant=0 calls=0 dispatches=0 barriers=0 independent_skips=0 sessions=1
+qw3-bench: sample 4/12 8.956 tok/s 3572.927 ms
+paired_sample repetition=5 variant=0 calls=0 dispatches=0 barriers=0 independent_skips=0 sessions=1
+qw3-bench: sample 5/12 8.758 tok/s 3653.806 ms
+paired_sample repetition=6 variant=1 calls=2528 dispatches=31296 barriers=25696 independent_skips=5600 sessions=1
+qw3-bench: sample 6/12 8.894 tok/s 3598.083 ms
+paired_sample repetition=7 variant=1 calls=2528 dispatches=31296 barriers=25696 independent_skips=5600 sessions=1
+qw3-bench: sample 7/12 9.032 tok/s 3542.944 ms
+paired_sample repetition=8 variant=0 calls=0 dispatches=0 barriers=0 independent_skips=0 sessions=1
+qw3-bench: sample 8/12 8.975 tok/s 3565.539 ms
+paired_sample repetition=9 variant=0 calls=0 dispatches=0 barriers=0 independent_skips=0 sessions=1
+qw3-bench: sample 9/12 8.891 tok/s 3599.040 ms
+paired_sample repetition=10 variant=1 calls=2528 dispatches=31296 barriers=25696 independent_skips=5600 sessions=1
+qw3-bench: sample 10/12 8.921 tok/s 3587.213 ms
+paired_sample repetition=11 variant=1 calls=2528 dispatches=31296 barriers=25696 independent_skips=5600 sessions=1
+qw3-bench: sample 11/12 8.906 tok/s 3592.985 ms
+paired_sample repetition=12 variant=0 calls=0 dispatches=0 barriers=0 independent_skips=0 sessions=1
+qw3-bench: sample 12/12 8.825 tok/s 3625.904 ms
+PASS projection_pairs runs=12 sessions=1 additional_weight_buffer_bytes=0

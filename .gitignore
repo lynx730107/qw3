@@ -253,3 +253,4 @@ tests/.q4_words/
 tests/.decode_ffn_concurrent/
 tests/.decode_ffn_barriers/
 tests/.decode_projection_barriers/
+tests/.projection_pairs/

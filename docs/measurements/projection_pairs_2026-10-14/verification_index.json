@@ -1,0 +1,101 @@
+{
+  "index_verified": true,
+  "source_references_verified": 22,
+  "original_benchmark_restored_exactly": true,
+  "original_model_gate_helpers_unchanged": true,
+  "single_engine_and_session": true,
+  "new_weight_or_session_data_buffers": 0,
+  "analysis": {
+    "scope": "one-process close-pair diagnostic; original timer/reset/prefill and one session; no independent process replication or llama comparison",
+    "samples_retained": 12,
+    "samples_discarded": 0,
+    "pairs": [
+      {
+        "pair": 1,
+        "order": [
+          0,
+          1
+        ],
+        "off_ms": 3556.791,
+        "on_ms": 3546.002,
+        "saved_ms": 10.789000000000215,
+        "rate_delta_pct": 0.3042581476265349
+      },
+      {
+        "pair": 2,
+        "order": [
+          1,
+          0
+        ],
+        "off_ms": 3572.927,
+        "on_ms": 3545.632,
+        "saved_ms": 27.295000000000073,
+        "rate_delta_pct": 0.7698204438588041
+      },
+      {
+        "pair": 3,
+        "order": [
+          0,
+          1
+        ],
+        "off_ms": 3653.806,
+        "on_ms": 3598.083,
+        "saved_ms": 55.722999999999956,
+        "rate_delta_pct": 1.5486857862923031
+      },
+      {
+        "pair": 4,
+        "order": [
+          1,
+          0
+        ],
+        "off_ms": 3565.539,
+        "on_ms": 3542.944,
+        "saved_ms": 22.595000000000255,
+        "rate_delta_pct": 0.6377464616996509
+      },
+      {
+        "pair": 5,
+        "order": [
+          0,
+          1
+        ],
+        "off_ms": 3599.04,
+        "on_ms": 3587.213,
+        "saved_ms": 11.82699999999977,
+        "rate_delta_pct": 0.3296988497755615
+      },
+      {
+        "pair": 6,
+        "order": [
+          1,
+          0
+        ],
+        "off_ms": 3625.904,
+        "on_ms": 3592.985,
+        "saved_ms": 32.91899999999987,
+        "rate_delta_pct": 0.9162019880405881
+      }
+    ],
+    "control_mean_ms": 3595.6678333333334,
+    "candidate_mean_ms": 3568.8098333333332,
+    "rate_delta_pct": 0.7525758237141522,
+    "saved_ms_mean": 26.858000000000022,
+    "saved_ms_ci95": [
+      9.468510351207364,
+      44.24748964879268
+    ],
+    "ci_assumption": "Student t df5 critical2.571; six pairs treated independent; same-process time correlation can weaken this assumption",
+    "order_group_saved_ms": {
+      "0": 26.112999999999982,
+      "1": 27.603000000000065
+    },
+    "off_spread_pct": 2.698107959267832,
+    "on_spread_pct": 1.5450248843463674,
+    "sources_snapshots_binaries_model_match": true,
+    "session_bytes": 176761680,
+    "adoption_evidence": false
+  },
+  "adoption_evidence": false,
+  "scope": "close-pair diagnostic only; process-independent replication and checkpoint/agent gates still required"
+}
