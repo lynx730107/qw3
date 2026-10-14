@@ -191,3 +191,23 @@ e [verifica](measurements/gqa_groups_2026-10-14/public_reference/prefill_verific
 La campagna tg32 depth128 prosegue con gli stessi sorgenti e binari.
 Gli snapshot intermedi sono file distinti; i risultati e i log originali
 della campagna non vengono riscritti per escludere campioni.
+
+## Campagna diretta conclusa
+
+Tutti i 24 processi e 72 campioni sono verificati. Il decoding tg32
+depth128 misura 9,28192 tok/s per qw3 e 9,26340 per llama, +0,1999%.
+Il risparmio paired è 6,8917 ms con intervallo t95%
+[−49,7921; 63,5754] ms: il vantaggio non è confermato. Spread qw3/llama
+1,0001%/3,6694%, entro il limite predefinito del 5%. Il segnale è molto
+più incerto della sola media: non si dichiara raggiunto l'obiettivo.
+
+Buffer di sessione 176.761.680 byte, come in precedenza. Lo swap cambia
+durante alcuni processi e scende nel corso della campagna da circa
+2330,56 a 1914,56 MiB: non si dichiara più che sia invariato ovunque.
+Questo dato non è una misura della RAM totale o del suo picco.
+
+[Risultati completi](measurements/gqa_groups_2026-10-14/public_reference/runs/results.json),
+[envelope](measurements/gqa_groups_2026-10-14/public_reference/envelope.json) e
+[analisi verificata](measurements/gqa_groups_2026-10-14/public_reference/runs/analysis.json)
+conservano ogni campione e verificano sorgenti, snapshot, binari,
+librerie e stat del GGUF. Gli snapshot intermedi pp128 restano distinti.
