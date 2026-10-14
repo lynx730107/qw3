@@ -1,0 +1,37 @@
+gqa_heads_probe_variant=2
+PASS gqa_heads_probe_model phase=0 prefix=128 continuation=32 finite_logits=numerically_valid canonical_state=numerically_valid input_tokens=teacher_forced history=exact calls=0 sessions=1 additional_weight_buffer_bytes=0
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.128297329
+logits_numeric valid=1 rmse=2.04642164e-05 max_abs=6.91413879e-05 nmse=4.8012505e-11 different_bits=247644 argmax_match=1 baseline_margin=0.318517685
+logits_numeric valid=1 rmse=1.49739941e-05 max_abs=5.54323196e-05 nmse=1.28743418e-11 different_bits=246519 argmax_match=1 baseline_margin=0.10038662
+logits_numeric valid=1 rmse=8.95470855e-06 max_abs=5.35845757e-05 nmse=4.53612153e-12 different_bits=243943 argmax_match=1 baseline_margin=1.13186073
+logits_numeric valid=1 rmse=7.64084731e-06 max_abs=3.76701355e-05 nmse=3.29532368e-12 different_bits=243193 argmax_match=1 baseline_margin=2.06227684
+logits_numeric valid=1 rmse=9.54847668e-06 max_abs=6.52074814e-05 nmse=6.08495579e-12 different_bits=244184 argmax_match=1 baseline_margin=2.5419631
+logits_numeric valid=1 rmse=1.27845266e-05 max_abs=7.29560852e-05 nmse=1.00816079e-11 different_bits=245103 argmax_match=1 baseline_margin=3.33376026
+logits_numeric valid=1 rmse=1.12548747e-05 max_abs=5.94109297e-05 nmse=6.85394025e-12 different_bits=244528 argmax_match=1 baseline_margin=4.48881149
+logits_numeric valid=1 rmse=2.03906599e-05 max_abs=0.00012087822 nmse=2.10979158e-11 different_bits=246278 argmax_match=1 baseline_margin=4.52927208
+logits_numeric valid=1 rmse=1.12821818e-05 max_abs=5.4359436e-05 nmse=6.79051138e-12 different_bits=244788 argmax_match=1 baseline_margin=4.69694376
+logits_numeric valid=1 rmse=1.28794023e-05 max_abs=6.96182251e-05 nmse=7.781924e-12 different_bits=245051 argmax_match=1 baseline_margin=4.92852497
+logits_numeric valid=1 rmse=4.4319552e-05 max_abs=0.000248372555 nmse=1.01673138e-10 different_bits=247596 argmax_match=1 baseline_margin=3.27942467
+logits_numeric valid=1 rmse=1.65325486e-05 max_abs=9.89437103e-05 nmse=1.41648535e-11 different_bits=245799 argmax_match=1 baseline_margin=4.7628746
+logits_numeric valid=1 rmse=3.48360705e-05 max_abs=0.000258922577 nmse=7.48172447e-11 different_bits=247306 argmax_match=1 baseline_margin=5.85890865
+logits_numeric valid=1 rmse=4.58760035e-05 max_abs=0.000249147415 nmse=1.61780726e-10 different_bits=247632 argmax_match=1 baseline_margin=3.78880501
+logits_numeric valid=1 rmse=4.6120032e-05 max_abs=0.000375747681 nmse=1.43131494e-10 different_bits=247640 argmax_match=1 baseline_margin=5.16217327
+logits_numeric valid=1 rmse=1.78316541e-05 max_abs=0.000118851662 nmse=1.67950679e-11 different_bits=246078 argmax_match=1 baseline_margin=6.0170927
+logits_numeric valid=1 rmse=6.90536761e-05 max_abs=0.000431060791 nmse=3.41596837e-10 different_bits=247802 argmax_match=1 baseline_margin=4.46677303
+logits_numeric valid=1 rmse=2.59199281e-05 max_abs=0.000114560127 nmse=4.10970466e-11 different_bits=246894 argmax_match=1 baseline_margin=5.44900227
+logits_numeric valid=1 rmse=2.22933146e-05 max_abs=0.000131130219 nmse=2.86635453e-11 different_bits=246568 argmax_match=1 baseline_margin=5.86962318
+logits_numeric valid=1 rmse=1.86255795e-05 max_abs=0.000109791756 nmse=1.86708457e-11 different_bits=246211 argmax_match=1 baseline_margin=5.85555172
+logits_numeric valid=1 rmse=2.29570521e-05 max_abs=0.000117301941 nmse=3.01527159e-11 different_bits=246756 argmax_match=1 baseline_margin=5.84111309
+logits_numeric valid=1 rmse=2.19690956e-05 max_abs=0.000124901533 nmse=2.39345349e-11 different_bits=246434 argmax_match=1 baseline_margin=5.40286827
+logits_numeric valid=1 rmse=0.000140441272 max_abs=0.000854805112 nmse=1.42858718e-09 different_bits=248102 argmax_match=1 baseline_margin=3.97397518
+logits_numeric valid=1 rmse=3.58461985e-05 max_abs=0.000184953213 nmse=7.77932776e-11 different_bits=247300 argmax_match=1 baseline_margin=5.62891006
+logits_numeric valid=1 rmse=4.67096807e-05 max_abs=0.000319480896 nmse=1.79718295e-10 different_bits=247724 argmax_match=1 baseline_margin=5.73523712
+logits_numeric valid=1 rmse=5.20212634e-05 max_abs=0.000422477722 nmse=2.15494614e-10 different_bits=247682 argmax_match=1 baseline_margin=5.22042084
+logits_numeric valid=1 rmse=6.58409562e-05 max_abs=0.000621795654 nmse=2.92752881e-10 different_bits=247798 argmax_match=1 baseline_margin=5.60208988
+logits_numeric valid=1 rmse=2.85119341e-05 max_abs=0.000152111053 nmse=4.45458252e-11 different_bits=246943 argmax_match=1 baseline_margin=5.73442459
+logits_numeric valid=1 rmse=3.11487354e-05 max_abs=0.000141143799 nmse=7.22056404e-11 different_bits=247335 argmax_match=1 baseline_margin=5.70061398
+logits_numeric valid=1 rmse=2.83728107e-05 max_abs=0.000161886215 nmse=5.10591148e-11 different_bits=247028 argmax_match=1 baseline_margin=5.59506989
+logits_numeric valid=1 rmse=2.64128238e-05 max_abs=0.000173568726 nmse=3.73221028e-11 different_bits=246713 argmax_match=1 baseline_margin=5.7062149
+logits_numeric valid=1 rmse=5.17389299e-05 max_abs=0.000267744064 nmse=2.35391553e-10 different_bits=247753 argmax_match=1 baseline_margin=5.74330139
+PASS gqa_heads_probe_model phase=1 prefix=128 continuation=32 finite_logits=numerically_valid canonical_state=numerically_valid input_tokens=teacher_forced history=exact calls=512 sessions=1 additional_weight_buffer_bytes=0
+numeric_policy=2 logits_vectors=33 logits_rmse=4.02118818e-05 logits_max_abs=0.000854805112 logits_different_bits=7888325 argmax_changes=0 state_nmse=3.2015646e-10 state_different_bits=35952221 history=exact checkpoint_policy=self_roundtrip_bit_exact agent_behavior=not_tested

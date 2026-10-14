@@ -1,0 +1,7 @@
+2026-10-14 20:39:59.661 qw3-gqa-heads-probe-v2-matrix[62787:56551908] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+gqa_heads_probe_metadata variant=0 capacity=3 width=32 max_threads=1024 static_bytes=0 dynamic_bytes=256
+gqa_heads_probe_metadata variant=1 capacity=2 width=32 max_threads=1024 static_bytes=0 dynamic_bytes=256
+gqa_heads_probe_metadata variant=2 capacity=1 width=32 max_threads=1024 static_bytes=0 dynamic_bytes=256
+gqa_heads_probe_dispatch_counts calls=18 fallbacks=0

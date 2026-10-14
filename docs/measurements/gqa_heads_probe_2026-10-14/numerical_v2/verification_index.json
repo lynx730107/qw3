@@ -1,0 +1,48 @@
+{
+  "passed": true,
+  "index_verified": true,
+  "source_references_verified": 44,
+  "variants": [
+    {
+      "variant": 1,
+      "head_capacity": 2,
+      "matrix_cases": 432,
+      "matrix_actual_candidate_selections": 18,
+      "matrix_max_nmse": 0.0,
+      "matrix_max_abs": 0.0,
+      "matrix_different_bits": 0,
+      "logit_vectors": 33,
+      "logits_rmse": 0.0,
+      "logits_max_abs": 0.0,
+      "logits_different_bits": 0,
+      "argmax_changes": 0,
+      "state_nmse": 0.0,
+      "state_different_bits": 0,
+      "screen_passed": true,
+      "agent_behavior_gate_passed": false,
+      "adoption_permitted": false
+    },
+    {
+      "variant": 2,
+      "head_capacity": 1,
+      "matrix_cases": 432,
+      "matrix_actual_candidate_selections": 18,
+      "matrix_max_nmse": 2.25636164e-14,
+      "matrix_max_abs": 4.76837158e-07,
+      "matrix_different_bits": 24676,
+      "logit_vectors": 33,
+      "logits_rmse": 4.02118818e-05,
+      "logits_max_abs": 0.000854805112,
+      "logits_different_bits": 7888325,
+      "argmax_changes": 0,
+      "state_nmse": 3.2015646e-10,
+      "state_different_bits": 35952221,
+      "screen_passed": true,
+      "agent_behavior_gate_passed": false,
+      "adoption_permitted": false
+    }
+  ],
+  "scope": "numerical screen only, one synthetic prefix128 and 32 teacher-forced steps; not agent quality or performance",
+  "checkpoint_roundtrips_tested": 0,
+  "total_peak_ram_measured": false
+}

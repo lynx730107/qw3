@@ -1,0 +1,37 @@
+gqa_heads_probe_variant=1
+PASS gqa_heads_probe_model phase=0 prefix=128 continuation=32 finite_logits=numerically_valid canonical_state=numerically_valid input_tokens=teacher_forced history=exact calls=0 sessions=1 additional_weight_buffer_bytes=0
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.128297329
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.318517685
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.10038662
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.13186073
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.06227684
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.5419631
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.33376026
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.48881149
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.52927208
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.69694376
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.92852497
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.27942467
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.7628746
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.85890865
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.78880501
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.16217327
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=6.0170927
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.46677303
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.44900227
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.86962318
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.85555172
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.84111309
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.40286827
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.97397518
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.62891006
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.73523712
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.22042084
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.60208988
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.73442459
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.70061398
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.59506989
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.7062149
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.74330139
+PASS gqa_heads_probe_model phase=1 prefix=128 continuation=32 finite_logits=numerically_valid canonical_state=numerically_valid input_tokens=teacher_forced history=exact calls=512 sessions=1 additional_weight_buffer_bytes=0
+numeric_policy=2 logits_vectors=33 logits_rmse=0 logits_max_abs=0 logits_different_bits=0 argmax_changes=0 state_nmse=0 state_different_bits=0 history=exact checkpoint_policy=self_roundtrip_bit_exact agent_behavior=not_tested

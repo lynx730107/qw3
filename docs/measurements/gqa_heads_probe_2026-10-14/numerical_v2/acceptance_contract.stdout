@@ -1,0 +1,1 @@
+PASS optimization_acceptance_v2 rounding=accepted substantive_error=rejected NaN=rejected signed_zero=accepted

@@ -1,0 +1,14 @@
+starting generate
+starting fingerprint
+starting build_acceptance
+starting acceptance_contract
+starting build_matrix
+starting build_model
+starting build_native
+starting matrix_v1
+starting model_v1
+numerical screen passed variant 1
+starting matrix_v2
+starting model_v2
+numerical screen passed variant 2
+numerical screen completed; inspect per-variant outcomes before timing

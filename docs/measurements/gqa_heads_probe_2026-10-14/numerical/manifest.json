@@ -1,0 +1,286 @@
+{
+  "started_utc": "2026-10-14T18:36:29.277405+00:00",
+  "revision": "d5ffd34fae1a89e4f6ba58559c23663e1913d639",
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_KV_Q8_0": "0",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1"
+  },
+  "variants": {
+    "0": {
+      "capacity": 3,
+      "groups": 8,
+      "scope": "current public baseline"
+    },
+    "1": {
+      "capacity": 2,
+      "groups": 12,
+      "scope": "private eligible 27B F16 route only"
+    },
+    "2": {
+      "capacity": 1,
+      "groups": 24,
+      "scope": "private eligible 27B F16 route only; no generic claim"
+    }
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "sessions_at_once": 1,
+  "additional_weight_and_session_data_buffers": 0,
+  "acceptance_policy_version": 2,
+  "agent_behavior_gate_passed": false,
+  "adoption_permitted": false,
+  "production_binary_sha256": {
+    "qw3-cli": "1cb2d6c5be0f206565541faaef0b1153a4e775d3b82d9c2a681b7887bf02d122",
+    "qw3-agent": "d6dc0b344f3acc05139983e05ea7c55a997a318e225600e01dd4285295531288",
+    "qw3-bench": "22aa7fdc3c604e55e1f7952ec87325f6ebfd77a47ed808682a7b759a55cb948b"
+  },
+  "builds": [
+    {
+      "name": "generate",
+      "command": [
+        "python3",
+        "tests/prepare_gqa_heads_probe.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.04013283300000001
+    },
+    {
+      "name": "fingerprint",
+      "command": [
+        "make",
+        "qw3_runtime_fingerprint.h"
+      ],
+      "exit_code": 0,
+      "seconds": 0.07611679200000002
+    },
+    {
+      "name": "build_matrix",
+      "command": [
+        "cc",
+        "-O3",
+        "-ffast-math",
+        "-mcpu=native",
+        "-Wall",
+        "-Wextra",
+        "-fobjc-arc",
+        "-fno-finite-math-only",
+        "-I.",
+        "-o",
+        "/tmp/qw3-gqa-heads-probe-matrix",
+        "tests/test_gqa_heads_probe.m",
+        "-lm",
+        "-pthread",
+        "-framework",
+        "Foundation",
+        "-framework",
+        "Metal"
+      ],
+      "exit_code": 0,
+      "seconds": 3.462809417
+    },
+    {
+      "name": "build_model",
+      "command": [
+        "cc",
+        "-O3",
+        "-ffast-math",
+        "-mcpu=native",
+        "-Wall",
+        "-Wextra",
+        "-fobjc-arc",
+        "-fno-finite-math-only",
+        "-I.",
+        "-o",
+        "/tmp/qw3-gqa-heads-probe-model",
+        "tests/test_gqa_heads_probe_model.m",
+        "-lm",
+        "-pthread",
+        "-framework",
+        "Foundation",
+        "-framework",
+        "Metal"
+      ],
+      "exit_code": 0,
+      "seconds": 3.277186417
+    },
+    {
+      "name": "build_native",
+      "command": [
+        "cc",
+        "-O3",
+        "-ffast-math",
+        "-mcpu=native",
+        "-Wall",
+        "-Wextra",
+        "-fobjc-arc",
+        "-fno-finite-math-only",
+        "-I.",
+        "-o",
+        "/tmp/qw3-gqa-heads-probe-native",
+        "tests/bench_gqa_heads_probe_native.m",
+        "-lm",
+        "-pthread",
+        "-framework",
+        "Foundation",
+        "-framework",
+        "Metal"
+      ],
+      "exit_code": 0,
+      "seconds": 3.3302084580000004
+    }
+  ],
+  "tests": [
+    {
+      "name": "matrix_v1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/tmp/qw3-gqa-heads-probe-matrix",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 2.189606208999999
+    },
+    {
+      "name": "model_v1",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/tmp/qw3-gqa-heads-probe-model",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 11.542747209
+    },
+    {
+      "name": "matrix_v2",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/tmp/qw3-gqa-heads-probe-matrix",
+        "2"
+      ],
+      "exit_code": 0,
+      "seconds": 0.9417688749999975
+    },
+    {
+      "name": "model_v2",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/tmp/qw3-gqa-heads-probe-model",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "exit_code": 0,
+      "seconds": 11.125005541
+    }
+  ],
+  "source_sha256": {
+    "Makefile": "563fbca8cee15c97bb8c9e34f956da0f14e81cc86fdc3b194e6d73eef81f5d8a",
+    "docs/measurements/gqa_groups_2026-10-14/source_snapshot/tests/.gqa_groups/native.inc": "2e4e92b15ada709ed053cdc9340131484c465d7a68a366c198ef0f1843a841a6",
+    "docs/measurements/gqa_heads_probe_2026-10-14/run_numerical.py": "d0bf593cc0b99c0867005864760ee35f873154b250c05f335051f7f56a2c123a",
+    "linenoise.c": "f0ecdd9b7f7a62cfd381ba85381540772f6d0e9aad4a9c634b2c13c6aad6f2c0",
+    "linenoise.h": "7fb72a08f09353164f8c10c647a01b4f27515e53042659113917307c893f8f03",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "52bf06334d7e2f65a521c8e916a020f87f9279adbf54fcc01012d7dfeabf72e9",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "aa0c1f588c8a7d0963a6c10652f80361a800c03486341db75bd11ab29a6cf9b1",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_agent.c": "d0dbf0ab85cc63ce4e31579667a7f5494d72928b81fb1738eeeb7a5a9f3bd555",
+    "qw3_agent_unicode.h": "24450ca1f87e461ec16ec28f39bbbda8ebf8d932f103754fc3bd9be08491271b",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_cli.c": "9ebc48714d7226b78b1f0f9e190adf5f475f79e15d10e8246ce88a592c4fb77f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_metal.m": "fc2e4dc498a4d573f8a3a4383ce8c45a5bc1c58c9543486a2c207ec622bffdb4",
+    "qw3_runtime_fingerprint.h": "fcc9aa24f68a07619c817b19636ea18ffdf1ef630953237cd4a773aa86239291",
+    "tests/.gqa_heads_probe/hooks.inc": "4e2f05e17bd7c334db9a9d83236c2a10e13ad7a231d759b4685d8362cad0619d",
+    "tests/.gqa_heads_probe/kernels.metal": "d7638faab5fd74fdc5f49204ae61c8c148e9c930b3cc7267994ec660f7350c0f",
+    "tests/.gqa_heads_probe/matrix.inc": "4942c67dd3d9da59f39be988e646c89d839e99a40619cce718c6a44d55f8df71",
+    "tests/.gqa_heads_probe/model.inc": "de8eae1e00cfc0c4f32b0dcd8d9bd899360604ec73fb3df805f4f080372b320a",
+    "tests/.gqa_heads_probe/native.inc": "76a25579e1fb16d0927cdf2cadd7ff219ec1f37c95e4517d3d3b3472754bf9e2",
+    "tests/.gqa_heads_probe/quality.inc": "fd1ba6c1ea61f39bd58a8c93433d0be10d362149f14a2202d6ebcdeeac88891e",
+    "tests/bench_gqa_heads_probe_native.m": "fd4a3ba25bb1c3f50f9001a432287c6d4f83c7039417559b03a3dcdea38f5e5c",
+    "tests/gqa_heads3_public/hooks.inc": "eac40cb7528f614577889165ac19743b1d494d91f7ad21320ce5d784e2d6685d",
+    "tests/gqa_heads3_public/model.inc": "3b2463739100f8b8caf8aa3e16aa380570a0058272556ef1cbbfa631f8207119",
+    "tests/gqa_heads_numeric_oracles.inc": "b9f5002b15a10a11cbcff79b77d33c21b3db7e5d49830124cd704c6a37d46816",
+    "tests/optimization_acceptance.h": "f701610f4415bf5209a611c9455653b68cfd4016d719ecdfa3610edaeff8ff09",
+    "tests/prepare_gqa_heads_probe.py": "303876f3a56ddc4e84df80201eeb0148ddb99a9d336d25420c6cb7684366a515",
+    "tests/test_agent_bash_tool.sh": "747f5f1cc061d14a0ce1d3452b4f4f0320df2d38ada8ee6c180f8a0d236e37db",
+    "tests/test_agent_edit_tool.sh": "b747c64efa1bb527fc9991d6b02eeb4527a4053f9c8816cbc5025ac9bfffc486",
+    "tests/test_dense_agent.sh": "ddf383c1e367d7b034716c8b3b1b1b64cca187762cbc1f4e6f15e2f9526f6018",
+    "tests/test_gqa_heads_probe.m": "44f6914051e86b19212f0a9bd293bad1f577a08881578e75a8745d41f4fa1536",
+    "tests/test_gqa_heads_probe_model.m": "56cfbdb47c3faa175b39c22d15c36f5e68e1dfb96bd0d7fda0aa7830bffd5845",
+    "tests/test_gqa_heads_probe_quality.m": "7393b9acad4f281dd52579a6993ff8ab93d7a239bdbc7ba60910ec36efc16177",
+    "tests/test_public_gqa_heads3.m": "7090412718a456eb11d818594750b187f485822f91f4a9d80fa6ab4d471c8e46",
+    "tests/test_public_gqa_heads3_quality.m": "a39f51f72fb1b91cbabbbdbd9cdb2b9ff53ddf7c91ccac887a1a051f7783c6b6",
+    "tests/test_runtime_fingerprint.py": "cbdb9a4f6e8673a0acd5d3a4bedaa5fdccac352d4ebf9424e5fc69d644ee5f1e",
+    "tools/runtime_fingerprint.py": "789ce0a0d32a4648a04a58b672c1cb33001cf22212e364a111bb122d8ce46309"
+  },
+  "source_snapshot_paths": {
+    "Makefile": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/Makefile",
+    "docs/measurements/gqa_groups_2026-10-14/source_snapshot/tests/.gqa_groups/native.inc": "source_snapshot/docs/measurements/gqa_groups_2026-10-14/source_snapshot/tests/.gqa_groups/native.inc",
+    "docs/measurements/gqa_heads_probe_2026-10-14/run_numerical.py": "source_snapshot/docs/measurements/gqa_heads_probe_2026-10-14/run_numerical.py",
+    "linenoise.c": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/linenoise.c",
+    "linenoise.h": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/linenoise.h",
+    "metal/flash_attn.metal": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/metal/flash_attn.metal",
+    "metal/qw3_core_argmax.metal": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/metal/qw3_core_argmax.metal",
+    "metal/qw3_core_common.metal": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/metal/qw3_core_common.metal",
+    "metal/qw3_core_deltanet.metal": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/metal/qw3_core_deltanet.metal",
+    "metal/qw3_core_linear.metal": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/metal/qw3_core_linear.metal",
+    "metal/qw3_core_moe.metal": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/metal/qw3_core_moe.metal",
+    "metal/qw3_core_sequence.metal": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/metal/qw3_core_sequence.metal",
+    "qw3.c": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3.c",
+    "qw3.h": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3.h",
+    "qw3_agent.c": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3_agent.c",
+    "qw3_agent_unicode.h": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3_agent_unicode.h",
+    "qw3_bench.c": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3_bench.c",
+    "qw3_cli.c": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3_cli.c",
+    "qw3_metal.h": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3_metal.h",
+    "qw3_metal.m": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3_metal.m",
+    "qw3_runtime_fingerprint.h": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/qw3_runtime_fingerprint.h",
+    "tests/.gqa_heads_probe/hooks.inc": "source_snapshot/tests/.gqa_heads_probe/hooks.inc",
+    "tests/.gqa_heads_probe/kernels.metal": "source_snapshot/tests/.gqa_heads_probe/kernels.metal",
+    "tests/.gqa_heads_probe/matrix.inc": "source_snapshot/tests/.gqa_heads_probe/matrix.inc",
+    "tests/.gqa_heads_probe/model.inc": "source_snapshot/tests/.gqa_heads_probe/model.inc",
+    "tests/.gqa_heads_probe/native.inc": "source_snapshot/tests/.gqa_heads_probe/native.inc",
+    "tests/.gqa_heads_probe/quality.inc": "source_snapshot/tests/.gqa_heads_probe/quality.inc",
+    "tests/bench_gqa_heads_probe_native.m": "source_snapshot/tests/bench_gqa_heads_probe_native.m",
+    "tests/gqa_heads3_public/hooks.inc": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/gqa_heads3_public/hooks.inc",
+    "tests/gqa_heads3_public/model.inc": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/gqa_heads3_public/model.inc",
+    "tests/gqa_heads_numeric_oracles.inc": "source_snapshot/tests/gqa_heads_numeric_oracles.inc",
+    "tests/optimization_acceptance.h": "source_snapshot/tests/optimization_acceptance.h",
+    "tests/prepare_gqa_heads_probe.py": "source_snapshot/tests/prepare_gqa_heads_probe.py",
+    "tests/test_agent_bash_tool.sh": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/test_agent_bash_tool.sh",
+    "tests/test_agent_edit_tool.sh": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/test_agent_edit_tool.sh",
+    "tests/test_dense_agent.sh": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/test_dense_agent.sh",
+    "tests/test_gqa_heads_probe.m": "source_snapshot/tests/test_gqa_heads_probe.m",
+    "tests/test_gqa_heads_probe_model.m": "source_snapshot/tests/test_gqa_heads_probe_model.m",
+    "tests/test_gqa_heads_probe_quality.m": "source_snapshot/tests/test_gqa_heads_probe_quality.m",
+    "tests/test_public_gqa_heads3.m": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/test_public_gqa_heads3.m",
+    "tests/test_public_gqa_heads3_quality.m": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/test_public_gqa_heads3_quality.m",
+    "tests/test_runtime_fingerprint.py": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tests/test_runtime_fingerprint.py",
+    "tools/runtime_fingerprint.py": "../../gqa_groups_2026-10-14/public_integration_v2/source_snapshot/tools/runtime_fingerprint.py"
+  },
+  "binary_sha256": {
+    "/tmp/qw3-gqa-heads-probe-matrix": "6f20a0f0220c4d9226041ff52fafdfb0434630adc9ced02dcd94497797259ed9",
+    "/tmp/qw3-gqa-heads-probe-model": "a6911be62defc93e3165278b3922bf841c6a0a7a01aef59257266673ab3d1706",
+    "/tmp/qw3-gqa-heads-probe-native": "6707f809c830bf75ff11007bfd34f7ed3ffd86ba40d18ce0ed97cffaf3ee0fa0"
+  },
+  "completed_utc": "2026-10-14T18:37:05.281356+00:00",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "production_binary_unchanged": true,
+  "model_unchanged": true
+}

@@ -1,0 +1,865 @@
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=128 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=1 head_dim=256 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=32 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=128 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=6 head_dim=256 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=32 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=128 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=7 head_dim=256 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=32 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=128 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=2 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=2 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=2 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=2 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=2 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=2 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=31 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=31 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=31 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=31 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=31 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=31 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=128 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=128 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=128 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=128 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=128 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=128 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=129 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=129 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=129 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=129 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=129 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=129 kv=1 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=159 kv=0 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=159 kv=0 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=159 kv=0 pattern=2 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=159 kv=1 pattern=0 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=159 kv=1 pattern=1 guards=exact input=unchanged
+matrix_numeric variant=1 nmse=0 rmse=0 max_abs=0 different_bits=0
+matrix_exact variant=1 group=8 head_dim=256 n_ctx=159 kv=1 pattern=2 guards=exact input=unchanged
+PASS gqa_heads_probe=1 matrix_cases=432 finite_numerically_valid=all policy=2
