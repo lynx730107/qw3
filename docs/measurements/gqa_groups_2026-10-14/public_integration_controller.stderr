@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/gqa_groups_2026-10-14/run_public_integration.py", line 48, in <module>
+    execute('build_public', ['make','qw3-cli','qw3-agent','qw3-bench'], True)
+  File "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/gqa_groups_2026-10-14/run_public_integration.py", line 45, in execute
+    assert result.returncode == 0, name
+AssertionError: build_public

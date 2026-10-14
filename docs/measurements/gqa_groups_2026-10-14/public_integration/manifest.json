@@ -1,0 +1,34 @@
+{
+  "started_utc": "2026-10-14T17:55:43.936378+00:00",
+  "worktree": "/tmp/qw3-gqa-heads3-integration",
+  "base_revision": "ed4c0268d89df9416880ddd74ef4164f1a9551ab",
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_KV_Q8_0": "0",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1",
+    "QW3_DENSE_MODEL": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+  },
+  "tests": [],
+  "builds": [
+    {
+      "name": "build_public",
+      "command": [
+        "make",
+        "qw3-cli",
+        "qw3-agent",
+        "qw3-bench"
+      ],
+      "exit_code": 2,
+      "seconds": 3.951904625
+    }
+  ],
+  "scope": "actual public selector/pipeline, matrices, eight prefixes/checkpoints and four specific agent regressions",
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "additional_weight_and_session_data_buffers": 0,
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407
+}

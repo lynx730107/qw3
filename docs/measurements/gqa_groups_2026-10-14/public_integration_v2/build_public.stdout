@@ -1,0 +1,6 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_metal_agent.o qw3_agent.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o linenoise_qw3.o linenoise.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-agent qw3_metal_agent.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o -lm -pthread -framework Foundation -framework Metal
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -c -o qw3_bench.o qw3_bench.c
+cc -O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99 -o qw3-bench qw3_bench.o qw3_metal_core.o qw3_metal.o -lm -pthread -framework Foundation -framework Metal

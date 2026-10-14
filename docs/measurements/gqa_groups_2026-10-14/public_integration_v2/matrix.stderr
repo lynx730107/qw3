@@ -1,0 +1,5 @@
+2026-10-14 19:56:31.166 qw3-public-gqa-heads3[58438:56516288] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+public_heads3_metadata width=32 max_threads=1024 static_bytes=0 dynamic_bytes=256
+public_heads3_dispatch_counts calls=18 fallbacks=0

@@ -1,0 +1,193 @@
+{
+  "started_utc": "2026-10-14T17:56:22.688503+00:00",
+  "worktree": "/tmp/qw3-gqa-heads3-integration",
+  "base_revision": "ed4c0268d89df9416880ddd74ef4164f1a9551ab",
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_KV_Q8_0": "0",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1",
+    "QW3_DENSE_MODEL": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+  },
+  "tests": [
+    {
+      "name": "matrix",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/tmp/qw3-public-gqa-heads3",
+        "2"
+      ],
+      "exit_code": 0,
+      "seconds": 2.5487090830000003
+    },
+    {
+      "name": "quality",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "/tmp/qw3-public-gqa-heads3_quality",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "2"
+      ],
+      "exit_code": 0,
+      "seconds": 173.353892875
+    },
+    {
+      "name": "agent_bash",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "sh",
+        "tests/test_agent_bash_tool.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 2.810185667000013
+    },
+    {
+      "name": "agent_edit",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "sh",
+        "tests/test_agent_edit_tool.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 0.18204466699998534
+    },
+    {
+      "name": "runtime_fingerprint",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "python3",
+        "tests/test_runtime_fingerprint.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.39382804199999555
+    },
+    {
+      "name": "dense_agent",
+      "command": [
+        "caffeinate",
+        "-disu",
+        "sh",
+        "tests/test_dense_agent.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 8.159911624999978
+    }
+  ],
+  "builds": [
+    {
+      "name": "build_public",
+      "command": [
+        "make",
+        "qw3-cli",
+        "qw3-agent",
+        "qw3-bench"
+      ],
+      "exit_code": 0,
+      "seconds": 1.2103944999999998
+    },
+    {
+      "name": "build_matrix",
+      "command": [
+        "cc",
+        "-O3",
+        "-ffast-math",
+        "-mcpu=native",
+        "-Wall",
+        "-Wextra",
+        "-fobjc-arc",
+        "-fno-finite-math-only",
+        "-I.",
+        "-o",
+        "/tmp/qw3-public-gqa-heads3",
+        "tests/test_public_gqa_heads3.m",
+        "-lm",
+        "-pthread",
+        "-framework",
+        "Foundation",
+        "-framework",
+        "Metal"
+      ],
+      "exit_code": 0,
+      "seconds": 3.4148372919999996
+    },
+    {
+      "name": "build_quality",
+      "command": [
+        "cc",
+        "-O3",
+        "-ffast-math",
+        "-mcpu=native",
+        "-Wall",
+        "-Wextra",
+        "-fobjc-arc",
+        "-fno-finite-math-only",
+        "-I.",
+        "-o",
+        "/tmp/qw3-public-gqa-heads3_quality",
+        "tests/test_public_gqa_heads3_quality.m",
+        "-lm",
+        "-pthread",
+        "-framework",
+        "Foundation",
+        "-framework",
+        "Metal"
+      ],
+      "exit_code": 0,
+      "seconds": 3.411184458000001
+    }
+  ],
+  "scope": "actual public selector/pipeline, matrices, eight prefixes/checkpoints and four specific agent regressions",
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "additional_weight_and_session_data_buffers": 0,
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "source_sha256": {
+    "Makefile": "563fbca8cee15c97bb8c9e34f956da0f14e81cc86fdc3b194e6d73eef81f5d8a",
+    "linenoise.c": "f0ecdd9b7f7a62cfd381ba85381540772f6d0e9aad4a9c634b2c13c6aad6f2c0",
+    "linenoise.h": "7fb72a08f09353164f8c10c647a01b4f27515e53042659113917307c893f8f03",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "52bf06334d7e2f65a521c8e916a020f87f9279adbf54fcc01012d7dfeabf72e9",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "aa0c1f588c8a7d0963a6c10652f80361a800c03486341db75bd11ab29a6cf9b1",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_agent.c": "d0dbf0ab85cc63ce4e31579667a7f5494d72928b81fb1738eeeb7a5a9f3bd555",
+    "qw3_agent_unicode.h": "24450ca1f87e461ec16ec28f39bbbda8ebf8d932f103754fc3bd9be08491271b",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_cli.c": "9ebc48714d7226b78b1f0f9e190adf5f475f79e15d10e8246ce88a592c4fb77f",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_metal.m": "fc2e4dc498a4d573f8a3a4383ce8c45a5bc1c58c9543486a2c207ec622bffdb4",
+    "qw3_runtime_fingerprint.h": "fcc9aa24f68a07619c817b19636ea18ffdf1ef630953237cd4a773aa86239291",
+    "tests/gqa_heads3_public/hooks.inc": "eac40cb7528f614577889165ac19743b1d494d91f7ad21320ce5d784e2d6685d",
+    "tests/gqa_heads3_public/model.inc": "3b2463739100f8b8caf8aa3e16aa380570a0058272556ef1cbbfa631f8207119",
+    "tests/test_agent_bash_tool.sh": "747f5f1cc061d14a0ce1d3452b4f4f0320df2d38ada8ee6c180f8a0d236e37db",
+    "tests/test_agent_edit_tool.sh": "b747c64efa1bb527fc9991d6b02eeb4527a4053f9c8816cbc5025ac9bfffc486",
+    "tests/test_dense_agent.sh": "ddf383c1e367d7b034716c8b3b1b1b64cca187762cbc1f4e6f15e2f9526f6018",
+    "tests/test_public_gqa_heads3.m": "7090412718a456eb11d818594750b187f485822f91f4a9d80fa6ab4d471c8e46",
+    "tests/test_public_gqa_heads3_quality.m": "a39f51f72fb1b91cbabbbdbd9cdb2b9ff53ddf7c91ccac887a1a051f7783c6b6",
+    "tests/test_runtime_fingerprint.py": "cbdb9a4f6e8673a0acd5d3a4bedaa5fdccac352d4ebf9424e5fc69d644ee5f1e",
+    "tools/runtime_fingerprint.py": "789ce0a0d32a4648a04a58b672c1cb33001cf22212e364a111bb122d8ce46309"
+  },
+  "binary_sha256": {
+    "/tmp/qw3-gqa-heads3-integration/qw3-cli": "850ad9c5840a2c406c9fe72fb29d1d7ab9e429bf5299b98b62fdf5e5bee5c039",
+    "/tmp/qw3-gqa-heads3-integration/qw3-agent": "2eed7eddba9cccd4a41af28a2ec738f1aaa99ced3a828df80c6d019c373c1397",
+    "/tmp/qw3-gqa-heads3-integration/qw3-bench": "256f3f9e71812ba6c18a1fd5f3fcc0c357523328cd5a02f26b40332762d06727",
+    "/tmp/qw3-public-gqa-heads3": "9931683aa54dca771c5bc216733f733e582acbd4c4d685031ae7b917085403a8",
+    "/tmp/qw3-public-gqa-heads3_quality": "ce5a727ff0b144eee3dbc3879dc5b11f9c882dd4d960c7d59f20d85ebb4fa4bb"
+  },
+  "completed_utc": "2026-10-14T17:59:38.246469+00:00",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "model_unchanged": true
+}

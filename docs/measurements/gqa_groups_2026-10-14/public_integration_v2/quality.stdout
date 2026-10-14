@@ -1,0 +1,17 @@
+full_exact phase=0 prefix=1 extended_prefix=1 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=1 extended_prefix=1 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+full_exact phase=0 prefix=15 extended_prefix=15 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=15 extended_prefix=15 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+full_exact phase=0 prefix=16 extended_prefix=16 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=16 extended_prefix=16 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+full_exact phase=0 prefix=31 extended_prefix=31 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=31 extended_prefix=31 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+full_exact phase=0 prefix=127 extended_prefix=127 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=127 extended_prefix=127 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+full_exact phase=0 prefix=128 extended_prefix=159 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=128 extended_prefix=159 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+full_exact phase=0 prefix=129 extended_prefix=129 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=129 extended_prefix=129 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+full_exact phase=0 prefix=159 extended_prefix=159 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=0 sessions=1
+full_exact phase=1 prefix=159 extended_prefix=159 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact checkpoint=exact calls=512 sessions=1
+PASS public_gqa_heads3_quality eight_prefixes=exact checkpoint_roundtrips=16 sessions=1 additional_weight_buffer_bytes=0

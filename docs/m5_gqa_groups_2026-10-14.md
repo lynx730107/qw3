@@ -128,3 +128,44 @@ ogni seguito ON conta 512 dispatch effettivi e zero fallback.
 [verifica](measurements/gqa_groups_2026-10-14/quality_v2/verification.json).
 Questo gate riguarda ancora il candidato privato; integrazione pubblica,
 regressioni dell'agente e confronto aggiornato con llama sono separati.
+
+## Integrazione pubblica verificata
+
+Il commit `a7dd19d` introduce il kernel pubblico, identico al candidato
+privato a tre head salvo il nome. La selezione richiede il nome dispositivo
+Apple M5, KV F16, 24 head query, quattro head KV e dimensione 256. Il
+pipeline è opzionale: deve avere SIMD32, almeno 256 thread e lo stesso
+scratch statico dell'originale. Altri dispositivi, forme o tipi KV e un
+pipeline non disponibile mantengono il percorso originale. La modifica
+agisce solo sull'attenzione decode non split; Flash e Q8 restano nei loro
+percorsi. Si aggiunge un oggetto di pipeline, senza copie dei pesi o nuovi
+buffer dati di sessione. RAM totale e di picco non sono misurate.
+
+I test osservano il pipeline pubblico effettivo, senza sostituire kernel
+o correggere le griglie mediante proxy. Passano le 432 matrici, comprese
+le forme che devono mantenere il percorso originale: 18 selezioni del
+nuovo pipeline. Passano inoltre otto prefissi, estensione 128→159,
+continuazioni greedy32, vocabolari finiti completi, stato canonico,
+history e sedici checkpoint, bit per bit. Si disabilita temporaneamente
+solo il puntatore al pipeline opzionale per il controllo OFF, riusando
+una sessione ctx256. Ogni continuazione ON conta 512 selezioni effettive.
+
+Build senza warning e Metal API Validation attiva. Passano bash, edit,
+fingerprint del runtime e smoke test dense dell'agente (generazione,
+checkpoint salvato/ripreso, prefix cache creata/ripresa e controlli dei
+parametri). Gli store sono temporanei. Non è l'intera suite per ogni
+modello/backend.
+
+Il primo tentativo di build si ferma per `linenoise.h` assente nel checkout
+sparse, prima delle prove GPU. Log, manifest e controller di quel tentativo
+restano in `public_integration/`. Dopo aver aggiunto i file mancanti al
+checkout, il controller corretto usa una nuova directory senza riscrivere
+i risultati precedenti.
+
+[Manifest dell'integrazione](measurements/gqa_groups_2026-10-14/public_integration_v2/manifest.json)
+e [verifica](measurements/gqa_groups_2026-10-14/public_integration_v2/verification.json)
+congelano 28 sorgenti e i binari. La nuova campagna diretta con llama usa
+questi binari pubblici, sei coppie AB/BA per workload, tre ripetizioni e
+60 secondi prima di ogni processo, senza compilazioni o altri carichi GPU
+durante le misure. Il risultato della replica privata non viene sommato
+ad altri esperimenti né convertito in una vittoria su llama.

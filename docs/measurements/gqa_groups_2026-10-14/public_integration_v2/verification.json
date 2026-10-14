@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "index_verified": false,
+  "source_references_verified": 28,
+  "fixture_cases": 432,
+  "actual_public_pipeline_selections_fixture": 18,
+  "prefix_phases": 16,
+  "checkpoint_roundtrips": 16,
+  "specific_agent_regressions": 4,
+  "scope": "actual public selector/pipeline, matrices, eight prefixes/checkpoints and four specific agent regressions",
+  "total_peak_ram_measured": false
+}
