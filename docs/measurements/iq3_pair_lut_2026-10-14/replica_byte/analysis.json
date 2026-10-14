@@ -1,0 +1,104 @@
+{
+  "scope": "independent six-pair replica; process-run means are units, not the 36 individual repetitions",
+  "samples_retained": 36,
+  "run_means_ms": [
+    3466.762333333333,
+    3478.282,
+    3455.8976666666667,
+    3472.9216666666666,
+    3472.804666666667,
+    3469.530333333333,
+    3463.6893333333333,
+    3469.025,
+    3464.4773333333333,
+    3463.9066666666668,
+    3461.3246666666664,
+    3468.043333333333
+  ],
+  "pairs": [
+    {
+      "pair": 0,
+      "order": [
+        0,
+        2
+      ],
+      "off_ms": 3466.762333333333,
+      "on_ms": 3478.282,
+      "saved_ms": -11.519666666667035,
+      "throughput_change_percent": -0.33118840469711364
+    },
+    {
+      "pair": 1,
+      "order": [
+        2,
+        0
+      ],
+      "off_ms": 3472.9216666666666,
+      "on_ms": 3455.8976666666667,
+      "saved_ms": 17.023999999999887,
+      "throughput_change_percent": 0.4926071788583952
+    },
+    {
+      "pair": 2,
+      "order": [
+        0,
+        2
+      ],
+      "off_ms": 3472.804666666667,
+      "on_ms": 3469.530333333333,
+      "saved_ms": 3.274333333333743,
+      "throughput_change_percent": 0.09437396473741533
+    },
+    {
+      "pair": 3,
+      "order": [
+        2,
+        0
+      ],
+      "off_ms": 3469.025,
+      "on_ms": 3463.6893333333333,
+      "saved_ms": 5.335666666666839,
+      "throughput_change_percent": 0.15404576314965723
+    },
+    {
+      "pair": 4,
+      "order": [
+        0,
+        2
+      ],
+      "off_ms": 3464.4773333333333,
+      "on_ms": 3463.9066666666668,
+      "saved_ms": 0.5706666666665114,
+      "throughput_change_percent": 0.016474654821330148
+    },
+    {
+      "pair": 5,
+      "order": [
+        2,
+        0
+      ],
+      "off_ms": 3468.043333333333,
+      "on_ms": 3461.3246666666664,
+      "saved_ms": 6.71866666666665,
+      "throughput_change_percent": 0.19410680342613063
+    }
+  ],
+  "candidate_mean_ms": 3465.4384444444445,
+  "control_mean_ms": 3469.005722222222,
+  "throughput_change_percent": 0.10293871424831291,
+  "off_spread_percent": 0.24342229472956814,
+  "on_spread_percent": 0.6459307730373471,
+  "saved_ms_mean": 3.567277777777766,
+  "saved_ms_ci95": [
+    -6.175683940435542,
+    13.310239495991075
+  ],
+  "ci_assumption": "Student t df=5, critical 2.571; pairs treated as independent, time/thermal correlation may weaken this assumption",
+  "order_group_saved_ms": {
+    "0": -2.5582222222222604,
+    "2": 9.692777777777792
+  },
+  "candidate_wins_all_pairs": false,
+  "both_order_groups_positive": false,
+  "ci_lower_positive": false
+}
