@@ -1,0 +1,9 @@
+{
+  "codes_checked": 4096,
+  "magnitudes_checked": 16384,
+  "values_min": 1,
+  "values_max": 15,
+  "half_storage_roundtrip_to_fp32_bit_exact": true,
+  "byte_storage_unpack_values_exact": true,
+  "shader_products_and_accumulations": "float/float4, FP32"
+}

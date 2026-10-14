@@ -1,0 +1,24 @@
+{
+  "index_verified": true,
+  "source_references_verified": 29,
+  "guarded_matrix_cases": 192,
+  "input_offsets": [
+    16,
+    32
+  ],
+  "nonzero_weight_offset": 2,
+  "model_phases": 3,
+  "candidate_dispatches_per_continuation": 608,
+  "single_reused_ctx256_session": true,
+  "native_vector_dot_expressions_loops_reductions_preserved": true,
+  "static_threadgroup_bytes": [
+    8192,
+    4096,
+    2048
+  ],
+  "dynamic_threadgroup_bytes": 128,
+  "additional_weight_or_session_data_buffers": 0,
+  "production_unchanged_during_gate": true,
+  "exact_representation_codes_checked": 4096,
+  "scope": "private prefix128/greedy32 gate; eight-prefix/checkpoint gate required before adoption"
+}
