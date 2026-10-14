@@ -2,8 +2,8 @@
 
 Questa prova cambia lo scheduling, mantenendo tutti gli shader originali.
 Il gate numerico sul 27B passa: 66 vocabolari completi finiti, token e
-stato canonico coincidono bit per bit. Il throughput non è ancora
-misurato; la produzione rimane invariata e il vantaggio non è dimostrato.
+stato canonico coincidono bit per bit. Lo screening ordinario perde
+−0,437%: la variante viene scartata e la produzione rimane invariata.
 
 Nel checkout llama locale la concorrenza è abilitata per default, salvo
 `GGML_METAL_CONCURRENCY_DISABLE`, con gestione delle dipendenze tra
@@ -51,3 +51,30 @@ processo, deve stabilirne l'effetto senza scartare campioni.
 [verifica](measurements/decode_ffn_concurrent_2026-10-14/verification.json) e
 [audit dei sorgenti e comandi di build](measurements/decode_ffn_concurrent_2026-10-14/source_audit.json).
 Non si archiviano binari, modelli o checkpoint.
+
+## Tempi
+
+OFF/ON/OFF/ON/OFF, tre ripetizioni per processo e 60 secondi prima di
+ogni processo, ctx256 tg32 depth128, KV F16 e offload completo. Warmup
+originale, compilazione e prefill fuori dal timer, API Validation disattiva.
+Sono conservati tutti i 15 campioni, senza scarti o nuovi confronti con llama.
+
+Medie dei blocchi 3451,003 /3469,794 /3455,520 /3470,038 /3456,989 ms.
+Il primo ON perde −0,476% sui controlli interpolati e −0,542%/−0,411%
+sui singoli vicini; il secondo −0,397% e −0,418%/−0,376%. Effetto
+aggregato sui due ON −0,437%, con controlli condivisi, senza intervallo
+paired indipendente. Spread max/min OFF 0,173%.
+
+Ogni ON conta 3007 finestre, 97 forward×31; OFF zero. Le righe CSV
+mantengono 176.761.680 byte di sessione. Swap 965,31 MiB prima/dopo
+ciascun processo; sorgenti, snapshot, binari e stat del GGUF invariati.
+[Analisi](measurements/decode_ffn_concurrent_2026-10-14/native/analysis.json)
+e [verifica](measurements/decode_ffn_concurrent_2026-10-14/native/verification.json)
+rileggono tutti i dati grezzi, comandi e contatori.
+
+Il candidato aggiunge confini di encoder. Il loro costo è una possibile
+spiegazione da verificare; la serie non lo separa dal beneficio o costo
+della concorrenza. Il seguito della ricerca valuta un unico encoder con
+barriere esplicite, mantenendo invariati kernel e buffer di dati. Non si
+eseguono prefissi estesi/checkpoint o regressioni dell'agente per questa
+variante scartata.
