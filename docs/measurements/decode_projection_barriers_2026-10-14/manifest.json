@@ -1,0 +1,185 @@
+{
+  "started_utc": "2026-10-14T17:01:43.547014+00:00",
+  "revision": "844415774b112dd626d746b029c0ea64fb004a51",
+  "source_sha256": {
+    ".gitignore": "bc20c4ebc05ce77467b28955f8e642042bf731acf57e78f4d4915cdad9a7d1de",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_metal.m": "6934be44b8828fd8337a03bcae0573ef217b11c3c30185e17bc4c077243396e1",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "c97aebb315f70eb40b07beb416bbfa2824d4d361796e77d3464495c02924b113",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "52bf06334d7e2f65a521c8e916a020f87f9279adbf54fcc01012d7dfeabf72e9",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/prepare_decode_projection_barriers.py": "b8be79c69089d149886d51ceedbd63fb2c20f46522053fce701c103268627a37",
+    "tests/test_decode_projection_barriers_model.m": "1d89b1933568d52737aed278a3d8ffa8228bd6c0152d1c2ec12d0a189a90e9e6",
+    "tests/bench_decode_projection_barriers_native.m": "2d5f80a7b4a502f5b325ca5e1cc1309233c28c24f2df219060815d151338231c",
+    "tests/.decode_projection_barriers/qw3_private.c": "ce8b6da896cbae4b4cd572c8595da40f9d505b0106fe42e44381637f4e07ef96",
+    "tests/.decode_projection_barriers/qw3_private_metal.m": "60c4cc8c6ac3e6880b5424d4ae26ad83c71dd390ea73d64e3f84fe051ce053a9",
+    "tests/.decode_projection_barriers/hooks.inc": "cb97dd8e6d8d0f0927da4983cd82cb014a6b84744c8830eed34d9152b6c750f3",
+    "tests/.decode_projection_barriers/model.inc": "94dceb0813a58926fe02bc6af07dae1d1f13d0a211f00794491dc9eb0c4ed0b9",
+    "tests/.decode_projection_barriers/native.inc": "1196a561f3014305fef15430ef46585648466b0aeec97255dfcdb2997d64465d",
+    "docs/measurements/decode_projection_barriers_2026-10-14/run_model.py": "affb2d8c2535044f26bb20de583838c49047b376ed5e4b2bab67038096f05dcf"
+  },
+  "source_snapshot_paths": {
+    ".gitignore": "source_snapshot/.gitignore",
+    "qw3.c": "../agent_context_pressure_2026-10-11/source_snapshot/qw3.c",
+    "qw3.h": "../agent_context_pressure_2026-10-11/source_snapshot/qw3.h",
+    "qw3_metal.m": "../iq3xxs_sign_2026-10-14/source_snapshot/qw3_metal.m",
+    "qw3_metal.h": "../agent_context_pressure_2026-10-11/source_snapshot/qw3_metal.h",
+    "qw3_bench.c": "../agent_regressions_2026-10-11/source_snapshot/qw3_bench.c",
+    "qw3_runtime_fingerprint.h": "../iq3xxs_sign_2026-10-14/source_snapshot/qw3_runtime_fingerprint.h",
+    "metal/flash_attn.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/flash_attn.metal",
+    "metal/qw3_core_argmax.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_argmax.metal",
+    "metal/qw3_core_common.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_common.metal",
+    "metal/qw3_core_deltanet.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_deltanet.metal",
+    "metal/qw3_core_linear.metal": "../iq3xxs_sign_2026-10-14/source_snapshot/metal/qw3_core_linear.metal",
+    "metal/qw3_core_moe.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_moe.metal",
+    "metal/qw3_core_sequence.metal": "../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_sequence.metal",
+    "tests/prepare_decode_projection_barriers.py": "source_snapshot/tests/prepare_decode_projection_barriers.py",
+    "tests/test_decode_projection_barriers_model.m": "source_snapshot/tests/test_decode_projection_barriers_model.m",
+    "tests/bench_decode_projection_barriers_native.m": "source_snapshot/tests/bench_decode_projection_barriers_native.m",
+    "tests/.decode_projection_barriers/qw3_private.c": "source_snapshot/tests/.decode_projection_barriers/qw3_private.c",
+    "tests/.decode_projection_barriers/qw3_private_metal.m": "source_snapshot/tests/.decode_projection_barriers/qw3_private_metal.m",
+    "tests/.decode_projection_barriers/hooks.inc": "source_snapshot/tests/.decode_projection_barriers/hooks.inc",
+    "tests/.decode_projection_barriers/model.inc": "source_snapshot/tests/.decode_projection_barriers/model.inc",
+    "tests/.decode_projection_barriers/native.inc": "source_snapshot/tests/.decode_projection_barriers/native.inc",
+    "docs/measurements/decode_projection_barriers_2026-10-14/run_model.py": "source_snapshot/docs/measurements/decode_projection_barriers_2026-10-14/run_model.py"
+  },
+  "binary": "/tmp/qw3-projection-barriers-model-test",
+  "binary_sha256": "325862a5e9dea7ef452698aa27ff5af5baecbf9d325e8313011de08864867676",
+  "production_binary_sha256": {
+    "qw3-cli": "1cb2d6c5be0f206565541faaef0b1153a4e775d3b82d9c2a681b7887bf02d122",
+    "qw3-agent": "d6dc0b344f3acc05139983e05ea7c55a997a318e225600e01dd4285295531288",
+    "qw3-bench": "22aa7fdc3c604e55e1f7952ec87325f6ebfd77a47ed808682a7b759a55cb948b"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "environment": {
+    "QW3_METAL_KV_F16": "1",
+    "QW3_METAL_KV_Q8_0": "0",
+    "QW3_METAL_NGL": "64",
+    "QW3_METAL_DENSE_PREFILL_FAST": "1",
+    "QW3_METAL_DENSE_PREFILL_K64": "1",
+    "QW3_METAL_DENSE_GDN_CACHE": "1",
+    "MTL_DEBUG_LAYER": "1"
+  },
+  "store_before": {
+    "history": [
+      29789,
+      1791783642704500391,
+      "885e5e8d02955f10697ea0d4f6c428fd5dc819ab8bacb3378bf75bba899e2969"
+    ],
+    "spills/tool-k8QvXo": [
+      8284,
+      1791783565598333044,
+      "03912935697d8da67fcf21472d6476ab1a8f9d9fd42356ed2c62232e9f176e12"
+    ],
+    "spills/context-jy1CgC": [
+      8944,
+      1791739388834116195,
+      "ce46ca36d67e28d169e45f86d0162a89208034edb7cf882ab0dfbd373e42cff3"
+    ],
+    "spills/web-Z0DiIi": [
+      10367,
+      1791783565482716747,
+      "198378acd610ffbcd6251da8ecc9295110b7f1984e7412464cd45e3557d7d75a"
+    ],
+    "spills/context-x35FnX": [
+      85518,
+      1791738989230697778,
+      "14f436d5c1d3ed59eb67fe27e45fd3144ce7493913a09a99f116105f29b03921"
+    ],
+    "spills/web-cIs4yu": [
+      70374,
+      1791783483519570526,
+      "fd9f69aa7ae74567e9c0b60c91af23146f98d82b9b75408f1a28144fd914df55"
+    ],
+    "spills/context-40b9Ne": [
+      83053,
+      1791739193857146570,
+      "ac183be45608d0ee5d3e9d3f858163485340d6cb7efc1a513e0ba2ec5263b30e"
+    ],
+    "spills/context-FbA6kr": [
+      30290,
+      1791739721859408976,
+      "e00865d25e9e7ad672d9ce031b9a310757da7b9559ad5164198284a575a32d22"
+    ],
+    "spills/tool-Bkp3OC": [
+      8427,
+      1791783483644987117,
+      "d5bd78b1590bd7c04c488b84fc00530a0e9c645e5d98c4a10a71dd1d4dc4d286"
+    ]
+  },
+  "command": [
+    "caffeinate",
+    "-disu",
+    "/tmp/qw3-projection-barriers-model-test",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+  ],
+  "scope": "baseline/single concurrent encoder with explicit barriers and FFN/DeltaNet projection exceptions; one reused ctx256 session, prefix128 and greedy32, full finite vocabulary and canonical state; not checkpoint gate",
+  "additional_weight_or_session_data_buffers": 0,
+  "metal_shaders_changed": false,
+  "exit_code": 0,
+  "all_passed": true,
+  "completed_utc": "2026-10-14T17:01:56.532744+00:00",
+  "seconds": 12.974351,
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "production_unchanged": true,
+  "model_unchanged": true,
+  "store_after": {
+    "history": [
+      29789,
+      1791783642704500391,
+      "885e5e8d02955f10697ea0d4f6c428fd5dc819ab8bacb3378bf75bba899e2969"
+    ],
+    "spills/tool-k8QvXo": [
+      8284,
+      1791783565598333044,
+      "03912935697d8da67fcf21472d6476ab1a8f9d9fd42356ed2c62232e9f176e12"
+    ],
+    "spills/context-jy1CgC": [
+      8944,
+      1791739388834116195,
+      "ce46ca36d67e28d169e45f86d0162a89208034edb7cf882ab0dfbd373e42cff3"
+    ],
+    "spills/web-Z0DiIi": [
+      10367,
+      1791783565482716747,
+      "198378acd610ffbcd6251da8ecc9295110b7f1984e7412464cd45e3557d7d75a"
+    ],
+    "spills/context-x35FnX": [
+      85518,
+      1791738989230697778,
+      "14f436d5c1d3ed59eb67fe27e45fd3144ce7493913a09a99f116105f29b03921"
+    ],
+    "spills/web-cIs4yu": [
+      70374,
+      1791783483519570526,
+      "fd9f69aa7ae74567e9c0b60c91af23146f98d82b9b75408f1a28144fd914df55"
+    ],
+    "spills/context-40b9Ne": [
+      83053,
+      1791739193857146570,
+      "ac183be45608d0ee5d3e9d3f858163485340d6cb7efc1a513e0ba2ec5263b30e"
+    ],
+    "spills/context-FbA6kr": [
+      30290,
+      1791739721859408976,
+      "e00865d25e9e7ad672d9ce031b9a310757da7b9559ad5164198284a575a32d22"
+    ],
+    "spills/tool-Bkp3OC": [
+      8427,
+      1791783483644987117,
+      "d5bd78b1590bd7c04c488b84fc00530a0e9c645e5d98c4a10a71dd1d4dc4d286"
+    ]
+  },
+  "store_unchanged": true
+}

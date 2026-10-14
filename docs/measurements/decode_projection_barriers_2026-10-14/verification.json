@@ -1,0 +1,19 @@
+{
+  "index_verified": false,
+  "source_references_verified": 23,
+  "model_phases": 2,
+  "candidate_windows_per_continuation": 2528,
+  "windows_per_token": 79,
+  "two_dispatch_windows_per_token": 31,
+  "four_dispatch_windows_per_token": 48,
+  "single_reused_ctx256_session": true,
+  "full_finite_vocabularies_bit_exact": 66,
+  "canonical_state_history_exact": true,
+  "dispatches_per_token": 978,
+  "barriers_per_token": 803,
+  "independent_skips_per_token": 175,
+  "extra_compute_encoders_per_token": 0,
+  "metal_shaders_changed": false,
+  "new_weight_or_session_data_buffers": 0,
+  "scope": "prefix128 plus greedy32; eight prefixes/checkpoints and agent regressions remain required before adoption"
+}
