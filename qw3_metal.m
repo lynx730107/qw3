@@ -198,6 +198,7 @@ static id<MTLComputePipelineState> g_rope_heads_batch_pipeline;
 static id<MTLComputePipelineState> g_gqa_single_token_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend2_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_attend_n_inner_pipeline;
+static id<MTLComputePipelineState> g_gqa_attend_n_inner_heads3_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_attend_inner_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_write_cache_pipeline;
 static id<MTLComputePipelineState> g_gqa_prefill_cached_attend_inner_pipeline;
@@ -2330,6 +2331,20 @@ static int qw3_metal_compile_kernels(void) {
         fprintf(stderr, "qw3: Metal pipeline qw3_gqa_attend_n_inner failed: %s\n",
                 [[error localizedDescription] UTF8String]);
         return 0;
+    }
+    /* Optional M5 pipeline: unsupported devices or metadata retain the original route. */
+    g_gqa_attend_n_inner_heads3_pipeline = nil;
+    if (strcmp(g_device_name, "Apple M5") == 0) {
+        NSError *heads3_error = nil;
+        id<MTLFunction> heads3_fn =
+            [g_library newFunctionWithName:@"qw3_gqa_attend_n_inner_heads3"];
+        id<MTLComputePipelineState> heads3 = heads3_fn ?
+            [g_device newComputePipelineStateWithFunction:heads3_fn error:&heads3_error] : nil;
+        if (heads3 && heads3.threadExecutionWidth == 32u &&
+            heads3.maxTotalThreadsPerThreadgroup >= 256u &&
+            heads3.staticThreadgroupMemoryLength == g_gqa_attend_n_inner_pipeline.staticThreadgroupMemoryLength) {
+            g_gqa_attend_n_inner_heads3_pipeline = heads3;
+        }
     }
     fn = [g_library newFunctionWithName:@"qw3_gqa_prefill_attend_inner"];
     if (!fn) {
@@ -12752,6 +12767,20 @@ static int qw3_metal_session_try_gqa_flash_decode(
     return 1;
 }
 
+/* Preserve original kernels for every shape outside the validated 27B F16 path. */
+static id<MTLComputePipelineState> qw3_metal_gqa_inner_pipeline(
+        uint32_t kv_type, uint32_t n_heads, uint32_t n_kv_heads,
+        uint32_t head_dim, NSUInteger *groups) {
+    *groups = n_kv_heads;
+    if (kv_type == 2u) return g_gqa_attend_n_q8_inner_pipeline;
+    if (g_gqa_attend_n_inner_heads3_pipeline && kv_type == 1u &&
+        n_heads == 24u && n_kv_heads == 4u && head_dim == 256u) {
+        *groups = (NSUInteger)n_kv_heads * 2u;
+        return g_gqa_attend_n_inner_heads3_pipeline;
+    }
+    return g_gqa_attend_n_inner_pipeline;
+}
+
 int qw3_metal_session_gqa_cached_attn_out_typed(qw3_metal_session *s,
                                           uint64_t out_weight_offset,
                                           uint32_t out_weight_type,
@@ -12935,8 +12964,10 @@ int qw3_metal_session_gqa_cached_attn_out_typed(qw3_metal_session *s,
     } else {
         id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
         if (!enc) return 0;
-        id<MTLComputePipelineState> pipeline = obj.gqaKvQ8 ?
-            g_gqa_attend_n_q8_inner_pipeline : g_gqa_attend_n_inner_pipeline;
+        NSUInteger groups = 0;
+        id<MTLComputePipelineState> pipeline = qw3_metal_gqa_inner_pipeline(
+            obj.gqaKvQ8 ? 2u : obj.gqaKvF16 ? 1u : 0u,
+            n_heads, n_kv_heads, head_dim, &groups);
         if (threads > pipeline.maxTotalThreadsPerThreadgroup) {
             qw3_metal_end_compute_encoder(cb, enc);
             return 0;
@@ -12953,7 +12984,7 @@ int qw3_metal_session_gqa_cached_attn_out_typed(qw3_metal_session *s,
             [enc setBuffer:cache_v offset:cache_offset atIndex:7];
         }
         [enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];
-        [enc dispatchThreadgroups:MTLSizeMake(n_kv_heads, 1, 1)
+        [enc dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
         qw3_metal_end_compute_encoder(cb, enc);
     }
@@ -13162,6 +13193,7 @@ void qw3_metal_cleanup(void) {
     g_gqa_single_token_inner_pipeline = nil;
     g_gqa_attend2_inner_pipeline = nil;
     g_gqa_attend_n_inner_pipeline = nil;
+    g_gqa_attend_n_inner_heads3_pipeline = nil;
     g_gqa_prefill_attend_inner_pipeline = nil;
     g_gqa_prefill_write_cache_pipeline = nil;
     g_gqa_prefill_cached_attend_inner_pipeline = nil;
