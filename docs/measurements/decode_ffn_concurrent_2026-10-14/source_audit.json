@@ -1,0 +1,56 @@
+{
+  "scope": "source audit, not measured cross-engine GPU attribution",
+  "llama_revision": "579ef425aba8563eee4e85c769e66543c7dac323",
+  "llama_source_sha256": {
+    "ggml/src/ggml-metal/ggml-metal-context.m": "2be28299672d17fbbe1ba13eff773f69cbe5e7604885d59fc82d57bb889e5c61",
+    "ggml/src/ggml-metal/ggml-metal-ops.cpp": "c5cc93ac7ec121f5055d554e696d9db530c7862579c1b186a7cc59d72641a0e7",
+    "ggml/src/ggml-metal/kernels/mul_mv.metal": "b48ca96a6b28afa196d1b0c1686b8ddbae41c34c4e6d8dd1c73cb19f3edd71b3"
+  },
+  "findings": [
+    "llama use_concurrency defaults true unless GGML_METAL_CONCURRENCY_DISABLE is set",
+    "qw3 dense token uses begin_commands with serial encoder",
+    "private trial overlaps only the two fallback FFN projections; paired IQ3_S/IQ4_XS kernels untouched"
+  ],
+  "build_commands": [
+    [
+      "cc",
+      "-O3",
+      "-ffast-math",
+      "-mcpu=native",
+      "-Wall",
+      "-Wextra",
+      "-fobjc-arc",
+      "-fno-finite-math-only",
+      "-I.",
+      "-o",
+      "/tmp/qw3-ffn-concurrent-model-test",
+      "tests/test_decode_ffn_concurrent_model.m",
+      "-lm",
+      "-pthread",
+      "-framework",
+      "Foundation",
+      "-framework",
+      "Metal"
+    ],
+    [
+      "cc",
+      "-O3",
+      "-ffast-math",
+      "-mcpu=native",
+      "-Wall",
+      "-Wextra",
+      "-fobjc-arc",
+      "-fno-finite-math-only",
+      "-I.",
+      "-o",
+      "/tmp/qw3-ffn-concurrent-native-bench",
+      "tests/bench_decode_ffn_concurrent_native.m",
+      "-lm",
+      "-pthread",
+      "-framework",
+      "Foundation",
+      "-framework",
+      "Metal"
+    ]
+  ]
+}

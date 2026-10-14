@@ -1,0 +1,13 @@
+{
+  "index_verified": true,
+  "source_references_verified": 22,
+  "model_phases": 2,
+  "candidate_windows_per_continuation": 992,
+  "windows_per_token": 31,
+  "single_reused_ctx256_session": true,
+  "full_finite_vocabularies_bit_exact": 66,
+  "canonical_state_history_exact": true,
+  "metal_shaders_changed": false,
+  "new_weight_or_session_data_buffers": 0,
+  "scope": "prefix128 plus greedy32; eight prefixes/checkpoints and agent regressions remain required before adoption"
+}

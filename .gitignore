@@ -249,3 +249,5 @@ tests/.q4_rows/
 /qw3-q4-words-model-test
 /qw3-q4-words-native-bench
 tests/.q4_words/
+
+tests/.decode_ffn_concurrent/
