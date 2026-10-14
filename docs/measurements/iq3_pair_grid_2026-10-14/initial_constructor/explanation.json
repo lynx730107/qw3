@@ -1,0 +1,3 @@
+{
+  "cause": "Synthetic fixture inherited a constructor that relied on an already-open engine; missing qw3_metal_init caused native library compilation to run on a nil device. Both processes stopped before device initialization or candidate numerical comparisons. No timing/model runs."
+}

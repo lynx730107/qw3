@@ -205,6 +205,11 @@ tests/.q5_words/
 /qw3-iq3-add-native-bench
 tests/.iq3_add/
 
+/qw3-iq3-pair-grid-test
+/qw3-iq3-pair-grid-model-test
+/qw3-iq3-pair-grid-native-bench
+tests/.iq3_pair_grid/
+
 /qw3-q4-narrow-test
 /qw3-q4-narrow-model-test
 /qw3-q4-narrow-native-bench
