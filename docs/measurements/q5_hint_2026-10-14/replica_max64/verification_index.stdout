@@ -1,0 +1,118 @@
+{
+  "index_verified": true,
+  "complete": true,
+  "source_references_verified": 28,
+  "validated_runs": 12,
+  "validated_samples": 36,
+  "sources_snapshots_binaries_model_match": true,
+  "scope": "six paired process-run means, not the 36 individual repetitions; no fresh llama comparison",
+  "analysis": {
+    "scope": "independent six-pair replica; process-run means are units, not the 36 individual repetitions",
+    "samples_retained": 36,
+    "run_means_ms": [
+      3457.9456666666665,
+      3465.758,
+      3471.681666666667,
+      3470.574,
+      3476.328666666667,
+      3476.574333333333,
+      3464.744,
+      3467.4816666666666,
+      3465.983333333333,
+      3466.7846666666665,
+      3472.7273333333333,
+      3469.592333333333
+    ],
+    "pairs": [
+      {
+        "pair": 0,
+        "order": [
+          0,
+          1
+        ],
+        "off_ms": 3457.9456666666665,
+        "on_ms": 3465.758,
+        "saved_ms": -7.812333333333299,
+        "throughput_change_percent": -0.22541485393190452
+      },
+      {
+        "pair": 1,
+        "order": [
+          1,
+          0
+        ],
+        "off_ms": 3470.574,
+        "on_ms": 3471.681666666667,
+        "saved_ms": -1.1076666666667734,
+        "throughput_change_percent": -0.03190576708982373
+      },
+      {
+        "pair": 2,
+        "order": [
+          0,
+          1
+        ],
+        "off_ms": 3476.328666666667,
+        "on_ms": 3476.574333333333,
+        "saved_ms": -0.2456666666662386,
+        "throughput_change_percent": -0.007066342989159313
+      },
+      {
+        "pair": 3,
+        "order": [
+          1,
+          0
+        ],
+        "off_ms": 3467.4816666666666,
+        "on_ms": 3464.744,
+        "saved_ms": 2.7376666666664278,
+        "throughput_change_percent": 0.07901497676787717
+      },
+      {
+        "pair": 4,
+        "order": [
+          0,
+          1
+        ],
+        "off_ms": 3465.983333333333,
+        "on_ms": 3466.7846666666665,
+        "saved_ms": -0.8013333333333321,
+        "throughput_change_percent": -0.02311459783003178
+      },
+      {
+        "pair": 5,
+        "order": [
+          1,
+          0
+        ],
+        "off_ms": 3469.592333333333,
+        "on_ms": 3472.7273333333333,
+        "saved_ms": -3.1350000000002183,
+        "throughput_change_percent": -0.09027486753447889
+      }
+    ],
+    "candidate_mean_ms": 3469.7116666666666,
+    "control_mean_ms": 3467.9842777777776,
+    "throughput_change_percent": -0.0497847963991882,
+    "off_spread_percent": 0.5300773742774798,
+    "on_spread_percent": 0.3409601278107991,
+    "saved_ms_mean": -1.7273888888889057,
+    "saved_ms_ci95": [
+      -5.434796275341365,
+      1.980018497563554
+    ],
+    "ci_assumption": "Student t df=5, critical 2.571; pairs treated as independent, time/thermal correlation may weaken this assumption",
+    "order_group_saved_ms": {
+      "0": -2.9531111111109567,
+      "1": -0.5016666666668547
+    },
+    "candidate_wins_all_pairs": false,
+    "both_order_groups_positive": false,
+    "ci_lower_positive": false
+  },
+  "performance_gate_passed": false,
+  "swap_before_after_each_run_equal": true,
+  "swap_usage_values": [
+    "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)"
+  ]
+}
