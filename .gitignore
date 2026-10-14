@@ -225,6 +225,11 @@ tests/.q5_hint/
 /qw3-iq3xxs-sign-native-bench
 tests/.iq3xxs_sign/
 
+/qw3-iq2s-grid-test
+/qw3-iq2s-grid-model-test
+/qw3-iq2s-grid-native-bench
+tests/.iq2s_grid/
+
 /qw3-q4-narrow-test
 /qw3-q4-narrow-model-test
 /qw3-q4-narrow-native-bench

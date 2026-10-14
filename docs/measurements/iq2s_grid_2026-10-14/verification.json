@@ -1,0 +1,19 @@
+{
+  "index_verified": false,
+  "source_references_verified": 29,
+  "guarded_matrix_cases": 384,
+  "model_phases": 3,
+  "candidate_dispatches_per_continuation": 480,
+  "single_reused_ctx256_session": true,
+  "cpu_grid_scalar_magnitudes_exact": 524288,
+  "native_floating_point_expressions_loops_reductions_preserved": true,
+  "static_threadgroup_bytes": [
+    8192,
+    2048,
+    0
+  ],
+  "dynamic_threadgroup_bytes": 128,
+  "threads_per_group": 256,
+  "additional_weight_or_session_data_buffers": 0,
+  "scope": "private prefix128/greedy32 gate; eight prefixes/checkpoints needed before adoption"
+}

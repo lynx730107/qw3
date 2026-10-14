@@ -1,0 +1,6 @@
+2026-10-14 10:35:53.831 qw3-iq2s-grid-test[38122:56123460] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+iq2s_grid_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=8192 dynamic_threadgroup_bytes=128 threads=256
+iq2s_grid_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=2048 dynamic_threadgroup_bytes=128 threads=256
+iq2s_grid_metadata variant=2 width=32 max_threads=1024 static_threadgroup_bytes=0 dynamic_threadgroup_bytes=128 threads=256

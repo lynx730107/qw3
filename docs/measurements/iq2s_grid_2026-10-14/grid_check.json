@@ -1,0 +1,20 @@
+{
+  "packed_words": 65536,
+  "scalar_magnitudes": 524288,
+  "cpu_decode_float32_bits_equal": true,
+  "original_values": [
+    8.0,
+    25.0,
+    43.0,
+    0.0
+  ],
+  "candidate_values": [
+    8,
+    25,
+    43,
+    0
+  ],
+  "native_helper_sha256": "d7bc18fb957f95b090f4cb5f395eb6746cf23f2031cfd092a073045e2517a507",
+  "candidate_helper_sha256": "be87a1c16e80fcc6d655e8e73bc9a380c5ced917f0bac9acf3852aed2a468d49",
+  "gpu_or_model_equivalence_proven": false
+}

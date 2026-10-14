@@ -1,0 +1,9 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+2026-10-14 10:35:54.386 qw3-iq2s-grid-model-test[38126:56123511] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+iq2s_grid_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=8192 dynamic_threadgroup_bytes=128 threads=256
+iq2s_grid_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=2048 dynamic_threadgroup_bytes=128 threads=256
+iq2s_grid_metadata variant=2 width=32 max_threads=1024 static_threadgroup_bytes=0 dynamic_threadgroup_bytes=128 threads=256
