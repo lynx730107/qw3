@@ -13,7 +13,8 @@ seconda legge direttamente la tabella packed device esistente, senza
 staging o barriera iniziale. Restano espressioni `dot` FP32, prodotti,
 accumuli, traversal K, otto righe/64 thread e riduzioni SIMD originali.
 Non si copiano i pesi e non si aggiungono buffer di dati della sessione.
-I 128 byte dinamici di threadgroup restano originali. Le pipeline compilate
+Il fixture passa128 byte dinamici; la route del modello mantiene256 byte,
+64×sizeof(float), identici per baseline e candidati. Le pipeline compilate
 riportano statico8192/1024/0 byte, SIMD32 e massimo1024 thread.
 
 ## Numerica
@@ -83,3 +84,7 @@ della griglia. Non si archiviano binari, GGUF o checkpoint.
 python3 tests/prepare_iq3_pair_grid.py
 make qw3-iq3-pair-grid-test qw3-iq3-pair-grid-model-test qw3-iq3-pair-grid-native-bench
 ```
+
+Correzione documentale: i messaggi del costruttore stampavano128 byte
+dinamici anche nel processo modello. Il backend paired ne passa256;
+128 è il valore del fixture. I log/manifest originali non vengono riscritti.

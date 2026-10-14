@@ -1,0 +1,11 @@
+{
+  "fixture_dynamic_threadgroup_bytes": 128,
+  "native_requested_dynamic_threadgroup_bytes": 256,
+  "native_off_and_on_use_same_existing_request": true,
+  "constructor_printed_dynamic_bytes": 128,
+  "constructor_metadata_scope_error": "Hard-coded message matches fixture only; native route binds 64*sizeof(float). Preserve original messages/manifests; use this source-based correction.",
+  "native_source": "qw3_metal.m",
+  "native_source_sha256": "6934be44b8828fd8337a03bcae0573ef217b11c3c30185e17bc4c077243396e1",
+  "fixture_source": "tests/test_iq3_pair_lut.m",
+  "fixture_source_sha256": "7702d2935b5fda18339d8055c06c872d47a6cd7df11ae0e74282534bcc539013"
+}

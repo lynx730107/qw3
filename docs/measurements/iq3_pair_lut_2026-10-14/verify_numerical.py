@@ -78,11 +78,15 @@ for code in range(4096):
 representation=json.loads((archive/'representation_check.json').read_text())
 assert representation['codes_checked']==4096 and representation['magnitudes_checked']==16384
 assert representation['half_storage_roundtrip_to_fp32_bit_exact'] and representation['byte_storage_unpack_values_exact']
+native=(root/'qw3_metal.m').read_text()
+a=native.index('int qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(')
+host=native[a:native.index('\n}\n',a)+3]
+assert '[enc setThreadgroupMemoryLength:64u * sizeof(float) atIndex:0];' in host
 result={'index_verified':args.index,'source_references_verified':len(m['source_sha256']),
         'guarded_matrix_cases':192,'input_offsets':[16,32],'nonzero_weight_offset':2,
         'model_phases':3,'candidate_dispatches_per_continuation':608,
         'single_reused_ctx256_session':True,'native_vector_dot_expressions_loops_reductions_preserved':True,
-        'static_threadgroup_bytes':[8192,4096,2048],'dynamic_threadgroup_bytes':128,
+        'static_threadgroup_bytes':[8192,4096,2048],'fixture_dynamic_threadgroup_bytes':128,'native_requested_dynamic_threadgroup_bytes':256,
         'additional_weight_or_session_data_buffers':0,'production_unchanged_during_gate':True,
         'exact_representation_codes_checked':4096,
         'scope':'private prefix128/greedy32 gate; eight-prefix/checkpoint gate required before adoption'}

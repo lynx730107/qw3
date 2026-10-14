@@ -16,7 +16,8 @@
     4096,
     2048
   ],
-  "dynamic_threadgroup_bytes": 128,
+  "fixture_dynamic_threadgroup_bytes": 128,
+  "native_requested_dynamic_threadgroup_bytes": 256,
   "additional_weight_or_session_data_buffers": 0,
   "production_unchanged_during_gate": true,
   "exact_representation_codes_checked": 4096,
