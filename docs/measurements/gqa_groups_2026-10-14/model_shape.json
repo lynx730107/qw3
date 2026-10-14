@@ -1,0 +1,15 @@
+{
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "gguf_version": 3,
+  "tensor_count": 866,
+  "metadata": {
+    "general.architecture": "qwen35",
+    "qwen35.embedding_length": 5120,
+    "qwen35.attention.head_count": 24,
+    "qwen35.attention.head_count_kv": 4,
+    "qwen35.attention.key_length": 256
+  },
+  "header_bytes_traversed": 1363,
+  "scope": "streamed metadata only; no model session/GPU allocation"
+}

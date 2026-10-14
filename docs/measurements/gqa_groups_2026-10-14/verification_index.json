@@ -1,0 +1,26 @@
+{
+  "index_verified": true,
+  "selected_variant": 2,
+  "selected_matrix_cases": 432,
+  "rejected_variant": 1,
+  "first_failure_ulp_distance": 25,
+  "rejected_completed_cases": 6,
+  "selected_model_phases": 2,
+  "selected_model_dispatches": 512,
+  "single_reused_ctx256_session": true,
+  "dynamic_threadgroup_bytes_before_after": [
+    256,
+    256
+  ],
+  "static_threadgroup_bytes_before_after": [
+    0,
+    0
+  ],
+  "new_weight_or_session_data_buffers": 0,
+  "model_threadgroups_before_after": [
+    4,
+    8
+  ],
+  "per_head_expressions_reductions_temporal_order_preserved": true,
+  "scope": "three-head candidate passes available numerical gate; extended prefixes/checkpoints and performance remain unproven"
+}

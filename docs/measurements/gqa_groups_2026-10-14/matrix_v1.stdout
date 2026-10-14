@@ -1,0 +1,6 @@
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=0 pattern=0 guards=exact input=unchanged
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=0 pattern=1 guards=exact input=unchanged
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=0 pattern=2 guards=exact input=unchanged
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=1 pattern=0 guards=exact input=unchanged
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=1 pattern=1 guards=exact input=unchanged
+matrix_exact variant=1 group=1 head_dim=32 n_ctx=1 kv=1 pattern=2 guards=exact input=unchanged

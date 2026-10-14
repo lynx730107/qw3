@@ -1,0 +1,8 @@
+{
+  "original_selected_manifest_sha256": "9a6c681b22cb07a27862d20e80722044a34b426a91cf1ac9eb628300d2d3f605",
+  "original_controller_sha256": "cbdcf224244aa89dbb6e072fba24f99e6b7ece320146451a1e685645e3ebbfec",
+  "issue": "controller copied an FFN/DeltaNet scope and outer PASS label; GQA inner PASS labels and variant2 selection were correct",
+  "action": "keep original complete evidence; rerun the same model binary with corrected scope/outer label in a fresh directory",
+  "binary_or_shader_changed": false,
+  "original_model_exit_code": 0
+}
