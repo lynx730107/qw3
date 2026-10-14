@@ -1,0 +1,27 @@
+In file included from tests/test_decode_ffn_barriers_model.m:1:
+In file included from tests/.decode_ffn_barriers/hooks.inc:32:
+tests/.decode_ffn_barriers/../../qw3_metal.m:509:25: warning: assigning to '__strong id<MTLComputeCommandEncoder,QW3FFNBarrierHooks>' from incompatible type 'id<MTLComputeCommandEncoder> _Nullable'
+  509 |             g_batch_enc = g_batch_concurrent ?
+      |                         ^ ~~~~~~~~~~~~~~~~~~~~
+  510 |                 [cb computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent] :
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  511 |                 [cb computeCommandEncoder];
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/.decode_ffn_barriers/../../qw3_metal.m:515:12: warning: returning 'id<MTLComputeCommandEncoder> _Nullable' from a function with incompatible result type 'id<MTLComputeCommandEncoder,QW3FFNBarrierHooks>'
+  515 |     return [cb computeCommandEncoder];
+      |            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from tests/test_decode_ffn_barriers_model.m:1:
+In file included from tests/.decode_ffn_barriers/hooks.inc:58:
+tests/.decode_ffn_barriers/qw3_private.c:5658:43: warning: misleading indentation; statement is not part of the previous 'if' [-Wmisleading-indentation]
+ 5658 |                     private_decode_end(); return -1;
+      |                                           ^
+tests/.decode_ffn_barriers/qw3_private.c:5656:17: note: previous statement is here
+ 5656 |                 if (qw3_metal_session_eval_dense_prefill_batch(
+      |                 ^
+tests/.decode_ffn_barriers/qw3_private.c:14490:82: warning: misleading indentation; statement is not part of the previous 'if' [-Wmisleading-indentation]
+ 14490 |                     s, tokens[i], err, errlen, mode) != 0) private_decode_end(); return -1;
+       |                                                                                  ^
+tests/.decode_ffn_barriers/qw3_private.c:14489:13: note: previous statement is here
+ 14489 |             if (qw3_metal_session_eval_dense_token(
+       |             ^
+4 warnings generated.

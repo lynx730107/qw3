@@ -1,0 +1,4 @@
+dispatch_stats phase=0 dispatches=0 barriers=0 independent_skips=0
+PASS ffn_barriers_model phase=0 prefix=128 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact calls=0 sessions=1 additional_weight_buffer_bytes=0
+dispatch_stats phase=1 dispatches=31296 barriers=30304 independent_skips=992
+PASS ffn_barriers_model phase=1 prefix=128 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact calls=992 sessions=1 additional_weight_buffer_bytes=0
