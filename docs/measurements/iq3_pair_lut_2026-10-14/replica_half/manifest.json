@@ -1,0 +1,861 @@
+{
+  "started_utc": "2026-10-14T06:23:10.924191+00:00",
+  "revision": "54319f204362f093f90697a9f186742890647282",
+  "initial_revision": "54319f204362f093f90697a9f186742890647282",
+  "source_sha256": {
+    "Makefile": "4bcf819d122831e0cb2cd0d25ebc5d56b2e8a3e28f78751a3691099de149963f",
+    ".gitignore": "c586f7aecc0fd43447af78d1d356cc3df45e7647b0150077d887454a526b64df",
+    "qw3.c": "a12480290da248c3b1322de6e5d981ecab0a1ee600cb38f6e35c57e2960c5fbb",
+    "qw3.h": "0d06f57fc4028360f8a8cf0c2e0318f30f0a6e2605b8c47356ebd753760193b4",
+    "qw3_metal.m": "6934be44b8828fd8337a03bcae0573ef217b11c3c30185e17bc4c077243396e1",
+    "qw3_metal.h": "d43e08590bcaf2bf8ca6cdb80588d4ac91be596d38761e639b47140636f26603",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_runtime_fingerprint.h": "c97aebb315f70eb40b07beb416bbfa2824d4d361796e77d3464495c02924b113",
+    "tools/runtime_fingerprint.py": "789ce0a0d32a4648a04a58b672c1cb33001cf22212e364a111bb122d8ce46309",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "52bf06334d7e2f65a521c8e916a020f87f9279adbf54fcc01012d7dfeabf72e9",
+    "metal/qw3_core_moe.metal": "eb82325771c3ffad650592914782c10005acf42f35f2ffc356c2b9f378345d55",
+    "metal/qw3_core_sequence.metal": "ec841ddfe1087d48db8249a13abeedfd6968a442036f8e298147ef91feaf0813",
+    "tests/prepare_iq3_pair_lut.py": "750475b0355f8d287fb2e0697d105fb647328d4cfcd4bd30268504947cd55f64",
+    "tests/test_iq3_pair_lut.m": "7702d2935b5fda18339d8055c06c872d47a6cd7df11ae0e74282534bcc539013",
+    "tests/test_iq3_pair_lut_model.m": "2f5093da6f838cc202e31a1ac67922d302796fa7174f596c6de2659d462b00c3",
+    "tests/bench_iq3_pair_lut_native.m": "a7de79010dc6270871e278b6436cbdff5e177853d454c9d761e54ef3725969f3",
+    "docs/measurements/iq3_pair_grid_2026-10-14/manifest.json": "7bad10cd1fb52d0a02a35124f2e48209cdb9807c7423e1244413ea35e6cebe80",
+    "tests/.iq3_pair_lut/hooks.inc": "16b43f952576255a2f77bf5a5707d46b837602fd9e3c3399d2a70563771638eb",
+    "tests/.iq3_pair_lut/kernels.metal": "21107b46009e4c8be3ffad25195922b103b3917dd7b48e775196071a24fc45dc",
+    "tests/.iq3_pair_lut/model.inc": "d8a7320139cabc4c5d48547d093da54618929298f9dcdfca7c070187b9f0aa3c",
+    "tests/.iq3_pair_lut/native.inc": "5bd5a496fa854549bd2d2f721c12c9598a7efe56446aab862fa1178ab6afb079",
+    "docs/measurements/iq3_pair_lut_2026-10-14/run_screen.py": "c13da7f6ec8c49551c8e3913df1f81460a8de5ff323001f6fe65bb01c3216447",
+    "docs/measurements/iq3_pair_lut_2026-10-14/run_native.py": "7c8a7ee53df111d9fe0845ca7d9567ba199f3479787a9dd127ae14bd7f22f849",
+    "docs/measurements/iq3_pair_lut_2026-10-14/analyze_native.py": "f434c9db56866ae181c2e8923d7f777a5fee38ebc866cc92bbecf6b88a733c5c",
+    "docs/measurements/iq3_pair_lut_2026-10-14/representation_check.json": "c6a6ab66a0b20f067a0125bc8862650f0bbb8151f1f30b71dc88102caf4c9fdc",
+    "docs/measurements/iq3_pair_lut_2026-10-14/run_replica_half.py": "cf2c42e4169e6b87e0bb5f52d46aac046943e91559627c07870b157fae856eca"
+  },
+  "source_snapshot_paths": {
+    "Makefile": "../source_snapshot/Makefile",
+    ".gitignore": "../source_snapshot/.gitignore",
+    "qw3.c": "../../agent_context_pressure_2026-10-11/source_snapshot/qw3.c",
+    "qw3.h": "../../agent_context_pressure_2026-10-11/source_snapshot/qw3.h",
+    "qw3_metal.m": "../source_snapshot/qw3_metal.m",
+    "qw3_metal.h": "../../agent_context_pressure_2026-10-11/source_snapshot/qw3_metal.h",
+    "qw3_bench.c": "../../agent_regressions_2026-10-11/source_snapshot/qw3_bench.c",
+    "qw3_runtime_fingerprint.h": "../source_snapshot/qw3_runtime_fingerprint.h",
+    "tools/runtime_fingerprint.py": "../../agent_regressions_2026-10-11/source_snapshot/tools/runtime_fingerprint.py",
+    "metal/flash_attn.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/flash_attn.metal",
+    "metal/qw3_core_argmax.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_argmax.metal",
+    "metal/qw3_core_common.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_common.metal",
+    "metal/qw3_core_deltanet.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_deltanet.metal",
+    "metal/qw3_core_linear.metal": "../source_snapshot/metal/qw3_core_linear.metal",
+    "metal/qw3_core_moe.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_moe.metal",
+    "metal/qw3_core_sequence.metal": "../../agent_regressions_2026-10-11/source_snapshot/metal/qw3_core_sequence.metal",
+    "tests/prepare_iq3_pair_lut.py": "../source_snapshot/tests/prepare_iq3_pair_lut.py",
+    "tests/test_iq3_pair_lut.m": "../source_snapshot/tests/test_iq3_pair_lut.m",
+    "tests/test_iq3_pair_lut_model.m": "../source_snapshot/tests/test_iq3_pair_lut_model.m",
+    "tests/bench_iq3_pair_lut_native.m": "../source_snapshot/tests/bench_iq3_pair_lut_native.m",
+    "docs/measurements/iq3_pair_grid_2026-10-14/manifest.json": "../source_snapshot/docs/measurements/iq3_pair_grid_2026-10-14/manifest.json",
+    "tests/.iq3_pair_lut/hooks.inc": "../source_snapshot/tests/.iq3_pair_lut/hooks.inc",
+    "tests/.iq3_pair_lut/kernels.metal": "../source_snapshot/tests/.iq3_pair_lut/kernels.metal",
+    "tests/.iq3_pair_lut/model.inc": "../source_snapshot/tests/.iq3_pair_lut/model.inc",
+    "tests/.iq3_pair_lut/native.inc": "../source_snapshot/tests/.iq3_pair_lut/native.inc",
+    "docs/measurements/iq3_pair_lut_2026-10-14/run_screen.py": "../source_snapshot/docs/measurements/iq3_pair_lut_2026-10-14/run_screen.py",
+    "docs/measurements/iq3_pair_lut_2026-10-14/run_native.py": "../source_snapshot/docs/measurements/iq3_pair_lut_2026-10-14/run_native.py",
+    "docs/measurements/iq3_pair_lut_2026-10-14/analyze_native.py": "../source_snapshot/docs/measurements/iq3_pair_lut_2026-10-14/analyze_native.py",
+    "docs/measurements/iq3_pair_lut_2026-10-14/representation_check.json": "../source_snapshot/docs/measurements/iq3_pair_lut_2026-10-14/representation_check.json",
+    "docs/measurements/iq3_pair_lut_2026-10-14/run_replica_half.py": "source_snapshot/docs/measurements/iq3_pair_lut_2026-10-14/run_replica_half.py"
+  },
+  "binary_sha256": {
+    "qw3-iq3-pair-lut-native-bench": "81a931830e8460e651d4feeaa054cd8f2073c63e8f32acaeb0b4c141bbce80cf"
+  },
+  "production_binary_sha256": {
+    "qw3-cli": "1cb2d6c5be0f206565541faaef0b1153a4e775d3b82d9c2a681b7887bf02d122",
+    "qw3-agent": "d6dc0b344f3acc05139983e05ea7c55a997a318e225600e01dd4285295531288",
+    "qw3-bench": "22aa7fdc3c604e55e1f7952ec87325f6ebfd77a47ed808682a7b759a55cb948b"
+  },
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "model_size": 13146393504,
+  "model_mtime_ns": 1789489033525906407,
+  "scope": "ordinary single-session tg32 depth128 ctx256; original weight/session data buffers",
+  "controller_power_command": [
+    "caffeinate",
+    "-disu",
+    "python3",
+    "docs/measurements/iq3_pair_lut_2026-10-14/run_replica_half.py"
+  ],
+  "context": 256,
+  "gpu_layers": 64,
+  "kv": "f16",
+  "repetitions": 3,
+  "warmup": true,
+  "cooldown_seconds_by_process": [
+    60,
+    60,
+    60,
+    60,
+    60,
+    60,
+    60,
+    60,
+    60,
+    60,
+    60,
+    60
+  ],
+  "order": [
+    0,
+    1,
+    1,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    1,
+    1,
+    0
+  ],
+  "runs": [
+    {
+      "name": "block_0_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.962071542000004,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.289,
+          "ms": 3444.883
+        },
+        {
+          "repetition": 2,
+          "tps": 9.243,
+          "ms": 3462.201
+        },
+        {
+          "repetition": 3,
+          "tps": 9.23,
+          "ms": 3467.046
+        }
+      ],
+      "candidate_calls": 0
+    },
+    {
+      "name": "block_1_v1",
+      "variant": 1,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "1"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.962766167000012,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.288,
+          "ms": 3445.351
+        },
+        {
+          "repetition": 2,
+          "tps": 9.249,
+          "ms": 3459.657
+        },
+        {
+          "repetition": 3,
+          "tps": 9.24,
+          "ms": 3463.287
+        }
+      ],
+      "candidate_calls": 1843
+    },
+    {
+      "name": "block_2_v1",
+      "variant": 1,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "1"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.972683415999995,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.287,
+          "ms": 3445.839
+        },
+        {
+          "repetition": 2,
+          "tps": 9.215,
+          "ms": 3472.429
+        },
+        {
+          "repetition": 3,
+          "tps": 9.231,
+          "ms": 3466.427
+        }
+      ],
+      "candidate_calls": 1843
+    },
+    {
+      "name": "block_3_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.047831540999994,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.129,
+          "ms": 3505.37
+        },
+        {
+          "repetition": 2,
+          "tps": 9.233,
+          "ms": 3465.971
+        },
+        {
+          "repetition": 3,
+          "tps": 9.202,
+          "ms": 3477.464
+        }
+      ],
+      "candidate_calls": 0
+    },
+    {
+      "name": "block_4_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.025795207999977,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.258,
+          "ms": 3456.513
+        },
+        {
+          "repetition": 2,
+          "tps": 9.236,
+          "ms": 3464.666
+        },
+        {
+          "repetition": 3,
+          "tps": 9.189,
+          "ms": 3482.324
+        }
+      ],
+      "candidate_calls": 0
+    },
+    {
+      "name": "block_5_v1",
+      "variant": 1,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "1"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.95759808400004,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.267,
+          "ms": 3453.021
+        },
+        {
+          "repetition": 2,
+          "tps": 9.252,
+          "ms": 3458.837
+        },
+        {
+          "repetition": 3,
+          "tps": 9.212,
+          "ms": 3473.722
+        }
+      ],
+      "candidate_calls": 1843
+    },
+    {
+      "name": "block_6_v1",
+      "variant": 1,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "1"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.966606624999997,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.278,
+          "ms": 3449.081
+        },
+        {
+          "repetition": 2,
+          "tps": 9.248,
+          "ms": 3460.057
+        },
+        {
+          "repetition": 3,
+          "tps": 9.213,
+          "ms": 3473.332
+        }
+      ],
+      "candidate_calls": 1843
+    },
+    {
+      "name": "block_7_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.944481083000028,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.261,
+          "ms": 3455.441
+        },
+        {
+          "repetition": 2,
+          "tps": 9.227,
+          "ms": 3467.897
+        },
+        {
+          "repetition": 3,
+          "tps": 9.211,
+          "ms": 3474.074
+        }
+      ],
+      "candidate_calls": 0
+    },
+    {
+      "name": "block_8_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 13.977755249999973,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.268,
+          "ms": 3452.792
+        },
+        {
+          "repetition": 2,
+          "tps": 9.231,
+          "ms": 3466.525
+        },
+        {
+          "repetition": 3,
+          "tps": 9.217,
+          "ms": 3471.664
+        }
+      ],
+      "candidate_calls": 0
+    },
+    {
+      "name": "block_9_v1",
+      "variant": 1,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "1"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.041081249999934,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.218,
+          "ms": 3471.32
+        },
+        {
+          "repetition": 2,
+          "tps": 9.234,
+          "ms": 3465.588
+        },
+        {
+          "repetition": 3,
+          "tps": 9.203,
+          "ms": 3477.083
+        }
+      ],
+      "candidate_calls": 1843
+    },
+    {
+      "name": "block_10_v1",
+      "variant": 1,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "1"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.018069540999932,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.269,
+          "ms": 3452.323
+        },
+        {
+          "repetition": 2,
+          "tps": 9.242,
+          "ms": 3462.46
+        },
+        {
+          "repetition": 3,
+          "tps": 9.2,
+          "ms": 3478.148
+        }
+      ],
+      "candidate_calls": 1843
+    },
+    {
+      "name": "block_11_v0",
+      "variant": 0,
+      "command": [
+        "caffeinate",
+        "-disu",
+        "./qw3-iq3-pair-lut-native-bench",
+        "-m",
+        "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+        "--metal",
+        "--ngl",
+        "64",
+        "--llama-style",
+        "--ctx-alloc",
+        "256",
+        "-p",
+        "0",
+        "-n",
+        "32",
+        "-d",
+        "128",
+        "-r",
+        "3",
+        "--seed",
+        "1",
+        "-t",
+        "4"
+      ],
+      "environment": {
+        "QW3_METAL_KV_F16": "1",
+        "QW3_METAL_KV_Q8_0": "0",
+        "QW3_METAL_NGL": "64",
+        "QW3_METAL_DENSE_PREFILL_FAST": "1",
+        "QW3_METAL_DENSE_PREFILL_K64": "1",
+        "QW3_METAL_DENSE_GDN_CACHE": "1",
+        "QW3_BENCH_PRINT_SAMPLES": "1",
+        "QW3_PRIVATE_IQ3_PAIR_LUT": "0"
+      },
+      "swap_before": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "exit_code": 0,
+      "seconds": 14.00826916699998,
+      "swap_after": "vm.swapusage: total = 2048.00M  used = 981.31M  free = 1066.69M  (encrypted)",
+      "samples": [
+        {
+          "repetition": 1,
+          "tps": 9.216,
+          "ms": 3472.071
+        },
+        {
+          "repetition": 2,
+          "tps": 9.222,
+          "ms": 3470.097
+        },
+        {
+          "repetition": 3,
+          "tps": 9.184,
+          "ms": 3484.405
+        }
+      ],
+      "candidate_calls": 0
+    }
+  ],
+  "selection_reason": "Half4 initial local-control point gain +0.145%, +0.077%/+0.213% against each neighbor; expanded-byte +0.125%. Select the larger local mean effect for independent balanced replication, without comparing absolute rates across candidates.",
+  "initial_native_manifest_sha256": "c636566a3db20f0e67775762f7b1931d69f292367c09c10033e7aea0b90394d7",
+  "initial_native_analysis_sha256": "5c28306ddc518dd3b37d6d7dbb3525dadc8fa4be7a3871a0433e0518b9bb570c",
+  "source_unchanged": true,
+  "binary_unchanged": true,
+  "model_unchanged": true,
+  "completed_utc": "2026-10-14T06:37:59.030820+00:00"
+}
