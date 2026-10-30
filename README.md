@@ -1,8 +1,14 @@
 # qw3
 
-`qw3` is a small experimental C/Objective-C runtime for Qwen3.6 35B-A3B and
-Qwen3.8 27B GGUF models, with an Apple Metal backend, benchmark tools,
-evaluation code, and an integrated local agent.
+`qw3` is a focused C/Objective-C inference runtime for **Qwen3.6 35B-A3B (MoE)**
+and **Qwen3.8 27B (dense)** GGUF models on Apple Silicon. It includes a native
+Metal backend, benchmark and evaluation tools, and a local coding agent with
+persistent inference checkpoints.
+
+`main` contains the consolidated runtime from the M5 DeltaNet prefill branch,
+including the subsequent dense decode and GQA integrations. The project remains
+experimental; validated models, hardware scope and measured results are listed
+below.
 
 The project started as an attempt to reproduce, on a smaller and narrower
 scale, some of the ideas behind Salvatore Sanfilippo's DwarfStar/ds4 project:
@@ -18,18 +24,16 @@ discipline.
 
 ## Status
 
-- Main backend: Metal on macOS/Apple Silicon.
-- Validated GGUFs: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` and
-  `Qwen3.8-27B-UD-Q3_K_XL.gguf`. Other quantizations remain unvalidated.
-- Qwen3.6 Metal generation is stable; its warmed `pp4096` prefill reaches
-  about 633 tok/s on the tested Apple M5 setup.
-- Qwen3.8 CPU and full-offload Metal decode pass differential logits and
-  eight-step greedy tests. Dense Metal prefill batches FFN projections using
-  IQ3_S/IQ4_XS in groups of up to 128 tokens, including mixed layers with
-  two supported projections. Attention and other quantizations still use
-  tokenwise projections.
-- Agent: usable, with local tools, context compaction, and code-navigation
-  helpers.
+| Model profile | Validated GGUF | Validated usage |
+| --- | --- | --- |
+| Qwen3.6 35B-A3B, hybrid MoE | `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` | Metal generation and local agent |
+| Qwen3.8 27B, hybrid dense | `Qwen3.8-27B-UD-Q3_K_XL.gguf` | CPU and full-offload Metal logits/greedy checks; full-offload Metal agent, checkpoints and prefix cache |
+
+The main backend is Metal on macOS/Apple Silicon. The agent includes local
+tools, context compaction, code-navigation helpers and resumable sessions.
+For the dense agent, use all 64 trunk layers on Metal and F16 or F32 KV;
+dense Q8 KV remains unvalidated. The 27B GGUF's extra MTP blocks are ignored:
+inference uses the supported 64-layer trunk.
 
 All tests and performance measurements so far were run only on a MacBook Air
 M5 with 24 GB of unified memory. Because of that hardware limit, the largest
@@ -39,6 +43,29 @@ tested.
 
 Model weights are not included in this repository. At the moment, other GGUF
 quantizations should be considered unsupported unless explicitly validated.
+
+## Integrated M5 optimizations
+
+The consolidated dense path includes:
+
+- Staged Metal TensorOps projections for supported quantizations and batched
+  prefill, including
+  [packed8 DeltaNet and direct scratch projections](docs/m5_packed8_scratch_prefill_2026-10-05.md)
+  and [K64 IQ3_S staging](docs/m5_kstage_prefill_2026-10-10.md).
+- [FP32 DeltaNet state reuse during decode](docs/m5_gdn_cache_2026-10-10.md).
+- [Q4_K word-load projections](docs/m5_q4_uint_integration_2026-10-13.md)
+  for the validated M5 dense profile and aligned weight views.
+- [GQA F16 decode in groups of three query heads](docs/m5_gqa_groups_2026-10-14.md)
+  on Apple M5 for the 27B's 24-query-head, four-KV-head, head-dimension-256
+  layout. This applies to the non-split attention path.
+
+Dispatch remains specific to the supported hardware, model shapes and cache
+types. Integration records include numerical, live-state, checkpoint and agent
+checks; measured gains and their uncertainty are documented individually.
+The detailed history below also retains experimental and rejected candidates.
+The [current optimization acceptance policy](docs/optimization_acceptance.md)
+requires numerical validity, agent behavior checks, checkpoint correctness and
+repeatable ordinary-path performance before adopting further changes.
 
 ## Build
 
@@ -51,7 +78,7 @@ make
 The default Darwin build produces Metal binaries without a `metal` suffix:
 
 ```text
-qw3        generation CLI
+qw3-cli    generation CLI
 qw3-agent  local coding agent
 qw3-bench  benchmark tool
 qw3-eval   evaluation tool
@@ -78,11 +105,12 @@ Generation:
   --ctx 16000 --nothink -p "hello"
 ```
 
-Qwen3.8 dense generation (all 64 trunk layers on Metal; F16 KV by default):
+Qwen3.8 dense generation (all 64 trunk layers on Metal, F16 KV):
 
 ```sh
 ./qw3-cli -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf \
-  --ngl 64 --ctx 32 --nothink -p "ciao" -n 1
+  --ngl 64 --kv-f16 --ctx 2048 --nothink \
+  -p "Explain briefly what a local inference runtime does." -n 128
 ```
 
 Use `--cpu` if full Metal offload is unavailable. Dense Q8 KV is not yet
@@ -570,6 +598,28 @@ See [the short-batch measurements and scope](docs/short_batch_kernels_2026-10-01
 
 ## Performance
 
+### Qwen3.8 27B dense: latest integrated GQA comparison
+
+The October 14, 2026 campaign compares the integrated public runtime against
+llama.cpp on the same supported 27B GGUF, full Metal offload and F16 KV on the
+MacBook Air M5 with 24 GB. Each workload retains six AB/BA engine pairs with
+three repetitions per engine run, with 60 seconds idle before each process.
+All 24 processes and 72 samples are retained.
+
+| Workload | qw3 | llama.cpp | qw3 throughput difference |
+| --- | ---: | ---: | ---: |
+| Prefill `pp128` | 162.07 tok/s | 162.47 tok/s | -0.2475% |
+| Decode `tg32`, depth 128 | 9.2819 tok/s | 9.2634 tok/s | +0.1999% |
+
+The paired 95% intervals include zero for both workloads, so this series
+establishes no statistically confirmed lead for either engine. These are
+specific short-workload observations, not a general parity or sustained-speed
+claim. Total and peak process RAM were not measured; swap changed during some
+runs. See the [complete campaign and uncertainty](docs/m5_gqa_groups_2026-10-14.md#campagna-diretta-conclusa)
+and [verified raw analysis](docs/measurements/gqa_groups_2026-10-14/public_reference/runs/analysis.json).
+
+### Qwen3.6 35B-A3B: historical baseline
+
 Measurements below were taken on September 14, 2026, on a MacBook Air M5 with
 24 GB unified memory. They use the supported
 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, full Metal offload, F16 KV cache, and
@@ -770,6 +820,17 @@ The Metal runtime loads split kernel sources from `metal/` by default. See
 `QW3_METAL_KERNEL_DIR`.
 
 ## Validation
+
+The following are model-specific regression entry points for the two supported
+profiles. They require the corresponding local GGUF and, where applicable, the
+llama.cpp reference build described by the tests:
+
+| Scope | Command |
+| --- | --- |
+| 35B Metal logits | `make test-metal-logits` |
+| 27B dense Metal bring-up | `make test-dense-metal-bringup` |
+| 27B dense agent, checkpoint and prefix cache | `make test-dense-agent` |
+| Shared CPU/Metal text IMRoPE | `make test-rope test-rope-metal` |
 
 Minimum checks before trusting a Metal change:
 
