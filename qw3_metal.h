@@ -320,6 +320,19 @@ int qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
 int qw3_metal_session_matvec_iq4_xs_pair_x1_to_scratch(
     qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
     uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_matvec_dense_pair_swiglu_x1_to_inner(
+    qw3_metal_session *s,
+    uint64_t gate_offset, uint32_t gate_type,
+    uint64_t up_offset, uint32_t up_type,
+    uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_matvec_dense_pair_x1_to_scratch(
+    qw3_metal_session *s,
+    uint64_t w0_offset, uint32_t w0_type, uint32_t n_out0, uint32_t out0_offset,
+    uint64_t w1_offset, uint32_t w1_type, uint32_t n_out1, uint32_t out1_offset,
+    uint32_t n_in);
+int qw3_metal_session_matvec_quant_inner_add_x0(
+    qw3_metal_session *s, uint64_t tensor_offset, uint32_t tensor_type,
+    uint32_t n_in, uint32_t n_out);
 int qw3_metal_session_gqa_project_cache_typed_prefill(
     qw3_metal_session *s,
     uint64_t q_weight_offset, uint64_t k_weight_offset,

@@ -6433,8 +6433,8 @@ int qw3_session_sync_interruptible(qw3_session *s, const qw3_tokens *prompt,
             return -1;
         }
         const char *dense_batch_env = getenv("QW3_METAL_DENSE_PREFILL_BATCH");
-        int dense_batch = dense_batch_env ? atoi(dense_batch_env) : 128;
-        if (dense_batch > 128) dense_batch = 128;
+        int dense_batch = dense_batch_env ? atoi(dense_batch_env) : 256;
+        if (dense_batch > 256) dense_batch = 256;
         if (dense_batch < 1) dense_batch = 1;
         for (int i = common; i < prompt->len;) {
             if (should_interrupt && should_interrupt(ud)) goto interrupted;
@@ -15382,11 +15382,32 @@ qw3_metal_session_eval_prefill_batch_mode(qw3_session *s, const int *tokens,
     if (!s || !s->engine || !s->metal || !tokens || n_tokens <= 0) return -1;
     if (s->engine->model.spec &&
         s->engine->model.spec->ffn_kind == QW3_FFN_DENSE) {
-        for (int i = 0; i < n_tokens; i++) {
-            const int mode = i + 1 == n_tokens ?
+        const qw3_model_spec *spec = s->engine->model.spec;
+        qw3_metal_state_info state_info = {0};
+        const int can_batch = s->metal_n_gpu_layers == spec->n_layer &&
+            (s->engine->weights.token_embd->type == QW3_TENSOR_Q3_K ||
+             s->engine->weights.token_embd->type == QW3_TENSOR_Q2_K) &&
+            qw3_metal_session_get_state_info(s->metal, &state_info) &&
+            state_info.kv_type != 2u;
+        const char *dense_batch_env = getenv("QW3_METAL_DENSE_PREFILL_BATCH");
+        int dense_batch = dense_batch_env ? atoi(dense_batch_env) : 256;
+        if (dense_batch > 256) dense_batch = 256;
+        if (dense_batch < 1) dense_batch = 1;
+        for (int i = 0; i < n_tokens;) {
+            int n = can_batch ? n_tokens - i : 1;
+            if (n > dense_batch) n = dense_batch;
+            const int mode = i + n == n_tokens ?
                 logits_mode : QW3_METAL_LOGITS_DEFER;
-            if (qw3_metal_session_eval_dense_token(
-                    s, tokens[i], err, errlen, mode) != 0) return -1;
+            if (n > 1) {
+                if (qw3_metal_session_eval_dense_prefill_batch(
+                        s, tokens + i, n, err, errlen, mode) != 0)
+                    return -1;
+            } else {
+                if (qw3_metal_session_eval_dense_token(
+                        s, tokens[i], err, errlen, mode) != 0)
+                    return -1;
+            }
+            i += n;
         }
         return 0;
     }
@@ -16286,7 +16307,11 @@ static int qw3_metal_session_eval_dense_prefill_batch(
         }
         if (ok && layer_batch) {
             stage = "submit batched dense layer";
-            ok = qw3_metal_synchronize();
+            /* Commit asynchronously on Metal's serial queue to avoid 64 CPU-GPU
+             * pipeline bubbles; synchronize once after the layer loop (or on tail). */
+            ok = (il + 1 < spec->n_layer)
+                ? qw3_metal_commit_commands()
+                : qw3_metal_synchronize();
         } else if (!ok && layer_batch) {
             (void)qw3_metal_synchronize();
         }
@@ -16440,13 +16465,23 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
         } else {
             const uint32_t slot = (uint32_t)s->dn.linear_layer_map[il];
             stage = "DeltaNet projections";
-            ok = qw3_metal_session_matvec_quant_x1_to_scratch(
-                     s->metal, lw->linear_qkv_proj->offset,
-                     lw->linear_qkv_proj->type, n_embd, n_qkv, 0, NULL) &&
-                 qw3_metal_session_matvec_quant_x1_to_scratch(
-                     s->metal, lw->linear_gate_proj->offset,
-                     lw->linear_gate_proj->type, n_embd, inner_n,
-                     n_qkv, NULL) &&
+            const char *dn_pair_env = getenv("QW3_METAL_DENSE_DN_PAIR");
+            const int dn_pair = !dn_pair_env || strcmp(dn_pair_env, "0") != 0;
+            int qkv_z_done = dn_pair &&
+                qw3_metal_session_matvec_dense_pair_x1_to_scratch(
+                    s->metal,
+                    lw->linear_qkv_proj->offset, lw->linear_qkv_proj->type,
+                    n_qkv, 0,
+                    lw->linear_gate_proj->offset, lw->linear_gate_proj->type,
+                    inner_n, n_qkv, n_embd);
+            ok = (qkv_z_done ||
+                  (qw3_metal_session_matvec_quant_x1_to_scratch(
+                       s->metal, lw->linear_qkv_proj->offset,
+                       lw->linear_qkv_proj->type, n_embd, n_qkv, 0, NULL) &&
+                   qw3_metal_session_matvec_quant_x1_to_scratch(
+                       s->metal, lw->linear_gate_proj->offset,
+                       lw->linear_gate_proj->type, n_embd, inner_n,
+                       n_qkv, NULL))) &&
                  qw3_metal_session_matvec_quant_x1_to_scratch(
                      s->metal, lw->linear_ssm_alpha->offset,
                      lw->linear_ssm_alpha->type, n_embd,
@@ -16492,7 +16527,19 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
         if (!ok) break;
 
         stage = "FFN gate/up";
-        if (iq3_pair && lw->ffn_gate->type == QW3_TENSOR_IQ3_S &&
+        const char *fused_swiglu_env = getenv("QW3_METAL_DENSE_PAIR_SWIGLU");
+        const int fused_swiglu_en =
+            !fused_swiglu_env || strcmp(fused_swiglu_env, "0") != 0;
+        int swiglu_done = 0;
+        if (fused_swiglu_en && iq3_pair && iq4_pair &&
+            qw3_metal_session_matvec_dense_pair_swiglu_x1_to_inner(
+                s->metal,
+                lw->ffn_gate->offset, lw->ffn_gate->type,
+                lw->ffn_up->offset, lw->ffn_up->type,
+                n_embd, n_ff)) {
+            swiglu_done = 1;
+            ok = 1;
+        } else if (iq3_pair && lw->ffn_gate->type == QW3_TENSOR_IQ3_S &&
             lw->ffn_up->type == QW3_TENSOR_IQ3_S) {
             ok = qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
                 s->metal, lw->ffn_gate->offset, lw->ffn_up->offset,
@@ -16514,12 +16561,15 @@ static int qw3_metal_session_eval_dense_token(qw3_session *s, int token,
         QW3_DENSE_PROFILE_STAGE(5);
         if (!ok) break;
         stage = "FFN SwiGLU/down";
-        ok = qw3_metal_session_silu_mul_scratch_to_inner(
-            s->metal, 0, n_ff, n_ff);
+        if (!swiglu_done) {
+            ok = qw3_metal_session_silu_mul_scratch_to_inner(
+                s->metal, 0, n_ff, n_ff);
+        }
         if (ok && iq4_down_add &&
-            lw->ffn_down->type == QW3_TENSOR_IQ4_XS) {
-            ok = qw3_metal_session_matvec_iq4_xs_inner_add_x0(
-                s->metal, lw->ffn_down->offset, n_ff, n_embd);
+            qw3_metal_session_matvec_quant_inner_add_x0(
+                s->metal, lw->ffn_down->offset, lw->ffn_down->type,
+                n_ff, n_embd)) {
+            ok = 1;
         } else if (ok) {
             ok = qw3_metal_session_matvec_quant_inner_to_x1(
                      s->metal, lw->ffn_down->offset, lw->ffn_down->type,

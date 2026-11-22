@@ -58,6 +58,7 @@ static id<MTLBuffer> g_iq_signs_buffer;
 static id<MTLBuffer> g_iq1_grid_buffer;
 static id<MTLComputePipelineState> g_matvec_iq1_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq1_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq1_mpp_staged128_pipeline;
 static id<MTLBuffer> g_iq2xxs_kgrid_buffer;
 static id<MTLBuffer> g_iq2xs_kgrid_buffer;
 static id<MTLBuffer> g_iq2s_kgrid_buffer;
@@ -87,8 +88,10 @@ static id<MTLComputePipelineState> g_matvec_q5_k_pipeline;
 static id<MTLComputePipelineState> g_matvec_q2_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q2_k_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_q2_k_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_q2_k_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_q4_k_pipeline;
 static id<MTLComputePipelineState> g_matvec_q4_k_words_pipeline;
+static id<MTLComputePipelineState> g_matvec_q4_k_fast_pipeline;
 static int g_dense_q4_words;
 static id<MTLComputePipelineState> g_matvec_q3_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q3_k_batch4_pipeline;
@@ -101,7 +104,7 @@ static bool g_partial_dense_tiles;
 
 static bool qw3_metal_dense_staged_rows(uint32_t n_tokens) {
     return n_tokens % 128u == 0u ||
-           (g_partial_dense_tiles && n_tokens >= 64u && n_tokens < 128u);
+           (g_partial_dense_tiles && n_tokens >= 64u);
 }
 
 static int qw3_metal_staged128_enabled(void) {
@@ -136,13 +139,18 @@ static int g_dense_iq2_vector;
 static uint32_t g_dense_iq2_simdgroups;
 static id<MTLComputePipelineState> g_matvec_iq2_xs_sg8_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_s_sg8_pipeline;
+static id<MTLComputePipelineState> g_matvec_iq2_s_add_x0_sg8_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_xs_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq2_xs_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_xxs_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_iq2_xxs_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq2_s_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_xxs_pipeline;
+static id<MTLComputePipelineState> g_matvec_iq3_xxs_sg8_pipeline;
+static id<MTLComputePipelineState> g_matvec_iq3_xxs_add_x0_sg8_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_batch4_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_xxs_short_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq2_s_short_pipeline;
@@ -152,12 +160,23 @@ static id<MTLComputePipelineState> g_matmul_iq3_xxs_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q6_k_mpp_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_pair_pipeline;
+static id<MTLComputePipelineState> g_matvec_iq4_xs_pair_swiglu_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_swiglu_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_q6_k_swiglu_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pipeline;
+static id<MTLComputePipelineState> g_matvec_iq3_s_sg8_pipeline;
+static id<MTLComputePipelineState> g_matvec_iq3_s_add_x0_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq3_s_pair_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq3xxs_iq3xxs_swiglu_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq3xxs_iq3xxs_split_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq3xxs_iq3s_swiglu_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq3xxs_iq3s_split_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq3s_iq3s_swiglu_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq3s_iq3s_split_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq2s_iq2s_swiglu_pipeline;
+static id<MTLComputePipelineState> g_matvec_pair_iq2s_iq3xxs_swiglu_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq4_xs_mpp_pipeline;
 static id<MTLComputePipelineState> g_matmul_iq3_s_mpp_staged128_pipeline;
@@ -673,12 +692,18 @@ static int qw3_metal_finish_command_buffer(id<MTLCommandBuffer> cb,
 static id<MTLComputePipelineState> qw3_metal_dense_q4_pipeline(
     QW3MetalSessionObj *obj, id<MTLComputePipelineState> pipeline,
     uint64_t row_bytes, uint64_t weight_offset) {
-    if (g_dense_q4_words && g_matvec_q4_k_words_pipeline &&
-        pipeline == g_matvec_q4_k_pipeline &&
-        obj.metalFullLayers == 16u && obj.metalLinearLayers == 48u &&
-        obj.x0.length == 5120u * sizeof(float) &&
+    if (pipeline == g_matvec_q4_k_pipeline &&
         ((row_bytes | weight_offset) & 3u) == 0u) {
-        return g_matvec_q4_k_words_pipeline;
+        const char *q4_fast_env = getenv("QW3_METAL_Q4_K_FAST");
+        if (g_matvec_q4_k_fast_pipeline &&
+            (!q4_fast_env || strcmp(q4_fast_env, "0") != 0)) {
+            return g_matvec_q4_k_fast_pipeline;
+        }
+        if (g_dense_q4_words && g_matvec_q4_k_words_pipeline &&
+            obj.metalFullLayers == 16u && obj.metalLinearLayers == 48u &&
+            obj.x0.length == 5120u * sizeof(float)) {
+            return g_matvec_q4_k_words_pipeline;
+        }
     }
     return pipeline;
 }
@@ -1059,8 +1084,8 @@ static int qw3_metal_compile_kernels(void) {
     const char *partial = getenv("QW3_METAL_DENSE_PARTIAL_TILES");
     const char *nibble = getenv("QW3_METAL_IQ3_NIBBLE");
     const bool m5 = strcmp(g_device_name, "Apple M5") == 0;
-    g_partial_dense_tiles = m5 && g_metal4_tensor_api_enabled && partial &&
-        strcmp(partial, "1") == 0 &&
+    g_partial_dense_tiles = m5 && g_metal4_tensor_api_enabled &&
+        (!partial || strcmp(partial, "0") != 0) &&
         [kernel_source containsString:@"#define QW3_PARTIAL_LINEAR_TILE"] &&
         [kernel_source containsString:@"#define QW3_PARTIAL_IQ_TILE"];
     if (g_partial_dense_tiles) macros[@"QW3_ENABLE_PARTIAL_TILES"] = @"1";
@@ -1354,6 +1379,7 @@ static int qw3_metal_compile_kernels(void) {
         return 0;
     }
     g_matmul_q2_k_mpp_pipeline = nil;
+    g_matmul_q2_k_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_q2_k_mpp_direct"];
         if (fn) {
@@ -1362,6 +1388,11 @@ static int qw3_metal_compile_kernels(void) {
             if (!g_matmul_q2_k_mpp_pipeline)
                 fprintf(stderr, "qw3: Metal pipeline qw3_matmul_q2_k_mpp_direct failed: %s\n",
                         [[error localizedDescription] UTF8String]);
+        }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_q2_k_mpp_staged128"];
+        if (fn) {
+            g_matmul_q2_k_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
     }
     fn = [g_library newFunctionWithName:@"qw3_matvec_q5_k_fast"];
@@ -1388,6 +1419,9 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_matvec_q4_k_fast"];
+    g_matvec_q4_k_fast_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
     g_dense_q4_words = strcmp(g_device_name, "Apple M5") == 0;
     if (g_dense_q4_words) {
         fn = [g_library newFunctionWithName:@"qw3_matvec_q4_k_words"];
@@ -1516,12 +1550,18 @@ static int qw3_metal_compile_kernels(void) {
         }
     }
     const char *iq1_batch = getenv("QW3_METAL_IQ1_BATCH");
+    g_matmul_iq1_mpp_pipeline = nil;
+    g_matmul_iq1_mpp_staged128_pipeline = nil;
     if (m5 && g_metal4_tensor_api_enabled && (!iq1_batch || strcmp(iq1_batch, "0"))) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_iq1_mpp_direct"];
         if (fn) g_matmul_iq1_mpp_pipeline =
             [g_device newComputePipelineStateWithFunction:fn error:&error];
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq1_mpp_staged128"];
+        if (fn) g_matmul_iq1_mpp_staged128_pipeline =
+            [g_device newComputePipelineStateWithFunction:fn error:&error];
     }
     g_matmul_iq2_xxs_mpp_pipeline = nil;
+    g_matmul_iq2_xxs_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_xxs_mpp_direct"];
         if (fn) {
@@ -1531,6 +1571,11 @@ static int qw3_metal_compile_kernels(void) {
                 fprintf(stderr,
                         "qw3: Metal pipeline qw3_matmul_iq2_xxs_mpp failed: %s\n",
                         [[error localizedDescription] UTF8String]);
+        }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_xxs_mpp_staged128"];
+        if (fn) {
+            g_matmul_iq2_xxs_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
     }
     fn = [g_library newFunctionWithName:g_dense_iq2_vector ?
@@ -1547,6 +1592,7 @@ static int qw3_metal_compile_kernels(void) {
         return 0;
     }
     g_matmul_iq2_xs_mpp_pipeline = nil;
+    g_matmul_iq2_xs_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
         fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_xs_mpp_direct"];
         if (fn) {
@@ -1556,6 +1602,11 @@ static int qw3_metal_compile_kernels(void) {
                 fprintf(stderr,
                         "qw3: Metal pipeline qw3_matmul_iq2_xs_mpp failed: %s\n",
                         [[error localizedDescription] UTF8String]);
+        }
+        fn = [g_library newFunctionWithName:@"qw3_matmul_iq2_xs_mpp_staged128"];
+        if (fn) {
+            g_matmul_iq2_xs_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
         }
     }
     fn = [g_library newFunctionWithName:g_dense_iq2_vector ?
@@ -1615,6 +1666,9 @@ static int qw3_metal_compile_kernels(void) {
         if (fn) g_matvec_iq2_s_sg8_pipeline =
             [g_device newComputePipelineStateWithFunction:fn error:&error];
     }
+    fn = [g_library newFunctionWithName:@"qw3_matvec_iq2_s_add_x0_sg8"];
+    g_matvec_iq2_s_add_x0_sg8_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
     fn = [g_library newFunctionWithName:@"qw3_matvec_iq3_xxs_fast"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_matvec_iq3_xxs_fast not found\n");
@@ -1627,6 +1681,15 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_matvec_iq3_xxs_sg8"];
+    g_matvec_iq3_xxs_sg8_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_iq3_xxs_add_x0_sg8"];
+    g_matvec_iq3_xxs_add_x0_sg8_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_iq4_xs_pair_swiglu_fast"];
+    g_matvec_iq4_xs_pair_swiglu_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
     fn = [g_library newFunctionWithName:@"qw3_matmul_iq3_xxs_batch4"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_matmul_iq3_xxs_batch4 not found\n");
@@ -1759,6 +1822,36 @@ static int qw3_metal_compile_kernels(void) {
                 [[error localizedDescription] UTF8String]);
         return 0;
     }
+    fn = [g_library newFunctionWithName:@"qw3_matvec_iq3_s_sg8"];
+    g_matvec_iq3_s_sg8_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_iq3_s_add_x0_fast"];
+    g_matvec_iq3_s_add_x0_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq3xxs_iq3xxs_swiglu"];
+    g_matvec_pair_iq3xxs_iq3xxs_swiglu_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq3xxs_iq3xxs_split"];
+    g_matvec_pair_iq3xxs_iq3xxs_split_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq3xxs_iq3s_swiglu"];
+    g_matvec_pair_iq3xxs_iq3s_swiglu_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq3xxs_iq3s_split"];
+    g_matvec_pair_iq3xxs_iq3s_split_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq3s_iq3s_swiglu"];
+    g_matvec_pair_iq3s_iq3s_swiglu_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq3s_iq3s_split"];
+    g_matvec_pair_iq3s_iq3s_split_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq2s_iq2s_swiglu"];
+    g_matvec_pair_iq2s_iq2s_swiglu_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
+    fn = [g_library newFunctionWithName:@"qw3_matvec_pair_iq2s_iq3xxs_swiglu"];
+    g_matvec_pair_iq2s_iq3xxs_swiglu_pipeline = fn ?
+        [g_device newComputePipelineStateWithFunction:fn error:&error] : nil;
     fn = [g_library newFunctionWithName:@"qw3_moe_iq3_s_swiglu_batch_fast"];
     if (!fn) {
         fprintf(stderr, "qw3: Metal function qw3_moe_iq3_s_swiglu_batch_fast not found\n");
@@ -6515,6 +6608,11 @@ int qw3_metal_session_batch_embed_q3_k(qw3_metal_session *s,
 
 static int qw3_metal_dense_batch_prepare_map(QW3MetalSessionObj *obj,
                                               uint32_t n_tokens) {
+    if (obj.denseBatchCount && obj.denseBatchPairIds && obj.denseBatchBlockIds &&
+        obj.denseBatchPairIds.length >= (uint64_t)n_tokens * sizeof(int32_t) &&
+        *(uint32_t *)obj.denseBatchCount.contents == n_tokens) {
+        return 1;
+    }
     if (!obj.denseBatchCount) {
         obj.denseBatchCount = [g_device newBufferWithLength:sizeof(uint32_t)
                        options:MTLResourceStorageModeShared];
@@ -6560,6 +6658,7 @@ int qw3_metal_dense_prefill_strided_enabled(uint32_t type, uint32_t n_tokens) {
         case 16: return g_matmul_iq2_xxs_mpp_pipeline != nil;
         case 17: return g_matmul_iq2_xs_mpp_pipeline != nil;
         case 18: return g_matmul_iq3_xxs_batch4_pipeline != nil;
+        case 19: case 29: return g_matmul_iq1_mpp_pipeline != nil;
         case 20: return g_matmul_iq4_nl_mpp_pipeline != nil;
         case 21: return g_matmul_iq3_s_mpp_pipeline != nil;
         case 22: return g_matmul_iq2_s_batch4_pipeline != nil;
@@ -6676,22 +6775,27 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
         const int use_mpp = n_tokens >= 16u &&
             g_matmul_q2_k_mpp_pipeline &&
             getenv("QW3_METAL_Q2_K_BATCH4") == NULL;
+        const int use_staged128 = use_mpp && qw3_metal_dense_staged_rows(n_tokens) &&
+            g_matmul_q2_k_mpp_staged128_pipeline &&
+            qw3_metal_staged128_enabled();
         struct {
             uint32_t n_in, n_out, row_bytes, n_tokens;
             uint32_t in_offset, in_stride, out_offset, out_stride;
         } args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
                   in_offset, in_stride, out_offset, out_stride};
         id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-        [enc setComputePipelineState:use_mpp ?
-            g_matmul_q2_k_mpp_pipeline : g_matmul_q2_k_batch4_pipeline];
+        [enc setComputePipelineState:use_staged128 ?
+            g_matmul_q2_k_mpp_staged128_pipeline : (use_mpp ?
+            g_matmul_q2_k_mpp_pipeline : g_matmul_q2_k_batch4_pipeline)];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [enc setBuffer:src offset:0 atIndex:2];
         [enc setBuffer:dst offset:0 atIndex:3];
         if (use_mpp) [enc setThreadgroupMemoryLength:8192u atIndex:0];
-        [enc dispatchThreadgroups:use_mpp ?
+        [enc dispatchThreadgroups:use_staged128 ?
+             MTLSizeMake(staged_tiles, (n_out + 63u) / 64u, 1u) : (use_mpp ?
              MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u) :
-             MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u)
+             MTLSizeMake((n_out + 3u) / 4u, (n_tokens + 3u) / 4u, 1u))
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -6741,9 +6845,17 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
     const bool iq1 = tensor_type == 19u || tensor_type == 29u;
     if (iq1 || tensor_type == 16u || tensor_type == 17u) {
         id<MTLBuffer> signs = nil, grid = nil;
-        id<MTLComputePipelineState> pipeline = g_matmul_iq1_mpp_pipeline;
-        if (!iq1) pipeline = tensor_type == 16u ?
-            g_matmul_iq2_xxs_mpp_pipeline : g_matmul_iq2_xs_mpp_pipeline;
+        id<MTLComputePipelineState> base_pipeline = g_matmul_iq1_mpp_pipeline;
+        id<MTLComputePipelineState> staged_pipeline = g_matmul_iq1_mpp_staged128_pipeline;
+        if (!iq1) {
+            base_pipeline = tensor_type == 16u ?
+                g_matmul_iq2_xxs_mpp_pipeline : g_matmul_iq2_xs_mpp_pipeline;
+            staged_pipeline = tensor_type == 16u ?
+                g_matmul_iq2_xxs_mpp_staged128_pipeline : g_matmul_iq2_xs_mpp_staged128_pipeline;
+        }
+        const int use_staged128 = qw3_metal_dense_staged_rows(n_tokens) &&
+            staged_pipeline && qw3_metal_staged128_enabled();
+        id<MTLComputePipelineState> pipeline = use_staged128 ? staged_pipeline : base_pipeline;
         if (!weights || !pipeline || n_tokens < 16u ||
             !qw3_metal_dense_iq_buffers(&signs,
                 tensor_type == 17u ? &grid : NULL, NULL, NULL)) return 0;
@@ -6764,7 +6876,8 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
         [enc setBuffer:grid offset:0 atIndex:4];
         [enc setBuffer:signs offset:0 atIndex:5];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
-        [enc dispatchThreadgroups:
+        [enc dispatchThreadgroups:use_staged128 ?
+             MTLSizeMake(staged_tiles, (n_out + 63u) / 64u, 1u) :
              MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
@@ -9539,6 +9652,8 @@ static int qw3_metal_session_matvec_dense_iq(
         n_in >= 4096u && n_out >= 4096u) {
         if (pipeline == g_matvec_iq2_xs_pipeline) grouped_pipeline = g_matvec_iq2_xs_sg8_pipeline;
         if (pipeline == g_matvec_iq2_s_pipeline) grouped_pipeline = g_matvec_iq2_s_sg8_pipeline;
+        if (pipeline == g_matvec_iq3_xxs_pipeline) grouped_pipeline = g_matvec_iq3_xxs_sg8_pipeline;
+        if (pipeline == g_matvec_iq3_s_pipeline) grouped_pipeline = g_matvec_iq3_s_sg8_pipeline;
     }
     const int grouped = grouped_pipeline != nil;
     [enc setComputePipelineState:grouped ? grouped_pipeline : pipeline];
@@ -9723,6 +9838,203 @@ int qw3_metal_session_matvec_iq4_xs_pair_x1_to_scratch(
                                             "dense IQ4_XS gate/up pair");
 }
 
+static uint32_t qw3_metal_iq_pair_block_bytes(uint32_t t) {
+    if (t == 18u) return 98u;
+    if (t == 21u) return 110u;
+    if (t == 22u) return 82u;
+    return 0u;
+}
+
+static id<MTLBuffer> qw3_metal_iq_pair_grid_buffer(uint32_t t) {
+    if (t == 18u) return g_iq3xxs_kgrid_buffer;
+    if (t == 21u) return qw3_metal_iq3s_kgrid_buffer();
+    if (t == 22u) return g_iq2s_kgrid_buffer;
+    return nil;
+}
+
+int qw3_metal_session_matvec_dense_pair_swiglu_x1_to_inner(
+    qw3_metal_session *s,
+    uint64_t gate_offset, uint32_t gate_type,
+    uint64_t up_offset, uint32_t up_type,
+    uint32_t n_in, uint32_t n_out) {
+    if (!s || !s->obj || !n_in || !n_out || (n_in % 256u) != 0u) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_in * sizeof(float);
+    const uint64_t out_bytes = (uint64_t)n_out * sizeof(float);
+    if (!obj.x1 || obj.x1.length < x_bytes ||
+        !obj.inner || obj.inner.length < out_bytes) return 0;
+
+    if (gate_type == 23u && up_type == 23u) {
+        if (!g_matvec_iq4_xs_pair_swiglu_pipeline) return 0;
+        const uint64_t row_bytes = (uint64_t)(n_in / 256u) * 136ull;
+        const uint64_t weight_bytes = row_bytes * n_out;
+        if (row_bytes > UINT32_MAX) return 0;
+        uint64_t gate_inner = 0, up_inner = 0;
+        id<MTLBuffer> gate = qw3_metal_model_view_for(gate_offset, weight_bytes, &gate_inner);
+        id<MTLBuffer> up = qw3_metal_model_view_for(up_offset, weight_bytes, &up_inner);
+        if (!gate || !up) return 0;
+        struct { uint32_t n_in, n_out, row_bytes; } args = { n_in, n_out, (uint32_t)row_bytes };
+        int owned = 0;
+        id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+        if (!cb) return 0;
+        id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+        [enc setComputePipelineState:g_matvec_iq4_xs_pair_swiglu_pipeline];
+        [enc setBytes:&args length:sizeof(args) atIndex:0];
+        [enc setBuffer:gate offset:(NSUInteger)gate_inner atIndex:1];
+        [enc setBuffer:up offset:(NSUInteger)up_inner atIndex:2];
+        [enc setBuffer:obj.x1 offset:0 atIndex:3];
+        [enc setBuffer:obj.inner offset:0 atIndex:4];
+        [enc setThreadgroupMemoryLength:32u * sizeof(float) atIndex:0];
+        [enc dispatchThreadgroups:MTLSizeMake((n_out + 3u) / 4u, 1u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
+        qw3_metal_end_compute_encoder(cb, enc);
+        return qw3_metal_finish_command_buffer(cb, owned, "dense IQ4_XS pair SwiGLU");
+    }
+
+    id<MTLComputePipelineState> pipeline = nil;
+    uint32_t swap_gate = 0u;
+    uint32_t type_a = gate_type, type_b = up_type;
+    uint64_t off_a = gate_offset, off_b = up_offset;
+    if (gate_type == 18u && up_type == 18u) {
+        pipeline = g_matvec_pair_iq3xxs_iq3xxs_swiglu_pipeline;
+    } else if (gate_type == 18u && up_type == 21u) {
+        pipeline = g_matvec_pair_iq3xxs_iq3s_swiglu_pipeline;
+    } else if (gate_type == 21u && up_type == 18u) {
+        pipeline = g_matvec_pair_iq3xxs_iq3s_swiglu_pipeline;
+        type_a = 18u; type_b = 21u; off_a = up_offset; off_b = gate_offset; swap_gate = 1u;
+    } else if (gate_type == 21u && up_type == 21u) {
+        pipeline = g_matvec_pair_iq3s_iq3s_swiglu_pipeline;
+    } else if (gate_type == 22u && up_type == 22u) {
+        pipeline = g_matvec_pair_iq2s_iq2s_swiglu_pipeline;
+    } else if (gate_type == 22u && up_type == 18u) {
+        pipeline = g_matvec_pair_iq2s_iq3xxs_swiglu_pipeline;
+    } else if (gate_type == 18u && up_type == 22u) {
+        pipeline = g_matvec_pair_iq2s_iq3xxs_swiglu_pipeline;
+        type_a = 22u; type_b = 18u; off_a = up_offset; off_b = gate_offset; swap_gate = 1u;
+    }
+    if (!pipeline) return 0;
+
+    id<MTLBuffer> signs = nil;
+    if (!qw3_metal_dense_iq_buffers(&signs, NULL, NULL, NULL)) return 0;
+    id<MTLBuffer> grid_a = qw3_metal_iq_pair_grid_buffer(type_a);
+    id<MTLBuffer> grid_b = qw3_metal_iq_pair_grid_buffer(type_b);
+    if (!grid_a || !grid_b || !signs) return 0;
+
+    const uint64_t row_bytes_a = (uint64_t)(n_in / 256u) * qw3_metal_iq_pair_block_bytes(type_a);
+    const uint64_t row_bytes_b = (uint64_t)(n_in / 256u) * qw3_metal_iq_pair_block_bytes(type_b);
+    if (!row_bytes_a || !row_bytes_b || row_bytes_a > UINT32_MAX || row_bytes_b > UINT32_MAX)
+        return 0;
+    uint64_t inner_a = 0, inner_b = 0;
+    id<MTLBuffer> wa = qw3_metal_model_view_for(off_a, row_bytes_a * n_out, &inner_a);
+    id<MTLBuffer> wb = qw3_metal_model_view_for(off_b, row_bytes_b * n_out, &inner_b);
+    if (!wa || !wb) return 0;
+
+    struct {
+        uint32_t n_in, n_out_a, n_out_b, row_bytes_a, row_bytes_b;
+        uint32_t out_a_offset, out_b_offset, swap_gate;
+    } args = {
+        n_in, n_out, n_out, (uint32_t)row_bytes_a, (uint32_t)row_bytes_b,
+        0u, 0u, swap_gate
+    };
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wa offset:(NSUInteger)inner_a atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)inner_b atIndex:2];
+    [enc setBuffer:obj.x1 offset:0 atIndex:3];
+    [enc setBuffer:obj.inner offset:0 atIndex:4];
+    [enc setBuffer:grid_a offset:0 atIndex:5];
+    [enc setBuffer:grid_b offset:0 atIndex:6];
+    [enc setBuffer:signs offset:0 atIndex:7];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + 15u) / 16u, 1u, 1u)
+         threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    return qw3_metal_finish_command_buffer(cb, owned, "dense IQ pair SwiGLU");
+}
+
+int qw3_metal_session_matvec_dense_pair_x1_to_scratch(
+    qw3_metal_session *s,
+    uint64_t w0_offset, uint32_t w0_type, uint32_t n_out0, uint32_t out0_offset,
+    uint64_t w1_offset, uint32_t w1_type, uint32_t n_out1, uint32_t out1_offset,
+    uint32_t n_in) {
+    if (!s || !s->obj || !n_in || !n_out0 || !n_out1 || (n_in % 256u) != 0u) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+    id<MTLComputePipelineState> pipeline = nil;
+    uint32_t type_a = w0_type, type_b = w1_type;
+    uint64_t off_a = w0_offset, off_b = w1_offset;
+    uint32_t n_out_a = n_out0, n_out_b = n_out1;
+    uint32_t out_a_off = out0_offset, out_b_off = out1_offset;
+    if (w0_type == 18u && w1_type == 18u) {
+        pipeline = g_matvec_pair_iq3xxs_iq3xxs_split_pipeline;
+    } else if (w0_type == 18u && w1_type == 21u) {
+        pipeline = g_matvec_pair_iq3xxs_iq3s_split_pipeline;
+    } else if (w0_type == 21u && w1_type == 18u) {
+        pipeline = g_matvec_pair_iq3xxs_iq3s_split_pipeline;
+        type_a = 18u; type_b = 21u;
+        off_a = w1_offset; off_b = w0_offset;
+        n_out_a = n_out1; n_out_b = n_out0;
+        out_a_off = out1_offset; out_b_off = out0_offset;
+    } else if (w0_type == 21u && w1_type == 21u) {
+        pipeline = g_matvec_pair_iq3s_iq3s_split_pipeline;
+    }
+    if (!pipeline) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t x_bytes = (uint64_t)n_in * sizeof(float);
+    const uint64_t end0 = ((uint64_t)out0_offset + n_out0) * sizeof(float);
+    const uint64_t end1 = ((uint64_t)out1_offset + n_out1) * sizeof(float);
+    const uint64_t req_out = end0 > end1 ? end0 : end1;
+    if (!obj.x1 || obj.x1.length < x_bytes ||
+        !obj.scratch || obj.scratch.length < req_out) return 0;
+
+    id<MTLBuffer> signs = nil;
+    if (!qw3_metal_dense_iq_buffers(&signs, NULL, NULL, NULL)) return 0;
+    id<MTLBuffer> grid_a = qw3_metal_iq_pair_grid_buffer(type_a);
+    id<MTLBuffer> grid_b = qw3_metal_iq_pair_grid_buffer(type_b);
+    if (!grid_a || !grid_b || !signs) return 0;
+
+    const uint64_t row_bytes_a = (uint64_t)(n_in / 256u) * qw3_metal_iq_pair_block_bytes(type_a);
+    const uint64_t row_bytes_b = (uint64_t)(n_in / 256u) * qw3_metal_iq_pair_block_bytes(type_b);
+    if (!row_bytes_a || !row_bytes_b || row_bytes_a > UINT32_MAX || row_bytes_b > UINT32_MAX)
+        return 0;
+    uint64_t inner_a = 0, inner_b = 0;
+    id<MTLBuffer> wa = qw3_metal_model_view_for(off_a, row_bytes_a * n_out_a, &inner_a);
+    id<MTLBuffer> wb = qw3_metal_model_view_for(off_b, row_bytes_b * n_out_b, &inner_b);
+    if (!wa || !wb) return 0;
+
+    struct {
+        uint32_t n_in, n_out_a, n_out_b, row_bytes_a, row_bytes_b;
+        uint32_t out_a_offset, out_b_offset, swap_gate;
+    } args = {
+        n_in, n_out_a, n_out_b, (uint32_t)row_bytes_a, (uint32_t)row_bytes_b,
+        out_a_off, out_b_off, 0u
+    };
+    const uint32_t max_out = n_out_a > n_out_b ? n_out_a : n_out_b;
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wa offset:(NSUInteger)inner_a atIndex:1];
+    [enc setBuffer:wb offset:(NSUInteger)inner_b atIndex:2];
+    [enc setBuffer:obj.x1 offset:0 atIndex:3];
+    [enc setBuffer:obj.scratch offset:0 atIndex:4];
+    [enc setBuffer:grid_a offset:0 atIndex:5];
+    [enc setBuffer:grid_b offset:0 atIndex:6];
+    [enc setBuffer:signs offset:0 atIndex:7];
+    [enc dispatchThreadgroups:MTLSizeMake((max_out + 15u) / 16u, 1u, 1u)
+         threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    return qw3_metal_finish_command_buffer(cb, owned, "dense IQ split pair");
+}
+
 int qw3_metal_session_matvec_quant_x1_to_scratch(
         qw3_metal_session *s, uint64_t tensor_offset, uint32_t tensor_type,
         uint32_t n_in, uint32_t n_out, uint32_t out_offset, float *out) {
@@ -9816,7 +10128,7 @@ int qw3_metal_session_matvec_quant_x1_to_scratch(
     const int packed_rows4 = pipeline == g_matvec_q3_k_pipeline ||
                              pipeline == g_matvec_q6_k_pipeline ||
                              pipeline == g_matvec_iq4_xs_pipeline;
-    const int packed_rows8 = 0;
+    const int packed_rows8 = pipeline == g_matvec_q4_k_fast_pipeline;
     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
     NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
         qw3_metal_matvec_threads(pipeline, n_in / block_elems);
@@ -11332,16 +11644,17 @@ int qw3_metal_session_matvec_iq3_s_expert_x1_to_scratch(qw3_metal_session *s,
     int owned = 0;
     id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
     id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-    [enc setComputePipelineState:g_matvec_iq3_s_pipeline];
+    const int use_sg8 = g_dense_iq2_simdgroups == 8u &&
+        g_matvec_iq3_s_sg8_pipeline && n_in >= 4096u && n_out >= 4096u;
+    [enc setComputePipelineState:use_sg8 ? g_matvec_iq3_s_sg8_pipeline : g_matvec_iq3_s_pipeline];
     [enc setBytes:&args length:sizeof(args) atIndex:0];
     [enc setBuffer:wb offset:(NSUInteger)inner atIndex:1];
     [enc setBuffer:obj.x1 offset:0 atIndex:2];
     [enc setBuffer:obj.scratch offset:(NSUInteger)out_offset_bytes atIndex:3];
     [enc setBuffer:kgb offset:0 atIndex:4];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    NSUInteger threads = 64u;
-    [enc dispatchThreadgroups:MTLSizeMake((n_out + 7u) / 8u, 1, 1)
-        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+    [enc dispatchThreadgroups:MTLSizeMake(use_sg8 ? (n_out + 15u) / 16u : (n_out + 7u) / 8u, 1, 1)
+        threadsPerThreadgroup:MTLSizeMake(use_sg8 ? 256u : 64u, 1, 1)];
     qw3_metal_end_compute_encoder(cb, enc);
     id<MTLBuffer> readback = nil;
     if (out) {
@@ -11411,7 +11724,8 @@ static int qw3_metal_session_matvec_k_expert_inner_to_x1(qw3_metal_session *s,
     const int packed_rows4 = pipeline == g_matvec_q3_k_pipeline ||
                              pipeline == g_matvec_q6_k_pipeline ||
                              pipeline == g_matvec_iq4_xs_pipeline;
-    const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
+    const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline ||
+                             pipeline == g_matvec_q4_k_fast_pipeline;
     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
     NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
         qw3_metal_matvec_threads(pipeline, n_in / block_elems);
@@ -11515,6 +11829,75 @@ int qw3_metal_session_matvec_iq4_xs_inner_add_x0(
          threadsPerThreadgroup:MTLSizeMake(64u, 1u, 1u)];
     qw3_metal_end_compute_encoder(cb, enc);
     if (!qw3_metal_finish_command_buffer(cb, owned, "dense IQ4_XS down add"))
+        return 0;
+    return cb.status != MTLCommandBufferStatusError;
+}
+
+int qw3_metal_session_matvec_quant_inner_add_x0(
+    qw3_metal_session *s, uint64_t tensor_offset, uint32_t tensor_type,
+    uint32_t n_in, uint32_t n_out) {
+    if (tensor_type == 23u) {
+        return qw3_metal_session_matvec_iq4_xs_inner_add_x0(
+            s, tensor_offset, n_in, n_out);
+    }
+    if (!s || !s->obj || !n_in || !n_out || (n_in % 256u) != 0u) return 0;
+    if (!g_initialized && !qw3_metal_init()) return 0;
+    if (!qw3_metal_compile_kernels()) return 0;
+
+    id<MTLComputePipelineState> pipeline = nil;
+    uint32_t block_bytes = 0u;
+    NSUInteger threads = 64u;
+    uint32_t rows_per_tg = 8u;
+    int bind_signs = 0;
+    if (tensor_type == 21u && g_matvec_iq3_s_add_x0_pipeline) {
+        pipeline = g_matvec_iq3_s_add_x0_pipeline;
+        block_bytes = 110u; threads = 256u; rows_per_tg = 16u; bind_signs = 0;
+    } else if (tensor_type == 18u && g_matvec_iq3_xxs_add_x0_sg8_pipeline) {
+        pipeline = g_matvec_iq3_xxs_add_x0_sg8_pipeline;
+        block_bytes = 98u; threads = 256u; rows_per_tg = 16u; bind_signs = 1;
+    } else if (tensor_type == 22u && g_matvec_iq2_s_add_x0_sg8_pipeline) {
+        pipeline = g_matvec_iq2_s_add_x0_sg8_pipeline;
+        block_bytes = 82u; threads = 256u; rows_per_tg = 16u; bind_signs = 1;
+    } else {
+        return 0;
+    }
+
+    id<MTLBuffer> signs = nil;
+    if (!qw3_metal_dense_iq_buffers(&signs, NULL, NULL, NULL)) return 0;
+    id<MTLBuffer> grid = qw3_metal_iq_pair_grid_buffer(tensor_type);
+    if (!grid || (bind_signs && !signs)) return 0;
+
+    QW3MetalSessionObj *obj = (__bridge QW3MetalSessionObj *)s->obj;
+    const uint64_t in_bytes = (uint64_t)n_in * sizeof(float);
+    const uint64_t out_bytes = (uint64_t)n_out * sizeof(float);
+    const uint64_t row_bytes = (uint64_t)(n_in / 256u) * block_bytes;
+    const uint64_t tensor_bytes = row_bytes * n_out;
+    if (!obj.inner || obj.inner.length < in_bytes ||
+        !obj.x0 || obj.x0.length < out_bytes || row_bytes > UINT32_MAX)
+        return 0;
+    uint64_t model_offset = 0;
+    id<MTLBuffer> wb = qw3_metal_model_view_for(
+        tensor_offset, tensor_bytes, &model_offset);
+    if (!wb) return 0;
+    struct { uint32_t n_in, n_out, row_bytes; } args = {
+        n_in, n_out, (uint32_t)row_bytes
+    };
+    int owned = 0;
+    id<MTLCommandBuffer> cb = qw3_metal_command_buffer(&owned);
+    if (!cb) return 0;
+    id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
+    [enc setComputePipelineState:pipeline];
+    [enc setBytes:&args length:sizeof(args) atIndex:0];
+    [enc setBuffer:wb offset:(NSUInteger)model_offset atIndex:1];
+    [enc setBuffer:obj.inner offset:0 atIndex:2];
+    [enc setBuffer:obj.x0 offset:0 atIndex:3];
+    [enc setBuffer:grid offset:0 atIndex:4];
+    if (bind_signs) [enc setBuffer:signs offset:0 atIndex:5];
+    [enc setThreadgroupMemoryLength:32u * sizeof(float) atIndex:0];
+    [enc dispatchThreadgroups:MTLSizeMake((n_out + rows_per_tg - 1u) / rows_per_tg, 1u, 1u)
+         threadsPerThreadgroup:MTLSizeMake(threads, 1u, 1u)];
+    qw3_metal_end_compute_encoder(cb, enc);
+    if (!qw3_metal_finish_command_buffer(cb, owned, "dense IQ down add"))
         return 0;
     return cb.status != MTLCommandBufferStatusError;
 }
@@ -11635,7 +12018,8 @@ static int qw3_metal_session_matvec_k_expert_inner_to_scratch(qw3_metal_session 
     const int packed_rows4 = pipeline == g_matvec_q3_k_pipeline ||
                              pipeline == g_matvec_q6_k_pipeline ||
                              pipeline == g_matvec_iq4_xs_pipeline;
-    const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline;
+    const int packed_rows8 = pipeline == g_matvec_iq3_s_pipeline ||
+                             pipeline == g_matvec_q4_k_fast_pipeline;
     const int packed_rows2 = pipeline == g_matvec_q5_k_pipeline;
     NSUInteger threads = (packed_rows2 || packed_rows4 || packed_rows8) ? 64u :
         qw3_metal_matvec_threads(pipeline, n_in / 256);
@@ -12876,8 +13260,9 @@ int qw3_metal_session_matvec_k_x1_to_logits(qw3_metal_session *s, uint64_t tenso
     [enc setBuffer:obj.x1 offset:0 atIndex:2];
     [enc setBuffer:obj.logits offset:0 atIndex:3];
     [enc setThreadgroupMemoryLength:32 * sizeof(float) atIndex:0];
-    [enc dispatchThreadgroups:MTLSizeMake(type == 12u ? n_out : (n_out + 1u) / 2u, 1u, 1u)
-        threadsPerThreadgroup:MTLSizeMake(type == 12u ? qw3_metal_matvec_threads(pipeline, n_in / 256u) : 64u, 1u, 1u)];
+    const int q4_fast = pipeline == g_matvec_q4_k_fast_pipeline;
+    [enc dispatchThreadgroups:MTLSizeMake(q4_fast ? (n_out + 7u) / 8u : (type == 12u ? n_out : (n_out + 1u) / 2u), 1u, 1u)
+        threadsPerThreadgroup:MTLSizeMake((q4_fast || type != 12u) ? 64u : qw3_metal_matvec_threads(pipeline, n_in / 256u), 1u, 1u)];
     qw3_metal_end_compute_encoder(cb, enc);
 
     id<MTLBuffer> readback = nil;
@@ -15087,6 +15472,7 @@ void qw3_metal_cleanup(void) {
     g_iq1_grid_buffer = nil;
     g_matvec_iq1_pipeline = nil;
     g_matmul_iq1_mpp_pipeline = nil;
+    g_matmul_iq1_mpp_staged128_pipeline = nil;
     g_iq2xxs_kgrid_buffer = nil;
     g_iq2xs_kgrid_buffer = nil;
     g_iq2s_kgrid_buffer = nil;
@@ -15116,8 +15502,10 @@ void qw3_metal_cleanup(void) {
     g_matvec_q2_k_pipeline = nil;
     g_matmul_q2_k_batch4_pipeline = nil;
     g_matmul_q2_k_mpp_pipeline = nil;
+    g_matmul_q2_k_mpp_staged128_pipeline = nil;
     g_matvec_q4_k_pipeline = nil;
     g_matvec_q4_k_words_pipeline = nil;
+    g_matvec_q4_k_fast_pipeline = nil;
     g_dense_q4_words = 0;
     g_matvec_q3_k_pipeline = nil;
     g_matmul_q3_k_batch4_pipeline = nil;
@@ -15130,15 +15518,20 @@ void qw3_metal_cleanup(void) {
     g_matvec_iq2_xs_pipeline = nil;
     g_matvec_iq2_xs_sg8_pipeline = nil;
     g_matvec_iq2_s_sg8_pipeline = nil;
+    g_matvec_iq2_s_add_x0_sg8_pipeline = nil;
     g_dense_iq2_simdgroups = 2u;
     g_matvec_iq2_xxs_pipeline = nil;
     g_matmul_iq2_xs_mpp_pipeline = nil;
+    g_matmul_iq2_xs_mpp_staged128_pipeline = nil;
     g_matmul_iq2_xxs_mpp_pipeline = nil;
+    g_matmul_iq2_xxs_mpp_staged128_pipeline = nil;
     g_matvec_iq2_s_pipeline = nil;
     g_matmul_iq2_s_batch4_pipeline = nil;
     g_matmul_iq2_s_mpp_pipeline = nil;
     g_matmul_iq2_s_mpp_staged128_pipeline = nil;
     g_matvec_iq3_xxs_pipeline = nil;
+    g_matvec_iq3_xxs_sg8_pipeline = nil;
+    g_matvec_iq3_xxs_add_x0_sg8_pipeline = nil;
     g_matmul_iq3_xxs_batch4_pipeline = nil;
     g_matmul_iq3_xxs_short_pipeline = nil;
     g_matmul_iq2_s_short_pipeline = nil;
@@ -15146,12 +15539,23 @@ void qw3_metal_cleanup(void) {
     g_matmul_iq3_xxs_mpp_staged128_pipeline = nil;
     g_matvec_q6_k_pipeline = nil;
     g_matmul_q6_k_mpp_pipeline = nil;
+    g_matvec_iq4_xs_pair_swiglu_pipeline = nil;
     g_matvec_iq4_xs_add_x0_pipeline = nil;
     g_matvec_q6_k_add_x0_pipeline = nil;
     g_matvec_iq4_xs_swiglu_add_x0_pipeline = nil;
     g_matvec_q6_k_swiglu_add_x0_pipeline = nil;
     g_matvec_iq3_s_pipeline = nil;
+    g_matvec_iq3_s_sg8_pipeline = nil;
+    g_matvec_iq3_s_add_x0_pipeline = nil;
     g_matvec_iq3_s_pair_pipeline = nil;
+    g_matvec_pair_iq3xxs_iq3xxs_swiglu_pipeline = nil;
+    g_matvec_pair_iq3xxs_iq3xxs_split_pipeline = nil;
+    g_matvec_pair_iq3xxs_iq3s_swiglu_pipeline = nil;
+    g_matvec_pair_iq3xxs_iq3s_split_pipeline = nil;
+    g_matvec_pair_iq3s_iq3s_swiglu_pipeline = nil;
+    g_matvec_pair_iq3s_iq3s_split_pipeline = nil;
+    g_matvec_pair_iq2s_iq2s_swiglu_pipeline = nil;
+    g_matvec_pair_iq2s_iq3xxs_swiglu_pipeline = nil;
     g_matmul_iq3_s_mpp_pipeline = nil;
     g_matmul_iq4_xs_mpp_pipeline = nil;
     g_matmul_iq3_s_mpp_staged128_pipeline = nil;
