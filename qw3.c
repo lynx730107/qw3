@@ -4908,6 +4908,12 @@ int qw3_engine_layer_count(qw3_engine *e) {
     return e && e->inkling ? INKLING_VISITS : e && e->model.spec ? e->model.spec->n_layer : 0;
 }
 
+int qw3_engine_embd_dim(qw3_engine *e) {
+    if (!e) return 0;
+    if (e->inkling) return (int)INK_D;
+    return e->model.spec ? e->model.spec->n_embd : 0;
+}
+
 bool qw3_engine_is_inkling(qw3_engine *e) {
     return e && e->inkling;
 }
@@ -6527,6 +6533,114 @@ interrupted:
 #endif
     if (err && errlen) snprintf(err, errlen, "prefill interrupted");
     return -2;
+}
+
+int qw3_session_prefill_tokens_interruptible(qw3_session *s,
+                                             const int *tokens, int n_tokens,
+                                             bool compute_logits,
+                                             qw3_session_interrupt_fn should_interrupt,
+                                             void *ud, char *err, size_t errlen) {
+    if (!s || (n_tokens > 0 && !tokens) || n_tokens < 0) return -1;
+    (void)compute_logits;
+    if (n_tokens == 0) return 0;
+    if (should_interrupt && should_interrupt(ud)) {
+        if (err && errlen) snprintf(err, errlen, "prefill interrupted");
+        return -2;
+    }
+    if (s->inkling && !s->valid && s->tokens.len == 0) {
+        inkling_state_reset(s->inkling);
+    }
+    int i = 0;
+#ifndef QW3_NO_METAL
+    if (s->inkling && s->inkling->metal) {
+        const char *batch_env = getenv("QW3_INKLING_PREFILL_BATCH");
+        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 256;
+        const int limit = batch > 512 ? 512 : batch > 1 ? (int)batch : 1;
+        while (limit > 1 && i + 1 < n_tokens) {
+            if (should_interrupt && should_interrupt(ud)) {
+                if (err && errlen) snprintf(err, errlen, "prefill interrupted");
+                return -2;
+            }
+            int n = n_tokens - i;
+            if (n > limit) n = limit;
+            const bool want_logits = compute_logits && (i + n == n_tokens);
+            const int rc = inkling_prefill_metal(s, tokens + i, n, want_logits, err, errlen);
+            if (rc < 0) return -1;
+            if (rc > 0) break;
+            i += n;
+        }
+    }
+#endif
+    for (; i < n_tokens; i++) {
+        if (should_interrupt && should_interrupt(ud)) {
+            if (err && errlen) snprintf(err, errlen, "prefill interrupted");
+            return -2;
+        }
+        if (qw3_session_eval(s, tokens[i], err, errlen) != 0) return -1;
+    }
+    return 0;
+}
+
+int qw3_session_eval_embeddings_interruptible(qw3_session *s,
+                                              const float *embd, int n_tokens,
+                                              int embd_dim,
+                                              const int *sentinel_tokens,
+                                              bool compute_logits,
+                                              qw3_session_interrupt_fn should_interrupt,
+                                              void *ud, char *err, size_t errlen) {
+    if (!s || (n_tokens > 0 && !embd) || n_tokens < 0) return -1;
+    (void)compute_logits;
+    if (n_tokens == 0) return 0;
+    if (!s->inkling) {
+        if (err && errlen) snprintf(err, errlen, "raw embedding eval is currently supported for Inkling models");
+        return -1;
+    }
+    if (embd_dim != (int)INK_D) {
+        if (err && errlen) snprintf(err, errlen, "embedding dim mismatch: got %d, expected %u", embd_dim, (unsigned)INK_D);
+        return -1;
+    }
+    if (n_tokens > s->ctx_size - s->tokens.len) {
+        if (err && errlen) snprintf(err, errlen, "embedding sequence exceeds session context (%d + %d > %d)",
+                                    s->tokens.len, n_tokens, s->ctx_size);
+        return -1;
+    }
+    if (!s->valid && s->tokens.len == 0) {
+        inkling_state_reset(s->inkling);
+    }
+    int i = 0;
+#ifndef QW3_NO_METAL
+    if (s->inkling->metal) {
+        const char *batch_env = getenv("QW3_INKLING_PREFILL_BATCH");
+        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 256;
+        const int limit = batch > 512 ? 512 : batch > 1 ? (int)batch : 1;
+        while (limit > 1 && i + 1 < n_tokens) {
+            if (should_interrupt && should_interrupt(ud)) {
+                if (err && errlen) snprintf(err, errlen, "prefill interrupted");
+                return -2;
+            }
+            int n = n_tokens - i;
+            if (n > limit) n = limit;
+            const bool want_logits = compute_logits && (i + n == n_tokens);
+            const int rc = inkling_prefill_embd_metal(
+                s, embd + (size_t)i * (size_t)INK_D,
+                sentinel_tokens ? sentinel_tokens + i : NULL,
+                n, want_logits, err, errlen);
+            if (rc < 0) return -1;
+            if (rc > 0) break;
+            i += n;
+        }
+    }
+#endif
+    for (; i < n_tokens; i++) {
+        if (should_interrupt && should_interrupt(ud)) {
+            if (err && errlen) snprintf(err, errlen, "prefill interrupted");
+            return -2;
+        }
+        const int sent = sentinel_tokens ? sentinel_tokens[i] : -1;
+        if (inkling_eval_embd_one(s, embd + (size_t)i * (size_t)INK_D, sent, err, errlen) != 0)
+            return -1;
+    }
+    return 0;
 }
 
 int qw3_engine_trace_prompt(qw3_engine *e, const qw3_tokens *prompt,

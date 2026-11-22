@@ -112,10 +112,15 @@ int qw3_metal_inkling_logits(qw3_metal_inkling_session *workspace,
 
 /* Batched Inkling prefill API: processes n_tokens in lockstep per visit on
  * GPU, computing final logits only when logits != NULL (for the last token). */
+int qw3_metal_inkling_upload_embd(qw3_metal_inkling_session *workspace,
+                                  const float *embd, uint32_t dst);
 int qw3_metal_inkling_batch_begin(qw3_metal_inkling_session *workspace, uint32_t n_tokens);
 int qw3_metal_inkling_batch_embed(qw3_metal_inkling_session *workspace,
                                   const qw3_metal_projection *embedding,
                                   const int *tokens, uint32_t n_tokens, uint32_t dst);
+int qw3_metal_inkling_batch_upload_embd(qw3_metal_inkling_session *workspace,
+                                        const float *embd, uint32_t n_tokens,
+                                        uint32_t dst);
 int qw3_metal_inkling_batch_norm(qw3_metal_inkling_session *workspace,
                                  uint32_t vector, uint64_t weights, uint32_t n_tokens);
 int qw3_metal_inkling_batch_vector_op(qw3_metal_inkling_session *workspace,

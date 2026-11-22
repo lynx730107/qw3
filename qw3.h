@@ -96,6 +96,7 @@ void qw3_engine_close(qw3_engine *e);
  * Returns 0 on success, -1 on failure. Useful when sharing RAM with audio. */
 int qw3_engine_set_weights_active(qw3_engine *e, bool active);
 int qw3_engine_layer_count(qw3_engine *e);
+int qw3_engine_embd_dim(qw3_engine *e);
 bool qw3_engine_is_dense(qw3_engine *e);
 bool qw3_engine_is_inkling(qw3_engine *e);
 bool qw3_inkling_encode_prompt(qw3_engine *e, const char *system, const char *text,
@@ -309,6 +310,24 @@ int qw3_session_sync(qw3_session *s, const qw3_tokens *prompt,
 int qw3_session_sync_interruptible(qw3_session *s, const qw3_tokens *prompt,
                                    qw3_session_interrupt_fn should_interrupt,
                                    void *ud, char *err, size_t errlen);
+/* Append additional tokens to the current session state (using batched Metal
+ * prefill when available). Computes logits only when compute_logits is true. */
+int qw3_session_prefill_tokens_interruptible(qw3_session *s,
+                                             const int *tokens, int n_tokens,
+                                             bool compute_logits,
+                                             qw3_session_interrupt_fn should_interrupt,
+                                             void *ud, char *err, size_t errlen);
+/* Append raw input embeddings (e.g. from vision encoder) directly into the
+ * session at its current position, bypassing token embedding lookup and norm.
+ * sentinel_tokens (optional, length n_tokens) stores negative sentinel IDs in
+ * s->tokens so subsequent multi-turn prefix checks reuse KV cache across images. */
+int qw3_session_eval_embeddings_interruptible(qw3_session *s,
+                                              const float *embd, int n_tokens,
+                                              int embd_dim,
+                                              const int *sentinel_tokens,
+                                              bool compute_logits,
+                                              qw3_session_interrupt_fn should_interrupt,
+                                              void *ud, char *err, size_t errlen);
 int qw3_session_common_prefix(qw3_session *s, const qw3_tokens *prompt);
 
 /* Sampling. */

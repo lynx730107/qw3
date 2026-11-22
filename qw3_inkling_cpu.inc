@@ -582,8 +582,8 @@ static bool inkling_metal_ffn(inkling_metal_graph graph,
                                     visit, pos, l->ffn_conv->offset);
 }
 
-static bool inkling_eval_metal(qw3_session *s, const int *tokens, unsigned count,
-                               unsigned pos, bool compute_logits) {
+static bool inkling_eval_metal(qw3_session *s, const int *tokens, const float *embd,
+                               unsigned count, unsigned pos, bool compute_logits) {
     const qw3_model *m = &s->engine->model;
     const qw3_inkling_weights *w = s->engine->inkling;
     qw3_metal_inkling_session *gpu = s->inkling->metal;
@@ -591,10 +591,20 @@ static bool inkling_eval_metal(qw3_session *s, const int *tokens, unsigned count
     const qw3_metal_projection embedding = inkling_metal_projection(w->embedding, 0);
     const uint64_t row_bytes = INK_D * sizeof(float);
     unsigned n_blocks = 0, n_prelude = 0, n_bank = 0;
-    const bool embedded = count > 1
-        ? qw3_metal_inkling_batch_embed(gpu, &embedding, tokens, count, INK_CUR)
-        : qw3_metal_inkling_embed(gpu, &embedding, (unsigned)tokens[0], INK_CUR);
-    if (!embedded || !inkling_metal_norm(graph, INK_CUR, w->embedding_norm->offset)) return false;
+    if (tokens) {
+        const bool embedded = count > 1
+            ? qw3_metal_inkling_batch_embed(gpu, &embedding, tokens, count, INK_CUR)
+            : qw3_metal_inkling_embed(gpu, &embedding, (unsigned)tokens[0], INK_CUR);
+        if (!embedded || !inkling_metal_norm(graph, INK_CUR, w->embedding_norm->offset)) return false;
+    } else if (embd) {
+        /* Raw vision/multimodal embeddings bypass token_embd_norm (matches Inkling2). */
+        const bool uploaded = count > 1
+            ? qw3_metal_inkling_batch_upload_embd(gpu, embd, count, INK_CUR)
+            : qw3_metal_inkling_upload_embd(gpu, embd, INK_CUR);
+        if (!uploaded) return false;
+    } else {
+        return false;
+    }
 
     for (unsigned visit = 0; visit < INKLING_VISITS; visit++) {
         const unsigned physical = inkling_weight_layer(visit);
@@ -722,7 +732,7 @@ static int inkling_prefill_metal(qw3_session *s, const int *tokens, int count,
             !inkling_mapped_expert_type(layer->down->type)) return 1;
     }
     if (!qw3_metal_inkling_batch_begin(s->inkling->metal, (unsigned)count)) return 1;
-    if (!inkling_eval_metal(s, tokens, (unsigned)count, (unsigned)pos, compute_logits)) {
+    if (!inkling_eval_metal(s, tokens, NULL, (unsigned)count, (unsigned)pos, compute_logits)) {
         qw3_metal_inkling_discard(s->inkling->metal);
         qw3_session_invalidate(s);
         if (err && errlen) snprintf(err, errlen, "Inkling Metal batch failed at token %d", pos);
@@ -734,13 +744,44 @@ static int inkling_prefill_metal(qw3_session *s, const int *tokens, int count,
     s->cpu_logits_valid = compute_logits;
     return 0;
 }
+
+static int inkling_prefill_embd_metal(qw3_session *s, const float *embd,
+                                      const int *sentinels, int count,
+                                      bool compute_logits, char *err, size_t errlen) {
+    const int pos = s->tokens.len;
+    if (count > s->ctx_size - pos) {
+        if (err && errlen) snprintf(err, errlen, "Inkling embedding batch exceeds the session context");
+        return -1;
+    }
+    if (count > 1) {
+        for (unsigned i = 0; i < INKLING_LAYERS; i++) {
+            const inkling_layer *layer = &s->engine->inkling->layer[i];
+            if (!inkling_mapped_expert_type(layer->gate_up->type) ||
+                !inkling_mapped_expert_type(layer->down->type)) return 1;
+        }
+        if (!qw3_metal_inkling_batch_begin(s->inkling->metal, (unsigned)count)) return 1;
+    }
+    if (!inkling_eval_metal(s, NULL, embd, (unsigned)count, (unsigned)pos, compute_logits)) {
+        qw3_metal_inkling_discard(s->inkling->metal);
+        qw3_session_invalidate(s);
+        if (err && errlen) snprintf(err, errlen, "Inkling Metal embedding batch failed at pos %d", pos);
+        return -1;
+    }
+    for (int i = 0; i < count; i++) token_vec_push(&s->tokens, sentinels ? sentinels[i] : -1);
+    s->kv.pos += count;
+    s->valid = true;
+    s->cpu_logits_valid = compute_logits || (count == 1);
+    return 0;
+}
 #endif
 
-static int inkling_eval(qw3_session *s, int token, char *err, size_t errlen) {
+static int inkling_eval_internal(qw3_session *s, int token, const float *raw_embd,
+                                 char *err, size_t errlen) {
     const qw3_model *m = &s->engine->model;
     const qw3_inkling_weights *w = s->engine->inkling;
     const unsigned pos = (unsigned)s->tokens.len;
-    if (token < 0 || token >= m->inkling.vocab_unpadded || pos >= (unsigned)s->ctx_size) {
+    if (pos >= (unsigned)s->ctx_size ||
+        (!raw_embd && (token < 0 || token >= m->inkling.vocab_unpadded))) {
         if (err && errlen) snprintf(err, errlen, "Inkling token or position is outside the session");
         return -1;
     }
@@ -753,7 +794,7 @@ static int inkling_eval(qw3_session *s, int token, char *err, size_t errlen) {
     }
 #ifndef QW3_NO_METAL
     if (s->inkling->metal) {
-        if (!inkling_eval_metal(s, &token, 1, pos, true)) {
+        if (!inkling_eval_metal(s, raw_embd ? NULL : &token, raw_embd, 1, pos, true)) {
             qw3_metal_inkling_discard(s->inkling->metal);
             goto failed;
         }
@@ -763,8 +804,12 @@ static int inkling_eval(qw3_session *s, int token, char *err, size_t errlen) {
     float cur[INK_D], out[INK_D], input[3][INK_D], messages[4][INK_D];
     float blocks[INK_RES_BLOCKS][INK_D], prelude[INK_D], bank[INK_RES_BLOCKS][INK_D], bank_last[INK_D];
     unsigned n_blocks = 0, n_prelude = 0, n_bank = 0;
-    if (!tensor_read_dense_row(m, w->embedding, token, cur)) goto failed;
-    cpu_rmsnorm(cur, cur, m, w->embedding_norm, INK_D);
+    if (raw_embd) {
+        memcpy(cur, raw_embd, sizeof(cur));
+    } else {
+        if (!tensor_read_dense_row(m, w->embedding, token, cur)) goto failed;
+        cpu_rmsnorm(cur, cur, m, w->embedding_norm, INK_D);
+    }
 
     for (unsigned visit = 0; visit < INKLING_VISITS; visit++) {
         const unsigned physical = inkling_weight_layer(visit);
@@ -840,4 +885,13 @@ failed:
     qw3_session_invalidate(s);
     if (err && errlen) snprintf(err, errlen, "Inkling projection failed");
     return -1;
+}
+
+static int inkling_eval(qw3_session *s, int token, char *err, size_t errlen) {
+    return inkling_eval_internal(s, token, NULL, err, errlen);
+}
+
+static int inkling_eval_embd_one(qw3_session *s, const float *embd, int sentinel,
+                                 char *err, size_t errlen) {
+    return inkling_eval_internal(s, sentinel, embd, err, errlen);
 }

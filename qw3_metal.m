@@ -4184,7 +4184,7 @@ static int qw3_metal_encode_projection(QW3MetalInklingObj *work,
 
 static id<MTLComputeCommandEncoder> qw3_metal_inkling_encoder(QW3MetalInklingObj *work) {
     if (!work.encoder) {
-        work.command = [g_queue commandBuffer];
+        if (!work.command) work.command = [g_queue commandBuffer];
         work.encoder = [work.command computeCommandEncoder];
     }
     return work.encoder;
@@ -5092,6 +5092,64 @@ int qw3_metal_inkling_batch_embed(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.batchVectors offset:qw3_inkling_batch_slot_offset(work, dst) atIndex:3];
         [enc dispatchThreadgroups:MTLSizeMake((embedding->n_in + 127u) / 128u, n_tokens, 1)
             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+        return 1;
+    }
+}
+
+int qw3_metal_inkling_upload_embd(qw3_metal_inkling_session *workspace,
+                                  const float *embd, uint32_t dst) {
+    if (!workspace || !embd) return 0;
+    @autoreleasepool {
+        QW3MetalInklingObj *work = (__bridge QW3MetalInklingObj *)workspace->obj;
+        if (work.encoder) {
+            [work.encoder endEncoding];
+            work.encoder = nil;
+        }
+        if (!work.command) work.command = [g_queue commandBuffer];
+        if (!work.command) return 0;
+        const NSUInteger nbytes = QW3_INK_GPU_VECTOR_BYTES;
+        id<MTLBuffer> src = [g_device newBufferWithBytes:embd
+                                                  length:nbytes
+                                                 options:MTLResourceStorageModeShared];
+        if (!src) return 0;
+        id<MTLBlitCommandEncoder> blit = [work.command blitCommandEncoder];
+        if (!blit) return 0;
+        [blit copyFromBuffer:src
+                sourceOffset:0
+                    toBuffer:work.vectors
+           destinationOffset:qw3_inkling_vector(dst)
+                        size:nbytes];
+        [blit endEncoding];
+        return 1;
+    }
+}
+
+int qw3_metal_inkling_batch_upload_embd(qw3_metal_inkling_session *workspace,
+                                        const float *embd, uint32_t n_tokens,
+                                        uint32_t dst) {
+    if (!workspace || !embd || n_tokens == 0) return 0;
+    @autoreleasepool {
+        QW3MetalInklingObj *work = (__bridge QW3MetalInklingObj *)workspace->obj;
+        if (n_tokens > work.batchCapacity) return 0;
+        if (work.encoder) {
+            [work.encoder endEncoding];
+            work.encoder = nil;
+        }
+        if (!work.command) work.command = [g_queue commandBuffer];
+        if (!work.command) return 0;
+        const NSUInteger nbytes = (NSUInteger)n_tokens * QW3_INK_GPU_VECTOR_BYTES;
+        id<MTLBuffer> src = [g_device newBufferWithBytes:embd
+                                                  length:nbytes
+                                                 options:MTLResourceStorageModeShared];
+        if (!src) return 0;
+        id<MTLBlitCommandEncoder> blit = [work.command blitCommandEncoder];
+        if (!blit) return 0;
+        [blit copyFromBuffer:src
+                sourceOffset:0
+                    toBuffer:work.batchVectors
+           destinationOffset:qw3_inkling_batch_slot_offset(work, dst)
+                        size:nbytes];
+        [blit endEncoding];
         return 1;
     }
 }

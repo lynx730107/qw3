@@ -36,6 +36,8 @@ qw3-rope-metal-test
 qw3-bench-cpu
 qw3-eval
 qw3-eval-cpu
+qw3-server
+qw3-server-cpu
 
 qw3-metal
 qw3-bench-metal

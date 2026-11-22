@@ -89,6 +89,9 @@ qw3_cpu_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h linenoise.h
 qw3_eval_cpu.o: qw3_eval.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_eval.c
 
+qw3_server_cpu.o: qw3_server.c qw3.h
+	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_server.c
+
 qw3_bench.o: qw3_bench.c qw3.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_bench.c
 
@@ -110,8 +113,11 @@ qw3-agent-cpu: qw3_cpu_agent.o qw3_cpu_core.o linenoise_qw3.o
 qw3-eval-cpu: qw3_eval_cpu.o qw3_cpu_core.o
 	$(CC) $(CFLAGS) -o $@ qw3_eval_cpu.o qw3_cpu_core.o $(LDLIBS)
 
+qw3-server-cpu: qw3_server_cpu.o qw3_cpu_core.o
+	$(CC) $(CFLAGS) -o $@ qw3_server_cpu.o qw3_cpu_core.o $(LDLIBS)
+
 ifeq ($(UNAME_S),Darwin)
-metal: qw3-cli qw3-agent qw3-eval qw3-bench
+metal: qw3-cli qw3-agent qw3-eval qw3-bench qw3-server
 
 .PHONY: FORCE
 FORCE:
@@ -134,11 +140,20 @@ qw3_metal_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h linenoise.h
 qw3_eval_metal.o: qw3_eval.c qw3.h qw3_metal.h
 	$(CC) $(CFLAGS) -c -o $@ qw3_eval.c
 
+qw3_server_metal.o: qw3_server.c qw3.h qw3_vision.h
+	$(CC) $(CFLAGS) -c -o $@ qw3_server.c
+
+qw3_vision.o: qw3_vision.m qw3_vision.h metal/qw3_vision.metal
+	$(CC) $(OBJCFLAGS) -c -o $@ qw3_vision.m
+
 qw3_metal.o: qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_runtime_fingerprint.h
 	$(CC) $(OBJCFLAGS) -c -o $@ qw3_metal.m
 
 qw3-cli: qw3_metal_cli.o qw3_metal_core.o qw3_metal.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_cli.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+
+qw3-server: qw3_server_metal.o qw3_metal_core.o qw3_metal.o qw3_vision.o
+	$(CC) $(CFLAGS) -o $@ qw3_server_metal.o qw3_metal_core.o qw3_metal.o qw3_vision.o $(METAL_LDLIBS) -framework ImageIO -framework CoreGraphics
 
 qw3-test: qw3_metal_cli_test.o qw3_metal_core.o qw3_metal.o
 	$(CC) $(CFLAGS) -o $@ qw3_metal_cli_test.o qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
@@ -968,6 +983,13 @@ qw3-inkling-window-test: tests/test_inkling_window.m qw3_metal.m qw3_metal.h $(M
 
 test-inkling-window: qw3-inkling-window-test
 	./qw3-inkling-window-test
+
+.PHONY: test-server test-server-vision
+test-server: qw3-server
+	python3 tests/test_server.py
+
+test-server-vision: qw3-server
+	python3 tests/test_server_vision.py
 endif
 
 test-dense-forward: qw3-cpu-test
