@@ -1,0 +1,9 @@
+test_empty_line (test_tags.TestTags) ... ok
+test_quoted_delimiter (test_tags.TestTags) ... ok
+test_quotes (test_tags.TestTags) ... ok
+test_spaces_and_empty (test_tags.TestTags) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.000s
+
+OK

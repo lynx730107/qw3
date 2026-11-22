@@ -1,0 +1,116 @@
+{
+  "paired": {
+    "IQ4 originale": {
+      "tps": 9.013872490604799,
+      "ms_per_token": 110.94010937499999,
+      "delta_percent": 0.0,
+      "faster_blocks": 0,
+      "logits": {
+        "variant": "0",
+        "max": "0",
+        "worst_rmse": "0",
+        "same_top": "32/32"
+      }
+    },
+    "IQ4 lookup packed": {
+      "tps": 7.774233977799784,
+      "ms_per_token": 128.63003645833334,
+      "delta_percent": -13.752563219605063,
+      "faster_blocks": 0,
+      "logits": {
+        "variant": "1",
+        "max": "0.000242352486",
+        "worst_rmse": "4.67643155e-05",
+        "same_top": "32/32"
+      }
+    },
+    "IQ4 simd_shuffle": {
+      "tps": 6.2331817717871125,
+      "ms_per_token": 160.43170833333335,
+      "delta_percent": -30.84901324836814,
+      "faster_blocks": 0,
+      "logits": {
+        "variant": "2",
+        "max": "0",
+        "worst_rmse": "0",
+        "same_top": "32/32"
+      }
+    }
+  },
+  "paired3": {
+    "IQ3 originale": {
+      "tps": 9.19439919342133,
+      "ms_per_token": 108.76186458333335,
+      "delta_percent": 0.0,
+      "faster_blocks": 0,
+      "logits": {
+        "variant": "0",
+        "max": "0",
+        "worst_rmse": "0",
+        "same_top": "32/32"
+      }
+    },
+    "IQ3 scala finale": {
+      "tps": 9.120033607323842,
+      "ms_per_token": 109.64871875000001,
+      "delta_percent": -0.8088139804795058,
+      "faster_blocks": 1,
+      "logits": {
+        "variant": "1",
+        "max": "0.000257015228",
+        "worst_rmse": "4.87476239e-05",
+        "same_top": "32/32"
+      }
+    },
+    "IQ3 dot vettoriale": {
+      "tps": 9.14676281057726,
+      "ms_per_token": 109.328296875,
+      "delta_percent": -0.5181021820126586,
+      "faster_blocks": 2,
+      "logits": {
+        "variant": "2",
+        "max": "0.000273227692",
+        "worst_rmse": "4.6028028e-05",
+        "same_top": "32/32"
+      }
+    }
+  },
+  "grid": {
+    "IQ3 originale": {
+      "tps": 8.773232502084785,
+      "ms_per_token": 113.98307291666667,
+      "delta_percent": 0.0,
+      "faster_blocks": 0,
+      "logits": {
+        "variant": "0",
+        "max": "0",
+        "worst_rmse": "0",
+        "same_top": "32/32"
+      }
+    },
+    "IQ3 tabella precalcolata condivisa": {
+      "tps": 8.756120562476767,
+      "ms_per_token": 114.20582812500001,
+      "delta_percent": -0.19504714600863116,
+      "faster_blocks": 3,
+      "logits": {
+        "variant": "1",
+        "max": "0",
+        "worst_rmse": "0",
+        "same_top": "32/32"
+      }
+    },
+    "IQ3 lettura diretta costante": {
+      "tps": 8.750413992568255,
+      "ms_per_token": 114.28030729166667,
+      "delta_percent": -0.26009238340722884,
+      "faster_blocks": 3,
+      "logits": {
+        "variant": "2",
+        "max": "0",
+        "worst_rmse": "0",
+        "same_top": "32/32"
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+--- metal/qw3_core_linear.metal
++++ metal/qw3_core_linear.metal
+@@ -589,6 +589,11 @@
+ }
+ /* Load eight packed quants as two words; reuse the four activation vectors
+  * across output rows and the gate/up pair. Magnitudes remain exact integers. */
++inline float qw3_iq4xs_register_value(uint q) {
++    const uint word = (q & 8u) ? ((q & 4u) ? 0x71594535u : 0x26190d01u)
++                               : ((q & 4u) ? 0xf6eaddcfu : 0xbfad9881u);
++    return float(int(word << ((3u - (q & 3u)) * 8u)) >> 24);
++}
+ inline float qw3_iq4xs_dot8_vector(device const uchar *blk,
+                                   thread const float4 *xl,
+                                   threadgroup const float *table,
+@@ -604,8 +609,8 @@
+         const uint q = qs[j];
+         const uchar4 qlo = as_type<uchar4>(q & 0x0f0f0f0fu);
+         const uchar4 qhi = as_type<uchar4>((q >> 4u) & 0x0f0f0f0fu);
+-        lo += xl[2u * j] * float4(table[qlo.x], table[qlo.y], table[qlo.z], table[qlo.w]);
+-        hi += xl[2u * j + 1u] * float4(table[qhi.x], table[qhi.y], table[qhi.z], table[qhi.w]);
++        lo += xl[2u * j] * float4(qw3_iq4xs_register_value(qlo.x), qw3_iq4xs_register_value(qlo.y), qw3_iq4xs_register_value(qlo.z), qw3_iq4xs_register_value(qlo.w));
++        hi += xl[2u * j + 1u] * float4(qw3_iq4xs_register_value(qhi.x), qw3_iq4xs_register_value(qhi.y), qw3_iq4xs_register_value(qhi.z), qw3_iq4xs_register_value(qhi.w));
+     }
+     lo += hi;
+     return float(d) * float(int(ls) - 32) * (lo.x + lo.y + lo.z + lo.w);
+@@ -618,8 +623,6 @@
+                                    uint group [[threadgroup_position_in_grid]],
+                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                    ushort lane [[thread_index_in_simdgroup]]) {
+-    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+-    threadgroup_barrier(mem_flags::mem_threadgroup);
+     const uint nr0 = 2u;
+     const uint nsg = 2u;
+     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
+@@ -665,8 +668,6 @@
+                                    uint group [[threadgroup_position_in_grid]],
+                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                    ushort lane [[thread_index_in_simdgroup]]) {
+-    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+-    threadgroup_barrier(mem_flags::mem_threadgroup);
+     const uint nr0 = 2u;
+     const uint nsg = 2u;
+     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
+@@ -723,8 +724,6 @@
+                                           uint group [[threadgroup_position_in_grid]],
+                                           ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                           ushort lane [[thread_index_in_simdgroup]]) {
+-    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+-    threadgroup_barrier(mem_flags::mem_threadgroup);
+     const uint nr0 = 2u;
+     const uint nsg = 2u;
+     uint first_row = (group * nsg + uint(simd_idx)) * nr0;

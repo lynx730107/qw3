@@ -137,7 +137,14 @@ kernel void qw3_embed_q8_0_batch(constant qw3_embed_q8_0_batch_args &args,
     char q = *((device const char *)(blk + 2u + lane));
     out[uint64_t(t) * args.n_embd + i] = d * float(q);
 }
-struct qw3_embed_q3_k_args { uint n_embd; };
+inline float qw3_embed_q2_k_value(device const uchar *row, uint dim) {
+    device const uchar *block = row + (dim / 256u) * 84u;
+    uint i = dim % 256u, scale = block[i / 16u];
+    uint q = (block[16u + (i / 128u) * 32u + i % 32u] >> (2u * ((i / 32u) % 4u))) & 3u;
+    device const half *d = (device const half *)(block + 80);
+    return float(d[0]) * float(scale & 15u) * float(q) - float(d[1]) * float(scale >> 4u);
+}
+struct qw3_embed_q3_k_args { uint n_embd, type; };
 inline float qw3_embed_q3_k_value(device const uchar *weights, uint gid) {
     const uint block = gid / 256u;
     const uint local = gid & 255u;
@@ -179,9 +186,9 @@ kernel void qw3_embed_q3_k(constant qw3_embed_q3_k_args &args,
                            device const uchar *weights,
                            device float *out,
                            uint gid [[thread_position_in_grid]]) {
-    if (gid < args.n_embd) out[gid] = qw3_embed_q3_k_value(weights, gid);
+    if (gid < args.n_embd) out[gid] = args.type == 10u ? qw3_embed_q2_k_value(weights, gid) : qw3_embed_q3_k_value(weights, gid);
 }
-struct qw3_embed_q3_k_batch_args { uint n_embd; uint row_bytes; uint n_tokens; };
+struct qw3_embed_q3_k_batch_args { uint n_embd; uint row_bytes; uint n_tokens; uint type; };
 kernel void qw3_embed_q3_k_batch(constant qw3_embed_q3_k_batch_args &args,
                                  device const uchar *weights,
                                  device const uint *tokens,
@@ -191,7 +198,7 @@ kernel void qw3_embed_q3_k_batch(constant qw3_embed_q3_k_batch_args &args,
     const uint token_index = gid / args.n_embd;
     const uint dim = gid - token_index * args.n_embd;
     device const uchar *row = weights + uint64_t(tokens[token_index]) * args.row_bytes;
-    out[gid] = qw3_embed_q3_k_value(row, dim);
+    out[gid] = args.type == 10u ? qw3_embed_q2_k_value(row, dim) : qw3_embed_q3_k_value(row, dim);
 }
 struct qw3_kv_quant_q8_args { uint n; };
 kernel void qw3_gqa_kv_quant_q8(constant qw3_kv_quant_q8_args &args,

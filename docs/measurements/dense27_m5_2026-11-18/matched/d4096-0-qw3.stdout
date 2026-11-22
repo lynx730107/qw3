@@ -1,0 +1,2 @@
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+tg,0,32,4096,1,7.18,0.00,4455.78,0.00,436824400

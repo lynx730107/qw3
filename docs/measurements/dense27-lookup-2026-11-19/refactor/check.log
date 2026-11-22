@@ -1,0 +1,64 @@
+test_empty_line (test_tags.TestTags) ... ok
+test_quoted_delimiter (test_tags.TestTags) ... FAIL
+test_quotes (test_tags.TestTags) ... FAIL
+test_spaces_and_empty (test_tags.TestTags) ... FAIL
+
+======================================================================
+FAIL: test_quoted_delimiter (test_tags.TestTags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.Zcr2fBUkbI/work/test_tags.py", line 6, in test_quoted_delimiter
+    self.assertEqual(parse_tags('news,"Rome, Italy", work'), ['news', 'Rome, Italy', 'work'])
+AssertionError: Lists differ: ['news', '"Rome', 'Italy"', 'work'] != ['news', 'Rome, Italy', 'work']
+
+First differing element 1:
+'"Rome'
+'Rome, Italy'
+
+First list contains 1 additional elements.
+First extra element 3:
+'work'
+
+- ['news', '"Rome', 'Italy"', 'work']
+?           -    -  -     -
+
++ ['news', 'Rome, Italy', 'work']
+
+======================================================================
+FAIL: test_quotes (test_tags.TestTags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.Zcr2fBUkbI/work/test_tags.py", line 12, in test_quotes
+    self.assertEqual(parse_tags('"say ""hi""", travel'), ['say "hi"', 'travel'])
+AssertionError: Lists differ: ['"say ""hi"""', 'travel'] != ['say "hi"', 'travel']
+
+First differing element 0:
+'"say ""hi"""'
+'say "hi"'
+
+- ['"say ""hi"""', 'travel']
+?   -    -    --
+
++ ['say "hi"', 'travel']
+
+======================================================================
+FAIL: test_spaces_and_empty (test_tags.TestTags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.Zcr2fBUkbI/work/test_tags.py", line 9, in test_spaces_and_empty
+    self.assertEqual(parse_tags(' , news ,, "  work  ", '), ['news', 'work'])
+AssertionError: Lists differ: ['news', '"  work  "'] != ['news', 'work']
+
+First differing element 1:
+'"  work  "'
+'work'
+
+- ['news', '"  work  "']
+?           ---    ---
+
++ ['news', 'work']
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.001s
+
+FAILED (failures=3)

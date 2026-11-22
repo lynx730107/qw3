@@ -12,6 +12,12 @@ qw3-quant-k-test
 qw3-dense-logits-test
 qw3-agent
 qw3-agent-cpu
+qw3-agent-voice
+qw3-voice
+qw3-voice-residency-test
+config/voice.local.json
+config/audio-cpp.local.json
+.deps/
 qw3-bench
 qw3-sampled-decode-bench
 qw3-decode-ab-bench
@@ -24,11 +30,14 @@ qw3-prefill-staging-bench
 qw3-block-cost-bench
 qw3-short-batch-bench
 qw3-dense-metal-logits-test
+qw3-dense-partial-tiles-test
 qw3-rope-cpu-test
 qw3-rope-metal-test
 qw3-bench-cpu
 qw3-eval
 qw3-eval-cpu
+qw3-server
+qw3-server-cpu
 
 qw3-metal
 qw3-bench-metal
@@ -255,3 +264,7 @@ tests/.decode_ffn_barriers/
 tests/.decode_projection_barriers/
 tests/.projection_pairs/
 tests/.gqa_groups/
+
+/qw3-inkling-cpu-test
+/qw3-inkling-metal-test
+/qw3-inkling-window-test

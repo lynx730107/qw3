@@ -1,0 +1,48 @@
+--- metal/qw3_core_moe.metal
++++ metal/qw3_core_moe.metal
+@@ -166,6 +166,37 @@
+ }
+ /* Scalar-order helper: single matvec retains the smaller packed grid.
+  * Paired decode uses the vector helper below instead. */
++#ifdef QW3_ENABLE_IQ3_NIBBLE
++template<typename Grid>
++inline float qw3_iq3s_dot32_shared(device const uchar *blk,
++                                  thread const float *xx,
++                                  threadgroup const Grid *grid,
++                                  uint ib) {
++    const half d = *((device const half *)blk);
++    device const uchar *qs = blk + 2 + ib * 8u;
++    const uchar qhb = blk[66u + ib];
++    device const uchar *signs = blk + 74 + ib * 4u;
++    const uint scale = uint(blk[106u + ib / 2u]);
++    const float db = float(d) * float(1u + 2u * ((scale >> (4u * (ib & 1u))) & 15u));
++    float sum = 0.0f;
++    for (uint l = 0; l < 4u; l++) {
++        const uint idx1 = uint(qs[2u * l]) | ((uint(qhb) << (8u - 2u * l)) & 256u);
++        const uint idx2 = uint(qs[2u * l + 1u]) | ((uint(qhb) << (7u - 2u * l)) & 256u);
++        const Grid g1 = grid[idx1], g2 = grid[idx2];
++        const uchar s = signs[l];
++        const uint4 shifts = uint4(0u, 4u, 8u, 12u);
++        const float4 v1 = float4((uint4(uint(g1)) >> shifts) & 15u);
++        const float4 v2 = float4((uint4(uint(g2)) >> shifts) & 15u);
++        const uint4 mask = uint4(1u, 2u, 4u, 8u);
++        const float4 w1 = select(v1, -v1, (uint4(s) & mask) != 0u);
++        const float4 w2 = select(v2, -v2, (uint4(uint(s) >> 4u) & mask) != 0u);
++        const uint k = l * 8u;
++        sum += dot(w1, float4(xx[k], xx[k+1], xx[k+2], xx[k+3])) +
++               dot(w2, float4(xx[k+4], xx[k+5], xx[k+6], xx[k+7]));
++    }
++    return db * sum;
++}
++#else
+ template<typename Grid>
+ inline float qw3_iq3s_dot32_shared(device const uchar *blk,
+                                   thread const float *xx,
+@@ -199,6 +230,7 @@
+     }
+     return sum;
+ }
++#endif
+ kernel void qw3_matvec_iq3_s_fast(constant qw3_matvec_q8_0_args &args,
+                                   device const uchar *weights,
+                                   device const float *x,

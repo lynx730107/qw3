@@ -1,6 +1,7 @@
 #ifndef QW3_METAL_H
 #define QW3_METAL_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* Narrow Objective-C/Metal boundary.
@@ -21,9 +22,142 @@ int qw3_metal_flush_commands(void);
 int qw3_metal_commit_commands(void);
 int qw3_metal_end_commands(void);
 int qw3_metal_synchronize(void);
+/* Synchronize, then release only GPU weight views. Session state is retained. */
+int qw3_metal_release_model_views(void);
 /* Q3_K batch is worthwhile by default only with the Metal 4 tensor kernel. */
 int qw3_metal_dense_q3_k_batch_enabled(uint32_t n_tokens);
 int qw3_metal_dense_q4_q5_k_batch_enabled(uint32_t n_tokens);
+
+/* Inkling encodes the per-token graph into one workspace. Activations and
+ * per-visit state are private; only expert indices and final logits cross to
+ * the host. Vector indices name contiguous embedding-width slots. */
+typedef struct qw3_metal_inkling_session qw3_metal_inkling_session;
+enum { QW3_INKLING_VECTOR_SLOTS = 24 };
+typedef struct {
+    uint64_t tensor_offset;
+    uint32_t type, n_in, n_out, row_bytes;
+} qw3_metal_projection;
+qw3_metal_inkling_session *qw3_metal_inkling_session_create(
+    const uint32_t *visit_capacities, uint32_t visit_count);
+void qw3_metal_inkling_session_free(qw3_metal_inkling_session *workspace);
+void qw3_metal_inkling_discard(qw3_metal_inkling_session *workspace);
+int qw3_metal_inkling_embed(qw3_metal_inkling_session *workspace,
+                            const qw3_metal_projection *embedding, uint32_t token, uint32_t dst);
+int qw3_metal_inkling_norm(qw3_metal_inkling_session *workspace,
+                           uint32_t vector, uint64_t weights);
+int qw3_metal_inkling_vector_op(qw3_metal_inkling_session *workspace,
+                                uint32_t dst, uint32_t src, uint32_t count, bool add);
+int qw3_metal_inkling_mix(qw3_metal_inkling_session *workspace,
+                          uint32_t dst, uint32_t src, uint32_t history, uint32_t banks,
+                          uint64_t query);
+int qw3_metal_inkling_mix_norm(qw3_metal_inkling_session *workspace,
+                               uint32_t dst, uint32_t src, uint32_t history, uint32_t banks,
+                               uint64_t query, uint64_t norm_weights);
+int qw3_metal_inkling_mix4(qw3_metal_inkling_session *workspace,
+                           uint32_t dst_base, uint32_t src, uint32_t history, uint32_t banks,
+                           uint64_t q_attn, uint64_t q_kv);
+
+typedef struct {
+    uint64_t down_offset, gain_offset, forget_offset;
+} qw3_metal_inkling_control;
+int qw3_metal_inkling_apply_control(qw3_metal_inkling_session *workspace,
+                                    const qw3_metal_inkling_control *control,
+                                    uint32_t state, uint32_t message);
+int qw3_metal_inkling_apply_control_from(qw3_metal_inkling_session *workspace,
+                                         const qw3_metal_inkling_control *control,
+                                         uint32_t src_state, uint32_t dst_state, uint32_t message);
+
+typedef struct {
+    qw3_metal_projection gate_up, down;
+} qw3_metal_inkling_expert;
+typedef struct {
+    qw3_metal_projection matrix;
+    uint64_t bias, gate_scale, down_scale;
+    float scale;
+} qw3_metal_inkling_router;
+typedef struct {
+    qw3_metal_projection gate_up, down;
+    uint32_t gate_up_expert_bytes, down_expert_bytes;
+} qw3_metal_inkling_moe_weights;
+int qw3_metal_inkling_route(qw3_metal_inkling_session *workspace,
+                            const qw3_metal_inkling_router *router, uint32_t src,
+                            uint32_t ids[8]);
+int qw3_metal_inkling_experts(qw3_metal_inkling_session *workspace,
+                             const qw3_metal_inkling_expert experts[8], uint32_t src, uint32_t dst,
+                             float beta, float limit, uint32_t visit, uint32_t pos,
+                             uint64_t post_conv);
+int qw3_metal_inkling_ffn(qw3_metal_inkling_session *workspace,
+                          const qw3_metal_inkling_router *router,
+                          const qw3_metal_inkling_moe_weights *moe,
+                          uint32_t src, uint32_t cur_dst,
+                          float beta, float limit,
+                          uint32_t visit, uint32_t pos,
+                          uint64_t post_conv);
+
+typedef struct {
+    qw3_metal_projection q, k, v, gate, relative, sink, k_taps, v_taps, output;
+    uint64_t k_conv, v_conv, q_clip, relative_clip, relative_bias, post_conv;
+    float qk_limit, relative_limit, tau;
+    uint32_t relative_extent;
+    bool sliding;
+    bool shared_qkv;
+    bool add_dst;
+} qw3_metal_inkling_attention;
+int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
+                            const qw3_metal_inkling_attention *attention,
+                            uint32_t src, uint32_t dst, uint32_t visit, uint32_t pos);
+int qw3_metal_inkling_logits(qw3_metal_inkling_session *workspace,
+                             const qw3_metal_projection *output, uint32_t src, float cap,
+                             float *logits);
+
+/* Batched Inkling prefill API: processes n_tokens in lockstep per visit on
+ * GPU, computing final logits only when logits != NULL (for the last token). */
+int qw3_metal_inkling_upload_embd(qw3_metal_inkling_session *workspace,
+                                  const float *embd, uint32_t dst);
+int qw3_metal_inkling_batch_begin(qw3_metal_inkling_session *workspace, uint32_t n_tokens);
+int qw3_metal_inkling_batch_embed(qw3_metal_inkling_session *workspace,
+                                  const qw3_metal_projection *embedding,
+                                  const int *tokens, uint32_t n_tokens, uint32_t dst);
+int qw3_metal_inkling_batch_upload_embd(qw3_metal_inkling_session *workspace,
+                                        const float *embd, uint32_t n_tokens,
+                                        uint32_t dst);
+int qw3_metal_inkling_batch_norm(qw3_metal_inkling_session *workspace,
+                                 uint32_t vector, uint64_t weights, uint32_t n_tokens);
+int qw3_metal_inkling_batch_vector_op(qw3_metal_inkling_session *workspace,
+                                      uint32_t dst, uint32_t src, uint32_t count,
+                                      uint32_t n_tokens, bool add);
+int qw3_metal_inkling_batch_mix(qw3_metal_inkling_session *workspace,
+                                uint32_t dst, uint32_t src, uint32_t history, uint32_t banks,
+                                uint64_t query, uint32_t n_tokens);
+int qw3_metal_inkling_batch_mix_norm(qw3_metal_inkling_session *workspace,
+                                     uint32_t dst, uint32_t src, uint32_t history, uint32_t banks,
+                                     uint64_t query, uint64_t norm_weights, uint32_t n_tokens);
+int qw3_metal_inkling_batch_mix4(qw3_metal_inkling_session *workspace,
+                                 uint32_t dst_base, uint32_t src, uint32_t history, uint32_t banks,
+                                 uint64_t q_attn, uint64_t q_kv, uint32_t n_tokens);
+int qw3_metal_inkling_batch_apply_control(qw3_metal_inkling_session *workspace,
+                                          const qw3_metal_inkling_control *control,
+                                          uint32_t state, uint32_t message, uint32_t n_tokens);
+int qw3_metal_inkling_batch_apply_control_from(qw3_metal_inkling_session *workspace,
+                                               const qw3_metal_inkling_control *control,
+                                               uint32_t src_state, uint32_t dst_state,
+                                               uint32_t message, uint32_t n_tokens);
+int qw3_metal_inkling_batch_attend(qw3_metal_inkling_session *workspace,
+                                   const qw3_metal_inkling_attention *attention,
+                                   uint32_t src, uint32_t dst, uint32_t visit,
+                                   uint32_t pos0, uint32_t n_tokens,
+                                   float log_alpha, float log_floor);
+int qw3_metal_inkling_batch_ffn(qw3_metal_inkling_session *workspace,
+                                const qw3_metal_inkling_router *router,
+                                const qw3_metal_inkling_moe_weights *moe,
+                                uint32_t src, uint32_t dst,
+                                float beta, float limit,
+                                uint32_t visit, uint32_t pos0, uint32_t n_tokens,
+                                uint64_t post_conv);
+int qw3_metal_inkling_batch_finish(qw3_metal_inkling_session *workspace,
+                                   const qw3_metal_projection *output,
+                                   uint32_t src, uint32_t n_tokens,
+                                   float cap, float *logits);
 
 typedef struct qw3_metal_session qw3_metal_session;
 
@@ -94,6 +228,8 @@ int qw3_metal_session_write_state(qw3_metal_session *s,
                                   const void *src, uint64_t bytes);
 int qw3_metal_session_embed_q8_0(qw3_metal_session *s, uint64_t tensor_offset,
                                  uint32_t token, uint32_t n_embd, float *out);
+int qw3_metal_session_embed_k(qw3_metal_session *s, uint64_t tensor_offset,
+        uint32_t type, uint32_t token, uint32_t n_embd, float *out);
 int qw3_metal_session_embed_q3_k(qw3_metal_session *s, uint64_t tensor_offset,
                                 uint32_t token, uint32_t n_embd, float *out);
 int qw3_metal_session_batch_embed_q8_0(qw3_metal_session *s,
@@ -101,6 +237,8 @@ int qw3_metal_session_batch_embed_q8_0(qw3_metal_session *s,
                                        const uint32_t *tokens,
                                        uint32_t n_tokens,
                                        uint32_t n_embd);
+int qw3_metal_session_batch_embed_k(qw3_metal_session *s, uint64_t tensor_offset,
+        uint32_t type, const uint32_t *tokens, uint32_t n_tokens, uint32_t n_embd);
 int qw3_metal_session_batch_embed_q3_k(qw3_metal_session *s,
                                       uint64_t tensor_offset,
                                       const uint32_t *tokens,
@@ -109,6 +247,7 @@ int qw3_metal_session_batch_embed_q3_k(qw3_metal_session *s,
 int qw3_metal_session_batch_matmul_quant_x1_to_scratch(
     qw3_metal_session *s, uint64_t tensor_offset, uint32_t tensor_type,
     uint32_t n_tokens, uint32_t n_in, uint32_t n_out);
+int qw3_metal_dense_quant_batch_available(uint32_t type, uint32_t n_tokens);
 int qw3_metal_session_batch_dense_ffn(qw3_metal_session *s,
     uint64_t gate_offset, uint32_t gate_type,
     uint64_t up_offset, uint32_t up_type,
@@ -180,6 +319,19 @@ int qw3_metal_session_matvec_iq3_s_pair_x1_to_scratch(
     uint32_t n_in, uint32_t n_out);
 int qw3_metal_session_matvec_iq4_xs_pair_x1_to_scratch(
     qw3_metal_session *s, uint64_t gate_offset, uint64_t up_offset,
+    uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_matvec_dense_pair_swiglu_x1_to_inner(
+    qw3_metal_session *s,
+    uint64_t gate_offset, uint32_t gate_type,
+    uint64_t up_offset, uint32_t up_type,
+    uint32_t n_in, uint32_t n_out);
+int qw3_metal_session_matvec_dense_pair_x1_to_scratch(
+    qw3_metal_session *s,
+    uint64_t w0_offset, uint32_t w0_type, uint32_t n_out0, uint32_t out0_offset,
+    uint64_t w1_offset, uint32_t w1_type, uint32_t n_out1, uint32_t out1_offset,
+    uint32_t n_in);
+int qw3_metal_session_matvec_quant_inner_add_x0(
+    qw3_metal_session *s, uint64_t tensor_offset, uint32_t tensor_type,
     uint32_t n_in, uint32_t n_out);
 int qw3_metal_session_gqa_project_cache_typed_prefill(
     qw3_metal_session *s,
@@ -497,6 +649,8 @@ int qw3_metal_session_matvec_q6_k_x1_to_logits(qw3_metal_session *s,
                                                uint64_t tensor_offset,
                                                uint32_t n_in, uint32_t n_out,
                                                float *out);
+int qw3_metal_session_matvec_k_x1_to_logits(qw3_metal_session *s, uint64_t tensor_offset,
+        uint32_t type, uint32_t n_in, uint32_t n_out, float *out);
 int qw3_metal_session_matvec_q5_k_x1_to_logits(qw3_metal_session *s,
                                                uint64_t tensor_offset,
                                                uint32_t n_in, uint32_t n_out,

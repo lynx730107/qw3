@@ -1,0 +1,9 @@
+{"seq":1,"time":1795111543,"event":"session_start","model":"/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf","backend":"Metal","ctx":8192,"tools":true,"think":"none"}
+{"seq":2,"time":1795111543,"event":"user_turn","context_tokens":1815,"input_bytes":255}
+{"seq":3,"time":1795111564,"event":"inference","backend":"Metal","cached_tokens":0,"prompt_tokens":1891,"prefill_tokens":1891,"prefill_ms":17103.128000,"prefill_tps":110.564570,"generation_tokens":35,"assistant_bytes":111,"assistant_nonempty":true,"generation_ms":4008.039000,"generation_tps":8.732450,"ok":true}
+{"seq":4,"time":1795111565,"event":"tool","name":"search_web","output_bytes":1886,"guard_rejected":false}
+{"seq":5,"time":1795111577,"event":"inference","backend":"Metal","cached_tokens":1926,"prompt_tokens":2484,"prefill_tokens":558,"prefill_ms":7442.950000,"prefill_tps":74.970274,"generation_tokens":39,"assistant_bytes":114,"assistant_nonempty":true,"generation_ms":4519.116000,"generation_tps":8.630006,"ok":true}
+{"seq":6,"time":1795111579,"event":"tool","name":"visit_url","output_bytes":8218,"guard_rejected":false}
+{"seq":7,"time":1795111579,"event":"tool_context_limit","name":"visit_url","original_tokens":1893,"context_tokens":656,"token_limit":1024,"full_result_saved":true,"path":"/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.cpYEsf6EF6/store/spills/tool-v8JS2b"}
+{"seq":8,"time":1795111600,"event":"inference","backend":"Metal","cached_tokens":2523,"prompt_tokens":3188,"prefill_tokens":665,"prefill_ms":10121.104999,"prefill_tps":65.704288,"generation_tokens":91,"assistant_bytes":295,"assistant_nonempty":true,"generation_ms":10814.859000,"generation_tps":8.414349,"ok":true}
+{"seq":9,"time":1795111601,"event":"session_end","status":0}

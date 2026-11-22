@@ -1,0 +1,24 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/ds4-main/qw3/../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.003s)
+2026-11-17 22:08:11.769 matrix[31329:68635412] Metal API Validation Enabled
+2026-11-17 22:08:11.769 matrix[31329:68635412] Metal GPU Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+matrix layer=0 types=23/23
+matrix part=0 type=23 rows=10240 differences=0
+matrix part=1 type=23 rows=6144 differences=0
+matrix layer=5 types=21/23
+first mismatch part=0 row=3019 baseline=0 candidate=0.605189085
+matrix part=0 type=21 rows=10240 differences=2
+matrix part=1 type=23 rows=6144 differences=0
+matrix layer=14 types=21/21
+first mismatch part=0 row=283 baseline=0 candidate=0.864816427
+matrix part=0 type=21 rows=10240 differences=3
+first mismatch part=1 row=1047 baseline=0 candidate=-2.4536078
+matrix part=1 type=21 rows=6144 differences=4
+matrix layer=18 types=23/21
+matrix part=0 type=23 rows=10240 differences=0
+first mismatch part=1 row=539 baseline=0 candidate=1.8335247
+matrix part=1 type=21 rows=6144 differences=1
+matrix cases=4 pass=1

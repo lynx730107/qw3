@@ -186,77 +186,21 @@ inline float qw3_iq3s_dot32_shared(device const uchar *blk,
         for (uint j = 0; j < 4u; j++) {
             const float sign1 = (uint(s) & (1u << j)) ? -1.0f : 1.0f;
             const float sign2 = (uint(s) & (1u << (j + 4u))) ? -1.0f : 1.0f;
+#ifdef QW3_ENABLE_IQ3_NIBBLE
+            const float v1 = float((uint(g1) >> (4u*j)) & 15u);
+            const float v2 = float((uint(g2) >> (4u*j)) & 15u);
+#else
             const float v1 = qw3_iq3s_grid_value(g1, j);
             const float v2 = qw3_iq3s_grid_value(g2, j);
+#endif
             sum += db * v1 * sign1 * xx[8u * l + j];
             sum += db * v2 * sign2 * xx[8u * l + j + 4u];
         }
     }
     return sum;
 }
-kernel void qw3_matvec_iq3_s_fast(constant qw3_matvec_q8_0_args &args,
-                                  device const uchar *weights,
-                                  device const float *x,
-                                  device float *out,
-                                  device const ushort *kgrid,
-                                  threadgroup float *sh,
-                                  uint group [[threadgroup_position_in_grid]],
-                                  ushort simd_idx [[simdgroup_index_in_threadgroup]],
-                                  ushort lane [[thread_index_in_simdgroup]]) {
-    (void)sh;
-    threadgroup ushort grid[512];
-    const uint tid = uint(simd_idx) * 32u + uint(lane);
-    for (uint i = tid; i < 512u; i += 64u) grid[i] = kgrid[i];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    const uint nr0 = 4u;
-    const uint nsg = 2u;
-    uint first_row = (group * nsg + uint(simd_idx)) * nr0;
-    float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
-    uint nb32 = (args.n_in / 256u) * 8u;
-    for (uint ib32 = uint(lane); ib32 < nb32; ib32 += 32u) {
-        uint ibl = ib32 / 8u;
-        uint ib = ib32 - ibl * 8u;
-        float xx[32];
-        for (uint j = 0; j < 32u; j++) xx[j] = x[uint64_t(ib32) * 32ull + j];
-        uint64_t block_off = uint64_t(ibl) * 110ull;
-        uint row = first_row;
-        if (row < args.n_out)
-            sum0 += qw3_iq3s_dot32_shared(weights +
-                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
-                xx, grid, ib);
-        row = first_row + 1u;
-        if (row < args.n_out)
-            sum1 += qw3_iq3s_dot32_shared(weights +
-                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
-                xx, grid, ib);
-        row = first_row + 2u;
-        if (row < args.n_out)
-            sum2 += qw3_iq3s_dot32_shared(weights +
-                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
-                xx, grid, ib);
-        row = first_row + 3u;
-        if (row < args.n_out)
-            sum3 += qw3_iq3s_dot32_shared(weights +
-                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
-                xx, grid, ib);
-    }
-    sum0 = simd_sum(sum0);
-    sum1 = simd_sum(sum1);
-    sum2 = simd_sum(sum2);
-    sum3 = simd_sum(sum3);
-    if (lane == 0) {
-        uint row = first_row;
-        if (row < args.n_out) out[row] = sum0;
-        row = first_row + 1u;
-        if (row < args.n_out) out[row] = sum1;
-        row = first_row + 2u;
-        if (row < args.n_out) out[row] = sum2;
-        row = first_row + 3u;
-        if (row < args.n_out) out[row] = sum3;
-    }
-}
-/* Exact IQ3_S grid/sign expansion with FP32 vector products. Share activation
- * vectors across the eight gate/up dot products owned by each SIMD lane. */
+/* Exact IQ3_S grid/sign expansion with FP32 vector products and pre-expanded
+ * float4 lookup cache (zero inner-loop byte-to-float unpack overhead). */
 inline float qw3_iq3s_dot32_vector(device const uchar *blk,
                                   thread const float4 *xx,
                                   threadgroup const float4 *grid, uint ib) {
@@ -280,6 +224,78 @@ inline float qw3_iq3s_dot32_vector(device const uchar *blk,
     }
     return db * sum;
 }
+template<ushort Simdgroups = 2, ushort RowsPerSg = 4, bool AddX0 = false>
+kernel void qw3_matvec_iq3_s_fast_tpl(constant qw3_matvec_q8_0_args &args,
+                                      device const uchar *weights,
+                                      device const float *x,
+                                      device float *out,
+                                      device const ushort *kgrid,
+                                      threadgroup float *sh,
+                                      uint group [[threadgroup_position_in_grid]],
+                                      ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                      ushort lane [[thread_index_in_simdgroup]]) {
+    (void)sh;
+    threadgroup float4 grid[512];
+    const uint tid = uint(simd_idx) * 32u + uint(lane);
+    for (uint i = tid; i < 512u; i += Simdgroups * 32u) grid[i] = qw3_iq3s_float_grid(kgrid[i]);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint first_row = (group * Simdgroups + uint(simd_idx)) * RowsPerSg;
+    float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
+    uint nb32 = (args.n_in / 256u) * 8u;
+    for (uint ib32 = uint(lane); ib32 < nb32; ib32 += 32u) {
+        uint ibl = ib32 / 8u;
+        uint ib = ib32 - ibl * 8u;
+        float4 xx[8];
+        device const float4 *x4 = (device const float4 *)(x + uint64_t(ib32) * 32ull);
+        for (uint j = 0; j < 8u; j++) xx[j] = x4[j];
+        uint64_t block_off = uint64_t(ibl) * 110ull;
+        uint row = first_row;
+        if (row < args.n_out)
+            sum0 += qw3_iq3s_dot32_vector(weights +
+                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+                xx, grid, ib);
+        row = first_row + 1u;
+        if (row < args.n_out)
+            sum1 += qw3_iq3s_dot32_vector(weights +
+                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+                xx, grid, ib);
+        if (RowsPerSg > 2u) {
+            row = first_row + 2u;
+            if (row < args.n_out)
+                sum2 += qw3_iq3s_dot32_vector(weights +
+                    uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+                    xx, grid, ib);
+            row = first_row + 3u;
+            if (row < args.n_out)
+                sum3 += qw3_iq3s_dot32_vector(weights +
+                    uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+                    xx, grid, ib);
+        }
+    }
+    sum0 = simd_sum(sum0);
+    sum1 = simd_sum(sum1);
+    if (RowsPerSg > 2u) {
+        sum2 = simd_sum(sum2);
+        sum3 = simd_sum(sum3);
+    }
+    if (lane == 0) {
+        uint row = first_row;
+        if (row < args.n_out) out[row] = AddX0 ? (out[row] + sum0) : sum0;
+        row = first_row + 1u;
+        if (row < args.n_out) out[row] = AddX0 ? (out[row] + sum1) : sum1;
+        if (RowsPerSg > 2u) {
+            row = first_row + 2u;
+            if (row < args.n_out) out[row] = AddX0 ? (out[row] + sum2) : sum2;
+            row = first_row + 3u;
+            if (row < args.n_out) out[row] = AddX0 ? (out[row] + sum3) : sum3;
+        }
+    }
+}
+typedef decltype(qw3_matvec_iq3_s_fast_tpl<2, 4, false>) qw3_matvec_iq3_s_fast_t;
+template [[host_name("qw3_matvec_iq3_s_fast")]] kernel qw3_matvec_iq3_s_fast_t qw3_matvec_iq3_s_fast_tpl<2, 4, false>;
+template [[host_name("qw3_matvec_iq3_s_sg8")]] kernel qw3_matvec_iq3_s_fast_t qw3_matvec_iq3_s_fast_tpl<8, 2, false>;
+template [[host_name("qw3_matvec_iq3_s_add_x0_fast")]] kernel qw3_matvec_iq3_s_fast_t qw3_matvec_iq3_s_fast_tpl<8, 2, true>;
+
 kernel void qw3_matvec_iq3_s_pair_fast(constant qw3_matvec_q8_0_args &args,
                                        device const uchar *gate_weights,
                                        device const uchar *up_weights,
@@ -347,6 +363,152 @@ kernel void qw3_matvec_iq3_s_pair_fast(constant qw3_matvec_q8_0_args &args,
         if (row < args.n_out) { out[row] = gate_sum3; out[args.n_out + row] = up_sum3; }
     }
 }
+
+/* Unified dense pair decode kernel for same-type and mixed-type IQ pairs.
+ * Supports both fused FFN gate+up+SwiGLU (writing directly to inner) and
+ * split projections such as DeltaNet (qkv, z) sharing x1.
+ * Quant codes: 18 = IQ3_XXS, 21 = IQ3_S, 22 = IQ2_S. */
+struct qw3_matvec_pair_args {
+    uint n_in;
+    uint n_out_a;
+    uint n_out_b;
+    uint row_bytes_a;
+    uint row_bytes_b;
+    uint out_a_offset;
+    uint out_b_offset;
+    uint swap_gate;
+};
+template<ushort TypeA, ushort TypeB, ushort Simdgroups, bool SwiGLU>
+kernel void qw3_matvec_dense_pair_tpl(
+    constant qw3_matvec_pair_args &args,
+    device const uchar *w_a,
+    device const uchar *w_b,
+    device const float *x,
+    device float *out,
+    device const ushort *grid_a_src,
+    device const ushort *grid_b_src,
+    device const uchar *sign_table,
+    uint group [[threadgroup_position_in_grid]],
+    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+    ushort lane [[thread_index_in_simdgroup]]) {
+    constexpr uint NGA_F4 = TypeA == 18u ? 256u : TypeA == 21u ? 512u : 1u;
+    constexpr uint NGA_U4 = TypeA == 22u ? 2048u : 1u;
+    constexpr uint NGB_F4 = (TypeB == TypeA) ? 1u :
+                            (TypeB == 18u ? 256u : TypeB == 21u ? 512u : 1u);
+    constexpr uint NBA = TypeA == 18u ? 98u : TypeA == 21u ? 110u : 82u;
+    constexpr uint NBB = TypeB == 18u ? 98u : TypeB == 21u ? 110u : 82u;
+    threadgroup float4 grid_a_f4[NGA_F4];
+    threadgroup uchar4 grid_a_u4[NGA_U4];
+    threadgroup float4 grid_b_f4[NGB_F4];
+    threadgroup uchar signs[(TypeA == 18u || TypeB == 18u) ? 128 : 1];
+    const uint tid = uint(simd_idx) * 32u + uint(lane);
+    constexpr uint NT = Simdgroups * 32u;
+    if (TypeA == 18u) {
+        for (uint i = tid; i < 256u; i += NT)
+            grid_a_f4[i] = qw3_iq3xxs_float_grid(grid_a_src[i]);
+    } else if (TypeA == 21u) {
+        for (uint i = tid; i < 512u; i += NT)
+            grid_a_f4[i] = qw3_iq3s_float_grid(grid_a_src[i]);
+    } else {
+        for (uint i = tid; i < 1024u; i += NT) {
+            const ushort p = grid_a_src[i];
+            grid_a_u4[2u * i] = uchar4(qw3_iq2_grid_value(p, 0u),
+                                       qw3_iq2_grid_value(p, 1u),
+                                       qw3_iq2_grid_value(p, 2u),
+                                       qw3_iq2_grid_value(p, 3u));
+            grid_a_u4[2u * i + 1u] = uchar4(qw3_iq2_grid_value(p, 4u),
+                                            qw3_iq2_grid_value(p, 5u),
+                                            qw3_iq2_grid_value(p, 6u),
+                                            qw3_iq2_grid_value(p, 7u));
+        }
+    }
+    if (TypeB != TypeA) {
+        if (TypeB == 18u) {
+            for (uint i = tid; i < 256u; i += NT)
+                grid_b_f4[i] = qw3_iq3xxs_float_grid(grid_b_src[i]);
+        } else if (TypeB == 21u) {
+            for (uint i = tid; i < 512u; i += NT)
+                grid_b_f4[i] = qw3_iq3s_float_grid(grid_b_src[i]);
+        }
+    }
+    if (TypeA == 18u || TypeB == 18u) {
+        for (uint i = tid; i < 128u; i += NT) signs[i] = sign_table[i];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const uint row0 = (group * Simdgroups + uint(simd_idx)) * 2u;
+    const uint row1 = row0 + 1u;
+    const bool va0 = row0 < args.n_out_a;
+    const bool va1 = row1 < args.n_out_a;
+    const bool vb0 = row0 < args.n_out_b;
+    const bool vb1 = row1 < args.n_out_b;
+    float sa0 = 0.0f, sa1 = 0.0f, sb0 = 0.0f, sb1 = 0.0f;
+    const uint nb32 = args.n_in / 32u;
+    for (uint b32 = uint(lane); b32 < nb32; b32 += 32u) {
+        const uint b = b32 / 8u;
+        const uint ib = b32 & 7u;
+        device const float4 *x4 = (device const float4 *)(x + uint64_t(b32) * 32ull);
+        float4 xx[8];
+        for (uint j = 0; j < 8u; j++) xx[j] = x4[j];
+        if (va0) {
+            device const uchar *blk = w_a + uint64_t(row0) * uint64_t(args.row_bytes_a) +
+                                      uint64_t(b) * uint64_t(NBA);
+            if (TypeA == 18u) sa0 += qw3_iq3xxs_dot32_vector(blk, xx, grid_a_f4, signs, ib);
+            else if (TypeA == 21u) sa0 += qw3_iq3s_dot32_vector(blk, xx, grid_a_f4, ib);
+            else sa0 += qw3_iq2_dot32_vector<2>(blk, xx, grid_a_u4, signs, ib);
+        }
+        if (vb0) {
+            device const uchar *blk = w_b + uint64_t(row0) * uint64_t(args.row_bytes_b) +
+                                      uint64_t(b) * uint64_t(NBB);
+            if (TypeB == 18u) sb0 += qw3_iq3xxs_dot32_vector(blk, xx, (TypeB == TypeA) ? grid_a_f4 : grid_b_f4, signs, ib);
+            else if (TypeB == 21u) sb0 += qw3_iq3s_dot32_vector(blk, xx, (TypeB == TypeA) ? grid_a_f4 : grid_b_f4, ib);
+            else sb0 += qw3_iq2_dot32_vector<2>(blk, xx, grid_a_u4, signs, ib);
+        }
+        if (va1) {
+            device const uchar *blk = w_a + uint64_t(row1) * uint64_t(args.row_bytes_a) +
+                                      uint64_t(b) * uint64_t(NBA);
+            if (TypeA == 18u) sa1 += qw3_iq3xxs_dot32_vector(blk, xx, grid_a_f4, signs, ib);
+            else if (TypeA == 21u) sa1 += qw3_iq3s_dot32_vector(blk, xx, grid_a_f4, ib);
+            else sa1 += qw3_iq2_dot32_vector<2>(blk, xx, grid_a_u4, signs, ib);
+        }
+        if (vb1) {
+            device const uchar *blk = w_b + uint64_t(row1) * uint64_t(args.row_bytes_b) +
+                                      uint64_t(b) * uint64_t(NBB);
+            if (TypeB == 18u) sb1 += qw3_iq3xxs_dot32_vector(blk, xx, (TypeB == TypeA) ? grid_a_f4 : grid_b_f4, signs, ib);
+            else if (TypeB == 21u) sb1 += qw3_iq3s_dot32_vector(blk, xx, (TypeB == TypeA) ? grid_a_f4 : grid_b_f4, ib);
+            else sb1 += qw3_iq2_dot32_vector<2>(blk, xx, grid_a_u4, signs, ib);
+        }
+    }
+    sa0 = simd_sum(sa0); sa1 = simd_sum(sa1);
+    sb0 = simd_sum(sb0); sb1 = simd_sum(sb1);
+    if (lane == 0u) {
+        if (SwiGLU) {
+            if (va0) {
+                const float g = args.swap_gate ? sb0 : sa0;
+                const float u = args.swap_gate ? sa0 : sb0;
+                out[row0] = (g / (1.0f + exp(-g))) * u;
+            }
+            if (va1) {
+                const float g = args.swap_gate ? sb1 : sa1;
+                const float u = args.swap_gate ? sa1 : sb1;
+                out[row1] = (g / (1.0f + exp(-g))) * u;
+            }
+        } else {
+            if (va0) out[args.out_a_offset + row0] = sa0;
+            if (vb0) out[args.out_b_offset + row0] = sb0;
+            if (va1) out[args.out_a_offset + row1] = sa1;
+            if (vb1) out[args.out_b_offset + row1] = sb1;
+        }
+    }
+}
+typedef decltype(qw3_matvec_dense_pair_tpl<18, 18, 8, true>) qw3_matvec_dense_pair_t;
+template [[host_name("qw3_matvec_pair_iq3xxs_iq3xxs_swiglu")]] kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<18, 18, 8, true>;
+template [[host_name("qw3_matvec_pair_iq3xxs_iq3xxs_split")]]  kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<18, 18, 8, false>;
+template [[host_name("qw3_matvec_pair_iq3xxs_iq3s_swiglu")]]   kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<18, 21, 8, true>;
+template [[host_name("qw3_matvec_pair_iq3xxs_iq3s_split")]]    kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<18, 21, 8, false>;
+template [[host_name("qw3_matvec_pair_iq3s_iq3s_swiglu")]]     kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<21, 21, 8, true>;
+template [[host_name("qw3_matvec_pair_iq3s_iq3s_split")]]      kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<21, 21, 8, false>;
+template [[host_name("qw3_matvec_pair_iq2s_iq2s_swiglu")]]     kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<22, 22, 8, true>;
+template [[host_name("qw3_matvec_pair_iq2s_iq3xxs_swiglu")]]   kernel qw3_matvec_dense_pair_t qw3_matvec_dense_pair_tpl<22, 18, 8, true>;
 kernel void qw3_matvec_iq3_s_expert_slot_pair(constant qw3_expert_slot_args &args,
                                               device const uchar *gate_weights,
                                               device const uchar *up_weights,
@@ -1218,6 +1380,90 @@ kernel void qw3_moe_topk_expert_map(constant qw3_moe_expert_map_args &args,
         dispatch_embd[0] = n_blocks;
     }
 }
+kernel void qw3_moe_topk_expert_map_n16(constant qw3_moe_expert_map_args &args,
+                                        device const int *ids,
+                                        device uint *counts,
+                                        device int *pair_ids,
+                                        device atomic_uint *block_count,
+                                        device uint *block_ids,
+                                        device uint *dispatch_ff,
+                                        device uint *dispatch_embd,
+                                        uint expert [[thread_position_in_grid]]) {
+    if (expert >= args.n_expert) return;
+    if (expert == 0u) {
+        atomic_store_explicit(block_count, 0u, memory_order_relaxed);
+        dispatch_ff[1] = (args.n_ff + 63u) / 64u;
+        dispatch_ff[2] = 1u;
+        dispatch_embd[1] = (args.n_embd + 63u) / 64u;
+        dispatch_embd[2] = 1u;
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    uint n = 0u;
+    for (uint t = 0u; t < args.n_tokens; t++) {
+        int found = -1;
+        for (uint slot = 0u; slot < args.n_active; slot++) {
+            int eid = ids[t * args.n_active + slot];
+            if (eid == int(expert)) { found = int(slot); break; }
+        }
+        if (found >= 0 && n < args.pair_capacity) {
+            pair_ids[expert * args.pair_capacity + n] = int(t * args.n_active + uint(found));
+            n++;
+        }
+    }
+    counts[expert] = n;
+    for (uint r1u = 0u; r1u < n; r1u += 16u) {
+        uint dst = atomic_fetch_add_explicit(block_count, 1u, memory_order_relaxed);
+        block_ids[dst] = expert | (r1u << 8u);
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    if (expert == 0u) {
+        uint n_blocks = atomic_load_explicit(block_count, memory_order_relaxed);
+        dispatch_ff[0] = n_blocks;
+        dispatch_embd[0] = n_blocks;
+    }
+}
+kernel void qw3_moe_topk_expert_map_n64(constant qw3_moe_expert_map_args &args,
+                                        device const int *ids,
+                                        device uint *counts,
+                                        device int *pair_ids,
+                                        device atomic_uint *block_count,
+                                        device uint *block_ids,
+                                        device uint *dispatch_ff,
+                                        device uint *dispatch_embd,
+                                        uint expert [[thread_position_in_grid]]) {
+    if (expert >= args.n_expert) return;
+    if (expert == 0u) {
+        atomic_store_explicit(block_count, 0u, memory_order_relaxed);
+        dispatch_ff[1] = (args.n_ff + 63u) / 64u;
+        dispatch_ff[2] = 1u;
+        dispatch_embd[1] = (args.n_embd + 63u) / 64u;
+        dispatch_embd[2] = 1u;
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    uint n = 0u;
+    for (uint t = 0u; t < args.n_tokens; t++) {
+        int found = -1;
+        for (uint slot = 0u; slot < args.n_active; slot++) {
+            int eid = ids[t * args.n_active + slot];
+            if (eid == int(expert)) { found = int(slot); break; }
+        }
+        if (found >= 0 && n < args.pair_capacity) {
+            pair_ids[expert * args.pair_capacity + n] = int(t * args.n_active + uint(found));
+            n++;
+        }
+    }
+    counts[expert] = n;
+    for (uint r1u = 0u; r1u < n; r1u += 64u) {
+        uint dst = atomic_fetch_add_explicit(block_count, 1u, memory_order_relaxed);
+        block_ids[dst] = expert | (r1u << 8u);
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    if (expert == 0u) {
+        uint n_blocks = atomic_load_explicit(block_count, memory_order_relaxed);
+        dispatch_ff[0] = n_blocks;
+        dispatch_embd[0] = n_blocks;
+    }
+}
 inline half qw3_iq3s_dequant_k_expanded(device const uchar *row, device const uchar *kgrid, uint k) {
     uint block = k >> 8u;
     uint local = k & 255u;
@@ -1279,6 +1525,11 @@ inline half4x4 qw3_iq3s_dequant4x4_expanded(float dl, device const uchar *qs16, 
     return reg;
 }
 #ifdef QW3_METAL_HAS_TENSOR
+#ifdef QW3_ENABLE_PARTIAL_TILES
+#define QW3_PARTIAL_IQ_TILE(row, count) ((row) < int(count))
+#else
+#define QW3_PARTIAL_IQ_TILE(row, count) true
+#endif
 kernel void qw3_matmul_iq3_s_mpp_direct(
     constant qw3_matmul_q8_0_batch_args &args,
     device const uchar *weights,
@@ -1373,6 +1624,8 @@ kernel void qw3_matmul_iq3_s_mpp_staged128(
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
+    const bool token_group_active = QW3_PARTIAL_IQ_TILE(token0, args.n_tokens);
     threadgroup half *sa = (threadgroup half *)shmem;
     auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
     device float *ptrB = (device float *)x + args.in_offset;
@@ -1425,16 +1678,17 @@ kernel void qw3_matmul_iq3_s_mpp_staged128(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         auto mA = tA.slice(0, 0);
-        auto mB = tB.slice(int(loop_k),
-                           r1 + int(simd_group) * ROWS_PER_SG);
-        mm.run(mB, mA, cT);
+        if (token_group_active) {
+            auto mB = tB.slice(int(loop_k), token0);
+            mm.run(mB, mA, cT);
+        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     auto tD = tensor(out + args.out_offset,
                     dextents<int32_t, 2>(int(args.n_out),
                                          int(args.n_tokens)),
                     array<int, 2>({1, int(args.out_stride)}));
-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
+    if (token_group_active) cT.store(tD.slice(r0, token0));
 }
 #endif
 #ifdef QW3_METAL_HAS_TENSOR
@@ -1456,6 +1710,8 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
+    const bool token_group_active = QW3_PARTIAL_IQ_TILE(token0, args.n_tokens);
     threadgroup half *sa = (threadgroup half *)shmem;
     auto tA = tensor(sa, dextents<int32_t, 2>(STAGE_K, NR0));
     device float *ptrB = (device float *)x + args.in_offset;
@@ -1512,9 +1768,10 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (uint sub_k = 0u; sub_k < STAGE_K; sub_k += NK) {
             auto mA = tA.slice(int(sub_k), 0);
-            auto mB = tB.slice(int(stage_k + sub_k),
-                               r1 + int(simd_group) * ROWS_PER_SG);
-            mm.run(mB, mA, cT);
+            if (token_group_active) {
+                auto mB = tB.slice(int(stage_k + sub_k), token0);
+                mm.run(mB, mA, cT);
+            }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
@@ -1522,7 +1779,7 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
                     dextents<int32_t, 2>(int(args.n_out),
                                          int(args.n_tokens)),
                     array<int, 2>({1, int(args.out_stride)}));
-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
+    if (token_group_active) cT.store(tD.slice(r0, token0));
 }
 #endif
 kernel void qw3_moe_iq3_s_prefill_mapped(constant qw3_moe_prefill_batch_args &args,
@@ -2187,11 +2444,14 @@ kernel void qw3_matmul_iq4_xs_mpp_staged128(
     constexpr int NR0 = 64;
     constexpr int ROWS_PER_SG = 32;
     constexpr int NK = 32;
+    constexpr int STAGE_K = 64;
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
+    const bool token_group_active = QW3_PARTIAL_IQ_TILE(token0, args.n_tokens);
     threadgroup half *sa = (threadgroup half *)shmem;
-    auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
+    auto tA = tensor(sa, dextents<int32_t, 2>(STAGE_K, NR0));
     device float *ptrB = (device float *)x + args.in_offset;
     auto tB = tensor(ptrB,
                     dextents<int32_t, 2>(int(args.n_in), int(args.n_tokens)),
@@ -2203,50 +2463,53 @@ kernel void qw3_matmul_iq4_xs_mpp_staged128(
         decltype(tB), decltype(tA), float>();
     for (uint16_t i = 0; i < cT.get_capacity(); ++i)
         if (cT.is_valid_element(i)) cT[i] = 0.0f;
-    for (uint loop_k = 0u; loop_k < args.n_in; loop_k += NK) {
-        const int row = int(tid) / 2;
-        const int half_k = int(tid) & 1;
-        if (r0 + row < int(args.n_out)) {
-            const uint k0 = loop_k + uint(half_k * 16);
-            device const uchar *wrow = weights +
-                uint64_t(r0 + row) * args.row_bytes;
-            device const uchar *blk =
-                wrow + uint64_t(k0 >> 8u) * 136ull;
+    const int row = int(tid) / 2;
+    const int half_k = int(tid) & 1;
+    const bool valid_row = r0 + row < int(args.n_out);
+    device const uchar *wrow = weights + uint64_t(r0 + row) * args.row_bytes;
+    for (uint stage_k = 0u; stage_k < args.n_in; stage_k += STAGE_K) {
+        if (valid_row) {
+            device const uchar *blk = wrow + uint64_t(stage_k >> 8u) * 136ull;
             const float d = float(*((device const half *)blk));
-            const ushort scales_h =
-                *((device const ushort *)(blk + 2u));
+            const ushort scales_h = *((device const ushort *)(blk + 2u));
             device const uchar *scales_l = blk + 4u;
-            const uint il = (k0 & 255u) >> 4u;
-            const uint ib32 = il >> 1u;
-            const bool hi = (il & 1u) != 0u;
-            const uint ls =
-                ((uint(scales_l[ib32 >> 1u]) >>
-                  (4u * (ib32 & 1u))) & 15u) |
-                (((uint(scales_h) >> (2u * ib32)) & 3u) << 4u);
-            const float dl = d * float(int(ls) - 32);
-            device const uchar *q16 = scales_l + 4u + ib32 * 16u;
-            const half4x4 values = qw3_iq4xs_dequant4x4(dl, q16, hi);
+            const uint ib0 = (stage_k & 255u) >> 5u;
+            const bool hi = half_k != 0;
+            for (uint sub = 0u; sub < 2u; ++sub) {
+                const uint ib32 = ib0 + sub;
+                const uint ls =
+                    ((uint(scales_l[ib32 >> 1u]) >>
+                      (4u * (ib32 & 1u))) & 15u) |
+                    (((uint(scales_h) >> (2u * ib32)) & 3u) << 4u);
+                const float dl = d * float(int(ls) - 32);
+                device const uchar *q16 = scales_l + 4u + ib32 * 16u;
+                const half4x4 values = qw3_iq4xs_dequant4x4(dl, q16, hi);
 #pragma unroll
-            for (int i = 0; i < 16; ++i)
-                sa[row * NK + half_k * 16 + i] =
-                    values[i / 4][i & 3];
+                for (int i = 0; i < 16; ++i)
+                    sa[row * STAGE_K + int(sub * 32u) + half_k * 16 + i] =
+                        values[i / 4][i & 3];
+            }
         } else {
+            for (uint sub_k = 0u; sub_k < STAGE_K; sub_k += NK)
 #pragma unroll
-            for (int i = 0; i < 16; ++i)
-                sa[row * NK + half_k * 16 + i] = half(0.0f);
+                for (int i = 0; i < 16; ++i)
+                    sa[row * STAGE_K + int(sub_k) + half_k * 16 + i] = half(0.0f);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        auto mA = tA.slice(0, 0);
-        auto mB = tB.slice(int(loop_k),
-                           r1 + int(simd_group) * ROWS_PER_SG);
-        mm.run(mB, mA, cT);
+        for (uint sub_k = 0u; sub_k < STAGE_K; sub_k += NK) {
+            auto mA = tA.slice(int(sub_k), 0);
+            if (token_group_active) {
+                auto mB = tB.slice(int(stage_k + sub_k), token0);
+                mm.run(mB, mA, cT);
+            }
+        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     auto tD = tensor(out + args.out_offset,
                     dextents<int32_t, 2>(int(args.n_out),
                                          int(args.n_tokens)),
                     array<int, 2>({1, int(args.out_stride)}));
-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
+    if (token_group_active) cT.store(tD.slice(r0, token0));
 }
 #endif
 kernel void qw3_moe_down_iq4_xs_prefill_mapped(constant qw3_moe_prefill_batch_args &args,

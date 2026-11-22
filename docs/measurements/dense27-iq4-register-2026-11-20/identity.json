@@ -1,0 +1,9 @@
+{
+  "qw3-bench": "cfe72f7b472be5075d0000480e7d9f445d6a62f0b874482de8b0a659a2f2f8c6",
+  "qw3_metal_core.o": "94bd57f4a36927a43657c25618547fcfe8c447b8938004f501306102a39afa36",
+  "qw3_metal.m": "f3dcdbcb69fc32f9c2ca09f8a370094dfef6ab167af14301357e4699883a062c",
+  "qw3.c": "6dec364ebad8dcd9da8efec62466af44089d5b2cfbae1280d729e8ad299cef65",
+  "metal/qw3_core_linear.metal": "df20af8d5493677421318b5d27ec0ef80128a9fa70567335a7ce44f5675bc04d",
+  "metal/qw3_core_moe.metal": "9246729bebe9b533d9f9f66820e74d216551b16e8a88af7a061ebbc01f81dc7f",
+  "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418"
+}

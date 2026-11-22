@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-30",
+  "machine": "MacBook Air M5, 24 GB unified memory",
+  "command": "QW3_VOICE_TEST_MODEL=../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf make test-voice-local",
+  "audio_cpp_commit": "41c1f8ffa0d13a1b7e366e30ea5fe5ab8d169d48",
+  "tts": "Kokoro 82M Q8, Metal, if_sara, Italian, speed 1",
+  "speech_chunk_chars": 80,
+  "input": "La prima misura è ventuno virgola cinque gradi Celsius. La seconda misura è diciannove gradi Celsius.",
+  "sample_count": 1,
+  "scope": "Audio pipeline only; QW3 was not generating or GPU-resident during this measurement. The same test separately passed a real 35B turn with Kokoro and native playback.",
+  "stats": {
+    "chunks_total": 2,
+    "chunks_played": 2,
+    "first_chunk_ready_ms": 594.384,
+    "synthesis_ms": 888.055,
+    "playback_ms": 7771.193,
+    "total_ms": 8366.397,
+    "wired_before_bytes": 4540137472,
+    "wired_sample_max_bytes": 4540137472
+  },
+  "limits": [
+    "First chunk ready is not measured acoustic onset or end-to-end voice latency.",
+    "Wired memory is system-wide and sampled at chunk boundaries, not a continuous peak.",
+    "Single functional run; no A/B comparison or statistical latency claim.",
+    "No microphone, echo cancellation or speech-triggered interruption tested."
+  ]
+}

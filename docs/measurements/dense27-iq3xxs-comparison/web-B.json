@@ -1,0 +1,39 @@
+{
+  "result": {
+    "output": "{\n  \"full_name\": \"ggml-org/llama.cpp\",\n  \"default_branch\": \"master\",\n  \"license\": \"MIT\",\n  \"archived\": false\n}",
+    "tool_rounds": 1,
+    "tool_calls": 1,
+    "ready_seconds": 1.2757715,
+    "inference_seconds": 27.013082249,
+    "usage": {
+      "prompt_tokens": 2605,
+      "completion_tokens": 82
+    },
+    "command": [
+      "/Users/pasqualecapasso/Downloads/llama.cpp/build/bin/llama-server",
+      "-m",
+      "../../models/Qwen3.8-27B-UD-IQ3_XXS.gguf",
+      "-ngl",
+      "99",
+      "--ctx-size",
+      "8192",
+      "--parallel",
+      "1",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "65025",
+      "--reasoning",
+      "off",
+      "--no-webui"
+    ]
+  },
+  "expected": {
+    "full_name": "ggml-org/llama.cpp",
+    "default_branch": "master",
+    "archived": false,
+    "license": "MIT"
+  },
+  "valid": true,
+  "error": ""
+}

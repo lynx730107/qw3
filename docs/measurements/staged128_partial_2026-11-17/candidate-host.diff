@@ -1,0 +1,79 @@
+diff --git a/tmp/qw3-prefill-partial.dS0zOM/qw3_metal.m b/tmp/qw3-prefill-partial.dS0zOM/candidate/qw3_metal.m
+index ff92d99..7e3abd0 100644
+--- a/tmp/qw3-prefill-partial.dS0zOM/qw3_metal.m
++++ b/tmp/qw3-prefill-partial.dS0zOM/candidate/qw3_metal.m
+@@ -93,6 +93,15 @@ void qw3_metal_kernel_fingerprint(unsigned char out[32]) {
+ static id<MTLComputePipelineState> g_matmul_q4_q5_k_mpp_pipeline;
+ static id<MTLComputePipelineState> g_matmul_q4_q5_k_mpp_staged128_pipeline;
+ 
++/* Diagnostic only. Mode 1 keeps paired gate/up, mode 2 stages it too. */
++static unsigned partial_mode;
++#ifdef QW3_PARTIAL_TRACE
++static unsigned partial_hist[129][4];
++#endif
++static int qw3_partial_stage(uint32_t n_tokens) {
++    return partial_mode && n_tokens >= 96u && n_tokens < 128u;
++}
++
+ static int qw3_metal_staged128_enabled(void) {
+     const char *env = getenv("QW3_METAL_STAGED128");
+     return !env || !env[0] || strcmp(env, "0") != 0;
+@@ -4820,7 +4829,7 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
+     }
+     if (tensor_type == 23u && n_tokens >= 16u &&
+         g_matmul_iq4_xs_mpp_pipeline) {
+-        const int use_staged128 = n_tokens % 128u == 0u &&
++        const int use_staged128 = (n_tokens % 128u == 0u || qw3_partial_stage(n_tokens)) &&
+             g_matmul_iq4_xs_mpp_staged128_pipeline &&
+             qw3_metal_staged128_enabled();
+         struct {
+@@ -4844,10 +4853,13 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
+         [direct setBuffer:dst offset:0 atIndex:3];
+         [direct setThreadgroupMemoryLength:8192u atIndex:0];
+         [direct dispatchThreadgroups:
+-            MTLSizeMake(use_staged128 ? n_tokens / 128u :
++            MTLSizeMake(use_staged128 ? (n_tokens + 127u) / 128u :
+                         (n_tokens + 63u) / 64u,
+                         (n_out + columns - 1u) / columns, 1u)
+             threadsPerThreadgroup:MTLSizeMake(threads, 1u, 1u)];
++        #ifdef QW3_PARTIAL_TRACE
++        if (n_tokens <= 128u) partial_hist[n_tokens][0 + use_staged128]++;
++#endif
+         qw3_metal_end_compute_encoder(cb, direct);
+         return 1;
+     }
+@@ -4856,7 +4868,7 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
+     if (!weights || (tensor_type == 21u && !kgrid)) return 0;
+     if (tensor_type == 21u && n_tokens >= 16u &&
+         g_matmul_iq3_s_mpp_pipeline) {
+-        const int use_staged128 = n_tokens % 128u == 0u &&
++        const int use_staged128 = (n_tokens % 128u == 0u || qw3_partial_stage(n_tokens)) &&
+             g_matmul_iq3_s_mpp_staged128_pipeline &&
+             qw3_metal_staged128_enabled();
+         struct {
+@@ -4886,10 +4898,13 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
+         [direct setBuffer:kgrid offset:0 atIndex:4];
+         [direct setThreadgroupMemoryLength:8192u atIndex:0];
+         [direct dispatchThreadgroups:
+-            MTLSizeMake(use_staged128 ? n_tokens / 128u :
++            MTLSizeMake(use_staged128 ? (n_tokens + 127u) / 128u :
+                         (n_tokens + 63u) / 64u,
+                         (n_out + columns - 1u) / columns, 1u)
+             threadsPerThreadgroup:MTLSizeMake(threads, 1u, 1u)];
++        #ifdef QW3_PARTIAL_TRACE
++        if (n_tokens <= 128u) partial_hist[n_tokens][2 + use_staged128]++;
++#endif
+         qw3_metal_end_compute_encoder(cb, direct);
+         return 1;
+     }
+@@ -5140,7 +5155,9 @@ int qw3_metal_session_batch_dense_ffn_mixed(qw3_metal_session *s,
+     /* The mapped pair tile processes 32 tokens; two staged128 projections
+      * reuse the weights over the complete chunk and are faster on dense FFNs. */
+     const int enable_pair = pair_env ? strcmp(pair_env, "0") != 0 :
+-        !(n_tokens % 128u == 0u && g_matmul_iq3_s_mpp_staged128_pipeline &&
++        !((n_tokens % 128u == 0u ||
++           (partial_mode == 2 && qw3_partial_stage(n_tokens))) &&
++          g_matmul_iq3_s_mpp_staged128_pipeline &&
+           g_round_f16_inplace_pipeline && qw3_metal_staged128_enabled());
+     const int iq3_pair_eligible = gate_batch && up_batch &&
+         gate_type == 21u && up_type == 21u &&

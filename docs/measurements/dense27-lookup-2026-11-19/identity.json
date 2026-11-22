@@ -1,0 +1,8 @@
+{
+  "qw3.c": "6dec364ebad8dcd9da8efec62466af44089d5b2cfbae1280d729e8ad299cef65",
+  "qw3_agent.c": "4fdef05884b528cbcc53767d1893f69ad77fb26e5214fb8fce69724c8cbafe71",
+  "qw3_metal.m": "f3dcdbcb69fc32f9c2ca09f8a370094dfef6ab167af14301357e4699883a062c",
+  "qw3_metal_core.o": "94bd57f4a36927a43657c25618547fcfe8c447b8938004f501306102a39afa36",
+  "qw3_metal.o": "39d132b94a3fed3212d54468b907612b46167cb520baf9f216c824cb9d410e77",
+  "../../llama.cpp/build/bin/llama-server": "925f55c27134ed2e5e7c9d19e23ed26f2a7a2861662b4da51c815654ce1eb8c1"
+}

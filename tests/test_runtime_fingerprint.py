@@ -16,7 +16,7 @@ class RuntimeFingerprintTest(unittest.TestCase):
     def test_generated_header(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ("qw3.c", "qw3.h", "qw3_metal.m", "qw3_metal.h",
+            for name in ("qw3.c", "qw3.h", "qw3_inkling_cpu.inc", "qw3_metal.m", "qw3_metal.h",
                          "tools/runtime_fingerprint.py"):
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +46,7 @@ class RuntimeFingerprintTest(unittest.TestCase):
     def test_content_and_config(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ("qw3.c", "qw3.h", "qw3_metal.m", "qw3_metal.h",
+            for name in ("qw3.c", "qw3.h", "qw3_inkling_cpu.inc", "qw3_metal.m", "qw3_metal.h",
                          "tools/runtime_fingerprint.py"):
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -55,7 +55,7 @@ class RuntimeFingerprintTest(unittest.TestCase):
             original = fingerprint(root, config)
             self.assertEqual(original, fingerprint(root, config))
             self.assertNotEqual(original, fingerprint(root, config + ["-DNEW=1"]))
-            for name in ("qw3.c", "qw3.h", "qw3_metal.m", "qw3_metal.h"):
+            for name in ("qw3.c", "qw3.h", "qw3_inkling_cpu.inc", "qw3_metal.m", "qw3_metal.h"):
                 path = root / name
                 before = path.read_bytes()
                 stat = path.stat()

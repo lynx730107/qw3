@@ -1,0 +1,359 @@
+{
+  "command": [
+    "./bench",
+    "-m",
+    "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "--metal",
+    "--ngl",
+    "64",
+    "--llama-style",
+    "--ctx-alloc",
+    "256",
+    "-p",
+    "0",
+    "-n",
+    "32",
+    "-d",
+    "128",
+    "-r",
+    "3",
+    "--seed",
+    "1",
+    "-t",
+    "4"
+  ],
+  "revision": "74da0255bf39eb7717a86353b4dea0558045c30a",
+  "model_stat": [
+    13146393504,
+    1789489033525906407
+  ],
+  "sha256": {
+    "bench": "53383e9048713fafbdf14d14ffae33da3d6ebc6be71c5ce5711b23f271b7158e",
+    "quality": "7bf10460a30961f78a317c15ccea6cffabe9439bf6d8bb79a736c6ee33c19cef",
+    "qw3.c": "8135945a4ab2a2e397365cd9479807f60c4fdcdee24957c82e035047a642469b",
+    "qw3.h": "92c365dec5bb56be1f3f88340284844c193e2454ec05af9db20f9363e8b226e9",
+    "qw3_bench.c": "f55d7320b5cf181ed6aef532bbf0283a7af4fa6a76dd11b32aa32ab4320184a6",
+    "qw3_metal.h": "523cdd46778fa27e1e6e50005ce8a98fea22543bb6532f0904d41432cee5263f",
+    "qw3_metal.m": "b696ed936787958b95b38fcf361837c3fd98be975bf2b3a2072e3929fe97dbdb",
+    "qw3_runtime_fingerprint.h": "ce9dd6ce146315e8d4c23e66034b93cf7b9cadccaab8a4a7dfc6eee730be8fcf",
+    "metal/flash_attn.metal": "11e7f621db78b65d3b0e07a591edeca9665b2ad676b179b87938d8db8681f968",
+    "metal/qw3_core_argmax.metal": "f98f2fdd123998a4267ca3f9db2a162540151dad142073aff619a4707253e0a9",
+    "metal/qw3_core_common.metal": "49abeeca8e7dabaef0a040d2cea0f4d77045382a1a80b8c41b8addfa778ac418",
+    "metal/qw3_core_deltanet.metal": "7bfbebf151d48af0194566dbe6a493805c6dbe81c9b12396739fa09c26787665",
+    "metal/qw3_core_linear.metal": "52bf06334d7e2f65a521c8e916a020f87f9279adbf54fcc01012d7dfeabf72e9",
+    "metal/qw3_core_moe.metal": "9df2d359c0c5915e896136d1bc9df1d832fc87c3aefd79316830c57289c90f24",
+    "metal/qw3_core_sequence.metal": "aa0c1f588c8a7d0963a6c10652f80361a800c03486341db75bd11ab29a6cf9b1",
+    "bench.m": "6297b6c51a8a3a3076f0ef8c9b44a9ba1639d03e4e7c74e00ca037890372872a",
+    "adapter.inc": "6593080f18e09818204ac2f18b77b80860bf2f3667b0476626ba721de9cd65ff",
+    "quality.m": "f2867f38bfc093787dc13b76a1be02854281aa52b93ec196fbd7c2dfb121d04b"
+  },
+  "order": [
+    0,
+    1,
+    0,
+    2,
+    0,
+    3,
+    0,
+    3,
+    0,
+    2,
+    0,
+    1,
+    0
+  ],
+  "cooldown_seconds": 6,
+  "started_utc": "2026-11-17T21:08:58.441168+00:00",
+  "runs": [
+    {
+      "mode": 0,
+      "log": "screen-00-v0.log",
+      "exit": 0,
+      "ms": [
+        3609.238,
+        3616.685,
+        3745.977
+      ],
+      "counts": [
+        0,
+        0,
+        0
+      ],
+      "mean_ms": 3657.2999999999997,
+      "sd_ms": 76.88674917695505
+    },
+    {
+      "mode": 1,
+      "log": "screen-01-v1.log",
+      "exit": 0,
+      "ms": [
+        3607.311,
+        3570.708,
+        3602.985
+      ],
+      "counts": [
+        1,
+        1164,
+        0
+      ],
+      "mean_ms": 3593.668,
+      "sd_ms": 20.001244186300045
+    },
+    {
+      "mode": 0,
+      "log": "screen-02-v0.log",
+      "exit": 0,
+      "ms": [
+        3547.788,
+        3661.75,
+        3646.281
+      ],
+      "counts": [
+        0,
+        0,
+        0
+      ],
+      "mean_ms": 3618.606333333333,
+      "sd_ms": 61.81625791273143
+    },
+    {
+      "mode": 2,
+      "log": "screen-03-v2.log",
+      "exit": 0,
+      "ms": [
+        4365.48,
+        4203.364,
+        4214.997
+      ],
+      "counts": [
+        2,
+        0,
+        2425
+      ],
+      "mean_ms": 4261.280333333333,
+      "sd_ms": 90.42681887766095
+    },
+    {
+      "mode": 0,
+      "log": "screen-04-v0.log",
+      "exit": 0,
+      "ms": [
+        4662.306,
+        5183.254,
+        4574.201
+      ],
+      "counts": [
+        0,
+        0,
+        0
+      ],
+      "mean_ms": 4806.5869999999995,
+      "sd_ms": 329.16431219529255
+    },
+    {
+      "mode": 3,
+      "log": "screen-05-v3.log",
+      "exit": 0,
+      "ms": [
+        5065.788,
+        5103.851,
+        4788.505
+      ],
+      "counts": [
+        3,
+        1164,
+        2425
+      ],
+      "mean_ms": 4986.048,
+      "sd_ms": 172.13258154399446
+    },
+    {
+      "mode": 0,
+      "log": "screen-06-v0.log",
+      "exit": 0,
+      "ms": [
+        4714.285,
+        4688.273,
+        5342.956
+      ],
+      "counts": [
+        0,
+        0,
+        0
+      ],
+      "mean_ms": 4915.171333333334,
+      "sd_ms": 370.7006161477661
+    },
+    {
+      "mode": 3,
+      "log": "screen-07-v3.log",
+      "exit": 0,
+      "ms": [
+        5532.626,
+        4778.406,
+        5169.256
+      ],
+      "counts": [
+        3,
+        1164,
+        2425
+      ],
+      "mean_ms": 5160.0960000000005,
+      "sd_ms": 377.19342690455267
+    },
+    {
+      "mode": 0,
+      "log": "screen-08-v0.log",
+      "exit": 0,
+      "ms": [
+        5018.823,
+        5069.481,
+        5323.193
+      ],
+      "counts": [
+        0,
+        0,
+        0
+      ],
+      "mean_ms": 5137.165666666667,
+      "sd_ms": 163.0833676416248
+    },
+    {
+      "mode": 2,
+      "log": "screen-09-v2.log",
+      "exit": 0,
+      "ms": [
+        5478.759,
+        5139.478,
+        5368.366
+      ],
+      "counts": [
+        2,
+        0,
+        2425
+      ],
+      "mean_ms": 5328.867666666667,
+      "sd_ms": 173.05486988909996
+    },
+    {
+      "mode": 0,
+      "log": "screen-10-v0.log",
+      "exit": 0,
+      "ms": [
+        5505.016,
+        6505.063,
+        6935.46
+      ],
+      "counts": [
+        0,
+        0,
+        0
+      ],
+      "mean_ms": 6315.179666666667,
+      "sd_ms": 733.8830080416998
+    },
+    {
+      "mode": 1,
+      "log": "screen-11-v1.log",
+      "exit": 0,
+      "ms": [
+        7002.453,
+        7780.155,
+        7752.797
+      ],
+      "counts": [
+        1,
+        1164,
+        0
+      ],
+      "mean_ms": 7511.801666666666,
+      "sd_ms": 441.32092995611816
+    },
+    {
+      "mode": 0,
+      "log": "screen-12-v0.log",
+      "exit": 0,
+      "ms": [
+        6134.746,
+        6232.996,
+        6030.637
+      ],
+      "counts": [
+        0,
+        0,
+        0
+      ],
+      "mean_ms": 6132.793,
+      "sd_ms": 101.19363555579984
+    }
+  ],
+  "completed": true,
+  "comparisons": [
+    {
+      "index": 1,
+      "mode": 1,
+      "off_indices": [
+        0,
+        2
+      ],
+      "off_ms": 3637.953166666666,
+      "saved_ms": 44.2851666666661,
+      "throughput_gain_pct": 1.232311016673382
+    },
+    {
+      "index": 3,
+      "mode": 2,
+      "off_indices": [
+        2,
+        4
+      ],
+      "off_ms": 4212.596666666666,
+      "saved_ms": -48.683666666666795,
+      "throughput_gain_pct": -1.142465711205265
+    },
+    {
+      "index": 5,
+      "mode": 3,
+      "off_indices": [
+        4,
+        6
+      ],
+      "off_ms": 4860.879166666667,
+      "saved_ms": -125.16883333333317,
+      "throughput_gain_pct": -2.5103816355825925
+    },
+    {
+      "index": 7,
+      "mode": 3,
+      "off_indices": [
+        6,
+        8
+      ],
+      "off_ms": 5026.1685,
+      "saved_ms": -133.9275000000007,
+      "throughput_gain_pct": -2.5954458986809703
+    },
+    {
+      "index": 9,
+      "mode": 2,
+      "off_indices": [
+        8,
+        10
+      ],
+      "off_ms": 5726.172666666667,
+      "saved_ms": 397.3050000000003,
+      "throughput_gain_pct": 7.455711510444085
+    },
+    {
+      "index": 11,
+      "mode": 1,
+      "off_indices": [
+        10,
+        12
+      ],
+      "off_ms": 6223.986333333333,
+      "saved_ms": -1287.815333333333,
+      "throughput_gain_pct": -17.14389424108419
+    }
+  ]
+}

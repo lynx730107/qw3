@@ -12,6 +12,7 @@
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <time.h>
 #include <unistd.h>
 #include "qw3.h"
 
@@ -27,6 +28,9 @@ typedef struct
 {
     qw3_engine *engine;
     qw3_tokens *capture;
+    bool inkling;
+    bool inkling_text;
+    bool inkling_emitted;
 } emit_ctx;
 
 typedef struct
@@ -163,8 +167,24 @@ static void emit_token(void *ud, int token)
     }
     size_t len = 0;
     char *text = token_decoded_text(ctx->engine, token, &len);
-    if (text && len)
+    if (text && ctx->inkling)
     {
+        if (strcmp(text, "<|content_text|>") == 0 ||
+            strcmp(text, "<|content_code|>") == 0)
+        {
+            ctx->inkling_text = true;
+            len = 0;
+        }
+        else if (strncmp(text, "<|", 2) == 0 && len >= 4 &&
+                 strcmp(text + len - 2, "|>") == 0)
+        {
+            ctx->inkling_text = false;
+            len = 0;
+        }
+    }
+    if (text && len && (!ctx->inkling || ctx->inkling_text))
+    {
+        if (ctx->inkling) ctx->inkling_emitted = true;
         fwrite(text, 1, len, stdout);
         fflush(stdout);
     }
@@ -485,6 +505,70 @@ static int generate_from_session(qw3_engine *engine, qw3_session *session,
     qw3_tokens_free(&local_generated);
     emit_done(emit);
     return 0;
+}
+
+static int generate_inkling_chat(qw3_engine *engine, const char *system_prompt,
+                                  const char *prompt, qw3_think_mode think_mode,
+                                  int ctx_size, int n_predict, sample_opts *sample)
+{
+    if (!prompt)
+    {
+        fprintf(stderr, "qw3: Inkling text inference requires a single prompt (-p)\n");
+        return 1;
+    }
+    qw3_tokens tokens = {0};
+    qw3_session *session = NULL;
+    char err[256] = {0};
+    int status = 1;
+    if (!qw3_inkling_encode_prompt(engine, system_prompt, prompt, think_mode, &tokens))
+    {
+        fprintf(stderr, "qw3: could not encode the Inkling prompt with macOS ICU\n");
+    }
+    else if (tokens.len >= ctx_size)
+    {
+        fprintf(stderr, "qw3: Inkling prompt has %d tokens for a %d-token context\n",
+                tokens.len, ctx_size);
+    }
+    else if (qw3_session_create(&session, engine, ctx_size) != 0)
+    {
+        fprintf(stderr, "qw3: could not create Inkling session\n");
+    }
+    else
+    {
+        fprintf(stderr, "qw3: Inkling prefill: %d tokens\n", tokens.len);
+        struct timespec start, prefilled, finished;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        if (qw3_session_sync(session, &tokens, err, sizeof(err)) != 0)
+        {
+            fprintf(stderr, "qw3: Inkling prefill failed: %s\n", err);
+        }
+        else
+        {
+            clock_gettime(CLOCK_MONOTONIC, &prefilled);
+            emit_ctx emit = {.engine = engine, .inkling = true};
+            const int available = ctx_size - tokens.len;
+            if (n_predict > available) n_predict = available;
+            status = generate_from_session(engine, session, &tokens, n_predict, &emit, sample) != 0;
+            clock_gettime(CLOCK_MONOTONIC, &finished);
+            const double prefill_s = (prefilled.tv_sec - start.tv_sec) +
+                                     (prefilled.tv_nsec - start.tv_nsec) * 1e-9;
+            const double generation_s = (finished.tv_sec - prefilled.tv_sec) +
+                                        (finished.tv_nsec - prefilled.tv_nsec) * 1e-9;
+            const int generated = qw3_session_pos(session) - tokens.len;
+            fprintf(stderr, "qw3: Inkling prefill %d tokens in %.3fs (%.2f tok/s), "
+                            "generation %d tokens in %.3fs (%.2f tok/s)\n",
+                    tokens.len, prefill_s, prefill_s > 0 ? tokens.len / prefill_s : 0,
+                    generated, generation_s, generation_s > 0 ? generated / generation_s : 0);
+            if (status == 0 && n_predict > 0 && !emit.inkling_emitted)
+            {
+                fprintf(stderr, "qw3: Inkling produced no visible answer within the token budget\n");
+                status = 1;
+            }
+        }
+    }
+    qw3_session_free(session);
+    qw3_tokens_free(&tokens);
+    return status;
 }
 
 #if !QW3_CLI_ENABLE_INTERNAL_TESTS
@@ -1806,7 +1890,11 @@ int main(int argc, char **argv)
         .backend = backend,
         .n_threads = 0,
         .warm_weights = false,
+        .enable_inkling = true,
     };
+
+    if (inspect && qw3_inspect_inkling_file(model_path, stdout))
+        return 0;
 
     qw3_engine *engine = NULL;
     int rc = qw3_engine_open(&engine, &opt);
@@ -1814,6 +1902,28 @@ int main(int argc, char **argv)
     {
         qw3_log(stderr, QW3_LOG_ERROR, "qw3: engine open failed\n");
         return 1;
+    }
+    if (qw3_engine_is_inkling(engine))
+    {
+        if (ngl_set || (cache_type_k && strcmp(cache_type_k, "f16") != 0))
+        {
+            fprintf(stderr, "qw3: Inkling Metal uses fixed offload and an FP16 KV cache\n");
+            rc = 1;
+        }
+        else
+        {
+            qw3_engine_summary(engine);
+            const qw3_context_memory mem = qw3_engine_context_memory_estimate(engine, ctx_size);
+            fprintf(stderr, "qw3: Inkling KV %s on %s: %.1f MiB at %d tokens\n",
+                    backend == QW3_BACKEND_METAL ? "FP16" : "FP32", qw3_backend_name(backend),
+                    (double)mem.gqa_kv_bytes / (1024.0 * 1024.0), ctx_size);
+            rc = generate_inkling_chat(engine, system_prompt, prompt, think_mode,
+                                       ctx_size, n_predict, &sample);
+        }
+        qw3_engine_close(engine);
+        free(prompt_owned);
+        free(system_owned);
+        return rc;
     }
     qw3_engine_summary(engine);
     qw3_context_memory mem =

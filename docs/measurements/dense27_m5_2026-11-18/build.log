@@ -1,0 +1,8 @@
+In file included from tests/profile_depth.m:11:
+tests/.decode_profile/oracle.inc:1:12: warning: unused function 'logits_equal' [-Wunused-function]
+    1 | static int logits_equal(qw3_session **s,int vocab) {
+      |            ^~~~~~~~~~~~
+tests/.decode_profile/oracle.inc:12:12: warning: unused function 'states_equal' [-Wunused-function]
+   12 | static int states_equal(qw3_session **s) {
+      |            ^~~~~~~~~~~~
+2 warnings generated.

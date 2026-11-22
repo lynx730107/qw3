@@ -1,0 +1,40 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0263895988
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0568003654
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.471235275
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=13.0910568
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.7519474
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.60430336
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.953271866
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.40878487
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.50310326
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.00076103
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=18.905117
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=8.27945518
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.690027237
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=19.2076893
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=11.7326813
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.17002869
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=13.734251
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=11.1986275
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.303961754
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.786129
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.19742775
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.82878113
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.30049515
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=6.00972557
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=10.3056107
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.70578003
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.71417618
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=20.1962795
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.92085266
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=8.25948334
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.22439671
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=18.525177
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.58701515
+PASS length=95 mode=3 continuation=32 checkpoint=exact
+numeric_policy=2 logits_vectors=33 logits_rmse=0 logits_max_abs=0 logits_different_bits=0 argmax_changes=0 state_nmse=0 state_different_bits=0 history=exact checkpoint_policy=self_roundtrip_bit_exact agent_behavior=not_tested

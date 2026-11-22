@@ -1,0 +1,102 @@
+--- metal/qw3_core_linear.metal
++++ metal/qw3_core_linear.metal
+@@ -591,7 +591,7 @@
+  * across output rows and the gate/up pair. Magnitudes remain exact integers. */
+ inline float qw3_iq4xs_dot8_vector(device const uchar *blk,
+                                   thread const float4 *xl,
+-                                  threadgroup const float *table,
++                                  float entry,
+                                   uint ib, uint il) {
+     const half d = *((device const half *)blk);
+     const ushort scales_h = *((device const ushort *)(blk + 2));
+@@ -604,8 +604,8 @@
+         const uint q = qs[j];
+         const uchar4 qlo = as_type<uchar4>(q & 0x0f0f0f0fu);
+         const uchar4 qhi = as_type<uchar4>((q >> 4u) & 0x0f0f0f0fu);
+-        lo += xl[2u * j] * float4(table[qlo.x], table[qlo.y], table[qlo.z], table[qlo.w]);
+-        hi += xl[2u * j + 1u] * float4(table[qhi.x], table[qhi.y], table[qhi.z], table[qhi.w]);
++        lo += xl[2u * j] * float4(simd_shuffle(entry, ushort(qlo.x)), simd_shuffle(entry, ushort(qlo.y)), simd_shuffle(entry, ushort(qlo.z)), simd_shuffle(entry, ushort(qlo.w)));
++        hi += xl[2u * j + 1u] * float4(simd_shuffle(entry, ushort(qhi.x)), simd_shuffle(entry, ushort(qhi.y)), simd_shuffle(entry, ushort(qhi.z)), simd_shuffle(entry, ushort(qhi.w)));
+     }
+     lo += hi;
+     return float(d) * float(int(ls) - 32) * (lo.x + lo.y + lo.z + lo.w);
+@@ -618,8 +618,7 @@
+                                    uint group [[threadgroup_position_in_grid]],
+                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                    ushort lane [[thread_index_in_simdgroup]]) {
+-    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+-    threadgroup_barrier(mem_flags::mem_threadgroup);
++    const float entry = qw3_iq4nl_val(uint(lane) & 15u);
+     const uint nr0 = 2u;
+     const uint nsg = 2u;
+     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
+@@ -639,12 +638,12 @@
+         if (row < args.n_out)
+             sum0 += qw3_iq4xs_dot8_vector(weights +
+                 uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+-                xl, sh, ib, il);
++                xl, entry, ib, il);
+         row = first_row + 1u;
+         if (row < args.n_out)
+             sum1 += qw3_iq4xs_dot8_vector(weights +
+                 uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+-                xl, sh, ib, il);
++                xl, entry, ib, il);
+     }
+     sum0 = simd_sum(sum0);
+     sum1 = simd_sum(sum1);
+@@ -665,8 +664,7 @@
+                                    uint group [[threadgroup_position_in_grid]],
+                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                    ushort lane [[thread_index_in_simdgroup]]) {
+-    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+-    threadgroup_barrier(mem_flags::mem_threadgroup);
++    const float entry = qw3_iq4nl_val(uint(lane) & 15u);
+     const uint nr0 = 2u;
+     const uint nsg = 2u;
+     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
+@@ -686,15 +684,15 @@
+         if (row < args.n_out) {
+             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
+                            uint64_t(b) * 136ull;
+-            gate0 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
+-            up0 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++            gate0 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, entry, ib, il);
++            up0 += qw3_iq4xs_dot8_vector(up_weights + off, xl, entry, ib, il);
+         }
+         row = first_row + 1u;
+         if (row < args.n_out) {
+             uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
+                            uint64_t(b) * 136ull;
+-            gate1 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
+-            up1 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++            gate1 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, entry, ib, il);
++            up1 += qw3_iq4xs_dot8_vector(up_weights + off, xl, entry, ib, il);
+         }
+     }
+     gate0 = simd_sum(gate0);
+@@ -723,8 +721,7 @@
+                                           uint group [[threadgroup_position_in_grid]],
+                                           ushort simd_idx [[simdgroup_index_in_threadgroup]],
+                                           ushort lane [[thread_index_in_simdgroup]]) {
+-    if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+-    threadgroup_barrier(mem_flags::mem_threadgroup);
++    const float entry = qw3_iq4nl_val(uint(lane) & 15u);
+     const uint nr0 = 2u;
+     const uint nsg = 2u;
+     uint first_row = (group * nsg + uint(simd_idx)) * nr0;
+@@ -742,12 +739,12 @@
+         uint row = first_row;
+         if (row < args.n_out) {
+             device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
+-            sum0 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++            sum0 += qw3_iq4xs_dot8_vector(blk, xl, entry, ib, il);
+         }
+         row = first_row + 1u;
+         if (row < args.n_out) {
+             device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
+-            sum1 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++            sum1 += qw3_iq4xs_dot8_vector(blk, xl, entry, ib, il);
+         }
+     }
+     sum0 = simd_sum(sum0);

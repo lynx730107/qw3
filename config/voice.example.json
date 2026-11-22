@@ -1,0 +1,18 @@
+{
+  "server_url": "http://127.0.0.1:8080",
+  "asr_model": "qwen3-asr",
+  "tts_model": "kokoro",
+  "asr_language": "Italian",
+  "tts_language": "it",
+  "voice": "if_sara",
+  "tts_speed": 1,
+  "speech_chunk_chars": 320,
+  "pronunciation_dictionary": "pronunciation.it.json",
+  "request_timeout_seconds": 120,
+  "max_record_seconds": 30,
+  "auto_stop": true,
+  "silence_seconds": 1.2,
+  "speech_threshold_db": -40,
+  "min_speech_seconds": 0.18,
+  "speech_start_timeout_seconds": 8
+}

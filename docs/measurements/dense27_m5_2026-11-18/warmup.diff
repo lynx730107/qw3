@@ -1,0 +1,25 @@
+--- qw3_bench.c
++++ matched_bench.c
+@@ -552,20 +552,14 @@
+ 
+     if (!cfg->no_warmup) {
+         qw3_session_invalidate(session);
+-        /* Recreate the same depth used by the measured generation, then warm
+-         * one token. Depth preparation remains outside the measured timer. */
+-        if (cfg->depth > 0 &&
+-            qw3_session_sync(session, &depth_prefix, err, sizeof(err)) != 0) {
+-            fprintf(stderr, "qw3-bench: warmup depth failed: %s\n", err);
+-            rc = 1;
+-        }
++        /* Matched depth diagnostic: one warmup token at empty context like llama-bench. */
+         if (!rc && n_prompt > 0 &&
+             qw3_session_sync(session, &prompt_prefix, err, sizeof(err)) != 0) {
+             fprintf(stderr, "qw3-bench: warmup prompt failed: %s\n", err);
+             rc = 1;
+         }
+         if (!rc && n_gen > 0) {
+-            int token = synthetic.v[cfg->depth + n_prompt];
++            int token = synthetic.v[n_prompt];
+             if (qw3_session_eval(session, token, err, sizeof(err)) != 0) {
+                 fprintf(stderr, "qw3-bench: warmup generation failed: %s\n", err);
+                 rc = 1;

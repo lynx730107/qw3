@@ -1,0 +1,10 @@
+{"mode": "0", "case": "conti", "expected": "36", "answer": "30", "ok": false}
+{"mode": "0", "case": "estrazione", "expected": "B42", "answer": "B42", "ok": true}
+{"mode": "0", "case": "dato_assente", "expected": "NON INDICATO", "answer": "NON INDICATO", "ok": true}
+{"mode": "0", "case": "correzione", "expected": "giovedì 11:00", "answer": "giovedì 11:00", "ok": true}
+{"mode": "1", "case": "conti", "expected": "36", "answer": "30", "ok": false}
+{"mode": "1", "case": "estrazione", "expected": "B42", "answer": "B42", "ok": true}
+{"mode": "1", "case": "dato_assente", "expected": "NON INDICATO", "answer": "NON INDICATO", "ok": true}
+{"mode": "1", "case": "correzione", "expected": "giovedì 11:00", "answer": "giovedì 11:00", "ok": true}
+{"mode": "0", "case": "email", "answer": "Oggetto: Aggiornamento sullo stato della tua spedizione\n\nGentile [Nome Cliente],\n\nti scrivo per aggiornarti sulla situazione del tuo pacco.\n\nInizialmente, il corriere aveva programmato il ritiro per la giornata di venerdì; tuttavia, a causa di un imprevisto logistico, l'operazione è stata posticipata a lunedì.\n\nAl momento non siamo ancora in grado di confermarti una data esatta di consegna, poiché questa dipenderà dai tempi di smistamento successivi al nuovo ritiro. Ti chiedo scusa per l'inconveniente e ti terrò aggiornato non appena avremo maggiori informazioni.\n\nGrazie per la pazienza.\n\nCordiali saluti,\n\n[Tuo Nome]\n[La tua Azienda"}
+{"mode": "1", "case": "email", "answer": "Oggetto: Aggiornamento sullo stato della tua spedizione\n\nGentile [Nome Cliente],\n\nti scrivo per aggiornarti sulla situazione del tuo pacco.\n\nInizialmente, il corriere aveva programmato il ritiro per la giornata di venerdì; tuttavia, a causa di un imprevisto logistico, l'operazione è stata posticipata a lunedì.\n\nAl momento non siamo ancora in grado di confermarti una data esatta di consegna, poiché questa dipenderà dai tempi di smistamento successivi al nuovo ritiro. Ti chiedo scusa per l'inconveniente e ti terrò aggiornato non appena avremo maggiori informazioni.\n\nGrazie per la pazienza.\n\nCordiali saluti,\n\n[Tuo Nome]\n[La tua Azienda"}

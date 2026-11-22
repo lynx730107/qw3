@@ -1,0 +1,3 @@
+test-agent-git-smoke: cold ok
+test-agent-git-smoke: warm ok
+test-agent-git-smoke: disabled ok

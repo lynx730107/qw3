@@ -1,0 +1,3 @@
+{"case": "C", "calls": [["write", "OK"], ["bash", "CODING_SMOKE_OK"]], "response": "CODING_SMOKE_OK", "pass": true}
+{"case": "Python", "calls": [["write", "OK"], ["bash", "vado, a, casa"]], "response": "vado, a, casa", "pass": true}
+{"case": "Git", "calls": [["bash", "THIRD\nSECOND\nFIRST"]], "response": "THIRD\nSECOND\nFIRST", "pass": true}

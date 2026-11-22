@@ -1,0 +1,29 @@
+--- metal/qw3_core_linear.metal
++++ metal/qw3_core_linear.metal
+@@ -617,7 +617,7 @@
+                                    threadgroup float *sh,
+                                    uint group [[threadgroup_position_in_grid]],
+                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+-                                   ushort lane [[thread_index_in_simdgroup]]) {
++                                   ushort lane [[thread_index_in_simdgroup]]) [[max_total_threads_per_threadgroup(64)]] {
+     if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+     threadgroup_barrier(mem_flags::mem_threadgroup);
+     const uint nr0 = 2u;
+@@ -664,7 +664,7 @@
+                                    threadgroup float *sh,
+                                    uint group [[threadgroup_position_in_grid]],
+                                    ushort simd_idx [[simdgroup_index_in_threadgroup]],
+-                                   ushort lane [[thread_index_in_simdgroup]]) {
++                                   ushort lane [[thread_index_in_simdgroup]]) [[max_total_threads_per_threadgroup(64)]] {
+     if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+     threadgroup_barrier(mem_flags::mem_threadgroup);
+     const uint nr0 = 2u;
+@@ -722,7 +722,7 @@
+                                           threadgroup float *sh,
+                                           uint group [[threadgroup_position_in_grid]],
+                                           ushort simd_idx [[simdgroup_index_in_threadgroup]],
+-                                          ushort lane [[thread_index_in_simdgroup]]) {
++                                          ushort lane [[thread_index_in_simdgroup]]) [[max_total_threads_per_threadgroup(64)]] {
+     if (simd_idx == 0u && lane < 16u) sh[lane] = qw3_iq4nl_val(uint(lane));
+     threadgroup_barrier(mem_flags::mem_threadgroup);
+     const uint nr0 = 2u;
