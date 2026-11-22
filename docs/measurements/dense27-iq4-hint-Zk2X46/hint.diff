@@ -1,0 +1,26 @@
+--- metal/qw3_core_linear.metal
++++ metal/qw3_core_linear.metal
+@@ -610,6 +610,7 @@
+     lo += hi;
+     return float(d) * float(int(ls) - 32) * (lo.x + lo.y + lo.z + lo.w);
+ }
++[[max_total_threads_per_threadgroup(64)]]
+ kernel void qw3_matvec_iq4_xs_fast(constant qw3_matvec_q8_0_args &args,
+                                    device const uchar *weights,
+                                    device const float *x,
+@@ -655,6 +656,7 @@
+         if (row < args.n_out) out[row] = sum1;
+     }
+ }
++[[max_total_threads_per_threadgroup(64)]]
+ kernel void qw3_matvec_iq4_xs_pair_fast(
+                                    constant qw3_matvec_q8_0_args &args,
+                                    device const uchar *gate_weights,
+@@ -714,6 +716,7 @@
+         }
+     }
+ }
++[[max_total_threads_per_threadgroup(64)]]
+ kernel void qw3_matvec_iq4_xs_add_x0_fast(constant qw3_matvec_q8_0_args &args,
+                                           constant float &scale,
+                                           device const uchar *weights,

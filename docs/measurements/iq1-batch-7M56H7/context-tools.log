@@ -1,0 +1,20 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+./qw3-agent-context-pressure-test ${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}
+qw3: loaded ../../models/Qwen3.8-27B-UD-IQ3_XXS.gguf (size=10.2 GiB, 866 tensors, 0.010s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 10417.81 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+PASS adaptive_read ctx4096_lines=14 ctx32768_lines=67 continuation=all_120_lines_contiguous oversized_line=not_skipped
+PASS tool_limit raw_tokens=21820 cap=2048 UTF8=valid full_result=exact retention=8 mode=0600 native_and_dsml=bounded
+PASS native_read old=12504 new=14490 appended=1986 source_result_tokens=21820 compaction=not_needed
+PASS sync phase=0 prefix=192 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact canceled_at=0 sessions=1
+PASS sync phase=1 prefix=192 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact canceled_at=0 sessions=1
+PASS sync phase=2 prefix=192 continuation=32 finite_logits=bit_exact canonical_state=exact history=exact canceled_at=128 sessions=1
+PASS agent_prefill interrupt=observed progress=cleared transcript=restored immediate_cancel_state=exact
+sh tests/test_agent_bash_tool.sh
+test-agent-bash: ok
+sh tests/test_agent_edit_tool.sh
+test-agent-edit: ok
+python3 tests/test_agent_web_page.py
+PASS visit_url complete_text=exact rows=500 attributes=excluded hidden_content=excluded UTF8=valid mode=0600 retention=8 JSON=preserved fetch_cap=honest failures=explicit no_model=1

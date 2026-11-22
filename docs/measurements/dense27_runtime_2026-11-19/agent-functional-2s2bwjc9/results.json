@@ -1,0 +1,22 @@
+{
+  "model": "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "partial_tiles": 1,
+  "iq3_nibble": 1,
+  "tests": [
+    {
+      "test": "python_smoke",
+      "exit": 0,
+      "seconds": 37.1
+    },
+    {
+      "test": "git_smoke",
+      "exit": 0,
+      "seconds": 72.7
+    },
+    {
+      "test": "coding_smoke",
+      "exit": 0,
+      "seconds": 35.2
+    }
+  ]
+}

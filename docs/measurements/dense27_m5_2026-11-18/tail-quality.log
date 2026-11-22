@@ -1,0 +1,127 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+2026-11-18 19:47:44.537 quality[48645:69222488] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.00387763977
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.115773678
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.17599678
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.69622421
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.63985252
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=8.55550957
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.22267914
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.43188095
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.93831635
+PASS length=63 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.293824196
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.00370359421
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=14.7336092
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=8.00177956
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.233437538
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.72140312
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=6.47348785
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=15.2844467
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=9.37000656
+PASS length=64 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.03192234
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.396058083
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0640306473
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.35081625
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.134429932
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.301384926
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.631816864
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.285341263
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.30540752
+PASS length=65 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.080930233
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.164020538
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.720259666
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0349855423
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.00633049011
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.871020317
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.37244606
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.416146278
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.37679005
+PASS length=69 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.117843866
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.344724655
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.350738525
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.40569115
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.635677338
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.61213303
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0307674408
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.808937073
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.27571487
+PASS length=71 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.400323391
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.515417576
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.74437523
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.651548386
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.86037064
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.64463234
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.43987274
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=5.24043369
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.87052441
+PASS length=87 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0263895988
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0568003654
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.471235275
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=13.0910568
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.7519474
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.60430336
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.953271866
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.40878487
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.50310326
+PASS length=95 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.157671928
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.711696625
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.00806188583
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.71484184
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.012963295
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.354438782
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.516008377
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.171051025
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.22363091
+PASS length=96 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.115985394
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.152955532
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=13.4327173
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=6.97353554
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.2992239
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=8.42710876
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.792490959
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=13.6640606
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=13.1641045
+PASS length=127 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.128297329
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.318517685
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.10038662
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.13186073
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.06227684
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.5419631
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.33376026
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.48881149
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=4.52927208
+PASS length=128 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.775921345
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.804915905
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=12.5164843
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=7.86351395
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.25959587
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.02521324
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=18.2150793
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=9.16989517
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.382781982
+PASS length=193 mode=3 continuation=8 checkpoint=exact
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.318383217
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0395040512
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=3.27426386
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.489818573
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=2.47656441
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.813853264
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.201278687
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=1.58130932
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.0319747925
+PASS length=223 mode=3 continuation=8 checkpoint=exact
+numeric_policy=2 logits_vectors=108 logits_rmse=0 logits_max_abs=0 logits_different_bits=0 argmax_changes=0 state_nmse=0 state_different_bits=0 history=exact checkpoint_policy=self_roundtrip_bit_exact agent_behavior=not_tested

@@ -1,0 +1,31 @@
+--- qw3.c
++++ qw3.c
+@@ -15584,13 +15584,16 @@
+         } else {
+             const uint32_t slot = (uint32_t)s->dn.linear_layer_map[il];
+             stage = "DeltaNet projections";
+-            ok = qw3_metal_session_matvec_quant_x1_to_scratch(
++            ok = (dual_enabled(lw->linear_qkv_proj->type, lw->linear_gate_proj->type)
++                ? dual_matvec(s->metal, lw->linear_qkv_proj->offset, lw->linear_gate_proj->offset,
++                    lw->linear_qkv_proj->type, lw->linear_gate_proj->type, n_embd, n_qkv, inner_n)
++                : (qw3_metal_session_matvec_quant_x1_to_scratch(
+                      s->metal, lw->linear_qkv_proj->offset,
+                      lw->linear_qkv_proj->type, n_embd, n_qkv, 0, NULL) &&
+                  qw3_metal_session_matvec_quant_x1_to_scratch(
+                      s->metal, lw->linear_gate_proj->offset,
+                      lw->linear_gate_proj->type, n_embd, inner_n,
+-                     n_qkv, NULL) &&
++                     n_qkv, NULL))) &&
+                  qw3_metal_session_matvec_quant_x1_to_scratch(
+                      s->metal, lw->linear_ssm_alpha->offset,
+                      lw->linear_ssm_alpha->type, n_embd,
+@@ -15647,6 +15650,9 @@
+             ok = qw3_metal_session_matvec_iq4_xs_pair_x1_to_scratch(
+                 s->metal, lw->ffn_gate->offset, lw->ffn_up->offset,
+                 n_embd, n_ff);
++        } else if (dual_enabled(lw->ffn_gate->type, lw->ffn_up->type)) {
++            ok = dual_matvec(s->metal, lw->ffn_gate->offset, lw->ffn_up->offset,
++                lw->ffn_gate->type, lw->ffn_up->type, n_embd, n_ff, n_ff);
+         } else {
+             ok = qw3_metal_session_matvec_quant_x1_to_scratch(
+                      s->metal, lw->ffn_gate->offset, lw->ffn_gate->type,

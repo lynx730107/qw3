@@ -1,0 +1,37 @@
+python3 tools/runtime_fingerprint.py qw3_runtime_fingerprint.h 'cc' '-O3 -ffast-math -mcpu=native -Wall -Wextra -std=c99' '-O3 -ffast-math -mcpu=native -Wall -Wextra -fobjc-arc' '-lm -pthread -framework Foundation -framework Metal'
+QW3_DENSE_METAL=1 ./qw3-dense-metal-logits-test \
+		${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} 66 30057 14578 1789
+qw3: loaded ../../models/Qwen3.8-27B-UD-IQ3_XXS.gguf (size=10.2 GiB, 866 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 10417.81 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+test-dense-logits: tokens=66,30057,14578,1789 top_match=8/8 greedy_match=8/8 rmse=7.87330884e-05 max_abs=0.000361680984 max_id=30024
+  greedy llama=632,27886,1789,173433,21133,69003,791,1147 qw3=632,27886,1789,173433,21133,69003,791,1147
+  1 llama=632:13.3101606 qw3=632:13.3100519
+  2 llama=4931:12.1896477 qw3=4931:12.189537
+  3 llama=190004:11.0507174 qw3=190004:11.0506773
+  4 llama=191521:10.9906464 qw3=191521:10.990675
+  5 llama=10018:10.8951082 qw3=10018:10.8950644
+  6 llama=183203:10.8764801 qw3=183203:10.876318
+  7 llama=186692:10.5475655 qw3=186692:10.5474167
+  8 llama=180969:10.4355469 qw3=180969:10.435585
+test-dense-logits: ok
+QW3_DENSE_METAL=1 ./qw3-dense-metal-logits-test \
+		${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf} 66 561 1118 321 2018 41131 314 279
+qw3: loaded ../../models/Qwen3.8-27B-UD-IQ3_XXS.gguf (size=10.2 GiB, 866 tensors, 0.002s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 10417.81 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+test-dense-logits: tokens=66,561,1118,321,2018,41131,314,279 top_match=8/8 greedy_match=8/8 rmse=0.00010809228 max_abs=0.000540733337 max_id=33170
+  greedy llama=4499,4649,393,53,3,440,4929,310 qw3=4499,4649,393,53,3,440,4929,310
+  1 llama=4499:11.9643669 qw3=4499:11.9642315
+  2 llama=1845:11.2473841 qw3=1845:11.2472067
+  3 llama=1433:10.964262 qw3=1433:10.9641418
+  4 llama=709:10.8270187 qw3=709:10.8269787
+  5 llama=2702:10.5555696 qw3=2702:10.5554571
+  6 llama=4649:10.3924847 qw3=4649:10.3923187
+  7 llama=28450:10.3707247 qw3=28450:10.3706436
+  8 llama=16050:10.3268318 qw3=16050:10.3268204
+test-dense-logits: ok

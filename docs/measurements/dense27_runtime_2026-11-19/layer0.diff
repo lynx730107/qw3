@@ -1,0 +1,30 @@
+--- qw3.c
++++ core.c
+@@ -14991,6 +14991,7 @@
+     int token_in_layer = -1;
+     const char *stage = "embedding";
+     const int profile = getenv("QW3_METAL_DENSE_PREFILL_PROFILE") != NULL;
++    const int layer0_mode = getenv("LAYER0_TRIAL") ? atoi(getenv("LAYER0_TRIAL")) : 0;
+     const int q3_batch = qw3_metal_dense_q3_k_batch_enabled(ntok);
+     const int k_batch = qw3_metal_dense_q4_q5_k_batch_enabled(ntok);
+     const char *gqa_batch_env = getenv("QW3_METAL_DENSE_GQA_BATCH");
+@@ -15031,9 +15032,11 @@
+         const int is_full_attn =
+             qw3_spec_layer_is_full_attention(spec, (uint32_t)il);
+         const int batch_linear_qkv = !is_full_attn &&
++            !(il == 0 && layer0_mode == 2) &&
+             qw3_dense_batch_projection_supported(
+                 lw->linear_qkv_proj->type, q3_batch, k_batch, ntok);
+         const int batch_linear_z = !is_full_attn &&
++            !(il == 0 && layer0_mode == 2) &&
+             qw3_dense_batch_projection_supported(
+                 lw->linear_gate_proj->type, q3_batch, k_batch, ntok);
+         const int batch_linear_proj = batch_linear_qkv || batch_linear_z;
+@@ -15048,6 +15051,7 @@
+             qw3_dense_batch_projection_supported(
+                 lw->attn_o_proj->type, q3_batch, k_batch, ntok);
+         const int full_batch_deltanet = !is_full_attn &&
++            !(il == 0 && layer0_mode != 0) &&
+             batch_linear_qkv && batch_linear_z &&
+             qw3_dense_batch_projection_supported(
+                 lw->linear_ssm_out->type, q3_batch, k_batch, ntok);

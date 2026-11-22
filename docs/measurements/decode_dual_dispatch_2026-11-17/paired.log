@@ -1,0 +1,24 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.004s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-bench: context buffers 166.93 MiB (ctx=256, backend=Metal, gqa_kv=16.00 MiB, deltanet=144.00 MiB, scratch=6.93 MiB)
+dual_pair rep=1 mode=0 same=0 mixed=0
+qw3-bench: sample 1/8 4.763 tok/s 6718.118 ms
+dual_pair rep=2 mode=1 same=384 mixed=0
+qw3-bench: sample 2/8 4.949 tok/s 6465.586 ms
+dual_pair rep=3 mode=1 same=384 mixed=0
+qw3-bench: sample 3/8 4.850 tok/s 6597.795 ms
+dual_pair rep=4 mode=0 same=0 mixed=0
+qw3-bench: sample 4/8 4.836 tok/s 6616.557 ms
+dual_pair rep=5 mode=0 same=0 mixed=0
+qw3-bench: sample 5/8 4.817 tok/s 6642.520 ms
+dual_pair rep=6 mode=1 same=384 mixed=0
+qw3-bench: sample 6/8 4.483 tok/s 7138.352 ms
+dual_pair rep=7 mode=1 same=384 mixed=0
+qw3-bench: sample 7/8 4.819 tok/s 6640.314 ms
+dual_pair rep=8 mode=0 same=0 mixed=0
+qw3-bench: sample 8/8 4.671 tok/s 6850.452 ms
+test,n_prompt,n_gen,n_depth,reps,avg_tps,stdev_tps,avg_ms,stdev_ms,session_bytes
+tg,0,32,128,8,4.77,0.14,6708.71,204.85,176761680

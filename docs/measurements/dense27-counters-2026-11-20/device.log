@@ -1,0 +1,4 @@
+Apple M5
+set timestamp
+  GPUTimestamp
+stage=1 dispatch=0

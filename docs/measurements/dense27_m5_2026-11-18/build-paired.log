@@ -1,0 +1,5 @@
+In file included from /private/tmp/qw3-dense27-18/tests/.gqa_heads_probe/paired.m:1:
+/private/tmp/qw3-dense27-18/tests/.gqa_heads_probe/hooks.inc:129:13: warning: unused function 'gqa_groups_print_counts' [-Wunused-function]
+  129 | static void gqa_groups_print_counts(void) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~
+1 warning generated.

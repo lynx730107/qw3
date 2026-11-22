@@ -28,8 +28,54 @@ all: qw3-cli qw3-agent qw3-eval qw3-bench
 agent: qw3-agent
 cpu: qw3-cpu qw3-agent-cpu qw3-eval-cpu qw3-bench-cpu
 
+# Voice is opt-in. The normal runtime has no audio/network dependencies.
+.PHONY: voice test-voice test-voice-residency test-voice-local audio-server voice-setup
+audio-server:
+	sh tools/setup_audio_cpp.sh
+
+voice-setup: voice audio-server
+	python3 tools/setup_voice_models.py
+
+ifeq ($(UNAME_S),Darwin)
+VOICE_LDLIBS := $(METAL_LDLIBS) -framework AVFoundation -framework AudioToolbox \
+	-Wl,-sectcreate,__TEXT,__info_plist,config/voice-info.plist
+voice: qw3-agent-voice qw3-voice
+
+qw3_voice.o: qw3_voice.m qw3_voice.h qw3_voice_endpoint.h
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -Wall -Wextra -c -o $@ qw3_voice.m
+
+qw3_voice_cli.o: qw3_voice_cli.c qw3_voice.h
+	$(CC) $(CFLAGS) -c -o $@ qw3_voice_cli.c
+
+qw3_voice_agent.o: qw3_agent.c qw3.h qw3_agent_unicode.h linenoise.h qw3_voice.h
+	$(CC) $(CFLAGS) -x objective-c -fobjc-arc -DQW3_ENABLE_VOICE -c -o $@ qw3_agent.c
+
+qw3-voice: qw3_voice_cli.o qw3_voice.o config/voice-info.plist
+	$(CC) -o $@ qw3_voice_cli.o qw3_voice.o $(VOICE_LDLIBS)
+
+qw3-agent-voice: qw3_voice_agent.o qw3_voice.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o config/voice-info.plist
+	$(CC) -o $@ qw3_voice_agent.o qw3_voice.o qw3_metal_core.o qw3_metal.o linenoise_qw3.o $(VOICE_LDLIBS)
+
+test-voice: voice
+	python3 tests/test_voice.py
+
+test-voice-local: voice
+	python3 tests/test_voice_local.py
+
+qw3-voice-residency-test: tests/test_voice_residency.m qw3.h qw3_metal_core.o qw3_metal.o
+	$(CC) $(OBJCFLAGS) -o $@ tests/test_voice_residency.m qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+
+test-voice-residency: qw3-voice-residency-test
+	./qw3-voice-residency-test $${QW3_MODEL:-../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf}
+else
+voice test-voice test-voice-residency test-voice-local:
+	@echo "Native voice currently requires macOS/AVFoundation." >&2; exit 1
+endif
+
 qw3_cpu_core.o: qw3.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3.c
+
+qw3_cpu_core.o qw3_metal_core.o qw3-quant-k-test: qw3_inkling_cpu.inc
 
 qw3_cpu_cli.o: qw3_cli.c qw3.h
 	$(CC) $(CFLAGS) -DQW3_NO_METAL -c -o $@ qw3_cli.c
@@ -902,6 +948,28 @@ qw3-quant-k-test: tests/test_quant_k.c qw3.c qw3.h
 test-quant-k: qw3-quant-k-test
 	./qw3-quant-k-test
 
+.PHONY: test-inkling-cpu
+qw3-inkling-cpu-test: tests/test_inkling.c qw3_cpu_core.o qw3.h
+	$(CC) $(CFLAGS) -fno-finite-math-only -o $@ $< qw3_cpu_core.o $(LDLIBS)
+
+test-inkling-cpu: qw3-inkling-cpu-test
+	./qw3-inkling-cpu-test "$${QW3_INKLING_MODEL:-../../models/Inkling-2-Mini-UD-Q3_K_XL.gguf}" cpu
+
+ifeq ($(UNAME_S),Darwin)
+.PHONY: test-inkling-metal test-inkling-window
+qw3-inkling-metal-test: tests/test_inkling.c qw3_metal_core.o qw3_metal.o qw3.h
+	$(CC) $(CFLAGS) -fno-finite-math-only -o $@ $< qw3_metal_core.o qw3_metal.o $(METAL_LDLIBS)
+
+test-inkling-metal: qw3-inkling-metal-test
+	QW3_INKLING_PREFILL_BATCH=1 ./qw3-inkling-metal-test "$${QW3_INKLING_MODEL:-../../models/Inkling-2-Mini-UD-Q3_K_XL.gguf}" metal
+
+qw3-inkling-window-test: tests/test_inkling_window.m qw3_metal.m qw3_metal.h $(METAL_SRCS) qw3_metal_core.o
+	$(CC) $(OBJCFLAGS) -fno-finite-math-only -o $@ $< qw3_metal_core.o $(METAL_LDLIBS)
+
+test-inkling-window: qw3-inkling-window-test
+	./qw3-inkling-window-test
+endif
+
 test-dense-forward: qw3-cpu-test
 	sh tests/test_dense_forward.sh
 
@@ -924,6 +992,14 @@ test-rope: qw3-rope-cpu-test
 
 test-rope-metal: qw3-rope-metal-test
 	./qw3-rope-metal-test
+
+.PHONY: test-dense-partial-tiles
+qw3-dense-partial-tiles-test: tests/test_dense_partial_tiles.c qw3_metal_core.o qw3_metal.o
+	$(CC) $(CFLAGS) -fno-finite-math-only -o $@ $^ $(METAL_LDLIBS)
+
+test-dense-partial-tiles: qw3-dense-partial-tiles-test
+	QW3_METAL_NGL=64 QW3_METAL_KV_F16=1 ./qw3-dense-partial-tiles-test \
+		$${QW3_DENSE_MODEL:-../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf}
 
 test-dense-metal-logits: qw3-dense-metal-logits-test
 	QW3_DENSE_METAL=1 ./qw3-dense-metal-logits-test \
@@ -1058,6 +1134,8 @@ test-metal-sampling:
 test-regression-full: test-regression test-agent-coding-smoke test-metal-smoke test-metal-gqa-decode test-metal-sampling
 
 clean:
+	rm -f qw3-inkling-cpu-test qw3-inkling-metal-test qw3-inkling-window-test
+	rm -f qw3-agent-voice qw3-voice qw3-voice-residency-test
 	rm -f qw3-q4-words-test qw3-q4-words-model-test qw3-q4-words-native-bench
 	rm -f qw3-q4-rows-test qw3-q4-rows-model-test qw3-q4-rows-native-bench
 	rm -f qw3-q4-narrow-test qw3-q4-narrow-model-test qw3-q4-narrow-native-bench
@@ -1107,7 +1185,7 @@ clean:
 	rm -f qw3_runtime_fingerprint.h
 	rm -f qw3-scratch-prefill-bench qw3-scratch-prefill-test qw3-scratch-matmul-test
 	rm -f qw3-packed8-scratch-bench qw3-packed8-scratch-test
-	rm -f qw3-micro-bench qw3-micro-test qw3-micro-q8-test qw3-copy-control-bench qw3-copy-control-test qw3-revisit-prefill-bench qw3-revisit-prefill-test qw3-native-prefill-test qw3-native-prefill-matmul-test qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
+	rm -f qw3-dense-partial-tiles-test qw3-micro-bench qw3-micro-test qw3-micro-q8-test qw3-copy-control-bench qw3-copy-control-test qw3-revisit-prefill-bench qw3-revisit-prefill-test qw3-native-prefill-test qw3-native-prefill-matmul-test qw3 qw3-cli qw3-cpu qw3-test qw3-cpu-test qw3-quant-k-test qw3-dense-logits-test qw3-metal qw3-agent qw3-agent-cpu \
 		qw3-bench qw3-bench-cpu qw3-bench-metal qw3-sampled-decode-bench qw3-decode-ab-bench \
 		qw3-projection-cost-bench qw3-projection-prefill-bench qw3-projection-prefill-test qw3-gdn-prefill-bench qw3-gdn-prefill-test qw3-q5-head-bench qw3-iq3-stream-bench qw3-decode-trials-bench qw3-dense-candidates-bench qw3-dense-candidates-test qw3-prefill-staging-bench qw3-block-cost-bench qw3-short-batch-bench \
 		qw3-dense-metal-logits-test qw3-rope-cpu-test qw3-rope-metal-test \

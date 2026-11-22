@@ -1,0 +1,98 @@
+diff --git a/tmp/qw3-prefill-partial.dS0zOM/metal/qw3_core_moe.metal b/tmp/qw3-prefill-partial.dS0zOM/formats/metal/qw3_core_moe.metal
+index 525e5e9..39cac7b 100644
+--- a/tmp/qw3-prefill-partial.dS0zOM/metal/qw3_core_moe.metal
++++ b/tmp/qw3-prefill-partial.dS0zOM/formats/metal/qw3_core_moe.metal
+@@ -1373,6 +1373,8 @@ kernel void qw3_matmul_iq3_s_mpp_staged128(
+     const int r0 = int(group.y) * NR0;
+     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
+     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
++    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
++    const bool token_group_active = token0 < int(args.n_tokens);
+     threadgroup half *sa = (threadgroup half *)shmem;
+     auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
+     device float *ptrB = (device float *)x + args.in_offset;
+@@ -1425,16 +1427,17 @@ kernel void qw3_matmul_iq3_s_mpp_staged128(
+         }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         auto mA = tA.slice(0, 0);
+-        auto mB = tB.slice(int(loop_k),
+-                           r1 + int(simd_group) * ROWS_PER_SG);
+-        mm.run(mB, mA, cT);
++        if (token_group_active) {
++            auto mB = tB.slice(int(loop_k), token0);
++            mm.run(mB, mA, cT);
++        }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+     }
+     auto tD = tensor(out + args.out_offset,
+                     dextents<int32_t, 2>(int(args.n_out),
+                                          int(args.n_tokens)),
+                     array<int, 2>({1, int(args.out_stride)}));
+-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
++    if (token_group_active) cT.store(tD.slice(r0, token0));
+ }
+ #endif
+ #ifdef QW3_METAL_HAS_TENSOR
+@@ -1456,6 +1459,8 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
+     const int r0 = int(group.y) * NR0;
+     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
+     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
++    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
++    const bool token_group_active = token0 < int(args.n_tokens);
+     threadgroup half *sa = (threadgroup half *)shmem;
+     auto tA = tensor(sa, dextents<int32_t, 2>(STAGE_K, NR0));
+     device float *ptrB = (device float *)x + args.in_offset;
+@@ -1512,9 +1517,10 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         for (uint sub_k = 0u; sub_k < STAGE_K; sub_k += NK) {
+             auto mA = tA.slice(int(sub_k), 0);
+-            auto mB = tB.slice(int(stage_k + sub_k),
+-                               r1 + int(simd_group) * ROWS_PER_SG);
+-            mm.run(mB, mA, cT);
++            if (token_group_active) {
++                auto mB = tB.slice(int(stage_k + sub_k), token0);
++                mm.run(mB, mA, cT);
++            }
+         }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+     }
+@@ -1522,7 +1528,7 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
+                     dextents<int32_t, 2>(int(args.n_out),
+                                          int(args.n_tokens)),
+                     array<int, 2>({1, int(args.out_stride)}));
+-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
++    if (token_group_active) cT.store(tD.slice(r0, token0));
+ }
+ #endif
+ kernel void qw3_moe_iq3_s_prefill_mapped(constant qw3_moe_prefill_batch_args &args,
+@@ -2190,6 +2196,8 @@ kernel void qw3_matmul_iq4_xs_mpp_staged128(
+     const int r0 = int(group.y) * NR0;
+     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
+     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
++    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
++    const bool token_group_active = token0 < int(args.n_tokens);
+     threadgroup half *sa = (threadgroup half *)shmem;
+     auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
+     device float *ptrB = (device float *)x + args.in_offset;
+@@ -2237,16 +2245,17 @@ kernel void qw3_matmul_iq4_xs_mpp_staged128(
+         }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         auto mA = tA.slice(0, 0);
+-        auto mB = tB.slice(int(loop_k),
+-                           r1 + int(simd_group) * ROWS_PER_SG);
+-        mm.run(mB, mA, cT);
++        if (token_group_active) {
++            auto mB = tB.slice(int(loop_k), token0);
++            mm.run(mB, mA, cT);
++        }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+     }
+     auto tD = tensor(out + args.out_offset,
+                     dextents<int32_t, 2>(int(args.n_out),
+                                          int(args.n_tokens)),
+                     array<int, 2>({1, int(args.out_stride)}));
+-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
++    if (token_group_active) cT.store(tD.slice(r0, token0));
+ }
+ #endif
+ kernel void qw3_moe_down_iq4_xs_prefill_mapped(constant qw3_moe_prefill_batch_args &args,

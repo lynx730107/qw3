@@ -14,7 +14,7 @@ def fingerprint(root, config):
     def add(value):
         digest.update(len(value).to_bytes(8, "little"))
         digest.update(value)
-    for name in ("qw3.c", "qw3.h", "qw3_metal.m", "qw3_metal.h",
+    for name in ("qw3.c", "qw3.h", "qw3_inkling_cpu.inc", "qw3_metal.m", "qw3_metal.h",
                  "tools/runtime_fingerprint.py"):
         add(name.encode())
         add((root / name).read_bytes())

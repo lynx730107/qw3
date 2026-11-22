@@ -1,0 +1,44 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.002s)
+2026-11-18 20:09:26.775 nibble_model[53174:69244308] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+iq3_nibble_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+iq3_nibble_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+PASS iq3_nibble_model phase=0 prefix=128 continuation=32 finite_logits=numeric canonical_state=numeric history=exact calls=0 sessions=1 additional_weight_buffer_bytes=0
+logits_numeric valid=1 rmse=0 max_abs=0 nmse=0 different_bits=0 argmax_match=1 baseline_margin=0.128297329
+logits_numeric valid=1 rmse=2.21078748e-05 max_abs=7.82012939e-05 nmse=5.60348379e-11 different_bits=247723 argmax_match=1 baseline_margin=0.318517685
+logits_numeric valid=1 rmse=1.15262248e-05 max_abs=6.43730164e-05 nmse=7.628232e-12 different_bits=244809 argmax_match=1 baseline_margin=0.10038662
+logits_numeric valid=1 rmse=1.23896296e-05 max_abs=5.24520874e-05 nmse=8.68357221e-12 different_bits=246276 argmax_match=1 baseline_margin=1.13186073
+logits_numeric valid=1 rmse=1.07665805e-05 max_abs=4.9829483e-05 nmse=6.54290508e-12 different_bits=244992 argmax_match=1 baseline_margin=2.06227684
+logits_numeric valid=1 rmse=1.94142843e-05 max_abs=0.000127315521 nmse=2.51554456e-11 different_bits=246453 argmax_match=1 baseline_margin=2.5419631
+logits_numeric valid=1 rmse=9.27965338e-06 max_abs=5.1856041e-05 nmse=5.31158349e-12 different_bits=243980 argmax_match=1 baseline_margin=3.33376026
+logits_numeric valid=1 rmse=9.41906353e-06 max_abs=4.62532043e-05 nmse=4.80036693e-12 different_bits=243882 argmax_match=1 baseline_margin=4.48881149
+logits_numeric valid=1 rmse=1.98047917e-05 max_abs=0.000106334686 nmse=1.99029547e-11 different_bits=246185 argmax_match=1 baseline_margin=4.52927208
+logits_numeric valid=1 rmse=1.29823687e-05 max_abs=6.48498535e-05 nmse=8.99133484e-12 different_bits=245285 argmax_match=1 baseline_margin=4.69694376
+logits_numeric valid=1 rmse=1.71554267e-05 max_abs=9.44137573e-05 nmse=1.38069774e-11 different_bits=246253 argmax_match=1 baseline_margin=4.92852497
+logits_numeric valid=1 rmse=2.95400178e-05 max_abs=0.000155627728 nmse=4.51686391e-11 different_bits=247016 argmax_match=1 baseline_margin=3.27942467
+logits_numeric valid=1 rmse=1.54848012e-05 max_abs=7.60555267e-05 nmse=1.24263544e-11 different_bits=245660 argmax_match=1 baseline_margin=4.7628746
+logits_numeric valid=1 rmse=3.44346133e-05 max_abs=0.000192523003 nmse=7.31027655e-11 different_bits=247284 argmax_match=1 baseline_margin=5.85890865
+logits_numeric valid=1 rmse=3.15337626e-05 max_abs=0.000193417072 nmse=7.64376301e-11 different_bits=247308 argmax_match=1 baseline_margin=3.78880501
+logits_numeric valid=1 rmse=0.000175107719 max_abs=0.000777721405 nmse=2.06331999e-09 different_bits=248128 argmax_match=1 baseline_margin=5.16217327
+logits_numeric valid=1 rmse=2.44775586e-05 max_abs=0.000121593475 nmse=3.16471571e-11 different_bits=246608 argmax_match=1 baseline_margin=6.0170927
+logits_numeric valid=1 rmse=5.44127862e-05 max_abs=0.000317573547 nmse=2.12100729e-10 different_bits=247661 argmax_match=1 baseline_margin=4.46677303
+logits_numeric valid=1 rmse=2.45921433e-05 max_abs=0.000111460686 nmse=3.69943829e-11 different_bits=246982 argmax_match=1 baseline_margin=5.44900227
+logits_numeric valid=1 rmse=2.83758539e-05 max_abs=0.000131607056 nmse=4.64385334e-11 different_bits=247132 argmax_match=1 baseline_margin=5.86962318
+logits_numeric valid=1 rmse=1.93224187e-05 max_abs=0.000104248524 nmse=2.00940452e-11 different_bits=246122 argmax_match=1 baseline_margin=5.85555172
+logits_numeric valid=1 rmse=4.04221159e-05 max_abs=0.000164031982 nmse=9.34829226e-11 different_bits=247793 argmax_match=1 baseline_margin=5.84111309
+logits_numeric valid=1 rmse=3.71121171e-05 max_abs=0.000208199024 nmse=6.83017915e-11 different_bits=247264 argmax_match=1 baseline_margin=5.40286827
+logits_numeric valid=1 rmse=0.000149570517 max_abs=0.000908926129 nmse=1.62035148e-09 different_bits=248106 argmax_match=1 baseline_margin=3.97397518
+logits_numeric valid=1 rmse=2.35767901e-05 max_abs=0.000132083893 nmse=3.36531107e-11 different_bits=246676 argmax_match=1 baseline_margin=5.62891006
+logits_numeric valid=1 rmse=4.74398238e-05 max_abs=0.000257968903 nmse=1.85380747e-10 different_bits=247619 argmax_match=1 baseline_margin=5.73523712
+logits_numeric valid=1 rmse=5.57456774e-05 max_abs=0.000339835882 nmse=2.47455451e-10 different_bits=247773 argmax_match=1 baseline_margin=5.22042084
+logits_numeric valid=1 rmse=8.54873697e-05 max_abs=0.000528335571 nmse=4.93529171e-10 different_bits=248040 argmax_match=1 baseline_margin=5.60208988
+logits_numeric valid=1 rmse=2.99830043e-05 max_abs=0.000146627426 nmse=4.92610817e-11 different_bits=247025 argmax_match=1 baseline_margin=5.73442459
+logits_numeric valid=1 rmse=3.60640433e-05 max_abs=0.000172138214 nmse=9.67919227e-11 different_bits=247435 argmax_match=1 baseline_margin=5.70061398
+logits_numeric valid=1 rmse=4.89543794e-05 max_abs=0.000241279602 nmse=1.52002824e-10 different_bits=247644 argmax_match=1 baseline_margin=5.59506989
+logits_numeric valid=1 rmse=4.45822525e-05 max_abs=0.000286877155 nmse=1.06331135e-10 different_bits=247428 argmax_match=1 baseline_margin=5.7062149
+logits_numeric valid=1 rmse=8.31124132e-05 max_abs=0.000539183617 nmse=6.07418164e-10 different_bits=247982 argmax_match=1 baseline_margin=5.74330139
+PASS iq3_nibble_model phase=1 prefix=128 continuation=32 finite_logits=numeric canonical_state=numeric history=exact calls=2336 sessions=1 additional_weight_buffer_bytes=0
+numeric_policy=2 logits_vectors=33 logits_rmse=5.32837892e-05 logits_max_abs=0.000908926129 logits_different_bits=7896524 argmax_changes=0 state_nmse=4.37502353e-10 state_different_bits=36851470 history=exact checkpoint_policy=self_roundtrip_bit_exact agent_behavior=not_tested

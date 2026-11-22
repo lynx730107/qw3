@@ -33,6 +33,8 @@ typedef struct {
     int ctx_max;
     int ctx_alloc;
     int step_incr;
+    int frontiers[64];
+    int n_frontiers;
     int n_prompt;
     int gen_tokens;
     int depth;
@@ -88,6 +90,7 @@ static void usage(FILE *fp) {
         "  --ctx-alloc N          Allocated context. Default: ctx-max + gen-tokens + 1\n"
         "  --step-mul F           Multiplicative step. Default: 1\n"
         "  --step-incr N          Linear step when --step-mul is 1. Default: 2048\n"
+        "  --frontiers LIST       Comma-separated ascending frontiers (overrides start/max/step).\n"
         "  --gen-tokens N         Greedy decode tokens per frontier. Default: 128\n"
         "\n"
         "Llama-style synthetic mode:\n"
@@ -239,6 +242,31 @@ static bench_config parse_options(int argc, char **argv) {
             c.step_incr = parse_int(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--step-mul")) {
             c.step_mul = parse_double_arg(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--frontiers")) {
+            const char *list = need_arg(&i, argc, argv, arg);
+            c.n_frontiers = 0;
+            const char *p_cur = list;
+            while (*p_cur) {
+                char *end = NULL;
+                long v = strtol(p_cur, &end, 10);
+                if (end == p_cur || v <= 0 || v > INT_MAX ||
+                    (*end != '\0' && *end != ',') || c.n_frontiers >= 64) {
+                    fprintf(stderr, "qw3-bench: invalid --frontiers list: %s\n", list);
+                    exit(2);
+                }
+                if (c.n_frontiers > 0 && (int)v <= c.frontiers[c.n_frontiers - 1]) {
+                    fprintf(stderr, "qw3-bench: --frontiers must be strictly ascending: %s\n", list);
+                    exit(2);
+                }
+                c.frontiers[c.n_frontiers++] = (int)v;
+                p_cur = (*end == ',') ? end + 1 : end;
+            }
+            if (c.n_frontiers == 0) {
+                fprintf(stderr, "qw3-bench: empty --frontiers list\n");
+                exit(2);
+            }
+            c.ctx_start = c.frontiers[0];
+            c.ctx_max = c.frontiers[c.n_frontiers - 1];
         } else if (!strcmp(arg, "-p") || !strcmp(arg, "--n-prompt")) {
             c.n_prompt = parse_nonnegative_int(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--gen-tokens") || !strcmp(arg, "--tokens") ||
@@ -363,9 +391,10 @@ static void json_write_string(FILE *fp, const char *s) {
 static int write_frontier_logits_json(
         const bench_config *cfg,
         qw3_session         *session,
-        int                 frontier,
+        const qw3_tokens    *prefix,
         int                 previous) {
     if (!cfg->dump_frontier_logits_dir) return 0;
+    const int frontier = prefix->len;
 
     const int top_k = 64;
     qw3_token_score *scores = malloc((size_t)top_k * sizeof(scores[0]));
@@ -401,7 +430,7 @@ static int write_frontier_logits_json(
             ",\n  \"backend\":\"%s\",\n  \"quality\":%s,\n"
             "  \"prompt_tokens\":%d,\n  \"frontier_tokens\":%d,\n"
             "  \"prefill_tokens\":%d,\n  \"ctx\":%d,\n"
-            "  \"argmax_id\":%d,\n  \"top_logits\":[\n",
+            "  \"argmax_id\":%d,\n  \"token_ids\":[",
             qw3_backend_name(cfg->backend),
             cfg->quality ? "true" : "false",
             frontier,
@@ -409,6 +438,10 @@ static int write_frontier_logits_json(
             frontier - previous,
             cfg->ctx_alloc,
             argmax);
+    for (int i = 0; i < frontier; i++) {
+        fprintf(fp, "%s%d", i ? "," : "", prefix->v[i]);
+    }
+    fputs("],\n  \"top_logits\":[\n", fp);
 
     for (int i = 0; i < n; i++) {
         fprintf(fp,
@@ -690,6 +723,7 @@ int main(int argc, char **argv) {
         .backend = cfg.backend,
         .n_threads = cfg.threads,
         .warm_weights = cfg.warm_weights,
+        .enable_inkling = true,
     };
     qw3_engine *engine = NULL;
     if (qw3_engine_open(&engine, &opt) != 0) return 1;
@@ -710,7 +744,17 @@ int main(int argc, char **argv) {
     char *text = read_file(cfg.prompt_path ? cfg.prompt_path : cfg.chat_prompt_path);
     qw3_tokens prompt = {0};
     if (cfg.chat_prompt_path) {
-        qw3_encode_chat_prompt(engine, cfg.system, text, QW3_THINK_NONE, &prompt);
+        if (qw3_engine_is_inkling(engine)) {
+            if (!qw3_inkling_encode_prompt(engine, cfg.system, text, QW3_THINK_NONE, &prompt)) {
+                fprintf(stderr, "qw3-bench: failed to encode Inkling chat prompt\n");
+                free(text);
+                qw3_tokens_free(&prompt);
+                qw3_engine_close(engine);
+                return 1;
+            }
+        } else {
+            qw3_encode_chat_prompt(engine, cfg.system, text, QW3_THINK_NONE, &prompt);
+        }
     } else {
         qw3_tokenize_text(engine, text, &prompt);
     }
@@ -755,7 +799,9 @@ int main(int argc, char **argv) {
     int previous = 0;
     int rc = 0;
 
-    for (int frontier = cfg.ctx_start; ; frontier = next_frontier(&cfg, frontier)) {
+    int frontier_idx = 0;
+    for (int frontier = cfg.n_frontiers ? cfg.frontiers[0] : cfg.ctx_start; ;
+         frontier = cfg.n_frontiers ? cfg.frontiers[++frontier_idx] : next_frontier(&cfg, frontier)) {
         qw3_tokens prefix = {
             .v = prompt.v,
             .len = frontier,
@@ -773,13 +819,13 @@ int main(int argc, char **argv) {
         const int prefill_tokens = frontier - previous;
         const uint64_t session_bytes = qw3_session_payload_bytes(prefill_session);
 
-        if (write_frontier_logits_json(&cfg, prefill_session, frontier, previous) != 0) {
+        if (write_frontier_logits_json(&cfg, prefill_session, &prefix, previous) != 0) {
             rc = 1;
             break;
         }
 
         qw3_session *gen_session = prefill_session;
-        if (frontier < cfg.ctx_max) {
+        if (cfg.gen_tokens > 0 && frontier < cfg.ctx_max) {
             if (!decode_session &&
                 qw3_session_create(&decode_session, engine, cfg.ctx_alloc) != 0) {
                 fprintf(stderr, "qw3-bench: failed to create decode session\n");
@@ -829,7 +875,7 @@ int main(int argc, char **argv) {
         fflush(out);
 
         previous = frontier;
-        if (frontier >= cfg.ctx_max) break;
+        if (cfg.n_frontiers ? (frontier_idx + 1 >= cfg.n_frontiers) : (frontier >= cfg.ctx_max)) break;
     }
 
     if (out != stdout) fclose(out);

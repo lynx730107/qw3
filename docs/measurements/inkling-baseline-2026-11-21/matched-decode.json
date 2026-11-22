@@ -1,0 +1,295 @@
+{
+  "date": "2026-11-21",
+  "device": "Apple M5",
+  "model": "Inkling-2-Mini-UD-Q3_K_XL.gguf",
+  "context_capacity": 9216,
+  "kv_format": "f16",
+  "full_prefix": {
+    "tokens": 8283,
+    "json_sha256": "0aede09517d76443f8ba6c2932bb85056cc3b9551e5ee72c78a6f2563e30ce6e",
+    "reference": "matched-8k.json"
+  },
+  "continuation": {
+    "length": 128,
+    "from_full_prefix_zero_based_range": [
+      2048,
+      2176
+    ],
+    "ids": [
+      34290,
+      149938,
+      175348,
+      220,
+      68026,
+      13,
+      198,
+      2702,
+      32617,
+      220,
+      75905,
+      21,
+      13,
+      150077,
+      179579,
+      64,
+      220,
+      148447,
+      147729,
+      12,
+      75905,
+      21,
+      150174,
+      149881,
+      187853,
+      2551,
+      2877,
+      11,
+      149911,
+      168662,
+      150407,
+      34290,
+      149938,
+      175348,
+      220,
+      68052,
+      13,
+      198,
+      2702,
+      32617,
+      220,
+      75905,
+      22,
+      13,
+      150077,
+      179579,
+      64,
+      220,
+      148447,
+      147729,
+      12,
+      75905,
+      22,
+      150174,
+      149881,
+      187853,
+      2551,
+      2877,
+      11,
+      149911,
+      168662,
+      150407,
+      34290,
+      149938,
+      175348,
+      220,
+      68040,
+      13,
+      198,
+      2702,
+      32617,
+      220,
+      75905,
+      23,
+      13,
+      150077,
+      179579,
+      64,
+      220,
+      148447,
+      147729,
+      12,
+      75905,
+      23,
+      150174,
+      149881,
+      187853,
+      2551,
+      2877,
+      11,
+      149911,
+      168662,
+      150407,
+      34290,
+      149938,
+      175348,
+      220,
+      68079,
+      13,
+      198,
+      2702,
+      32617,
+      220,
+      75905,
+      24,
+      13,
+      150077,
+      179579,
+      64,
+      220,
+      148447,
+      147729,
+      12,
+      75905,
+      24,
+      150174,
+      149881,
+      187853,
+      2551,
+      2877,
+      11,
+      149911,
+      168662,
+      150407,
+      34290,
+      149938,
+      175348,
+      220
+    ],
+    "sampling": "forced"
+  },
+  "warmup": "The last 8 tokens of each measured prefix were decoded one at a time before timing.",
+  "timer": "128 synchronized one-token evaluations, with logits available on host after each evaluation. Prefill and sampling excluded.",
+  "run_order": [
+    "qw3",
+    "llama compact SWA",
+    "llama compact SWA",
+    "qw3"
+  ],
+  "order_note": "An initial llama.cpp full-size SWA pilot was run after the first qw3 sample, before switching to compact SWA for the reported comparison.",
+  "qw3": {
+    "prefill_batch": 128,
+    "swa_kv_cells_per_visit": 1024,
+    "kv_mib": 448
+  },
+  "llama": {
+    "build": "b12588-mix-c0c3de8",
+    "batch": 512,
+    "microbatch": 128,
+    "swa_full": false,
+    "swa_kv_cells_per_visit": 1280,
+    "kv_mib": 488,
+    "flash_attention": true
+  },
+  "samples": [
+    {
+      "run": 1,
+      "backend": "qw3",
+      "prefix_tokens": 128,
+      "decode_tokens": 128,
+      "decode_seconds": 7.844781,
+      "decode_tps": 16.31658,
+      "last_argmax": 68084
+    },
+    {
+      "run": 1,
+      "backend": "qw3",
+      "prefix_tokens": 8283,
+      "decode_tokens": 128,
+      "decode_seconds": 8.17366,
+      "decode_tps": 15.660059,
+      "last_argmax": 68084
+    },
+    {
+      "run": 2,
+      "backend": "llama",
+      "prefix_tokens": 128,
+      "decode_tokens": 128,
+      "decode_seconds": 7.482195,
+      "decode_tps": 17.107279,
+      "last_argmax": 68084
+    },
+    {
+      "run": 2,
+      "backend": "llama",
+      "prefix_tokens": 8283,
+      "decode_tokens": 128,
+      "decode_seconds": 9.036531,
+      "decode_tps": 14.164728,
+      "last_argmax": 68084
+    },
+    {
+      "run": 3,
+      "backend": "llama",
+      "prefix_tokens": 128,
+      "decode_tokens": 128,
+      "decode_seconds": 8.84175,
+      "decode_tps": 14.476772,
+      "last_argmax": 68084
+    },
+    {
+      "run": 3,
+      "backend": "llama",
+      "prefix_tokens": 8283,
+      "decode_tokens": 128,
+      "decode_seconds": 9.372022,
+      "decode_tps": 13.657672,
+      "last_argmax": 68084
+    },
+    {
+      "run": 4,
+      "backend": "qw3",
+      "prefix_tokens": 128,
+      "decode_tokens": 128,
+      "decode_seconds": 10.039,
+      "decode_tps": 12.750274,
+      "last_argmax": 68084
+    },
+    {
+      "run": 4,
+      "backend": "qw3",
+      "prefix_tokens": 8283,
+      "decode_tokens": 128,
+      "decode_seconds": 10.43631,
+      "decode_tps": 12.264871,
+      "last_argmax": 68084
+    }
+  ],
+  "summary": [
+    {
+      "prefix_tokens": 128,
+      "qw3": {
+        "aggregate_tps": 14.314646,
+        "samples_tps": [
+          16.31658,
+          12.750274
+        ]
+      },
+      "llama": {
+        "aggregate_tps": 15.682484,
+        "samples_tps": [
+          17.107279,
+          14.476772
+        ]
+      },
+      "qw3_vs_llama_pct": -8.72
+    },
+    {
+      "prefix_tokens": 8283,
+      "qw3": {
+        "aggregate_tps": 13.756067,
+        "samples_tps": [
+          15.660059,
+          12.264871
+        ]
+      },
+      "llama": {
+        "aggregate_tps": 13.906579,
+        "samples_tps": [
+          14.164728,
+          13.657672
+        ]
+      },
+      "qw3_vs_llama_pct": -1.08
+    }
+  ],
+  "source_sha256": {
+    "qw3.c": "5ad3c41b6913db9278feebf6b8b2c0ade7aba453aaf2879ae602c32043d7c0db",
+    "qw3_cli.c": "2c3e99db37fc525e304466ef8452a97887e8cbe4107a9ccba9421c3805d3701d",
+    "qw3_inkling_cpu.inc": "1cf84d21055c39e5578bac4332048d1a7c3935f56942dd106c974315be35db3e",
+    "qw3_metal.m": "645f289e67620f812ae4628ae27be71b63bb92082fc8d27d81b37b581d33fbfd",
+    "qw3_metal.h": "0997b4d6a0beb8f89c9a165aada8ad84550ee73e8bb78ad5a6da0d13c4435c3e",
+    "metal/qw3_core_linear.metal": "9c0b7fc0996468f4957cbdbf1140cc652f24bca1f528160f34c2fb73b08663f9",
+    "metal/qw3_core_sequence.metal": "bdbc34c7ba5b0f307dde51a994f6fe297f1fc6e97f3a0ecdbcc1d26dcf6f701a"
+  },
+  "harness_sha256": "e4bca202a72cb71a3f3f7fbb98ff51e32dd2e3e720a649650005041bb1eb81bb"
+}

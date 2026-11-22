@@ -1,0 +1,1 @@
+Correggi il parser dei tag in questo piccolo progetto Python. Deve leggere un record CSV con virgole e virgolette, ripulire gli spazi ed eliminare i campi vuoti. Usa la libreria standard, mantieni la funzione pubblica e verifica la modifica con i test esistenti.

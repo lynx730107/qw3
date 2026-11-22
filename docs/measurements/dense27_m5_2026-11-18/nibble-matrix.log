@@ -1,0 +1,390 @@
+2026-11-18 20:09:25.470 nibble_matrix[53164:69244230] Metal API Validation Enabled
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+iq3_nibble_metadata variant=0 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+iq3_nibble_metadata variant=1 width=32 max_threads=1024 static_threadgroup_bytes=1024 dynamic_threadgroup_bytes=128 threads=64
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.94708160303e-14 max_abs=1.90734863281e-06 bits=1
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.94708160303e-14 max_abs=1.90734863281e-06 bits=1
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.07206074104e-14 max_abs=3.81469726562e-06 bits=1
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.07206074104e-14 max_abs=3.81469726562e-06 bits=1
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=256 n_out=1 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.09190185757e-15 max_abs=3.0517578125e-05 bits=18
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.15444181714e-15 max_abs=2.28881835938e-05 bits=16
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.91684227775e-15 max_abs=3.0517578125e-05 bits=17
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.12981339638e-14 max_abs=1.52587890625e-05 bits=18
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.5373978174e-15 max_abs=3.0517578125e-05 bits=18
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=9.59015814193e-15 max_abs=3.0517578125e-05 bits=19
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.56183100646e-15 max_abs=1.52587890625e-05 bits=18
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.97408218714e-15 max_abs=1.52587890625e-05 bits=18
+matrix_numeric n_in=4352 n_out=33 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=4352 n_out=33 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=5.92561166153e-16 max_abs=0.03125 bits=5
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.0723490898e-16 max_abs=0.015625 bits=6
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.34006963362e-15 max_abs=0.03125 bits=8
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.98463670651e-15 max_abs=0.03125 bits=12
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.02040372045e-15 max_abs=0.03125 bits=9
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.31466625415e-15 max_abs=0.03125 bits=14
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.01008654483e-15 max_abs=0.03125 bits=13
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.10862957586e-17 max_abs=0.0078125 bits=2
+matrix_numeric n_in=4352 n_out=33 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.54098360059e-15 max_abs=3.0517578125e-05 bits=41
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.99110093064e-15 max_abs=3.0517578125e-05 bits=37
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.25782079755e-15 max_abs=3.0517578125e-05 bits=42
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.67953175645e-15 max_abs=3.0517578125e-05 bits=38
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.99188418463e-15 max_abs=1.52587890625e-05 bits=32
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=9.20379986361e-15 max_abs=3.0517578125e-05 bits=39
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.57914596831e-15 max_abs=3.0517578125e-05 bits=41
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.78923268009e-15 max_abs=3.0517578125e-05 bits=41
+matrix_numeric n_in=5120 n_out=65 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=65 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.53792044338e-15 max_abs=0.0625 bits=22
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.78921746381e-15 max_abs=0.0625 bits=25
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.17116194308e-15 max_abs=0.03125 bits=22
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.51479260898e-15 max_abs=0.0625 bits=23
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.09469082765e-15 max_abs=0.0625 bits=24
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.96689072688e-15 max_abs=0.0625 bits=23
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.53989783466e-15 max_abs=0.0625 bits=22
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.25894116408e-15 max_abs=0.0625 bits=23
+matrix_numeric n_in=5120 n_out=65 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.98440567333e-15 max_abs=3.81469726562e-05 bits=18
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.69733981545e-15 max_abs=3.0517578125e-05 bits=15
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.2845798841e-14 max_abs=3.0517578125e-05 bits=16
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.34035108767e-15 max_abs=3.0517578125e-05 bits=15
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.10085067477e-15 max_abs=2.28881835938e-05 bits=23
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.82268329349e-15 max_abs=3.0517578125e-05 bits=20
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.38658857334e-14 max_abs=6.103515625e-05 bits=21
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.60055672414e-15 max_abs=3.0517578125e-05 bits=17
+matrix_numeric n_in=6144 n_out=33 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=6144 n_out=33 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.25868744169e-16 max_abs=0.0234375 bits=6
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.3220531791e-15 max_abs=0.03125 bits=10
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.36681518472e-15 max_abs=0.03125 bits=13
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.76770614094e-15 max_abs=0.0625 bits=19
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.88846353431e-15 max_abs=0.0625 bits=14
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.42143732036e-15 max_abs=0.0625 bits=14
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.1712517999e-15 max_abs=0.0625 bits=14
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.93162974802e-15 max_abs=0.0625 bits=10
+matrix_numeric n_in=6144 n_out=33 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.14824164318e-14 max_abs=3.0517578125e-05 bits=48
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.37732450387e-15 max_abs=6.103515625e-05 bits=33
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.31642891181e-14 max_abs=3.0517578125e-05 bits=33
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.41983691567e-15 max_abs=3.0517578125e-05 bits=38
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.16161252592e-15 max_abs=1.52587890625e-05 bits=49
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.64540267448e-15 max_abs=3.0517578125e-05 bits=40
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.32551591619e-15 max_abs=3.0517578125e-05 bits=16
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.50836158622e-15 max_abs=6.103515625e-05 bits=33
+matrix_numeric n_in=8192 n_out=65 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=5.88929311423e-15 max_abs=0.0390625 bits=33
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.58177118517e-15 max_abs=0.09375 bits=29
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.69316665797e-15 max_abs=0.03125 bits=49
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.56793185313e-15 max_abs=0.078125 bits=21
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.59092206803e-15 max_abs=0.0625 bits=23
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=9.27237725276e-15 max_abs=0.09375 bits=33
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.2293519064e-15 max_abs=0.09375 bits=28
+matrix_numeric n_in=8192 n_out=65 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.84980401453e-15 max_abs=3.0517578125e-05 bits=11
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.9566271035e-15 max_abs=3.0517578125e-05 bits=22
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.10013713141e-14 max_abs=6.103515625e-05 bits=19
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.93374972177e-14 max_abs=3.0517578125e-05 bits=23
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.29021441608e-15 max_abs=3.43322753906e-05 bits=17
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.81453974691e-14 max_abs=6.103515625e-05 bits=15
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.19426800167e-14 max_abs=6.103515625e-05 bits=14
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.86196699682e-15 max_abs=3.0517578125e-05 bits=16
+matrix_numeric n_in=8448 n_out=33 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=8448 n_out=33 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=5.44549713423e-15 max_abs=0.125 bits=15
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.95635171469e-15 max_abs=0.046875 bits=8
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.89320444743e-15 max_abs=0.0390625 bits=9
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.38035811013e-15 max_abs=0.03125 bits=9
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=5.25348268989e-15 max_abs=0.0625 bits=14
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=5.63540054042e-15 max_abs=0.0625 bits=12
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.3196820043e-15 max_abs=0.125 bits=7
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=9.22954976598e-15 max_abs=0.125 bits=15
+matrix_numeric n_in=8448 n_out=33 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.35257700841e-14 max_abs=6.103515625e-05 bits=42
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.09969409013e-14 max_abs=7.62939453125e-05 bits=47
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.68682075835e-14 max_abs=7.62939453125e-05 bits=49
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=9.21520795739e-15 max_abs=6.103515625e-05 bits=42
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.17926893332e-14 max_abs=6.103515625e-05 bits=44
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.46664069413e-14 max_abs=7.62939453125e-05 bits=44
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.3607678361e-14 max_abs=6.103515625e-05 bits=43
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.00646161188e-14 max_abs=6.103515625e-05 bits=40
+matrix_numeric n_in=17408 n_out=65 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=17408 n_out=65 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.54915743636e-15 max_abs=0.125 bits=20
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=3.65933962243e-15 max_abs=0.125 bits=30
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=5.33379482051e-15 max_abs=0.0625 bits=36
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.72744280141e-15 max_abs=0.125 bits=24
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=6.31486319413e-15 max_abs=0.125 bits=34
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.89288749409e-15 max_abs=0.125 bits=27
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.56383979798e-15 max_abs=0.125 bits=20
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.80421016943e-15 max_abs=0.125 bits=30
+matrix_numeric n_in=17408 n_out=65 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.5279042481e-15 max_abs=3.0517578125e-05 bits=40
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.99155710672e-15 max_abs=3.0517578125e-05 bits=37
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.27215792342e-15 max_abs=3.0517578125e-05 bits=42
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=7.99667019235e-15 max_abs=3.0517578125e-05 bits=37
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.01981942819e-15 max_abs=1.52587890625e-05 bits=32
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=9.11926515835e-15 max_abs=3.0517578125e-05 bits=38
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.5279042481e-15 max_abs=3.0517578125e-05 bits=40
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=8.97306946209e-15 max_abs=3.0517578125e-05 bits=41
+matrix_numeric n_in=5120 n_out=64 pattern=0 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=0 max_abs=0 bits=0
+matrix_numeric n_in=5120 n_out=64 pattern=1 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.54844635226e-15 max_abs=0.0625 bits=22
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=0 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.75438008601e-15 max_abs=0.0625 bits=24
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=0 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.18951923062e-15 max_abs=0.03125 bits=22
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=2 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.52507144188e-15 max_abs=0.0625 bits=23
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=2 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=4.09711334628e-15 max_abs=0.0625 bits=24
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=4 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=1.9680015996e-15 max_abs=0.0625 bits=23
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=4 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.54844635226e-15 max_abs=0.0625 bits=22
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=8 row_padding=0 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+metrics nmse=2.33576668275e-15 max_abs=0.0625 bits=23
+matrix_numeric n_in=5120 n_out=64 pattern=2 weight_offset=8 row_padding=2 native_threads=64 candidate_threads=64 guards=exact input=unchanged
+PASS iq3_nibble=1 matrix_cases=192 finite_numeric=all

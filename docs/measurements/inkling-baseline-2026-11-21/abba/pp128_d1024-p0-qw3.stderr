@@ -1,0 +1,26 @@
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Inkling-2-Mini-UD-Q3_K_XL.gguf (size=12.7 GiB, 734 tensors, 0.006s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12988.86 MiB from GGUF offset 11.42 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-bench: context buffers 229.73 MiB (ctx=2048, backend=Metal, gqa_kv=224.00 MiB, deltanet=3.66 MiB, scratch=2.07 MiB)
+qw3-bench: sample 1/2 13.067 tok/s 9795.578 ms
+qw3-bench: sample 2/2 12.822 tok/s 9983.150 ms
+      258.19 real         8.08 user         7.94 sys
+           107593728  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                6831  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+              681664  involuntary context switches
+         81568615971  instructions retired
+         34627259683  cycles elapsed
+           353764144  peak memory footprint

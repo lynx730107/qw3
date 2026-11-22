@@ -1,0 +1,224 @@
+qw3-agent: model=/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf backend=Metal ctx=8192 think=none tools=on
+qw3: loaded /Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3-agent: memory estimate 662.9 MB
+qw3-agent: initializing Metal session and kernels...
+qw3-agent: session ready in 0.01 s
+
+[tool] list
+list path=. depth=3
+tags.py
+test_tags.py
+
+
+[tool] get_skeleton
+get_skeleton path=tags.py
+Skeleton of tags.py (python):
+
+### Includes
+- (none)
+
+### Macros
+- (none)
+
+### Types
+- (none)
+
+### Globals
+- (none)
+
+### Functions
+- def parse_tags(line): calls: strip, split [0:0 - 1:66]
+
+
+
+[tool] read
+read path=tags.py start=1 lines=80
+    1  def parse_tags(line):
+    2      return [tag.strip() for tag in line.split(",") if tag.strip()]
+
+
+[tool] read
+read path=test_tags.py start=1 lines=120
+    1  import unittest
+    2  from tags import parse_tags
+    3  
+    4  class TestTags(unittest.TestCase):
+    5      def test_quoted_delimiter(self):
+    6          self.assertEqual(parse_tags('news,"Rome, Italy", work'), ['news', 'Rome, Italy', 'work'])
+    7  
+    8      def test_spaces_and_empty(self):
+    9          self.assertEqual(parse_tags(' , news ,, "  work  ", '), ['news', 'work'])
+   10  
+   11      def test_quotes(self):
+   12          self.assertEqual(parse_tags('"say ""hi""", travel'), ['say "hi"', 'travel'])
+   13  
+   14      def test_empty_line(self):
+   15          self.assertEqual(parse_tags(''), [])
+
+
+[tool] bash
+$ cd /home/luca/Projects/ai-coding && python -m unittest -v 2>&1 | head -40
+sh: line 0: cd: /home/luca/Projects/ai-coding: No such file or directory
+
+exit=1
+
+
+[tool] bash
+$ pwd && ls
+/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.sxK398mM2O/work
+tags.py
+test_tags.py
+
+exit=0
+
+
+[tool] bash
+$ python -m unittest -v 2>&1 | head -40
+sh: python: command not found
+
+exit=0
+
+
+[tool] bash
+$ which python3 || which python3.11 || ls /usr/bin/python*
+/usr/bin/python3
+
+exit=0
+
+
+[tool] bash
+$ python3 -m unittest -v 2>&1 | head -40
+test_empty_line (test_tags.TestTags) ... ok
+test_quoted_delimiter (test_tags.TestTags) ... FAIL
+test_quotes (test_tags.TestTags) ... FAIL
+test_spaces_and_empty (test_tags.TestTags) ... FAIL
+
+======================================================================
+FAIL: test_quoted_delimiter (test_tags.TestTags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.sxK398mM2O/work/test_tags.py", line 6, in test_quoted_delimiter
+    self.assertEqual(parse_tags('news,"Rome, Italy", work'), ['news', 'Rome, Italy', 'work'])
+AssertionError: Lists differ: ['news', '"Rome', 'Italy"', 'work'] != ['news', 'Rome, Italy', 'work']
+
+First differing element 1:
+'"Rome'
+'Rome, Italy'
+
+First list contains 1 additional elements.
+First extra element 3:
+'work'
+
+- ['news', '"Rome', 'Italy"', 'work']
+?           -    -  -     -
+
++ ['news', 'Rome, Italy', 'work']
+
+======================================================================
+FAIL: test_quotes (test_tags.TestTags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.sxK398mM2O/work/test_tags.py", line 12, in test_quotes
+    self.assertEqual(parse_tags('"say ""hi""", travel'), ['say "hi"', 'travel'])
+AssertionError: Lists differ: ['"say ""hi"""', 'travel'] != ['say "hi"', 'travel']
+
+First differing element 0:
+'"say ""hi"""'
+'say "hi"'
+
+- ['"say ""hi"""', 'travel']
+?   -    -    --
+
+exit=0
+
+
+[tool] write
+ok: wrote tags.py (110 bytes)
+verification_required: run one narrow build, test, syntax check, or git diff --check before the final answer.
+
+[tool] bash
+$ python3 -m unittest -v 2>&1 | tail -15
+AssertionError: Lists differ: ['news', '"  work  "'] != ['news', 'work']
+
+First differing element 1:
+'"  work  "'
+'work'
+
+- ['news', '"  work  "']
+?           ---    ---
+
++ ['news', 'work']
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.000s
+
+FAILED (failures=1)
+
+exit=0
+
+
+[tool] edit
+ok: edited tags.py (1 change)
+verification_required: run one narrow build, test, syntax check, or git diff --check before the final answer.
+
+[tool] bash
+$ python3 -m unittest -v 2>&1 | tail -10
+
+- ['say "hi', 'travel']
++ ['say "hi"', 'travel']
+?          +
+
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.000s
+
+FAILED (failures=1)
+
+exit=0
+
+
+[tool] write
+ok: wrote tags.py (305 bytes)
+verification_required: run one narrow build, test, syntax check, or git diff --check before the final answer.
+agent: skipped repeated bash tool call
+
+[tool] bash
+$ cd /private/var/folders/4f/_0n0xgtn3mg46s3xvyd77mrh0000gn/T/tmp.sxK398mM2O/work && python3 -m unittest -v 2>&1 | tail -10
+test_empty_line (test_tags.TestTags) ... ok
+test_quoted_delimiter (test_tags.TestTags) ... ok
+test_quotes (test_tags.TestTags) ... ok
+test_spaces_and_empty (test_tags.TestTags) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.000s
+
+OK
+
+exit=0
+
+Fatto. Tutti i 4 test passano.
+
+**Problema:** il parser usava line.split(","), che non gestiva le virgolette né le virgole all'interno di campi citati.
+
+**Soluzione** (tags.py): uso csv.reader dalla libreria standard per la corretta gestione dei delimiter e delle virgolette, poi un helper _clean che rimuove spazi e le virgolette residue (incluso l'unescaping "" → "), eliminando i campi vuoti. La funzione pubblica parse_tags(line) è mantenuta con la stessa firma.
+
+python
+import csv
+
+
+def _clean(field):
+    field = field.strip()
+    if len(field) >= 2 and field[0] == '"' and field[-1] == '"':
+        field = field[1:-1].replace('""', '"')
+    return field.strip()
+
+
+def parse_tags(line):
+    return [field for field in (_clean(f) for f in next(csv.reader([line]))) if field]
+
+
+Verifica: python3 -m unittest -v → **OK** (4/4).

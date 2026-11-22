@@ -1,0 +1,106 @@
+diff --git a/qw3.c b/qw3.c
+index ee00892..55e3857 100644
+--- a/qw3.c
++++ b/qw3.c
+@@ -883,6 +883,7 @@ struct qw3_engine {
+     qw3_weights weights;
+     qw3_backend backend;
+     bool metal_ready;
++    bool metal_weights_active;
+ };
+ 
+ /* =========================================================================
+@@ -4321,6 +4322,7 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
+             return -1;
+         }
+         e->metal_ready = true;
++        e->metal_weights_active = true;
+         qw3_log(stderr, QW3_LOG_OK,
+                 "qw3: Metal backend initialized for graph bring-up (%s)\n",
+                 qw3_metal_device_name());
+@@ -4331,6 +4333,28 @@ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt) {
+     return 0;
+ }
+ 
++int qw3_engine_set_weights_active(qw3_engine *e, bool active) {
++    if (!e) return -1;
++#ifndef QW3_NO_METAL
++    if (e->backend == QW3_BACKEND_METAL) {
++        if (!e->metal_ready) return -1;
++        if (active == e->metal_weights_active) return 0;
++        int ok;
++        if (!active) ok = qw3_metal_release_model_views();
++        else {
++            uint64_t offset = e->model.tensor_data_offset;
++            ok = qw3_metal_set_model_map_range(e->model.map, e->model.map_size,
++                                              offset, e->model.map_size - offset);
++        }
++        if (ok) e->metal_weights_active = active;
++        return ok ? 0 : -1;
++    }
++#else
++    (void)active;
++#endif
++    return 0;
++}
++
+ void qw3_engine_close(qw3_engine *e) {
+     if (!e) return;
+ #ifndef QW3_NO_METAL
+diff --git a/qw3.h b/qw3.h
+index 1571620..c7fb0a2 100644
+--- a/qw3.h
++++ b/qw3.h
+@@ -90,6 +90,10 @@ typedef struct {
+ /* Engine lifecycle. */
+ int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt);
+ void qw3_engine_close(qw3_engine *e);
++/* Yield/rebind Metal weight views between inference calls, preserving session
++ * state and the CPU mmap. CPU is a no-op. No inference may run while inactive.
++ * Returns 0 on success, -1 on failure. Useful when sharing RAM with audio. */
++int qw3_engine_set_weights_active(qw3_engine *e, bool active);
+ int qw3_engine_layer_count(qw3_engine *e);
+ bool qw3_engine_is_dense(qw3_engine *e);
+ void qw3_engine_summary(qw3_engine *e);
+diff --git a/qw3_metal.h b/qw3_metal.h
+index 71aa9ef..8288f73 100644
+--- a/qw3_metal.h
++++ b/qw3_metal.h
+@@ -21,6 +21,8 @@ int qw3_metal_flush_commands(void);
+ int qw3_metal_commit_commands(void);
+ int qw3_metal_end_commands(void);
+ int qw3_metal_synchronize(void);
++/* Synchronize, then release only GPU weight views. Session state is retained. */
++int qw3_metal_release_model_views(void);
+ /* Q3_K batch is worthwhile by default only with the Metal 4 tensor kernel. */
+ int qw3_metal_dense_q3_k_batch_enabled(uint32_t n_tokens);
+ int qw3_metal_dense_q4_q5_k_batch_enabled(uint32_t n_tokens);
+diff --git a/qw3_metal.m b/qw3_metal.m
+index cfa27d4..ff92d99 100644
+--- a/qw3_metal.m
++++ b/qw3_metal.m
+@@ -13290,6 +13290,24 @@ void qw3_metal_cleanup(void) {
+     g_initialized = 0;
+ }
+ 
++int qw3_metal_release_model_views(void) {
++    @autoreleasepool {
++        if (!g_initialized) return 1;
++        if (!qw3_metal_synchronize()) return 0;
++        [g_model_buffers removeAllObjects];
++        [g_model_temp_buffers removeAllObjects];
++        g_model_view_count = 0;
++        g_model_map_ptr = NULL;
++        g_model_map_size = 0;
++        g_model_offset = 0;
++        g_model_size = 0;
++        memset(g_model_view_ptrs, 0, sizeof(g_model_view_ptrs));
++        memset(g_model_view_offsets, 0, sizeof(g_model_view_offsets));
++        memset(g_model_view_sizes, 0, sizeof(g_model_view_sizes));
++        return 1;
++    }
++}
++
+ int qw3_metal_set_model_map_range(const void *model_map, uint64_t model_size,
+                                   uint64_t map_offset, uint64_t map_size) {
+     if (!g_initialized && !qw3_metal_init()) return 0;

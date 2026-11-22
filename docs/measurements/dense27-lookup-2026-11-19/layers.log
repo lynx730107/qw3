@@ -1,0 +1,13 @@
+qw3: loaded ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 12526.91 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+rep=0 pos=1983 serial_ms=1106.83 batch_ms=730.84 top1_equal=8/8 diff_float=1986222 max_abs=0.008620024 worst_row_rmse=0.001477962
+rep=1 pos=1983 serial_ms=1382.81 batch_ms=806.56 top1_equal=8/8 diff_float=1986234 max_abs=0.009632587 worst_row_rmse=0.001564344
+rep=2 pos=1983 serial_ms=1358.67 batch_ms=772.38 top1_equal=8/8 diff_float=1986231 max_abs=0.009281397 worst_row_rmse=0.001668703
+rep=3 pos=1983 serial_ms=1111.85 batch_ms=1101.64 top1_equal=8/8 diff_float=1986195 max_abs=0.01029897 worst_row_rmse=0.001740113
+rep=4 pos=1983 serial_ms=1164.81 batch_ms=1104.72 top1_equal=8/8 diff_float=1986119 max_abs=0.003972411 worst_row_rmse=0.0007121831
+rep=5 pos=1983 serial_ms=1238.93 batch_ms=1324.07 top1_equal=8/8 diff_float=1985112 max_abs=0.007142901 worst_row_rmse=0.00114794
+rep=6 pos=1983 serial_ms=1311.89 batch_ms=1037.63 top1_equal=8/8 diff_float=1985399 max_abs=0.006165922 worst_row_rmse=0.0009276034
+rep=7 pos=1983 serial_ms=1272.22 batch_ms=876.54 top1_equal=8/8 diff_float=1985988 max_abs=0.007800817 worst_row_rmse=0.001456704

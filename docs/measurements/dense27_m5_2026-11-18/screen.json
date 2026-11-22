@@ -1,0 +1,1054 @@
+[
+  {
+    "name": "layer-screen",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "python3",
+      "/Users/pasqualecapasso/Downloads/ds4-main/qw3/docs/measurements/dense27_m5_2026-11-18/layers.py",
+      "/private/tmp/qw3-dense27-18",
+      "run"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 58.333656542,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-quality",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./quality",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "3",
+      "8"
+    ],
+    "env": {
+      "MTL_DEBUG_LAYER": "1"
+    },
+    "exit": 0,
+    "seconds": 138.803634958,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-route-63-v0",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./trace",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "63",
+      "-n",
+      "0",
+      "-r",
+      "1",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PARTIAL_STAGED": "0"
+    },
+    "exit": 0,
+    "seconds": 2.1130612919999976,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-route-63-v3",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./trace",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "63",
+      "-n",
+      "0",
+      "-r",
+      "1",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PARTIAL_STAGED": "3"
+    },
+    "exit": 0,
+    "seconds": 2.157216334000026,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-route-64-v0",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./trace",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "64",
+      "-n",
+      "0",
+      "-r",
+      "1",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PARTIAL_STAGED": "0"
+    },
+    "exit": 0,
+    "seconds": 1.9728529159999937,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-route-64-v3",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./trace",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "64",
+      "-n",
+      "0",
+      "-r",
+      "1",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PARTIAL_STAGED": "3"
+    },
+    "exit": 0,
+    "seconds": 1.7960638330000052,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-route-95-v0",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./trace",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "95",
+      "-n",
+      "0",
+      "-r",
+      "1",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PARTIAL_STAGED": "0"
+    },
+    "exit": 0,
+    "seconds": 3.4375372500000196,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-route-95-v3",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./trace",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "95",
+      "-n",
+      "0",
+      "-r",
+      "1",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PARTIAL_STAGED": "3"
+    },
+    "exit": 0,
+    "seconds": 2.3112752499999942,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-checkpoint-65",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./quality",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "3",
+      "32",
+      "65"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 20.051800125,
+    "rest_before": 0
+  },
+  {
+    "name": "tail-checkpoint-95",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./quality",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "3",
+      "32",
+      "95"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 19.621546166,
+    "rest_before": 0
+  },
+  {
+    "name": "turn-0-63",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "63"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 7.890945333000019,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-64",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "64"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 7.146353541000053,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-65",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "65"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 10.59434654200004,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-69",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "69"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 10.35666574999999,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-71",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "71"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 10.199511292000011,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-87",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "87"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 10.500674709000009,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-95",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "95"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 10.626443624999979,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-96",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "96"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 10.744278457999997,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-0-128",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "0",
+      "128"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 10.782093792000012,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-2404-727",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "2404",
+      "727"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 98.88813058400001,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-3250-709",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "3250",
+      "709"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 106.65884912500002,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-4101-705",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "4101",
+      "705"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 117.80818083400004,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-3976-991",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "3976",
+      "991"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 144.88596104099997,
+    "rest_before": 3
+  },
+  {
+    "name": "turn-5230-967",
+    "cwd": "/private/tmp/qw3-dense27-18/partial",
+    "command": [
+      "./turn",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "5230",
+      "967"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 163.256930333,
+    "rest_before": 3
+  },
+  {
+    "name": "profile-1024",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./profile_depth",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "1024"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 16.439702709000017,
+    "rest_before": 3
+  },
+  {
+    "name": "profile-4096",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./profile_depth",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "4096"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 47.31862575000014,
+    "rest_before": 3
+  },
+  {
+    "name": "profile-8192",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./profile_depth",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "8192"
+    ],
+    "env": {},
+    "exit": 0,
+    "seconds": 88.00085720800007,
+    "rest_before": 3
+  },
+  {
+    "name": "gqa-model",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_model",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "1"
+    ],
+    "env": {
+      "MTL_DEBUG_LAYER": "1"
+    },
+    "exit": 0,
+    "seconds": 17.442631582999866,
+    "rest_before": 0
+  },
+  {
+    "name": "gqa-tg-0-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "0"
+    },
+    "exit": 0,
+    "seconds": 15.31157412499988,
+    "rest_before": 8
+  },
+  {
+    "name": "gqa-tg-1-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "1"
+    },
+    "exit": 0,
+    "seconds": 15.474912124999946,
+    "rest_before": 8
+  },
+  {
+    "name": "gqa-tg-2-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "1"
+    },
+    "exit": 0,
+    "seconds": 13.011683875000017,
+    "rest_before": 8
+  },
+  {
+    "name": "gqa-tg-3-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "0"
+    },
+    "exit": 0,
+    "seconds": 12.419049165999922,
+    "rest_before": 8
+  },
+  {
+    "name": "gqa-tg-4-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "1"
+    },
+    "exit": 0,
+    "seconds": 12.011069667000129,
+    "rest_before": 8
+  },
+  {
+    "name": "gqa-tg-5-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "0"
+    },
+    "exit": 0,
+    "seconds": 11.585214417000088,
+    "rest_before": 8
+  },
+  {
+    "name": "gqa-tg-6-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "0"
+    },
+    "exit": 0,
+    "seconds": 11.677416666,
+    "rest_before": 8
+  },
+  {
+    "name": "gqa-tg-7-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./gqa_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_GQA_HEADS_PROBE": "1"
+    },
+    "exit": 0,
+    "seconds": 12.58392812499983,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-matrix",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_matrix",
+      "1"
+    ],
+    "env": {
+      "MTL_DEBUG_LAYER": "1"
+    },
+    "exit": 0,
+    "seconds": 1.3668298750001213,
+    "rest_before": 0
+  },
+  {
+    "name": "nibble-model",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_model",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+    ],
+    "env": {
+      "MTL_DEBUG_LAYER": "1"
+    },
+    "exit": 0,
+    "seconds": 13.384273125000163,
+    "rest_before": 0
+  },
+  {
+    "name": "nibble-tg-0-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "0"
+    },
+    "exit": 0,
+    "seconds": 13.240753832999872,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-tg-1-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "1"
+    },
+    "exit": 0,
+    "seconds": 11.96592366699997,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-tg-2-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "1"
+    },
+    "exit": 0,
+    "seconds": 12.073432124999954,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-tg-3-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "0"
+    },
+    "exit": 0,
+    "seconds": 11.648091042000033,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-tg-4-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "1"
+    },
+    "exit": 0,
+    "seconds": 11.412924167000028,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-tg-5-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "0"
+    },
+    "exit": 0,
+    "seconds": 11.421826125000052,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-tg-6-v0",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "0"
+    },
+    "exit": 0,
+    "seconds": 11.337699250000014,
+    "rest_before": 8
+  },
+  {
+    "name": "nibble-tg-7-v1",
+    "cwd": "/private/tmp/qw3-dense27-18",
+    "command": [
+      "./nibble_native",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "0",
+      "-n",
+      "32",
+      "-d",
+      "128",
+      "-r",
+      "2",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ],
+    "env": {
+      "QW3_PRIVATE_IQ3_NIBBLE": "1"
+    },
+    "exit": 0,
+    "seconds": 11.018884167000124,
+    "rest_before": 8
+  }
+]

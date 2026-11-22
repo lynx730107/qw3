@@ -10,6 +10,8 @@ extern void dequantize_row_q2_K(const void *x, float *y, int64_t k);
 extern void dequantize_row_q3_K(const void *x, float *y, int64_t k);
 extern void dequantize_row_q4_K(const void *x, float *y, int64_t k);
 extern void dequantize_row_q5_K(const void *x, float *y, int64_t k);
+extern void dequantize_row_iq1_s(const void *x, float *y, int64_t k);
+extern void dequantize_row_iq1_m(const void *x, float *y, int64_t k);
 extern void dequantize_row_iq2_xxs(const void *x, float *y, int64_t k);
 extern void dequantize_row_iq2_xs(const void *x, float *y, int64_t k);
 extern void dequantize_row_iq2_s(const void *x, float *y, int64_t k);
@@ -48,6 +50,15 @@ static void set_finite_scales(uint32_t type, uint8_t *block) {
         store_u16(block, one);
         store_u16(block + 2, half);
         break;
+    case QW3_TENSOR_IQ1_M:
+        for (unsigned i = 0; i < 4; i++) {
+            uint8_t *p = block + 48 + 2*i;
+            const uint16_t scale = (qw3_load_u16(p) & 0x0fff) |
+                (((one >> (4*i)) & 15) << 12);
+            store_u16(p, scale);
+        }
+        break;
+    case QW3_TENSOR_IQ1_S:
     case QW3_TENSOR_IQ2_XXS:
     case QW3_TENSOR_IQ2_XS:
     case QW3_TENSOR_IQ2_S:
@@ -65,8 +76,8 @@ static int check_type(uint32_t type, reference_fn reference) {
     uint64_t elems = QW3_QK_K;
     bool is_iq = false;
     if (bytes == 0) {
-        bytes = cpu_quant_iq_block_size(type);
-        elems = cpu_quant_iq_block_elems(type);
+        bytes = cpu_quant_lowbit_block_size(type);
+        elems = cpu_quant_lowbit_block_elems(type);
         is_iq = true;
     }
     uint8_t block[176];
@@ -76,7 +87,7 @@ static int check_type(uint32_t type, reference_fn reference) {
     for (int trial = 0; trial < 64; trial++) {
         for (uint64_t i = 0; i < bytes; i++) block[i] = next_byte();
         set_finite_scales(type, block);
-        if (!(is_iq ? cpu_dequant_iq_block(type, block, actual) :
+        if (!(is_iq ? cpu_dequant_lowbit_block(type, block, actual) :
                       cpu_dequant_k_block(type, block, actual))) return 1;
         reference(block, expected, (int64_t)elems);
         for (uint64_t i = 0; i < elems; i++) {
@@ -127,11 +138,45 @@ static int check_dot_type(uint32_t type, uint64_t bytes,
     return 0;
 }
 
+static int check_nvfp4(void) {
+    const float values[16] = {
+        0, 0.5f, 1, 1.5f, 2, 3, 4, 6, 0, -0.5f, -1, -1.5f, -2, -3, -4, -6
+    };
+    const float scales[4] = {1.0f, 1.0f / 512, 448.0f, 0.0f};
+    uint8_t block[36] = {0x38, 0x01, 0x7e, 0x7f};
+    for (unsigned group = 0; group < 4; group++) {
+        for (unsigned i = 0; i < 8; i++) {
+            block[4 + 8 * group + i] = (uint8_t)((15u - i) << 4 | i);
+        }
+    }
+    float decoded[QW3_QK_K];
+    if (cpu_quant_lowbit_block_size(QW3_TENSOR_NVFP4) != sizeof(block) ||
+        cpu_quant_lowbit_block_elems(QW3_TENSOR_NVFP4) != 64 ||
+        !cpu_dequant_lowbit_block(QW3_TENSOR_NVFP4, block, decoded)) {
+        fprintf(stderr, "test-quant-nvfp4: block format mismatch\n");
+        return 1;
+    }
+    for (unsigned group = 0; group < 4; group++) {
+        for (unsigned i = 0; i < 16; i++) {
+            const unsigned code = i < 8 ? i : 23 - i;
+            const float expected = values[code] * scales[group];
+            if (decoded[16 * group + i] != expected) {
+                fprintf(stderr, "test-quant-nvfp4: mismatch in group %u, element %u\n", group, i);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 int main(void) {
-    if (check_type(QW3_TENSOR_Q2_K, dequantize_row_q2_K) != 0 ||
+    if (check_nvfp4() != 0 ||
+        check_type(QW3_TENSOR_Q2_K, dequantize_row_q2_K) != 0 ||
         check_type(QW3_TENSOR_Q3_K, dequantize_row_q3_K) != 0 ||
         check_type(QW3_TENSOR_Q4_K, dequantize_row_q4_K) != 0 ||
         check_type(QW3_TENSOR_Q5_K, dequantize_row_q5_K) != 0 ||
+        check_type(QW3_TENSOR_IQ1_S, dequantize_row_iq1_s) != 0 ||
+        check_type(QW3_TENSOR_IQ1_M, dequantize_row_iq1_m) != 0 ||
         check_type(QW3_TENSOR_IQ2_XXS, dequantize_row_iq2_xxs) != 0 ||
         check_type(QW3_TENSOR_IQ2_XS, dequantize_row_iq2_xs) != 0 ||
         check_type(QW3_TENSOR_IQ2_S, dequantize_row_iq2_s) != 0 ||
@@ -143,6 +188,6 @@ int main(void) {
         return 1;
     }
     puts("test-quant-reference: ok (Q2_K Q3_K Q4_K Q5_K "
-         "IQ2_XXS IQ2_XS IQ2_S IQ3_XXS IQ3_S IQ4_NL IQ4_XS Q6_K)");
+         "IQ1_S IQ1_M IQ2_XXS IQ2_XS IQ2_S IQ3_XXS IQ3_S IQ4_NL IQ4_XS Q6_K NVFP4)");
     return 0;
 }

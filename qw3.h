@@ -75,6 +75,7 @@ typedef struct {
     qw3_backend backend;
     int n_threads;
     bool warm_weights;
+    bool enable_inkling;
 } qw3_engine_options;
 
 typedef void (*qw3_token_emit_fn)(void *ud, int token);
@@ -90,9 +91,22 @@ typedef struct {
 /* Engine lifecycle. */
 int qw3_engine_open(qw3_engine **out, const qw3_engine_options *opt);
 void qw3_engine_close(qw3_engine *e);
+/* Yield/rebind Metal weight views between inference calls, preserving session
+ * state and the CPU mmap. CPU is a no-op. No inference may run while inactive.
+ * Returns 0 on success, -1 on failure. Useful when sharing RAM with audio. */
+int qw3_engine_set_weights_active(qw3_engine *e, bool active);
 int qw3_engine_layer_count(qw3_engine *e);
 bool qw3_engine_is_dense(qw3_engine *e);
+bool qw3_engine_is_inkling(qw3_engine *e);
+bool qw3_inkling_encode_prompt(qw3_engine *e, const char *system, const char *text,
+                               qw3_think_mode think, qw3_tokens *out);
+void qw3_inkling_chat_append_effort(qw3_engine *e, qw3_tokens *out,
+                                    qw3_think_mode think);
+int qw3_inkling_chat_control_id(qw3_engine *e, const char *text);
 void qw3_engine_summary(qw3_engine *e);
+/* Inspect an Inkling file without opening an inference session. Returns
+ * false for other GGUF architectures. */
+bool qw3_inspect_inkling_file(const char *path, FILE *fp);
 void qw3_engine_inspect(qw3_engine *e, FILE *fp);
 void qw3_engine_layer_types(qw3_engine *e, int layer, FILE *fp);
 void qw3_engine_probe_token(qw3_engine *e, int token, FILE *fp);

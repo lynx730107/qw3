@@ -1,0 +1,817 @@
+{
+  "coding": {
+    "1": {
+      "2": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 42,
+        "accepted": 21,
+        "perfect": 21,
+        "matched_0": 21,
+        "matched_1": 21
+      },
+      "3": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 26,
+        "accepted": 20,
+        "perfect": 20,
+        "matched_0": 6,
+        "matched_1": 20
+      },
+      "4": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 23,
+        "accepted": 18,
+        "perfect": 18,
+        "matched_1": 18,
+        "matched_0": 5
+      },
+      "6": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 18,
+        "accepted": 17,
+        "perfect": 17,
+        "matched_1": 17,
+        "matched_0": 1
+      },
+      "8": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 16,
+        "accepted": 15,
+        "perfect": 15,
+        "matched_1": 15,
+        "matched_0": 1
+      },
+      "12": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 12,
+        "accepted": 11,
+        "perfect": 11,
+        "matched_1": 11,
+        "matched_0": 1
+      },
+      "16": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 8,
+        "accepted": 7,
+        "perfect": 7,
+        "matched_1": 7,
+        "matched_0": 1
+      }
+    },
+    "3": {
+      "2": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 30,
+        "accepted": 32,
+        "perfect": 8,
+        "matched_0": 17,
+        "matched_1": 2,
+        "matched_3": 8,
+        "matched_2": 3
+      },
+      "3": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 15,
+        "accepted": 30,
+        "perfect": 9,
+        "matched_0": 3,
+        "matched_3": 9,
+        "matched_1": 3
+      },
+      "4": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 12,
+        "accepted": 28,
+        "perfect": 8,
+        "matched_3": 8,
+        "matched_2": 2,
+        "matched_0": 2
+      },
+      "6": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 10,
+        "accepted": 25,
+        "perfect": 8,
+        "matched_3": 8,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "8": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 8,
+        "accepted": 23,
+        "perfect": 7,
+        "matched_3": 7,
+        "matched_2": 1
+      },
+      "12": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 6,
+        "accepted": 17,
+        "perfect": 5,
+        "matched_3": 5,
+        "matched_2": 1
+      },
+      "16": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 4,
+        "accepted": 11,
+        "perfect": 3,
+        "matched_3": 3,
+        "matched_2": 1
+      }
+    },
+    "7": {
+      "2": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 21,
+        "accepted": 39,
+        "perfect": 4,
+        "matched_0": 12,
+        "matched_1": 1,
+        "matched_7": 4,
+        "matched_4": 1,
+        "matched_2": 3
+      },
+      "3": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 10,
+        "accepted": 35,
+        "perfect": 4,
+        "matched_0": 2,
+        "matched_7": 4,
+        "matched_3": 1,
+        "matched_1": 2,
+        "matched_2": 1
+      },
+      "4": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 8,
+        "accepted": 32,
+        "perfect": 4,
+        "matched_7": 4,
+        "matched_2": 2,
+        "matched_0": 2
+      },
+      "6": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 6,
+        "accepted": 29,
+        "perfect": 4,
+        "matched_7": 4,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "8": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 4,
+        "accepted": 27,
+        "perfect": 3,
+        "matched_7": 3,
+        "matched_6": 1
+      },
+      "12": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 4,
+        "accepted": 19,
+        "perfect": 2,
+        "matched_7": 2,
+        "matched_2": 1,
+        "matched_3": 1
+      },
+      "16": {
+        "tokens": 113,
+        "turns": 3,
+        "attempts": 2,
+        "accepted": 13,
+        "perfect": 1,
+        "matched_7": 1,
+        "matched_6": 1
+      }
+    }
+  },
+  "git": {
+    "1": {
+      "2": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 29,
+        "accepted": 27,
+        "perfect": 27,
+        "matched_1": 27,
+        "matched_0": 2
+      },
+      "3": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 27,
+        "accepted": 26,
+        "perfect": 26,
+        "matched_1": 26,
+        "matched_0": 1
+      },
+      "4": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 27,
+        "accepted": 25,
+        "perfect": 25,
+        "matched_1": 25,
+        "matched_0": 2
+      },
+      "6": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 25,
+        "accepted": 23,
+        "perfect": 23,
+        "matched_1": 23,
+        "matched_0": 2
+      },
+      "8": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 23,
+        "accepted": 21,
+        "perfect": 21,
+        "matched_1": 21,
+        "matched_0": 2
+      },
+      "12": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 20,
+        "accepted": 20,
+        "perfect": 20,
+        "matched_1": 20
+      },
+      "16": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 18,
+        "accepted": 18,
+        "perfect": 18,
+        "matched_1": 18
+      }
+    },
+    "3": {
+      "2": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 15,
+        "accepted": 39,
+        "perfect": 12,
+        "matched_3": 12,
+        "matched_2": 1,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "3": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 15,
+        "accepted": 38,
+        "perfect": 12,
+        "matched_3": 12,
+        "matched_1": 2,
+        "matched_0": 1
+      },
+      "4": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 15,
+        "accepted": 37,
+        "perfect": 12,
+        "matched_3": 12,
+        "matched_0": 2,
+        "matched_1": 1
+      },
+      "6": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 13,
+        "accepted": 33,
+        "perfect": 10,
+        "matched_3": 10,
+        "matched_2": 1,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "8": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 13,
+        "accepted": 31,
+        "perfect": 10,
+        "matched_3": 10,
+        "matched_0": 2,
+        "matched_1": 1
+      },
+      "12": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 10,
+        "accepted": 30,
+        "perfect": 10,
+        "matched_3": 10
+      },
+      "16": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 9,
+        "accepted": 27,
+        "perfect": 9,
+        "matched_3": 9
+      }
+    },
+    "7": {
+      "2": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 8,
+        "accepted": 42,
+        "perfect": 5,
+        "matched_7": 5,
+        "matched_6": 1,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "3": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 8,
+        "accepted": 41,
+        "perfect": 5,
+        "matched_7": 5,
+        "matched_5": 1,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "4": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 8,
+        "accepted": 40,
+        "perfect": 5,
+        "matched_7": 5,
+        "matched_4": 1,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "6": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 8,
+        "accepted": 38,
+        "perfect": 5,
+        "matched_7": 5,
+        "matched_2": 1,
+        "matched_0": 1,
+        "matched_1": 1
+      },
+      "8": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 8,
+        "accepted": 36,
+        "perfect": 5,
+        "matched_7": 5,
+        "matched_0": 2,
+        "matched_1": 1
+      },
+      "12": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 5,
+        "accepted": 35,
+        "perfect": 5,
+        "matched_7": 5
+      },
+      "16": {
+        "tokens": 97,
+        "turns": 2,
+        "attempts": 5,
+        "accepted": 31,
+        "perfect": 4,
+        "matched_7": 4,
+        "matched_3": 1
+      }
+    }
+  },
+  "python": {
+    "1": {
+      "2": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 40,
+        "accepted": 30,
+        "perfect": 30,
+        "matched_1": 30,
+        "matched_0": 10
+      },
+      "3": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 31,
+        "accepted": 28,
+        "perfect": 28,
+        "matched_1": 28,
+        "matched_0": 3
+      },
+      "4": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 28,
+        "accepted": 28,
+        "perfect": 28,
+        "matched_1": 28
+      },
+      "6": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 25,
+        "accepted": 25,
+        "perfect": 25,
+        "matched_1": 25
+      },
+      "8": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 22,
+        "accepted": 22,
+        "perfect": 22,
+        "matched_1": 22
+      },
+      "12": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 19,
+        "accepted": 19,
+        "perfect": 19,
+        "matched_1": 19
+      },
+      "16": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 17,
+        "accepted": 17,
+        "perfect": 17,
+        "matched_1": 17
+      }
+    },
+    "3": {
+      "2": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 25,
+        "accepted": 45,
+        "perfect": 14,
+        "matched_3": 14,
+        "matched_1": 1,
+        "matched_0": 9,
+        "matched_2": 1
+      },
+      "3": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 16,
+        "accepted": 43,
+        "perfect": 13,
+        "matched_3": 13,
+        "matched_0": 1,
+        "matched_2": 2
+      },
+      "4": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 15,
+        "accepted": 41,
+        "perfect": 13,
+        "matched_3": 13,
+        "matched_1": 2
+      },
+      "6": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 13,
+        "accepted": 37,
+        "perfect": 12,
+        "matched_1": 1,
+        "matched_3": 12
+      },
+      "8": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 12,
+        "accepted": 32,
+        "perfect": 10,
+        "matched_3": 10,
+        "matched_1": 2
+      },
+      "12": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 10,
+        "accepted": 28,
+        "perfect": 9,
+        "matched_3": 9,
+        "matched_1": 1
+      },
+      "16": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 9,
+        "accepted": 25,
+        "perfect": 8,
+        "matched_3": 8,
+        "matched_1": 1
+      }
+    },
+    "7": {
+      "2": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 14,
+        "accepted": 54,
+        "perfect": 7,
+        "matched_5": 1,
+        "matched_0": 6,
+        "matched_7": 7
+      },
+      "3": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 8,
+        "accepted": 51,
+        "perfect": 5,
+        "matched_4": 1,
+        "matched_7": 5,
+        "matched_6": 2
+      },
+      "4": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 8,
+        "accepted": 48,
+        "perfect": 5,
+        "matched_3": 1,
+        "matched_7": 5,
+        "matched_5": 2
+      },
+      "6": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 8,
+        "accepted": 42,
+        "perfect": 5,
+        "matched_1": 1,
+        "matched_7": 5,
+        "matched_3": 2
+      },
+      "8": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 7,
+        "accepted": 37,
+        "perfect": 5,
+        "matched_7": 5,
+        "matched_1": 2
+      },
+      "12": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 5,
+        "accepted": 33,
+        "perfect": 4,
+        "matched_7": 4,
+        "matched_5": 1
+      },
+      "16": {
+        "tokens": 135,
+        "turns": 4,
+        "attempts": 5,
+        "accepted": 29,
+        "perfect": 4,
+        "matched_7": 4,
+        "matched_1": 1
+      }
+    }
+  },
+  "web": {
+    "1": {
+      "2": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 44,
+        "accepted": 20,
+        "perfect": 20,
+        "matched_1": 20,
+        "matched_0": 24
+      },
+      "3": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 25,
+        "accepted": 17,
+        "perfect": 17,
+        "matched_1": 17,
+        "matched_0": 8
+      },
+      "4": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 19,
+        "accepted": 16,
+        "perfect": 16,
+        "matched_1": 16,
+        "matched_0": 3
+      },
+      "6": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 14,
+        "accepted": 9,
+        "perfect": 9,
+        "matched_1": 9,
+        "matched_0": 5
+      },
+      "8": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 10,
+        "accepted": 7,
+        "perfect": 7,
+        "matched_1": 7,
+        "matched_0": 3
+      },
+      "12": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 4,
+        "accepted": 2,
+        "perfect": 2,
+        "matched_1": 2,
+        "matched_0": 2
+      },
+      "16": {
+        "tokens": 165,
+        "turns": 3
+      }
+    },
+    "3": {
+      "2": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 32,
+        "accepted": 32,
+        "perfect": 8,
+        "matched_3": 8,
+        "matched_0": 19,
+        "matched_2": 3,
+        "matched_1": 2
+      },
+      "3": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 14,
+        "accepted": 28,
+        "perfect": 6,
+        "matched_2": 4,
+        "matched_3": 6,
+        "matched_1": 2,
+        "matched_0": 2
+      },
+      "4": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 13,
+        "accepted": 22,
+        "perfect": 4,
+        "matched_1": 4,
+        "matched_3": 4,
+        "matched_0": 2,
+        "matched_2": 3
+      },
+      "6": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 9,
+        "accepted": 14,
+        "perfect": 4,
+        "matched_3": 4,
+        "matched_0": 4,
+        "matched_2": 1
+      },
+      "8": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 5,
+        "accepted": 12,
+        "perfect": 2,
+        "matched_3": 2,
+        "matched_2": 3
+      },
+      "12": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 2,
+        "accepted": 4,
+        "perfect": 0,
+        "matched_2": 2
+      },
+      "16": {
+        "tokens": 165,
+        "turns": 3
+      }
+    },
+    "7": {
+      "2": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 27,
+        "accepted": 35,
+        "perfect": 2,
+        "matched_3": 3,
+        "matched_0": 16,
+        "matched_7": 2,
+        "matched_2": 3,
+        "matched_1": 2,
+        "matched_4": 1
+      },
+      "3": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 12,
+        "accepted": 30,
+        "perfect": 2,
+        "matched_2": 4,
+        "matched_7": 2,
+        "matched_1": 2,
+        "matched_3": 2,
+        "matched_0": 2
+      },
+      "4": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 11,
+        "accepted": 24,
+        "perfect": 2,
+        "matched_1": 4,
+        "matched_7": 2,
+        "matched_0": 2,
+        "matched_2": 3
+      },
+      "6": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 7,
+        "accepted": 16,
+        "perfect": 2,
+        "matched_7": 2,
+        "matched_0": 4,
+        "matched_2": 1
+      },
+      "8": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 3,
+        "accepted": 14,
+        "perfect": 0,
+        "matched_6": 2,
+        "matched_2": 1
+      },
+      "12": {
+        "tokens": 165,
+        "turns": 3,
+        "attempts": 2,
+        "accepted": 4,
+        "perfect": 0,
+        "matched_2": 2
+      },
+      "16": {
+        "tokens": 165,
+        "turns": 3
+      }
+    }
+  }
+}

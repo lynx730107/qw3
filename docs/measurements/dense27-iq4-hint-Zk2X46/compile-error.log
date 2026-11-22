@@ -1,0 +1,12 @@
+qw3: loaded ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf (size=12.2 GiB, 866 tensors, 0.045s)
+qw3: Metal device Apple M5
+qw3: Metal library compile failed: program_source:868:81: error: 'max_total_threads_per_threadgroup' attribute cannot be applied to types
+                                   ushort lane [[thread_index_in_simdgroup]]) [[max_total_threads_per_threadgroup(64)]] {
+                                                                                ^
+program_source:915:81: error: 'max_total_threads_per_threadgroup' attribute cannot be applied to types
+                                   ushort lane [[thread_index_in_simdgroup]]) [[max_total_threads_per_threadgroup(64)]] {
+                                                                                ^
+program_source:973:88: error: 'max_total_threads_per_threadgroup' attribute cannot be applied to types
+                                          ushort lane [[thread_index_in_simdgroup]]) [[max_total_threads_per_threadgroup(64)]] {
+                                                                                       ^
+

@@ -30,6 +30,9 @@
 #include "qw3.h"
 #include "qw3_agent_unicode.h"
 #include "linenoise.h"
+#ifdef QW3_ENABLE_VOICE
+#include "qw3_voice.h"
+#endif
 
 int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 
@@ -111,7 +114,8 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen);
 #define AGENT_MESSAGES_MAGIC "QW3AMSG1"
 #define AGENT_MESSAGES_VERSION 1u
 
-typedef struct {
+typedef struct
+{
     float temperature;
     int sample_top_k;
     float top_p;
@@ -121,37 +125,42 @@ typedef struct {
     uint64_t rng;
 } sample_opts;
 
-
-typedef struct {
+typedef struct
+{
     char *p;
     size_t len;
     size_t cap;
 } strbuf;
 
-typedef struct {
+typedef struct
+{
     char name[64];
     char *value;
 } tool_param;
 
-typedef struct {
+typedef struct
+{
     char name[64];
     tool_param params[16];
     int n_params;
 } tool_call;
 
-typedef struct {
+typedef struct
+{
     tool_call calls[8];
     int n_calls;
     int n_recovered;
     int n_rejected_wrappers;
 } tool_call_list;
 
-typedef struct {
+typedef struct
+{
     uint64_t hashes[QW3_AGENT_TOOL_HISTORY_MAX];
     int n_items;
 } agent_tool_history;
 
-typedef struct {
+typedef struct
+{
     const char *model_path;
     char *model_path_owned;
     const char *prompt;
@@ -167,6 +176,11 @@ typedef struct {
     char *tool_dsml_owned;
     const char *tool_native;
     char *tool_native_owned;
+#ifdef QW3_ENABLE_VOICE
+    const char *voice_config_path;
+    qw3_voice *voice;
+    bool voice_check;
+#endif
     int n_predict;
     int ctx_size;
     int metal_n_gpu_layers;
@@ -182,7 +196,8 @@ typedef struct {
     sample_opts sample;
 } agent_config;
 
-typedef struct {
+typedef struct
+{
     int round, guard_retry_credits, empty_retry_credits, verification_guard_credits;
     agent_tool_history tool_history;
     int dense_tool_rounds;
@@ -202,7 +217,8 @@ typedef void (*agent_timing_fn)(void *ud, const char *backend,
                                 int gen_tokens, double gen_ms,
                                 double gen_tps);
 
-typedef struct {
+typedef struct
+{
     agent_output_fn write;
     void *ud;
     bool color;
@@ -216,13 +232,15 @@ typedef struct {
     size_t utf8_pending_need;
 } agent_renderer;
 
-typedef struct {
+typedef struct
+{
     char *path;
     int chunks;
     int lines;
 } agent_source_read_budget;
 
-typedef enum {
+typedef enum
+{
     AGENT_MESSAGE_SYSTEM,
     AGENT_MESSAGE_USER,
     AGENT_MESSAGE_ASSISTANT,
@@ -231,7 +249,8 @@ typedef enum {
     AGENT_MESSAGE_LEGACY,
 } agent_message_kind;
 
-typedef struct {
+typedef struct
+{
     agent_message_kind kind;
     char *role;
     char *content;
@@ -239,13 +258,15 @@ typedef struct {
     int token_end;
 } agent_message;
 
-typedef struct {
+typedef struct
+{
     agent_message *items;
     int len;
     int cap;
 } agent_message_ledger;
 
-typedef struct {
+typedef struct
+{
     qw3_engine *engine;
     qw3_session *session;
     qw3_tokens transcript;
@@ -273,6 +294,9 @@ typedef struct {
     void *activity_ud;
     agent_timing_fn timing_update;
     void *timing_ud;
+    /* Called only for an accepted final answer, after tool/verification guards. */
+    agent_output_fn final_write;
+    void *final_ud;
     double progress_start_sec;
     bool edit_verification_pending;
     int compact_retry_after_tokens;
@@ -282,30 +306,42 @@ typedef struct {
     char *turn_request;
 } agent_state;
 
-
-typedef struct {
+typedef struct
+{
     qw3_engine *engine;
     qw3_tokens generated;
     strbuf text;
+    tool_call_list *inkling_calls;
+    strbuf inkling_speaker;
+    strbuf inkling_args;
+    enum {
+        INKLING_HIDDEN, INKLING_SPEAKER, INKLING_TEXT, INKLING_THINK, INKLING_CALL
+    } inkling_block;
+    int inkling_model, inkling_text, inkling_code, inkling_think, inkling_call, inkling_end;
+    bool inkling_show_think;
+    char inkling_last_byte;
     size_t printed;
     bool printed_any;
     agent_renderer renderer;
 } agent_emit_ctx;
 
-typedef struct {
+typedef struct
+{
     char magic[8];
     uint32_t version;
     uint32_t ctx_size;
     uint32_t token_len;
 } agent_store_header;
 
-typedef struct {
+typedef struct
+{
     char magic[8];
     uint32_t version;
     uint32_t count;
 } agent_messages_header;
 
-typedef struct {
+typedef struct
+{
     uint32_t kind;
     uint32_t token_start;
     uint32_t token_end;
@@ -313,51 +349,64 @@ typedef struct {
     uint32_t content_len;
 } agent_message_record;
 
-static void sb_init(strbuf *sb) {
+static void sb_init(strbuf *sb)
+{
     memset(sb, 0, sizeof(*sb));
 }
 
-static void sb_free(strbuf *sb) {
+static void sb_free(strbuf *sb)
+{
     free(sb->p);
     memset(sb, 0, sizeof(*sb));
 }
 
-static int sb_reserve(strbuf *sb, size_t need) {
-    if (need <= sb->cap) return 0;
+static int sb_reserve(strbuf *sb, size_t need)
+{
+    if (need <= sb->cap)
+        return 0;
     size_t nc = sb->cap ? sb->cap * 2 : 256;
-    while (nc < need) nc *= 2;
+    while (nc < need)
+        nc *= 2;
     char *np = realloc(sb->p, nc);
-    if (!np) return -1;
+    if (!np)
+        return -1;
     sb->p = np;
     sb->cap = nc;
     return 0;
 }
 
-static int sb_append_n(strbuf *sb, const char *s, size_t n) {
-    if (!s || n == 0) return 0;
-    if (sb_reserve(sb, sb->len + n + 1) != 0) return -1;
+static int sb_append_n(strbuf *sb, const char *s, size_t n)
+{
+    if (!s || n == 0)
+        return 0;
+    if (sb_reserve(sb, sb->len + n + 1) != 0)
+        return -1;
     memcpy(sb->p + sb->len, s, n);
     sb->len += n;
     sb->p[sb->len] = '\0';
     return 0;
 }
 
-static int sb_append(strbuf *sb, const char *s) {
+static int sb_append(strbuf *sb, const char *s)
+{
     return sb_append_n(sb, s, s ? strlen(s) : 0);
 }
 
-static int sb_printf(strbuf *sb, const char *fmt, ...) {
+static int sb_printf(strbuf *sb, const char *fmt, ...)
+{
     va_list ap;
     va_start(ap, fmt);
     va_list ap2;
     va_copy(ap2, ap);
     int n = vsnprintf(NULL, 0, fmt, ap);
     va_end(ap);
-    if (n < 0) {
+    if (n < 0)
+    {
         va_end(ap2);
         return -1;
     }
-    if (sb_reserve(sb, sb->len + (size_t)n + 1) != 0) {
+    if (sb_reserve(sb, sb->len + (size_t)n + 1) != 0)
+    {
         va_end(ap2);
         return -1;
     }
@@ -367,141 +416,189 @@ static int sb_printf(strbuf *sb, const char *fmt, ...) {
     return 0;
 }
 
-static void agent_write_with_crlf(FILE *fp, const char *s, size_t n) {
-    if (!fp || !s || n == 0) return;
-    if (!isatty(fileno(fp))) {
+static void agent_write_with_crlf(FILE *fp, const char *s, size_t n)
+{
+    if (!fp || !s || n == 0)
+        return;
+    if (!isatty(fileno(fp)))
+    {
         fwrite(s, 1, n, fp);
         return;
     }
 
     const char *p = s;
     const char *end = s + n;
-    while (p < end) {
-        if (*p == '\r') {
-            if (p + 1 < end && p[1] == '\n') {
+    while (p < end)
+    {
+        if (*p == '\r')
+        {
+            if (p + 1 < end && p[1] == '\n')
+            {
                 fwrite("\r\n", 1, 2, fp);
                 p += 2;
-            } else {
+            }
+            else
+            {
                 fwrite("\r", 1, 1, fp);
                 p++;
             }
-        } else if (*p == '\n') {
+        }
+        else if (*p == '\n')
+        {
             fwrite("\r\n", 1, 2, fp);
             p++;
-        } else {
+        }
+        else
+        {
             const char *q = p;
-            while (q < end && *q != '\r' && *q != '\n') q++;
+            while (q < end && *q != '\r' && *q != '\n')
+                q++;
             fwrite(p, 1, (size_t)(q - p), fp);
             p = q;
         }
     }
 }
 
-static bool agent_write_all(int fd, const char *p, size_t n) {
-    while (n > 0) {
+static bool agent_write_all(int fd, const char *p, size_t n)
+{
+    while (n > 0)
+    {
         ssize_t w = write(fd, p, n);
-        if (w < 0) {
-            if (errno == EINTR) continue;
+        if (w < 0)
+        {
+            if (errno == EINTR)
+                continue;
             return false;
         }
-        if (w == 0) return false;
+        if (w == 0)
+            return false;
         p += w;
         n -= (size_t)w;
     }
     return true;
 }
 
-static void agent_write_fd_crlf(int fd, const char *s, size_t n) {
-    if (!s || n == 0) return;
-    if (!isatty(fd)) {
+static void agent_write_fd_crlf(int fd, const char *s, size_t n)
+{
+    if (!s || n == 0)
+        return;
+    if (!isatty(fd))
+    {
         agent_write_all(fd, s, n);
         return;
     }
     size_t start = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (s[i] != '\n') continue;
-        if (i > start) agent_write_all(fd, s + start, i - start);
+    for (size_t i = 0; i < n; i++)
+    {
+        if (s[i] != '\n')
+            continue;
+        if (i > start)
+            agent_write_all(fd, s + start, i - start);
         agent_write_all(fd, "\r\n", 2);
         start = i + 1;
     }
-    if (start < n) agent_write_all(fd, s + start, n - start);
+    if (start < n)
+        agent_write_all(fd, s + start, n - start);
 }
 
-static bool agent_stdout_is_tty(void) {
+static bool agent_stdout_is_tty(void)
+{
     return isatty(STDOUT_FILENO) || getenv("LINENOISE_ASSUME_TTY");
 }
 
-static bool agent_ui_color_enabled(void) {
+static bool agent_ui_color_enabled(void)
+{
     const char *term = getenv("TERM");
     return agent_stdout_is_tty() && !getenv("NO_COLOR") &&
            (!term || strcmp(term, "dumb"));
 }
 
-static const char *agent_editor_prompt(void) {
-    return agent_ui_color_enabled() ?
-        "\033[1;38;5;117mqw3\033[0m \033[38;5;80m›\033[0m " : "qw3> ";
+static const char *agent_editor_prompt(void)
+{
+    return agent_ui_color_enabled() ? "\033[1;38;5;117mqw3\033[0m \033[38;5;80m›\033[0m " : "qw3> ";
 }
 
-static int agent_set_nonblock_mode(int fd, bool on, int *old_flags) {
+static int agent_set_nonblock_mode(int fd, bool on, int *old_flags)
+{
     int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0) return -1;
-    if (old_flags) *old_flags = flags;
+    if (flags < 0)
+        return -1;
+    if (old_flags)
+        *old_flags = flags;
     int new_flags = on ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
-    if (new_flags == flags) return 0;
+    if (new_flags == flags)
+        return 0;
     return fcntl(fd, F_SETFL, new_flags);
 }
 
-static void agent_direct_write(void *ud, const char *s, size_t n) {
+static void agent_direct_write(void *ud, const char *s, size_t n)
+{
     FILE *fp = ud ? (FILE *)ud : stdout;
-    if (!s || n == 0) return;
+    if (!s || n == 0)
+        return;
     agent_write_with_crlf(fp, s, n);
     fflush(fp);
 }
 
-static void agent_discard_write(void *ud, const char *s, size_t n) {
+static void agent_discard_write(void *ud, const char *s, size_t n)
+{
     (void)ud;
     (void)s;
     (void)n;
 }
 
-static void agent_output_write(agent_state *a, const char *s, size_t n) {
-    if (!s || n == 0) return;
-    if (a && a->output_write) {
+static void agent_output_write(agent_state *a, const char *s, size_t n)
+{
+    if (!s || n == 0)
+        return;
+    if (a && a->output_write)
+    {
         a->output_write(a->output_ud, s, n);
-    } else {
+    }
+    else
+    {
         agent_direct_write(stdout, s, n);
     }
 }
 
-static void agent_status_write(agent_state *a, const char *s, size_t n) {
-    if (!s || n == 0) return;
-    if (a && a->status_write) {
+static void agent_status_write(agent_state *a, const char *s, size_t n)
+{
+    if (!s || n == 0)
+        return;
+    if (a && a->status_write)
+    {
         a->status_write(a->status_ud, s, n);
-    } else {
+    }
+    else
+    {
         agent_direct_write(stderr, s, n);
     }
 }
 
-static void agent_statusf(agent_state *a, const char *fmt, ...) {
+static void agent_statusf(agent_state *a, const char *fmt, ...)
+{
     va_list ap;
     va_start(ap, fmt);
     va_list ap2;
     va_copy(ap2, ap);
     int n = vsnprintf(NULL, 0, fmt, ap);
     va_end(ap);
-    if (n <= 0) {
+    if (n <= 0)
+    {
         va_end(ap2);
         return;
     }
     char stack[512];
-    if ((size_t)n < sizeof(stack)) {
+    if ((size_t)n < sizeof(stack))
+    {
         vsnprintf(stack, sizeof(stack), fmt, ap2);
         va_end(ap2);
         agent_status_write(a, stack, (size_t)n);
         return;
     }
     char *buf = malloc((size_t)n + 1);
-    if (!buf) {
+    if (!buf)
+    {
         va_end(ap2);
         return;
     }
@@ -511,122 +608,169 @@ static void agent_statusf(agent_state *a, const char *fmt, ...) {
     free(buf);
 }
 
-static bool agent_tool_color_enabled(agent_state *a) {
+static bool agent_tool_color_enabled(agent_state *a)
+{
     const char *tool_color = getenv("QW3_AGENT_TOOL_COLOR");
-    if (tool_color && tool_color[0]) {
+    if (tool_color && tool_color[0])
+    {
         return strcmp(tool_color, "0") != 0 &&
                strcmp(tool_color, "false") != 0 &&
                strcmp(tool_color, "off") != 0 &&
                strcmp(tool_color, "no") != 0;
     }
     const char *no_color = getenv("NO_COLOR");
-    if (no_color && no_color[0]) return false;
+    if (no_color && no_color[0])
+        return false;
     return a && a->output_color;
 }
 
-static void agent_tool_status_begin(agent_state *a) {
-    if (agent_tool_color_enabled(a)) {
+static void agent_tool_status_begin(agent_state *a)
+{
+    if (agent_tool_color_enabled(a))
+    {
         agent_status_write(a, AGENT_COLOR_TOOL, strlen(AGENT_COLOR_TOOL));
     }
 }
 
-static void agent_tool_status_end(agent_state *a) {
-    if (agent_tool_color_enabled(a)) {
+static void agent_tool_status_end(agent_state *a)
+{
+    if (agent_tool_color_enabled(a))
+    {
         agent_status_write(a, AGENT_COLOR_RESET, strlen(AGENT_COLOR_RESET));
     }
 }
 
 static void agent_tool_status_block(agent_state *a, const char *name,
-                                    const char *out) {
+                                    const char *out)
+{
     agent_tool_status_begin(a);
     agent_statusf(a, "\n[tool] %s\n", name && name[0] ? name : "?");
     agent_statusf(a, "%s\n", out ? out : "");
     agent_tool_status_end(a);
 }
 
-static bool agent_should_interrupt(agent_state *a) {
+static bool agent_should_interrupt(agent_state *a)
+{
     return a && a->should_interrupt && a->should_interrupt(a->interrupt_ud);
 }
 
 static void agent_set_activity(agent_state *a, const char *phase,
-                               const char *detail) {
-    if (a && a->activity_update) {
+                               const char *detail)
+{
+    if (a && a->activity_update)
+    {
         a->activity_update(a->activity_ud, phase, detail);
     }
 }
 
 static bool tool_result_is_guard_rejection(const char *out);
 
-static double agent_now_sec(void) {
+static double agent_now_sec(void)
+{
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1.0e-9;
 }
 
-static void agent_trace_json_string(FILE *fp, const char *text) {
+static void agent_trace_json_string(FILE *fp, const char *text)
+{
     fputc('"', fp);
     for (const unsigned char *p = (const unsigned char *)(text ? text : "");
-         *p; p++) {
-        switch (*p) {
-            case '"': fputs("\\\"", fp); break;
-            case '\\': fputs("\\\\", fp); break;
-            case '\b': fputs("\\b", fp); break;
-            case '\f': fputs("\\f", fp); break;
-            case '\n': fputs("\\n", fp); break;
-            case '\r': fputs("\\r", fp); break;
-            case '\t': fputs("\\t", fp); break;
-            default:
-                if (*p < 0x20) fprintf(fp, "\\u%04x", (unsigned)*p);
-                else fputc(*p, fp);
-                break;
+         *p; p++)
+    {
+        switch (*p)
+        {
+        case '"':
+            fputs("\\\"", fp);
+            break;
+        case '\\':
+            fputs("\\\\", fp);
+            break;
+        case '\b':
+            fputs("\\b", fp);
+            break;
+        case '\f':
+            fputs("\\f", fp);
+            break;
+        case '\n':
+            fputs("\\n", fp);
+            break;
+        case '\r':
+            fputs("\\r", fp);
+            break;
+        case '\t':
+            fputs("\\t", fp);
+            break;
+        default:
+            if (*p < 0x20)
+                fprintf(fp, "\\u%04x", (unsigned)*p);
+            else
+                fputc(*p, fp);
+            break;
         }
     }
     fputc('"', fp);
 }
 
-static void agent_trace_begin(agent_state *a, const char *event) {
-    if (!a || !a->trace_fp) return;
+static void agent_trace_begin(agent_state *a, const char *event)
+{
+    if (!a || !a->trace_fp)
+        return;
     fprintf(a->trace_fp, "{\"seq\":%llu,\"time\":%lld,\"event\":",
             (unsigned long long)++a->trace_seq, (long long)time(NULL));
     agent_trace_json_string(a->trace_fp, event);
 }
 
 static void agent_trace_string(agent_state *a, const char *name,
-                               const char *value) {
-    if (!a || !a->trace_fp) return;
+                               const char *value)
+{
+    if (!a || !a->trace_fp)
+        return;
     fputc(',', a->trace_fp);
     agent_trace_json_string(a->trace_fp, name);
     fputc(':', a->trace_fp);
     agent_trace_json_string(a->trace_fp, value);
 }
 
-static void agent_trace_i64(agent_state *a, const char *name, int64_t value) {
-    if (!a || !a->trace_fp) return;
+static void agent_trace_i64(agent_state *a, const char *name, int64_t value)
+{
+    if (!a || !a->trace_fp)
+        return;
     fprintf(a->trace_fp, ",\"%s\":%lld", name, (long long)value);
 }
 
-static void agent_trace_f64(agent_state *a, const char *name, double value) {
-    if (!a || !a->trace_fp) return;
+static void agent_trace_f64(agent_state *a, const char *name, double value)
+{
+    if (!a || !a->trace_fp)
+        return;
     fprintf(a->trace_fp, ",\"%s\":%.6f", name, value);
 }
 
-static void agent_trace_bool(agent_state *a, const char *name, bool value) {
-    if (!a || !a->trace_fp) return;
+static void agent_trace_bool(agent_state *a, const char *name, bool value)
+{
+    if (!a || !a->trace_fp)
+        return;
     fprintf(a->trace_fp, ",\"%s\":%s", name, value ? "true" : "false");
 }
 
-static void agent_trace_end(agent_state *a) {
-    if (!a || !a->trace_fp) return;
+static void agent_trace_end(agent_state *a)
+{
+    if (!a || !a->trace_fp)
+        return;
     fputs("}\n", a->trace_fp);
     fflush(a->trace_fp);
 }
 
-static bool agent_trace_open(agent_state *a) {
-    if (!a || !a->cfg.trace_path || !a->cfg.trace_path[0]) return true;
+static bool agent_trace_open(agent_state *a)
+{
+    if (!a || !a->cfg.trace_path || !a->cfg.trace_path[0])
+        return true;
     a->trace_fp = fopen(a->cfg.trace_path, "ab");
-    if (!a->trace_fp) return false;
+    if (!a->trace_fp)
+        return false;
     int fd = fileno(a->trace_fp);
-    if (fd < 0 || fchmod(fd, 0600) != 0) {
+    if (fd < 0 || fchmod(fd, 0600) != 0)
+    {
         fclose(a->trace_fp);
         a->trace_fp = NULL;
         return false;
@@ -635,15 +779,18 @@ static bool agent_trace_open(agent_state *a) {
     return true;
 }
 
-static void agent_trace_close(agent_state *a) {
-    if (!a || !a->trace_fp) return;
+static void agent_trace_close(agent_state *a)
+{
+    if (!a || !a->trace_fp)
+        return;
     fclose(a->trace_fp);
     a->trace_fp = NULL;
 }
 
 static void agent_trace_compaction(agent_state *a, const char *result,
                                    const char *reason, int old_tokens,
-                                   int new_tokens, int tail_tokens) {
+                                   int new_tokens, int tail_tokens)
+{
     agent_trace_begin(a, "compaction");
     agent_trace_string(a, "result", result);
     agent_trace_string(a, "reason", reason ? reason : "");
@@ -654,7 +801,8 @@ static void agent_trace_compaction(agent_state *a, const char *result,
 }
 
 static void agent_trace_tool_result(agent_state *a, const char *name,
-                                    const char *out) {
+                                    const char *out)
+{
     agent_trace_begin(a, "tool");
     agent_trace_string(a, "name", name ? name : "");
     agent_trace_i64(a, "output_bytes", out ? (int64_t)strlen(out) : 0);
@@ -663,30 +811,40 @@ static void agent_trace_tool_result(agent_state *a, const char *name,
     agent_trace_end(a);
 }
 
-static char *native_tool_response_text(const char *tool_name, const char *value) {
+static char *native_tool_response_text(const char *tool_name, const char *value)
+{
     strbuf sb;
     sb_init(&sb);
     (void)tool_name;
     sb_append(&sb, QWEN_XML_TOOL_RESPONSE_BEGIN "\n");
     sb_append(&sb, value ? value : "");
-    if (sb.len && sb.p[sb.len - 1] != '\n') sb_append(&sb, "\n");
+    if (sb.len && sb.p[sb.len - 1] != '\n')
+        sb_append(&sb, "\n");
     sb_append(&sb, QWEN_XML_TOOL_RESPONSE_END);
     return sb.p;
 }
 
-static void sb_append_xml_escaped(strbuf *sb, const char *s) {
-    if (!s) return;
-    for (const char *p = s; *p; p++) {
-        if (*p == '&') sb_append(sb, "&amp;");
-        else if (*p == '<') sb_append(sb, "&lt;");
-        else if (*p == '>') sb_append(sb, "&gt;");
-        else sb_append_n(sb, p, 1);
+static void sb_append_xml_escaped(strbuf *sb, const char *s)
+{
+    if (!s)
+        return;
+    for (const char *p = s; *p; p++)
+    {
+        if (*p == '&')
+            sb_append(sb, "&amp;");
+        else if (*p == '<')
+            sb_append(sb, "&lt;");
+        else if (*p == '>')
+            sb_append(sb, "&gt;");
+        else
+            sb_append_n(sb, p, 1);
     }
 }
 
 static char *agent_strdup(const char *s);
 static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len);
 static void agent_init_transcript(agent_state *a);
+static bool agent_refresh_inkling_preamble(agent_state *a);
 static int agent_set_nonblock(int fd);
 static bool agent_compact_context(agent_state *a, const char *reason,
                                   char *err, size_t err_len);
@@ -699,11 +857,15 @@ static char *agent_context_tool_response(agent_state *a, const char *tool_name,
 static int agent_create_spill(agent_state *a, const char *prefix,
                               char **path_out, char **dir_out);
 static int agent_rendered_message_tokens(agent_state *a, const char *text);
-static int agent_tool_result_token_limit(const agent_state *a) {
-    if (!a || !a->engine || a->cfg.ctx_size <= 0) return 0;
+static int agent_tool_result_token_limit(const agent_state *a)
+{
+    if (!a || !a->engine || a->cfg.ctx_size <= 0)
+        return 0;
     int limit = a->cfg.ctx_size / 8;
-    if (limit < 128) limit = 128;
-    if (limit > QW3_AGENT_TOOL_RESULT_MAX_TOKENS) limit = QW3_AGENT_TOOL_RESULT_MAX_TOKENS;
+    if (limit < 128)
+        limit = 128;
+    if (limit > QW3_AGENT_TOOL_RESULT_MAX_TOKENS)
+        limit = QW3_AGENT_TOOL_RESULT_MAX_TOKENS;
     return limit;
 }
 static void agent_prune_spills(const char *dir, const char *prefix,
@@ -711,115 +873,124 @@ static void agent_prune_spills(const char *dir, const char *prefix,
 
 static char *native_tool_call_text(const tool_call_list *calls)
     __attribute__((unused));
-static char *native_tool_call_text(const tool_call_list *calls) {
+static char *native_tool_call_text(const tool_call_list *calls)
+{
     strbuf sb;
     sb_init(&sb);
-    for (int i = 0; calls && i < calls->n_calls; i++) {
+    for (int i = 0; calls && i < calls->n_calls; i++)
+    {
         const tool_call *call = &calls->calls[i];
         sb_append(&sb, QWEN_XML_TOOL_CALL_BEGIN "\n");
         sb_append(&sb, QWEN_XML_FUNCTION_BEGIN);
         sb_append_xml_escaped(&sb, call->name);
         sb_append(&sb, ">\n");
-        for (int j = 0; j < call->n_params; j++) {
+        for (int j = 0; j < call->n_params; j++)
+        {
             const tool_param *param = &call->params[j];
             sb_append(&sb, QWEN_XML_PARAMETER_BEGIN);
             sb_append_xml_escaped(&sb, param->name);
             sb_append(&sb, ">\n");
             sb_append_xml_escaped(&sb, param->value);
             if (param->value && param->value[0] &&
-                param->value[strlen(param->value) - 1] != '\n') {
+                param->value[strlen(param->value) - 1] != '\n')
+            {
                 sb_append(&sb, "\n");
             }
             sb_append(&sb, QWEN_XML_PARAMETER_END "\n");
         }
         sb_append(&sb, QWEN_XML_FUNCTION_END "\n");
         sb_append(&sb, QWEN_XML_TOOL_CALL_END);
-        if (i + 1 < calls->n_calls) sb_append(&sb, "\n");
+        if (i + 1 < calls->n_calls)
+            sb_append(&sb, "\n");
     }
     return sb.p ? sb.p : agent_strdup("");
 }
 
-static char *native_tool_declarations(bool compact_tools, bool read_only) {
+static char *native_tool_declarations(bool compact_tools, bool read_only,
+                                      bool inkling)
+{
     strbuf sb;
     sb_init(&sb);
+    if (inkling)
+        sb_append(&sb, "[");
 #define TOOL_DECL(NAME, DESC, PARAMS) \
-    sb_append(&sb, "{\"type\":\"function\",\"function\":{\"name\":\"" NAME "\",\"description\":\"" DESC "\",\"parameters\":{\"type\":\"object\",\"properties\":{" PARAMS "}}}}\n")
+    do { \
+        if (inkling) { \
+            if (sb.len > 1) sb_append(&sb, ","); \
+            sb_append(&sb, "{\"description\":\"" DESC "\",\"name\":\"" NAME "\",\"parameters\":{\"properties\":{" PARAMS "},\"type\":\"object\"},\"type\":\"function\"}"); \
+        } else { \
+            sb_append(&sb, "{\"type\":\"function\",\"function\":{\"name\":\"" NAME "\",\"description\":\"" DESC "\",\"parameters\":{\"type\":\"object\",\"properties\":{" PARAMS "}}}}\n"); \
+        } \
+    } while (0)
 #define TOOL_PARAM(NAME, DESC) \
     "\"" NAME "\":{\"type\":\"string\",\"description\":\"" DESC "\"}"
     TOOL_DECL("read", "Read a precise numbered line range from a text file. The returned complete lines fit a context-dependent token budget; continue at next_start when limited. Broad source-file reads are blocked.",
-              TOOL_PARAM("path", "Path to read") ","
-              TOOL_PARAM("start", "Required first 1-based line for source files") ","
-              TOOL_PARAM("lines", "Maximum lines to return; source files are capped by context guard"));
-    if (!compact_tools) {
-    TOOL_DECL("more", "Continue at the first unread line of the previous read, within the context-dependent token budget.",
-              TOOL_PARAM("path", "Optional path") ","
-              TOOL_PARAM("lines", "Maximum lines to return; default 160"));
-    TOOL_DECL("list", "List files below a path.",
-              TOOL_PARAM("path", "Directory path") ","
-              TOOL_PARAM("depth", "Maximum recursion depth") ","
-              TOOL_PARAM("max", "Maximum entries"));
-    TOOL_DECL("get_skeleton", "Return a compact codenav semantic outline of a source file. Use this before any line reads on source files.",
-              TOOL_PARAM("path", "Source file path"));
-    TOOL_DECL("get_function", "Return the exact source for one function or method using codenav. Prefer this over read after get_skeleton or semantic_search.",
-              TOOL_PARAM("function_name", "Exact function/method name") ","
-              TOOL_PARAM("path", "Optional source file path"));
-    if (!read_only) {
-    TOOL_DECL("semantic_search", "Search code by meaning with colgrep. Use this before broad read/search when you do not know exact names.",
-              TOOL_PARAM("query", "Natural-language code search query") ","
-              TOOL_PARAM("path", "Optional file or directory path; default current directory") ","
-              TOOL_PARAM("results", "Maximum results, 1-50; default 10") ","
-              TOOL_PARAM("include", "Optional include glob, for example *.c") ","
-              TOOL_PARAM("exclude", "Optional exclude glob") ","
-              TOOL_PARAM("code_only", "true/false; default true") ","
-              TOOL_PARAM("semantic_only", "true/false; default false") ","
-              TOOL_PARAM("content", "true/false; default false"));
-    TOOL_DECL("search_web", "Search the web with DuckDuckGo and return up to five results with title, URL, and snippet.",
-              TOOL_PARAM("query", "Web search query"));
-    TOOL_DECL("visit_url", "Fetch a URL, save the complete readable page in a local file, and return up to 8000 characters. Search the saved file for relevant sections, then use read/more with their adaptive token budget.",
-              TOOL_PARAM("url", "URL to fetch"));
+              TOOL_PARAM("path", "Path to read") "," TOOL_PARAM("start", "Required first 1-based line for source files") "," TOOL_PARAM("lines", "Maximum lines to return; source files are capped by context guard"));
+    if (!compact_tools)
+    {
+        TOOL_DECL("more", "Continue at the first unread line of the previous read, within the context-dependent token budget.",
+                  TOOL_PARAM("path", "Optional path") "," TOOL_PARAM("lines", "Maximum lines to return; default 160"));
+        TOOL_DECL("list", "List files below a path.",
+                  TOOL_PARAM("path", "Directory path") "," TOOL_PARAM("depth", "Maximum recursion depth") "," TOOL_PARAM("max", "Maximum entries"));
+        TOOL_DECL("get_skeleton", "Return a compact codenav semantic outline of a source file. Use this before any line reads on source files.",
+                  TOOL_PARAM("path", "Source file path"));
+        TOOL_DECL("get_function", "Return the exact source for one function or method using codenav. Prefer this over read after get_skeleton or semantic_search.",
+                  TOOL_PARAM("function_name", "Exact function/method name") "," TOOL_PARAM("path", "Optional source file path"));
+        if (!read_only)
+        {
+            TOOL_DECL("semantic_search", "Search code by meaning with colgrep. Use this before broad read/search when you do not know exact names.",
+                      TOOL_PARAM("query", "Natural-language code search query") "," TOOL_PARAM("path", "Optional file or directory path; default current directory") "," TOOL_PARAM("results", "Maximum results, 1-50; default 10") "," TOOL_PARAM("include", "Optional include glob, for example *.c") "," TOOL_PARAM("exclude", "Optional exclude glob") "," TOOL_PARAM("code_only", "true/false; default true") "," TOOL_PARAM("semantic_only", "true/false; default false") "," TOOL_PARAM("content", "true/false; default false"));
+            TOOL_DECL("search_web", "Search the web with DuckDuckGo and return up to five results with title, URL, and snippet.",
+                      TOOL_PARAM("query", "Web search query"));
+            TOOL_DECL("visit_url", "Fetch a URL, save the complete readable page in a local file, and return up to 8000 characters. Search the saved file for relevant sections, then use read/more with their adaptive token budget.",
+                      TOOL_PARAM("url", "URL to fetch"));
+        }
+        TOOL_DECL("search", "Search text files for a literal pattern.",
+                  TOOL_PARAM("pattern", "Literal pattern") "," TOOL_PARAM("path", "Root path") "," TOOL_PARAM("max", "Maximum matches"));
     }
-    TOOL_DECL("search", "Search text files for a literal pattern.",
-              TOOL_PARAM("pattern", "Literal pattern") ","
-              TOOL_PARAM("path", "Root path") ","
-              TOOL_PARAM("max", "Maximum matches"));
-    }
-    if (!read_only) {
-    TOOL_DECL("write", "Create or overwrite a text file.",
-              TOOL_PARAM("path", "Path to write") ","
-              TOOL_PARAM("content", "File content"));
-    TOOL_DECL("edit", "Edit a text file without shell scripts. Default mode replaces the first exact old text. Modes: replace, replace_all, insert_before, insert_after, append, prepend.",
-              TOOL_PARAM("path", "Path to edit") ","
-              TOOL_PARAM("old", "Old exact text for replace modes; also accepted as anchor for insert modes") ","
-              TOOL_PARAM("anchor", "Exact anchor text for insert_before/insert_after") ","
-              TOOL_PARAM("new", "Replacement or inserted text") ","
-              TOOL_PARAM("mode", "replace, replace_all, insert_before, insert_after, append, or prepend"));
-    TOOL_DECL("bash", "Run a time-bounded shell command with combined stdout/stderr. Large results retain their head and tail and provide a path to the complete output.",
-              TOOL_PARAM("cmd", "Shell command"));
+    if (!read_only)
+    {
+        TOOL_DECL("write", "Create or overwrite a text file.",
+                  TOOL_PARAM("path", "Path to write") "," TOOL_PARAM("content", "File content"));
+        TOOL_DECL("edit", "Edit a text file without shell scripts. Default mode replaces the first exact old text. Modes: replace, replace_all, insert_before, insert_after, append, prepend.",
+                  TOOL_PARAM("path", "Path to edit") "," TOOL_PARAM("old", "Old exact text for replace modes; also accepted as anchor for insert modes") "," TOOL_PARAM("anchor", "Exact anchor text for insert_before/insert_after") "," TOOL_PARAM("new", "Replacement or inserted text") "," TOOL_PARAM("mode", "replace, replace_all, insert_before, insert_after, append, or prepend"));
+        TOOL_DECL("bash", "Run a time-bounded shell command with combined stdout/stderr. Large results retain their head and tail and provide a path to the complete output.",
+                  TOOL_PARAM("cmd", "Shell command"));
     }
 #undef TOOL_PARAM
 #undef TOOL_DECL
+    if (inkling)
+        sb_append(&sb, "]");
     return sb.p;
 }
 
-static char *agent_strdup(const char *s) {
-    if (!s) return NULL;
+static char *agent_strdup(const char *s)
+{
+    if (!s)
+        return NULL;
     size_t n = strlen(s);
     char *out = malloc(n + 1);
-    if (!out) return NULL;
+    if (!out)
+        return NULL;
     memcpy(out, s, n + 1);
     return out;
 }
 
-static void agent_message_free(agent_message *message) {
-    if (!message) return;
+static void agent_message_free(agent_message *message)
+{
+    if (!message)
+        return;
     free(message->role);
     free(message->content);
     memset(message, 0, sizeof(*message));
 }
 
-static void agent_message_ledger_clear(agent_message_ledger *ledger) {
-    if (!ledger) return;
-    for (int i = 0; i < ledger->len; i++) {
+static void agent_message_ledger_clear(agent_message_ledger *ledger)
+{
+    if (!ledger)
+        return;
+    for (int i = 0; i < ledger->len; i++)
+    {
         agent_message_free(&ledger->items[i]);
     }
     free(ledger->items);
@@ -829,13 +1000,17 @@ static void agent_message_ledger_clear(agent_message_ledger *ledger) {
 static bool agent_message_ledger_add(agent_message_ledger *ledger,
                                      agent_message_kind kind,
                                      const char *role, const char *content,
-                                     int token_start, int token_end) {
-    if (!ledger || token_start < 0 || token_end < token_start) return false;
-    if (ledger->len == ledger->cap) {
+                                     int token_start, int token_end)
+{
+    if (!ledger || token_start < 0 || token_end < token_start)
+        return false;
+    if (ledger->len == ledger->cap)
+    {
         int next_cap = ledger->cap ? ledger->cap * 2 : 32;
         agent_message *next = realloc(
             ledger->items, (size_t)next_cap * sizeof(*next));
-        if (!next) return false;
+        if (!next)
+            return false;
         ledger->items = next;
         ledger->cap = next_cap;
     }
@@ -843,7 +1018,8 @@ static bool agent_message_ledger_add(agent_message_ledger *ledger,
     memset(message, 0, sizeof(*message));
     message->role = agent_strdup(role ? role : "");
     message->content = agent_strdup(content ? content : "");
-    if (!message->role || !message->content) {
+    if (!message->role || !message->content)
+    {
         agent_message_free(message);
         return false;
     }
@@ -855,125 +1031,162 @@ static bool agent_message_ledger_add(agent_message_ledger *ledger,
 }
 
 static void agent_message_ledger_truncate(agent_message_ledger *ledger,
-                                          int token_len) {
-    if (!ledger) return;
+                                          int token_len)
+{
+    if (!ledger)
+        return;
     while (ledger->len > 0 &&
-           ledger->items[ledger->len - 1].token_start >= token_len) {
+           ledger->items[ledger->len - 1].token_start >= token_len)
+    {
         agent_message_free(&ledger->items[--ledger->len]);
     }
     if (ledger->len > 0 &&
-        ledger->items[ledger->len - 1].token_end > token_len) {
+        ledger->items[ledger->len - 1].token_end > token_len)
+    {
         agent_message_free(&ledger->items[--ledger->len]);
     }
 }
 
 static bool agent_append_message(agent_state *a, agent_message_kind kind,
-                                 const char *role, const char *content) {
+                                 const char *role, const char *content)
+{
     int start = a->transcript.len;
     qw3_chat_append_message(a->engine, &a->transcript, role, content);
     if (agent_message_ledger_add(&a->messages, kind, role, content,
-                                 start, a->transcript.len)) {
+                                 start, a->transcript.len))
+    {
         return true;
     }
     a->transcript.len = start;
     return false;
 }
 
-static char *read_file_text(const char *path, size_t *out_len) {
+static char *read_file_text(const char *path, size_t *out_len)
+{
     FILE *fp = fopen(path, "rb");
-    if (!fp) return NULL;
-    if (fseek(fp, 0, SEEK_END) != 0) {
+    if (!fp)
+        return NULL;
+    if (fseek(fp, 0, SEEK_END) != 0)
+    {
         fclose(fp);
         return NULL;
     }
     long n = ftell(fp);
-    if (n < 0) {
+    if (n < 0)
+    {
         fclose(fp);
         return NULL;
     }
-    if (fseek(fp, 0, SEEK_SET) != 0) {
+    if (fseek(fp, 0, SEEK_SET) != 0)
+    {
         fclose(fp);
         return NULL;
     }
     char *buf = malloc((size_t)n + 1);
-    if (!buf) {
+    if (!buf)
+    {
         fclose(fp);
         return NULL;
     }
     size_t got = fread(buf, 1, (size_t)n, fp);
     fclose(fp);
-    if (got != (size_t)n) {
+    if (got != (size_t)n)
+    {
         free(buf);
         return NULL;
     }
     buf[got] = '\0';
-    if (out_len) *out_len = got;
+    if (out_len)
+        *out_len = got;
     return buf;
 }
 
-static int write_file_text(const char *path, const char *text) {
+static int write_file_text(const char *path, const char *text)
+{
     FILE *fp = fopen(path, "wb");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
     size_t n = text ? strlen(text) : 0;
     int rc = (fwrite(text ? text : "", 1, n, fp) == n) ? 0 : -1;
     fclose(fp);
     return rc;
 }
 
-static int write_file_bytes(const char *path, const char *data, size_t n) {
+static int write_file_bytes(const char *path, const char *data, size_t n)
+{
     FILE *fp = fopen(path, "wb");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
     int rc = (fwrite(data ? data : "", 1, n, fp) == n) ? 0 : -1;
     fclose(fp);
     return rc;
 }
 
-static int ensure_dir(const char *path) {
-    if (!path || !path[0]) return -1;
-    if (mkdir(path, 0755) == 0 || errno == EEXIST) return 0;
+static int ensure_dir(const char *path)
+{
+    if (!path || !path[0])
+        return -1;
+    if (mkdir(path, 0755) == 0 || errno == EEXIST)
+        return 0;
     return -1;
 }
 
-static int ensure_private_dir(const char *path) {
-    if (!path || !path[0]) return -1;
-    if (mkdir(path, 0700) != 0 && errno != EEXIST) return -1;
+static int ensure_private_dir(const char *path)
+{
+    if (!path || !path[0])
+        return -1;
+    if (mkdir(path, 0700) != 0 && errno != EEXIST)
+        return -1;
     struct stat st;
-    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) return -1;
+    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode))
+        return -1;
     return chmod(path, 0700);
 }
 
-static char *path_join(const char *a, const char *b) {
-    if (!a || !b) return NULL;
+static char *path_join(const char *a, const char *b)
+{
+    if (!a || !b)
+        return NULL;
     size_t an = strlen(a);
     size_t bn = strlen(b);
     bool slash = an > 0 && a[an - 1] == '/';
     char *out = malloc(an + bn + (slash ? 1 : 2));
-    if (!out) return NULL;
+    if (!out)
+        return NULL;
     memcpy(out, a, an);
     size_t pos = an;
-    if (!slash) out[pos++] = '/';
+    if (!slash)
+        out[pos++] = '/';
     memcpy(out + pos, b, bn + 1);
     return out;
 }
 
-static char *default_store_dir(void) {
+static char *default_store_dir(void)
+{
     const char *home = getenv("HOME");
-    if (!home || !home[0]) home = ".";
+    if (!home || !home[0])
+        home = ".";
     char *root = path_join(home, ".qw3");
-    if (!root) return NULL;
+    if (!root)
+        return NULL;
     (void)ensure_dir(root);
     char *dir = path_join(root, "agent_store");
     free(root);
-    if (dir) (void)ensure_dir(dir);
+    if (dir)
+        (void)ensure_dir(dir);
     return dir;
 }
 
-static char *sanitized_name(const char *name) {
-    if (!name || !name[0]) name = "default";
+static char *sanitized_name(const char *name)
+{
+    if (!name || !name[0])
+        name = "default";
     size_t n = strlen(name);
     char *out = malloc(n + 1);
-    if (!out) return NULL;
-    for (size_t i = 0; i < n; i++) {
+    if (!out)
+        return NULL;
+    for (size_t i = 0; i < n; i++)
+    {
         unsigned char c = (unsigned char)name[i];
         out[i] = (isalnum(c) || c == '_' || c == '-' || c == '.') ? (char)c : '_';
     }
@@ -982,13 +1195,16 @@ static char *sanitized_name(const char *name) {
 }
 
 static char *store_path_ext(agent_state *a, const char *name,
-                            const char *ext) {
+                            const char *ext)
+{
     char *safe = sanitized_name(name && name[0] ? name : "default");
-    if (!safe) return NULL;
+    if (!safe)
+        return NULL;
     size_t ext_n = ext ? strlen(ext) : 0;
     size_t n = strlen(safe) + ext_n + 1;
     char *file = malloc(n);
-    if (!file) {
+    if (!file)
+    {
         free(safe);
         return NULL;
     }
@@ -999,29 +1215,36 @@ static char *store_path_ext(agent_state *a, const char *name,
     return path;
 }
 
-static char *store_path(agent_state *a, const char *name) {
+static char *store_path(agent_state *a, const char *name)
+{
     return store_path_ext(a, name, ".qw3a");
 }
 
-static char *store_meta_path(agent_state *a, const char *name) {
+static char *store_meta_path(agent_state *a, const char *name)
+{
     return store_path_ext(a, name, ".meta");
 }
 
-static char *store_text_path(agent_state *a, const char *name) {
+static char *store_text_path(agent_state *a, const char *name)
+{
     return store_path_ext(a, name, ".txt");
 }
 
-static char *store_messages_path(agent_state *a, const char *name) {
+static char *store_messages_path(agent_state *a, const char *name)
+{
     return store_path_ext(a, name, ".msgs");
 }
 
-static char *store_checkpoint_path(agent_state *a, const char *name) {
+static char *store_checkpoint_path(agent_state *a, const char *name)
+{
     return store_path_ext(a, name, ".kvc");
 }
 
-static uint64_t agent_hash_update(uint64_t h, const void *data, size_t n) {
+static uint64_t agent_hash_update(uint64_t h, const void *data, size_t n)
+{
     const unsigned char *p = (const unsigned char *)data;
-    for (size_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++)
+    {
         h ^= (uint64_t)p[i];
         h *= 1099511628211ull;
     }
@@ -1030,7 +1253,8 @@ static uint64_t agent_hash_update(uint64_t h, const void *data, size_t n) {
 
 static char *agent_session_id_from_seed(const char *title,
                                         const char *model_path,
-                                        time_t created) {
+                                        time_t created)
+{
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     uint64_t h = 1469598103934665603ull;
@@ -1042,36 +1266,45 @@ static char *agent_session_id_from_seed(const char *title,
     pid_t pid = getpid();
     h = agent_hash_update(h, &pid, sizeof(pid));
     char *out = malloc(17);
-    if (!out) return NULL;
+    if (!out)
+        return NULL;
     snprintf(out, 17, "%016llx", (unsigned long long)h);
     return out;
 }
 
-static char *agent_title_from_message(const char *msg) {
+static char *agent_title_from_message(const char *msg)
+{
     const char *p = msg ? msg : "";
-    while (*p && isspace((unsigned char)*p)) p++;
+    while (*p && isspace((unsigned char)*p))
+        p++;
     strbuf sb;
     sb_init(&sb);
-    while (*p && *p != '\n' && *p != '\r' && sb.len < 72) {
+    while (*p && *p != '\n' && *p != '\r' && sb.len < 72)
+    {
         unsigned char c = (unsigned char)*p++;
-        if (c < 32) continue;
+        if (c < 32)
+            continue;
         sb_append_n(&sb, (const char *)&c, 1);
     }
-    if (!sb.p || !sb.p[0]) {
+    if (!sb.p || !sb.p[0])
+    {
         sb_free(&sb);
         return agent_strdup("untitled");
     }
     return sb.p;
 }
 
-static void agent_set_owned(char **dst, const char *src) {
+static void agent_set_owned(char **dst, const char *src)
+{
     char *next = agent_strdup(src ? src : "");
-    if (!next) return;
+    if (!next)
+        return;
     free(*dst);
     *dst = next;
 }
 
-static void agent_clear_session_meta(agent_state *a) {
+static void agent_clear_session_meta(agent_state *a)
+{
     free(a->session_id);
     free(a->session_title);
     a->session_id = NULL;
@@ -1082,18 +1315,27 @@ static void agent_clear_session_meta(agent_state *a) {
     a->session_checkpoint_ready = false;
 }
 
-static void agent_note_user_message(agent_state *a, const char *msg) {
-    if (!a->session_created) a->session_created = time(NULL);
-    if (!a->session_title) a->session_title = agent_title_from_message(msg);
+static void agent_note_user_message(agent_state *a, const char *msg)
+{
+    if (!a->session_created)
+        a->session_created = time(NULL);
+    if (!a->session_title)
+        a->session_title = agent_title_from_message(msg);
     a->session_stripped = false;
 }
 
-static int agent_ensure_session_id(agent_state *a, const char *name) {
-    if (!a->session_created) a->session_created = time(NULL);
-    if (!a->session_title) a->session_title = agent_strdup("untitled");
-    if (name && name[0]) {
+static int agent_ensure_session_id(agent_state *a, const char *name)
+{
+    if (!a->session_created)
+        a->session_created = time(NULL);
+    if (!a->session_title)
+        a->session_title = agent_strdup("untitled");
+    if (name && name[0])
+    {
         agent_set_owned(&a->session_id, name);
-    } else if (!a->session_id) {
+    }
+    else if (!a->session_id)
+    {
         a->session_id = agent_session_id_from_seed(
             a->session_title, a->cfg.model_path, a->session_created);
     }
@@ -1101,20 +1343,25 @@ static int agent_ensure_session_id(agent_state *a, const char *name) {
 }
 
 static char *transcript_rendered_text(agent_state *a,
-                                      const qw3_tokens *tokens) {
+                                      const qw3_tokens *tokens)
+{
     strbuf out;
     sb_init(&out);
-    if (!a || !tokens) return agent_strdup("");
-    for (int i = 0; i < tokens->len; i++) {
+    if (!a || !tokens)
+        return agent_strdup("");
+    for (int i = 0; i < tokens->len; i++)
+    {
         size_t n = 0;
         char *t = token_decoded_text(a->engine, tokens->v[i], &n);
-        if (t && n) sb_append_n(&out, t, n);
+        if (t && n)
+            sb_append_n(&out, t, n);
         free(t);
     }
     return out.p ? out.p : agent_strdup("");
 }
 
-typedef struct {
+typedef struct
+{
     char *id;
     char *title;
     char *model;
@@ -1128,8 +1375,10 @@ typedef struct {
     bool stripped;
 } agent_session_meta;
 
-static void session_meta_free(agent_session_meta *m) {
-    if (!m) return;
+static void session_meta_free(agent_session_meta *m)
+{
+    if (!m)
+        return;
     free(m->id);
     free(m->title);
     free(m->model);
@@ -1138,34 +1387,51 @@ static void session_meta_free(agent_session_meta *m) {
     memset(m, 0, sizeof(*m));
 }
 
-static bool str_bool(const char *s) {
+static bool str_bool(const char *s)
+{
     return s && (!strcmp(s, "1") || !strcmp(s, "true") ||
                  !strcmp(s, "on") || !strcmp(s, "yes"));
 }
 
-static int session_meta_read_path(const char *path, agent_session_meta *m) {
+static int session_meta_read_path(const char *path, agent_session_meta *m)
+{
     memset(m, 0, sizeof(*m));
     FILE *fp = fopen(path, "rb");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
     char *line = NULL;
     size_t cap = 0;
-    while (getline(&line, &cap, fp) >= 0) {
+    while (getline(&line, &cap, fp) >= 0)
+    {
         char *nl = strpbrk(line, "\r\n");
-        if (nl) *nl = '\0';
+        if (nl)
+            *nl = '\0';
         char *eq = strchr(line, '=');
-        if (!eq) continue;
+        if (!eq)
+            continue;
         *eq++ = '\0';
-        if (!strcmp(line, "id")) m->id = agent_strdup(eq);
-        else if (!strcmp(line, "title")) m->title = agent_strdup(eq);
-        else if (!strcmp(line, "model")) m->model = agent_strdup(eq);
-        else if (!strcmp(line, "backend")) m->backend = agent_strdup(eq);
-        else if (!strcmp(line, "think")) m->think = agent_strdup(eq);
-        else if (!strcmp(line, "created")) m->created = (time_t)strtoll(eq, NULL, 10);
-        else if (!strcmp(line, "updated")) m->updated = (time_t)strtoll(eq, NULL, 10);
-        else if (!strcmp(line, "ctx")) m->ctx = atoi(eq);
-        else if (!strcmp(line, "tokens")) m->tokens = atoi(eq);
-        else if (!strcmp(line, "tools")) m->tools = str_bool(eq);
-        else if (!strcmp(line, "stripped")) m->stripped = str_bool(eq);
+        if (!strcmp(line, "id"))
+            m->id = agent_strdup(eq);
+        else if (!strcmp(line, "title"))
+            m->title = agent_strdup(eq);
+        else if (!strcmp(line, "model"))
+            m->model = agent_strdup(eq);
+        else if (!strcmp(line, "backend"))
+            m->backend = agent_strdup(eq);
+        else if (!strcmp(line, "think"))
+            m->think = agent_strdup(eq);
+        else if (!strcmp(line, "created"))
+            m->created = (time_t)strtoll(eq, NULL, 10);
+        else if (!strcmp(line, "updated"))
+            m->updated = (time_t)strtoll(eq, NULL, 10);
+        else if (!strcmp(line, "ctx"))
+            m->ctx = atoi(eq);
+        else if (!strcmp(line, "tokens"))
+            m->tokens = atoi(eq);
+        else if (!strcmp(line, "tools"))
+            m->tools = str_bool(eq);
+        else if (!strcmp(line, "stripped"))
+            m->stripped = str_bool(eq);
     }
     free(line);
     fclose(fp);
@@ -1173,9 +1439,11 @@ static int session_meta_read_path(const char *path, agent_session_meta *m) {
 }
 
 static int session_meta_write_path(const char *path,
-                                   const agent_session_meta *m) {
+                                   const agent_session_meta *m)
+{
     FILE *fp = fopen(path, "wb");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
     fprintf(fp, "version=2\n");
     fprintf(fp, "id=%s\n", m->id ? m->id : "");
     fprintf(fp, "title=%s\n", m->title ? m->title : "untitled");
@@ -1194,35 +1462,45 @@ static int session_meta_write_path(const char *path,
 }
 
 static int store_read_tokens_path(const char *path, qw3_tokens *out,
-                                  uint32_t *ctx_size_out) {
+                                  uint32_t *ctx_size_out)
+{
     memset(out, 0, sizeof(*out));
     FILE *fp = fopen(path, "rb");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
     agent_store_header h = {0};
     int rc = -1;
     if (fread(&h, 1, sizeof(h), fp) == sizeof(h) &&
         memcmp(h.magic, AGENT_STORE_MAGIC, sizeof(h.magic)) == 0 &&
-        h.version == AGENT_STORE_VERSION) {
+        h.version == AGENT_STORE_VERSION)
+    {
         rc = 0;
-        for (uint32_t i = 0; i < h.token_len; i++) {
+        for (uint32_t i = 0; i < h.token_len; i++)
+        {
             int32_t tok = 0;
-            if (fread(&tok, 1, sizeof(tok), fp) != sizeof(tok)) {
+            if (fread(&tok, 1, sizeof(tok), fp) != sizeof(tok))
+            {
                 rc = -1;
                 break;
             }
             qw3_tokens_push(out, (int)tok);
         }
-        if (ctx_size_out) *ctx_size_out = h.ctx_size;
+        if (ctx_size_out)
+            *ctx_size_out = h.ctx_size;
     }
     fclose(fp);
-    if (rc != 0) qw3_tokens_free(out);
+    if (rc != 0)
+        qw3_tokens_free(out);
     return rc;
 }
 
-static int store_write_tokens_path(agent_state *a, const char *path) {
-    if (!path) return -1;
+static int store_write_tokens_path(agent_state *a, const char *path)
+{
+    if (!path)
+        return -1;
     FILE *fp = fopen(path, "wb");
-    if (!fp) {
+    if (!fp)
+    {
         agent_statusf(a, "agent: cannot save %s: %s\n", path, strerror(errno));
         return -1;
     }
@@ -1232,10 +1510,13 @@ static int store_write_tokens_path(agent_state *a, const char *path) {
     h.ctx_size = (uint32_t)a->cfg.ctx_size;
     h.token_len = (uint32_t)a->transcript.len;
     int rc = 0;
-    if (fwrite(&h, 1, sizeof(h), fp) != sizeof(h)) rc = -1;
-    for (int i = 0; rc == 0 && i < a->transcript.len; i++) {
+    if (fwrite(&h, 1, sizeof(h), fp) != sizeof(h))
+        rc = -1;
+    for (int i = 0; rc == 0 && i < a->transcript.len; i++)
+    {
         int32_t tok = (int32_t)a->transcript.v[i];
-        if (fwrite(&tok, 1, sizeof(tok), fp) != sizeof(tok)) rc = -1;
+        if (fwrite(&tok, 1, sizeof(tok), fp) != sizeof(tok))
+            rc = -1;
     }
     fclose(fp);
     return rc;
@@ -1245,49 +1526,63 @@ static int store_write_tokens_path(agent_state *a, const char *path) {
  * does not expose a payload, and -1 on an actual save failure. */
 static int store_write_checkpoint_path(agent_state *a, const char *path,
                                        const qw3_tokens *tokens,
-                                       char *err, size_t err_len) {
+                                       char *err, size_t err_len)
+{
     if (!a || !a->session || !path || !tokens ||
-        a->cfg.backend != QW3_BACKEND_METAL) {
+        a->cfg.backend != QW3_BACKEND_METAL ||
+        qw3_engine_is_inkling(a->engine))
+    {
         return 1;
     }
     if (qw3_session_sync_interruptible(a->session, tokens, a->should_interrupt,
-                                       a->interrupt_ud, err, err_len) != 0) {
+                                       a->interrupt_ud, err, err_len) != 0)
+    {
         return -1;
     }
     const uint64_t bytes = qw3_session_payload_bytes(a->session);
-    if (bytes == 0) return 1;
+    if (bytes == 0)
+        return 1;
 
     const size_t tmp_len = strlen(path) + 48;
     char *tmp = malloc(tmp_len);
-    if (!tmp) return -1;
+    if (!tmp)
+        return -1;
     snprintf(tmp, tmp_len, "%s.tmp.%ld", path, (long)getpid());
     FILE *fp = fopen(tmp, "wb");
     int rc = 0;
-    if (!fp) {
-        if (err && err_len) snprintf(err, err_len,
-                                     "cannot create checkpoint: %s",
-                                     strerror(errno));
+    if (!fp)
+    {
+        if (err && err_len)
+            snprintf(err, err_len,
+                     "cannot create checkpoint: %s",
+                     strerror(errno));
         free(tmp);
         return -1;
     }
     if (fchmod(fileno(fp), 0600) != 0 ||
         qw3_session_save_payload(a->session, fp, err, err_len) != 0 ||
-        fflush(fp) != 0 || fsync(fileno(fp)) != 0) {
+        fflush(fp) != 0 || fsync(fileno(fp)) != 0)
+    {
         rc = -1;
     }
-    if (fclose(fp) != 0) rc = -1;
-    if (rc == 0 && rename(tmp, path) != 0) {
-        if (err && err_len) snprintf(err, err_len,
-                                     "cannot publish checkpoint: %s",
-                                     strerror(errno));
+    if (fclose(fp) != 0)
+        rc = -1;
+    if (rc == 0 && rename(tmp, path) != 0)
+    {
+        if (err && err_len)
+            snprintf(err, err_len,
+                     "cannot publish checkpoint: %s",
+                     strerror(errno));
         rc = -1;
     }
-    if (rc != 0) (void)unlink(tmp);
+    if (rc != 0)
+        (void)unlink(tmp);
     free(tmp);
     return rc;
 }
 
-static bool store_tokens_equal(const qw3_tokens *a, const qw3_tokens *b) {
+static bool store_tokens_equal(const qw3_tokens *a, const qw3_tokens *b)
+{
     return a && b && a->len == b->len &&
            (a->len == 0 || !memcmp(a->v, b->v,
                                    (size_t)a->len * sizeof(a->v[0])));
@@ -1295,30 +1590,40 @@ static bool store_tokens_equal(const qw3_tokens *a, const qw3_tokens *b) {
 
 static int store_read_checkpoint_path(agent_state *a, const char *path,
                                       const qw3_tokens *expected,
-                                      char *err, size_t err_len) {
-    if (!a || !a->session || !path || !expected) return -1;
+                                      char *err, size_t err_len)
+{
+    if (!a || !a->session || !path || !expected)
+        return -1;
     FILE *fp = fopen(path, "rb");
-    if (!fp) return errno == ENOENT ? 1 : -1;
+    if (!fp)
+        return errno == ENOENT ? 1 : -1;
     struct stat st;
     int rc = -1;
     if (fstat(fileno(fp), &st) == 0 && st.st_size > 0 &&
         qw3_session_load_payload(a->session, fp, (uint64_t)st.st_size,
-                                 err, err_len) == 0) {
+                                 err, err_len) == 0)
+    {
         const qw3_tokens *loaded = qw3_session_tokens(a->session);
-        if (store_tokens_equal(loaded, expected)) {
+        if (store_tokens_equal(loaded, expected))
+        {
             rc = 0;
-        } else if (err && err_len) {
+        }
+        else if (err && err_len)
+        {
             snprintf(err, err_len, "checkpoint token sequence mismatch");
         }
     }
     fclose(fp);
-    if (rc != 0) qw3_session_invalidate(a->session);
+    if (rc != 0)
+        qw3_session_invalidate(a->session);
     return rc;
 }
 
 static char *store_prefix_cache_path(agent_state *a,
-                                     const qw3_tokens *prefix) {
-    if (!a || !prefix || !a->cfg.store_dir) return NULL;
+                                     const qw3_tokens *prefix)
+{
+    if (!a || !prefix || !a->cfg.store_dir)
+        return NULL;
     uint64_t hash = 1469598103934665603ull;
     const uint32_t version = QW3_AGENT_PREFIX_CACHE_VERSION;
     hash = agent_hash_update(hash, &version, sizeof(version));
@@ -1331,12 +1636,14 @@ static char *store_prefix_cache_path(agent_state *a,
         getenv("QW3_METAL_KV_F16"),
         getenv("QW3_METAL_KV_Q8_0"),
     };
-    for (size_t i = 0; i < sizeof(metal_env) / sizeof(metal_env[0]); i++) {
+    for (size_t i = 0; i < sizeof(metal_env) / sizeof(metal_env[0]); i++)
+    {
         const char *value = metal_env[i] ? metal_env[i] : "";
         hash = agent_hash_update(hash, value, strlen(value) + 1);
     }
     hash = agent_hash_update(hash, &prefix->len, sizeof(prefix->len));
-    if (prefix->len > 0) {
+    if (prefix->len > 0)
+    {
         hash = agent_hash_update(hash, prefix->v,
                                  (size_t)prefix->len * sizeof(prefix->v[0]));
     }
@@ -1347,7 +1654,8 @@ static char *store_prefix_cache_path(agent_state *a,
 }
 
 static bool agent_transcript_has_prefix(const agent_state *a,
-                                        const qw3_tokens *prefix) {
+                                        const qw3_tokens *prefix)
+{
     return a && prefix && a->transcript.len >= prefix->len &&
            (prefix->len == 0 ||
             !memcmp(a->transcript.v, prefix->v,
@@ -1357,26 +1665,32 @@ static bool agent_transcript_has_prefix(const agent_state *a,
 /* Restore or create the reusable system-prompt state. A complete conversation
  * checkpoint always wins; this path is only the fallback for a fresh session
  * or a transcript-only conversation. */
-typedef struct {
+typedef struct
+{
     agent_state *agent;
     int last_report;
 } agent_prefix_progress;
 
 static void agent_prefix_progress_update(void *ud, const char *event,
-                                         int current, int total) {
+                                         int current, int total)
+{
     agent_prefix_progress *p = (agent_prefix_progress *)ud;
     if (!p || !p->agent || !event || strcmp(event, "prefill_chunk") ||
-        total <= 0 || current <= 0) return;
-    if (current < total && current - p->last_report < 64) return;
+        total <= 0 || current <= 0)
+        return;
+    if (current < total && current - p->last_report < 64)
+        return;
     p->last_report = current;
     agent_statusf(p->agent, "agent: preparing prefix cache %d/%d tokens\n",
                   current, total);
 }
 
-static int agent_prepare_prefix_cache(agent_state *a) {
+static int agent_prepare_prefix_cache(agent_state *a)
+{
     if (!a || !a->session || !a->engine || !a->cfg.prefix_cache ||
         a->cfg.backend != QW3_BACKEND_METAL ||
-        a->session_checkpoint_ready) {
+        a->session_checkpoint_ready)
+    {
         return 1;
     }
 
@@ -1384,7 +1698,8 @@ static int agent_prepare_prefix_cache(agent_state *a) {
     qw3_chat_append_message(a->engine, &prefix, "system",
                             a->cfg.system_prompt);
     if (!agent_transcript_has_prefix(a, &prefix) ||
-        qw3_session_payload_bytes(a->session) == 0) {
+        qw3_session_payload_bytes(a->session) == 0)
+    {
         agent_trace_begin(a, "prefix_cache");
         agent_trace_string(a, "result", "unavailable");
         agent_trace_i64(a, "tokens", prefix.len);
@@ -1394,31 +1709,39 @@ static int agent_prepare_prefix_cache(agent_state *a) {
     }
 
     char *path = store_prefix_cache_path(a, &prefix);
-    if (!path) {
+    if (!path)
+    {
         qw3_tokens_free(&prefix);
         return -1;
     }
     char err[256] = {0};
     int rc = store_read_checkpoint_path(a, path, &prefix, err, sizeof(err));
     const char *result = "hit";
-    if (rc == 0) {
+    if (rc == 0)
+    {
         agent_statusf(a, "agent: prefix cache resumed (%d tokens)\n",
                       prefix.len);
-    } else {
-        if (rc < 0) (void)unlink(path);
+    }
+    else
+    {
+        if (rc < 0)
+            (void)unlink(path);
         err[0] = '\0';
         agent_statusf(a, "agent: preparing prefix cache (%d tokens)\n",
                       prefix.len);
-        agent_prefix_progress progress = { .agent = a, .last_report = 0 };
+        agent_prefix_progress progress = {.agent = a, .last_report = 0};
         qw3_session_set_progress(a->session, agent_prefix_progress_update,
                                  &progress);
         rc = store_write_checkpoint_path(a, path, &prefix, err, sizeof(err));
         qw3_session_set_progress(a->session, NULL, NULL);
-        if (rc == 0) {
+        if (rc == 0)
+        {
             result = "written";
             agent_statusf(a, "agent: prefix cache created (%d tokens)\n",
                           prefix.len);
-        } else {
+        }
+        else
+        {
             result = "fallback";
             agent_statusf(a,
                           "agent: prefix cache unavailable (%s); "
@@ -1430,7 +1753,8 @@ static int agent_prepare_prefix_cache(agent_state *a) {
     agent_trace_string(a, "result", result);
     agent_trace_i64(a, "tokens", prefix.len);
     agent_trace_end(a);
-    if (rc == 0) {
+    if (rc == 0)
+    {
         agent_prune_spills(a->cfg.store_dir, ".prefix-v", path,
                            QW3_AGENT_PREFIX_CACHE_KEEP);
     }
@@ -1440,21 +1764,26 @@ static int agent_prepare_prefix_cache(agent_state *a) {
 }
 
 static int store_write_messages_path(const char *path,
-                                     const agent_message_ledger *ledger) {
-    if (!path || !ledger) return -1;
+                                     const agent_message_ledger *ledger)
+{
+    if (!path || !ledger)
+        return -1;
     FILE *fp = fopen(path, "wb");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
     agent_messages_header header = {0};
     memcpy(header.magic, AGENT_MESSAGES_MAGIC, sizeof(header.magic));
     header.version = AGENT_MESSAGES_VERSION;
     header.count = (uint32_t)ledger->len;
     int rc = fwrite(&header, 1, sizeof(header), fp) == sizeof(header) ? 0 : -1;
-    for (int i = 0; rc == 0 && i < ledger->len; i++) {
+    for (int i = 0; rc == 0 && i < ledger->len; i++)
+    {
         const agent_message *message = &ledger->items[i];
         size_t role_len = strlen(message->role ? message->role : "");
         size_t content_len = strlen(message->content ? message->content : "");
         if (role_len > UINT32_MAX || content_len > UINT32_MAX ||
-            message->token_start < 0 || message->token_end < message->token_start) {
+            message->token_start < 0 || message->token_end < message->token_start)
+        {
             rc = -1;
             break;
         }
@@ -1467,36 +1796,44 @@ static int store_write_messages_path(const char *path,
         };
         if (fwrite(&record, 1, sizeof(record), fp) != sizeof(record) ||
             fwrite(message->role, 1, role_len, fp) != role_len ||
-            fwrite(message->content, 1, content_len, fp) != content_len) {
+            fwrite(message->content, 1, content_len, fp) != content_len)
+        {
             rc = -1;
         }
     }
-    if (fclose(fp) != 0) rc = -1;
+    if (fclose(fp) != 0)
+        rc = -1;
     return rc;
 }
 
 static int store_read_messages_path(const char *path, int token_len,
-                                    agent_message_ledger *ledger) {
-    if (!path || !ledger || token_len < 0) return -1;
+                                    agent_message_ledger *ledger)
+{
+    if (!path || !ledger || token_len < 0)
+        return -1;
     FILE *fp = fopen(path, "rb");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
     agent_messages_header header = {0};
     int rc = -1;
     if (fread(&header, 1, sizeof(header), fp) == sizeof(header) &&
         memcmp(header.magic, AGENT_MESSAGES_MAGIC, sizeof(header.magic)) == 0 &&
-        header.version == AGENT_MESSAGES_VERSION && header.count <= 100000) {
+        header.version == AGENT_MESSAGES_VERSION && header.count <= 100000)
+    {
         rc = 0;
     }
     agent_message_ledger next = {0};
     int previous_end = 0;
-    for (uint32_t i = 0; rc == 0 && i < header.count; i++) {
+    for (uint32_t i = 0; rc == 0 && i < header.count; i++)
+    {
         agent_message_record record = {0};
         if (fread(&record, 1, sizeof(record), fp) != sizeof(record) ||
             record.kind > AGENT_MESSAGE_LEGACY || record.role_len > 64 ||
             record.content_len > 16 * 1024 * 1024 ||
             record.token_start < (uint32_t)previous_end ||
             record.token_end < record.token_start ||
-            record.token_end > (uint32_t)token_len) {
+            record.token_end > (uint32_t)token_len)
+        {
             rc = -1;
             break;
         }
@@ -1504,7 +1841,8 @@ static int store_read_messages_path(const char *path, int token_len,
         char *content = malloc((size_t)record.content_len + 1);
         if (!role || !content ||
             fread(role, 1, record.role_len, fp) != record.role_len ||
-            fread(content, 1, record.content_len, fp) != record.content_len) {
+            fread(content, 1, record.content_len, fp) != record.content_len)
+        {
             free(role);
             free(content);
             rc = -1;
@@ -1514,27 +1852,34 @@ static int store_read_messages_path(const char *path, int token_len,
         content[record.content_len] = '\0';
         if (!agent_message_ledger_add(&next, (agent_message_kind)record.kind,
                                       role, content, (int)record.token_start,
-                                      (int)record.token_end)) {
+                                      (int)record.token_end))
+        {
             rc = -1;
         }
         previous_end = (int)record.token_end;
         free(role);
         free(content);
     }
-    if (rc == 0 && (header.count == 0 || previous_end != token_len)) rc = -1;
+    if (rc == 0 && (header.count == 0 || previous_end != token_len))
+        rc = -1;
     fclose(fp);
-    if (rc == 0) {
+    if (rc == 0)
+    {
         agent_message_ledger_clear(ledger);
         *ledger = next;
-    } else {
+    }
+    else
+    {
         agent_message_ledger_clear(&next);
     }
     return rc;
 }
 
-static int store_write_meta(agent_state *a, const char *id, bool stripped) {
+static int store_write_meta(agent_state *a, const char *id, bool stripped)
+{
     char *path = store_meta_path(a, id);
-    if (!path) return -1;
+    if (!path)
+        return -1;
     agent_session_meta m = {0};
     m.id = (char *)id;
     m.title = a->session_title ? a->session_title : "untitled";
@@ -1552,15 +1897,18 @@ static int store_write_meta(agent_state *a, const char *id, bool stripped) {
     return rc;
 }
 
-static int store_save(agent_state *a, const char *name) {
-    if (agent_ensure_session_id(a, name) != 0) return -1;
+static int store_save(agent_state *a, const char *name)
+{
+    if (agent_ensure_session_id(a, name) != 0)
+        return -1;
     a->session_updated = time(NULL);
     const char *id = a->session_id;
     char *text_path = store_text_path(a, id);
     char *token_path = store_path(a, id);
     char *messages_path = store_messages_path(a, id);
     char *checkpoint_path = store_checkpoint_path(a, id);
-    if (!text_path || !token_path || !messages_path || !checkpoint_path) {
+    if (!text_path || !token_path || !messages_path || !checkpoint_path)
+    {
         free(text_path);
         free(token_path);
         free(messages_path);
@@ -1569,48 +1917,55 @@ static int store_save(agent_state *a, const char *name) {
     }
 
     char *rendered = transcript_rendered_text(a, &a->transcript);
-    int rc = rendered ?
-        write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
+    int rc = rendered ? write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
     free(rendered);
-    if (rc == 0 && !a->session_stripped) {
+    if (rc == 0 && !a->session_stripped)
+    {
         rc = store_write_tokens_path(a, token_path);
     }
-    if (rc == 0 && a->session_stripped) {
+    if (rc == 0 && a->session_stripped)
+    {
         (void)unlink(token_path);
         (void)unlink(checkpoint_path);
     }
-    if (rc == 0) rc = store_write_messages_path(messages_path, &a->messages);
+    if (rc == 0)
+        rc = store_write_messages_path(messages_path, &a->messages);
     int checkpoint_rc = 1;
     char checkpoint_err[256] = {0};
-    if (rc == 0 && !a->session_stripped) {
+    if (rc == 0 && !a->session_stripped)
+    {
         checkpoint_rc = store_write_checkpoint_path(
             a, checkpoint_path, &a->transcript,
             checkpoint_err, sizeof(checkpoint_err));
-        if (checkpoint_rc != 0) {
+        if (checkpoint_rc != 0)
+        {
             (void)unlink(checkpoint_path);
-            if (checkpoint_rc < 0) {
+            if (checkpoint_rc < 0)
+            {
                 agent_statusf(a,
                               "agent: KV checkpoint unavailable (%s); "
                               "saved transcript fallback\n",
-                              checkpoint_err[0] ? checkpoint_err :
-                              "state export failed");
+                              checkpoint_err[0] ? checkpoint_err : "state export failed");
             }
         }
     }
     agent_trace_begin(a, "checkpoint_save");
     agent_trace_string(a, "session", id);
     agent_trace_string(a, "result",
-                       checkpoint_rc == 0 ? "saved" :
-                       (a->session_stripped ? "stripped" : "fallback"));
+                       checkpoint_rc == 0 ? "saved" : (a->session_stripped ? "stripped" : "fallback"));
     agent_trace_i64(a, "tokens", a->transcript.len);
     agent_trace_end(a);
-    if (rc == 0) rc = store_write_meta(a, id, a->session_stripped);
-    if (rc == 0) {
+    if (rc == 0)
+        rc = store_write_meta(a, id, a->session_stripped);
+    if (rc == 0)
+    {
         agent_statusf(a, "agent: saved %s (%d tokens%s%s)\n",
                       id, a->transcript.len,
                       a->session_stripped ? ", stripped" : "",
                       checkpoint_rc == 0 ? ", KV ready" : "");
-    } else {
+    }
+    else
+    {
         agent_statusf(a, "agent: failed while saving %s\n", id);
     }
     free(text_path);
@@ -1620,7 +1975,8 @@ static int store_save(agent_state *a, const char *name) {
     return rc;
 }
 
-static int store_load(agent_state *a, const char *name) {
+static int store_load(agent_state *a, const char *name)
+{
     a->session_checkpoint_ready = false;
     char *token_path = store_path(a, name);
     char *meta_path = store_meta_path(a, name);
@@ -1628,7 +1984,8 @@ static int store_load(agent_state *a, const char *name) {
     char *messages_path = store_messages_path(a, name);
     char *checkpoint_path = store_checkpoint_path(a, name);
     if (!token_path || !meta_path || !text_path || !messages_path ||
-        !checkpoint_path) {
+        !checkpoint_path)
+    {
         free(token_path);
         free(meta_path);
         free(text_path);
@@ -1641,31 +1998,45 @@ static int store_load(agent_state *a, const char *name) {
     qw3_tokens next = {0};
     int rc = -1;
     uint32_t saved_ctx = 0;
-    if (!have_meta || !meta.stripped) {
+    if (!have_meta || !meta.stripped)
+    {
         rc = store_read_tokens_path(token_path, &next, &saved_ctx);
     }
-    if (rc != 0) {
+    if (rc != 0 && !qw3_engine_is_inkling(a->engine))
+    {
         size_t text_len = 0;
         char *text = read_file_text(text_path, &text_len);
-        if (text) {
+        if (text)
+        {
             qw3_tokenize_rendered_chat(a->engine, text, &next);
             free(text);
             rc = 0;
         }
     }
-    if (rc == 0 && next.len > a->cfg.ctx_size) {
+    if (rc == 0 && next.len > a->cfg.ctx_size)
+    {
         agent_statusf(a, "agent: session %s has %d tokens, ctx=%d\n",
                       name, next.len, a->cfg.ctx_size);
         qw3_tokens_free(&next);
         rc = -1;
     }
-    if (rc == 0) {
+    if (rc == 0 && qw3_engine_is_inkling(a->engine) &&
+        (next.len == 0 || next.v[0] !=
+         qw3_inkling_chat_control_id(a->engine, "<|message_system|>")))
+    {
+        agent_statusf(a, "agent: session %s has an incompatible chat format\n", name);
+        qw3_tokens_free(&next);
+        rc = -1;
+    }
+    if (rc == 0)
+    {
         qw3_tokens_free(&a->transcript);
         a->transcript = next;
         a->compact_retry_after_tokens = 0;
         agent_message_ledger_clear(&a->messages);
         if (store_read_messages_path(messages_path, a->transcript.len,
-                                     &a->messages) != 0) {
+                                     &a->messages) != 0)
+        {
             char *legacy_text = transcript_rendered_text(a, &a->transcript);
             (void)agent_message_ledger_add(
                 &a->messages, AGENT_MESSAGE_LEGACY, "legacy",
@@ -1674,28 +2045,29 @@ static int store_load(agent_state *a, const char *name) {
         }
         bool checkpoint_ready = false;
         int checkpoint_load_rc = 1;
-        if (a->session) {
+        if (a->session)
+        {
             qw3_session_invalidate(a->session);
-            if (!(have_meta && meta.stripped)) {
+            if (!(have_meta && meta.stripped))
+            {
                 char checkpoint_err[256] = {0};
                 checkpoint_load_rc = store_read_checkpoint_path(
                     a, checkpoint_path, &a->transcript,
                     checkpoint_err, sizeof(checkpoint_err));
                 checkpoint_ready = checkpoint_load_rc == 0;
-                if (checkpoint_load_rc < 0) {
+                if (checkpoint_load_rc < 0)
+                {
                     agent_statusf(a,
                                   "agent: ignoring incompatible KV checkpoint "
                                   "(%s); transcript will rebuild\n",
-                                  checkpoint_err[0] ? checkpoint_err :
-                                  "state import failed");
+                                  checkpoint_err[0] ? checkpoint_err : "state import failed");
                 }
             }
         }
         agent_trace_begin(a, "checkpoint_load");
         agent_trace_string(a, "session", name);
         agent_trace_string(a, "result",
-                           checkpoint_ready ? "resumed" :
-                           (checkpoint_load_rc < 0 ? "rejected" : "missing"));
+                           checkpoint_ready ? "resumed" : (checkpoint_load_rc < 0 ? "rejected" : "missing"));
         agent_trace_i64(a, "tokens", a->transcript.len);
         agent_trace_end(a);
         agent_clear_session_meta(a);
@@ -1705,11 +2077,12 @@ static int store_load(agent_state *a, const char *name) {
         a->session_created = have_meta && meta.created ? meta.created : time(NULL);
         a->session_updated = have_meta && meta.updated ? meta.updated : time(NULL);
         a->session_stripped = have_meta ? meta.stripped : false;
+        if (qw3_engine_is_inkling(a->engine) && !agent_refresh_inkling_preamble(a))
+            agent_statusf(a, "agent: Inkling session kept its saved chat preamble\n");
         agent_statusf(a, "agent: switched to %s (%d tokens%s%s)\n",
                       a->session_id ? a->session_id : name, a->transcript.len,
                       a->session_stripped ? ", stripped/rebuilt" : "",
-                      checkpoint_ready ? ", KV resumed" :
-                                         ", rebuild pending");
+                      checkpoint_ready ? ", KV resumed" : ", rebuild pending");
     }
     (void)saved_ctx;
     session_meta_free(&meta);
@@ -1721,7 +2094,8 @@ static int store_load(agent_state *a, const char *name) {
     return rc;
 }
 
-typedef struct {
+typedef struct
+{
     char *id;
     char *title;
     time_t updated;
@@ -1729,21 +2103,27 @@ typedef struct {
     bool stripped;
 } store_list_item;
 
-static int store_list_cmp(const void *a, const void *b) {
+static int store_list_cmp(const void *a, const void *b)
+{
     const store_list_item *ia = (const store_list_item *)a;
     const store_list_item *ib = (const store_list_item *)b;
-    if (ia->updated > ib->updated) return -1;
-    if (ia->updated < ib->updated) return 1;
+    if (ia->updated > ib->updated)
+        return -1;
+    if (ia->updated < ib->updated)
+        return 1;
     return strcmp(ia->id ? ia->id : "", ib->id ? ib->id : "");
 }
 
 static int store_list_add(store_list_item **items, int *len, int *cap,
                           const char *id, const char *title,
-                          time_t updated, int tokens, bool stripped) {
-    if (*len == *cap) {
+                          time_t updated, int tokens, bool stripped)
+{
+    if (*len == *cap)
+    {
         int nc = *cap ? *cap * 2 : 16;
         store_list_item *nv = realloc(*items, (size_t)nc * sizeof(*nv));
-        if (!nv) return -1;
+        if (!nv)
+            return -1;
         *items = nv;
         *cap = nc;
     }
@@ -1757,9 +2137,11 @@ static int store_list_add(store_list_item **items, int *len, int *cap,
     return it->id ? 0 : -1;
 }
 
-static void store_list(agent_state *a) {
+static void store_list(agent_state *a)
+{
     DIR *dir = opendir(a->cfg.store_dir);
-    if (!dir) {
+    if (!dir)
+    {
         agent_statusf(a, "agent: cannot open store %s\n", a->cfg.store_dir);
         return;
     }
@@ -1767,14 +2149,17 @@ static void store_list(agent_state *a) {
     int len = 0;
     int cap = 0;
     struct dirent *de;
-    while ((de = readdir(dir)) != NULL) {
+    while ((de = readdir(dir)) != NULL)
+    {
         size_t n = strlen(de->d_name);
-        if (n > 5 && strcmp(de->d_name + n - 5, ".meta") == 0) {
+        if (n > 5 && strcmp(de->d_name + n - 5, ".meta") == 0)
+        {
             char id[256];
             snprintf(id, sizeof(id), "%.*s", (int)(n - 5), de->d_name);
             char *mp = path_join(a->cfg.store_dir, de->d_name);
             agent_session_meta meta = {0};
-            if (mp && session_meta_read_path(mp, &meta) == 0) {
+            if (mp && session_meta_read_path(mp, &meta) == 0)
+            {
                 store_list_add(&items, &len, &cap,
                                meta.id ? meta.id : id,
                                meta.title ? meta.title : id,
@@ -1782,18 +2167,22 @@ static void store_list(agent_state *a) {
             }
             session_meta_free(&meta);
             free(mp);
-        } else if (n > 5 && strcmp(de->d_name + n - 5, ".qw3a") == 0) {
+        }
+        else if (n > 5 && strcmp(de->d_name + n - 5, ".qw3a") == 0)
+        {
             char id[256];
             snprintf(id, sizeof(id), "%.*s", (int)(n - 5), de->d_name);
             char *mp = store_meta_path(a, id);
             struct stat mst;
-            if (mp && stat(mp, &mst) != 0) {
+            if (mp && stat(mp, &mst) != 0)
+            {
                 char *tp = path_join(a->cfg.store_dir, de->d_name);
                 struct stat tst;
                 qw3_tokens toks = {0};
                 uint32_t saved_ctx = 0;
                 if (tp && stat(tp, &tst) == 0 &&
-                    store_read_tokens_path(tp, &toks, &saved_ctx) == 0) {
+                    store_read_tokens_path(tp, &toks, &saved_ctx) == 0)
+                {
                     store_list_add(&items, &len, &cap, id, id,
                                    tst.st_mtime, toks.len, false);
                     qw3_tokens_free(&toks);
@@ -1806,7 +2195,8 @@ static void store_list(agent_state *a) {
     closedir(dir);
     qsort(items, (size_t)len, sizeof(*items), store_list_cmp);
     agent_statusf(a, "sessions in %s\n", a->cfg.store_dir);
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < len; i++)
+    {
         char tb[32];
         struct tm tmv;
         localtime_r(&items[i].updated, &tmv);
@@ -1819,23 +2209,28 @@ static void store_list(agent_state *a) {
         free(items[i].id);
         free(items[i].title);
     }
-    if (len == 0) agent_statusf(a, "  (none)\n");
+    if (len == 0)
+        agent_statusf(a, "  (none)\n");
     free(items);
 }
 
-static bool store_current_id_matches(agent_state *a, const char *id) {
+static bool store_current_id_matches(agent_state *a, const char *id)
+{
     return a && a->session_id && id && !strcmp(a->session_id, id);
 }
 
-static int store_delete(agent_state *a, const char *name) {
-    if (!name || !name[0]) return -1;
+static int store_delete(agent_state *a, const char *name)
+{
+    if (!name || !name[0])
+        return -1;
     char *token_path = store_path(a, name);
     char *meta_path = store_meta_path(a, name);
     char *text_path = store_text_path(a, name);
     char *messages_path = store_messages_path(a, name);
     char *checkpoint_path = store_checkpoint_path(a, name);
     if (!token_path || !meta_path || !text_path || !messages_path ||
-        !checkpoint_path) {
+        !checkpoint_path)
+    {
         free(token_path);
         free(meta_path);
         free(text_path);
@@ -1844,21 +2239,28 @@ static int store_delete(agent_state *a, const char *name) {
         return -1;
     }
     int removed = 0;
-    if (unlink(token_path) == 0) removed++;
-    if (unlink(meta_path) == 0) removed++;
-    if (unlink(text_path) == 0) removed++;
-    if (unlink(messages_path) == 0) removed++;
-    if (unlink(checkpoint_path) == 0) removed++;
+    if (unlink(token_path) == 0)
+        removed++;
+    if (unlink(meta_path) == 0)
+        removed++;
+    if (unlink(text_path) == 0)
+        removed++;
+    if (unlink(messages_path) == 0)
+        removed++;
+    if (unlink(checkpoint_path) == 0)
+        removed++;
     free(token_path);
     free(meta_path);
     free(text_path);
     free(messages_path);
     free(checkpoint_path);
-    if (removed == 0) {
+    if (removed == 0)
+    {
         agent_statusf(a, "agent: no session files for %s\n", name);
         return -1;
     }
-    if (store_current_id_matches(a, name)) {
+    if (store_current_id_matches(a, name))
+    {
         agent_init_transcript(a);
         agent_clear_session_meta(a);
         (void)agent_prepare_prefix_cache(a);
@@ -1867,9 +2269,16 @@ static int store_delete(agent_state *a, const char *name) {
     return 0;
 }
 
-static int store_strip(agent_state *a, const char *name) {
+static int store_strip(agent_state *a, const char *name)
+{
+    if (qw3_engine_is_inkling(a->engine))
+    {
+        agent_statusf(a, "agent: Inkling history requires the original token file\n");
+        return -1;
+    }
     const char *id = (name && name[0]) ? name : a->session_id;
-    if (!id || !id[0]) {
+    if (!id || !id[0])
+    {
         agent_statusf(a, "agent: /strip needs a session id\n");
         return -1;
     }
@@ -1879,7 +2288,8 @@ static int store_strip(agent_state *a, const char *name) {
     char *messages_path = store_messages_path(a, id);
     char *checkpoint_path = store_checkpoint_path(a, id);
     if (!token_path || !meta_path || !text_path || !messages_path ||
-        !checkpoint_path) {
+        !checkpoint_path)
+    {
         free(token_path);
         free(meta_path);
         free(text_path);
@@ -1892,48 +2302,61 @@ static int store_strip(agent_state *a, const char *name) {
     int have_meta = session_meta_read_path(meta_path, &meta) == 0;
     int rc = 0;
 
-    if (store_current_id_matches(a, id)) {
+    if (store_current_id_matches(a, id))
+    {
         char *rendered = transcript_rendered_text(a, &a->transcript);
         rc = rendered ? write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
         free(rendered);
-        if (rc == 0) {
+        if (rc == 0)
+        {
             rc = store_write_messages_path(messages_path, &a->messages);
         }
-        if (!have_meta) {
+        if (!have_meta)
+        {
             meta.id = agent_strdup(id);
             meta.title = agent_strdup(a->session_title ? a->session_title : id);
             meta.created = a->session_created ? a->session_created : time(NULL);
         }
         meta.tokens = a->transcript.len;
-    } else {
+    }
+    else
+    {
         struct stat st;
-        if (stat(text_path, &st) != 0 || st.st_size == 0) {
+        if (stat(text_path, &st) != 0 || st.st_size == 0)
+        {
             qw3_tokens toks = {0};
             uint32_t saved_ctx = 0;
-            if (store_read_tokens_path(token_path, &toks, &saved_ctx) == 0) {
+            if (store_read_tokens_path(token_path, &toks, &saved_ctx) == 0)
+            {
                 char *rendered = transcript_rendered_text(a, &toks);
-                rc = rendered ?
-                    write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
+                rc = rendered ? write_file_bytes(text_path, rendered, strlen(rendered)) : -1;
                 free(rendered);
-                if (!have_meta) {
+                if (!have_meta)
+                {
                     meta.id = agent_strdup(id);
                     meta.title = agent_strdup(id);
                     meta.created = time(NULL);
                     meta.tokens = toks.len;
                 }
                 qw3_tokens_free(&toks);
-            } else {
+            }
+            else
+            {
                 rc = -1;
             }
         }
     }
 
-    if (rc == 0) {
+    if (rc == 0)
+    {
         (void)unlink(token_path);
         (void)unlink(checkpoint_path);
-        if (!meta.id) meta.id = agent_strdup(id);
-        if (!meta.title) meta.title = agent_strdup(id);
-        if (!meta.created) meta.created = time(NULL);
+        if (!meta.id)
+            meta.id = agent_strdup(id);
+        if (!meta.title)
+            meta.title = agent_strdup(id);
+        if (!meta.created)
+            meta.created = time(NULL);
         meta.updated = time(NULL);
         agent_set_owned(&meta.model, a->cfg.model_path);
         agent_set_owned(&meta.backend, qw3_backend_name(a->cfg.backend));
@@ -1943,13 +2366,17 @@ static int store_strip(agent_state *a, const char *name) {
         meta.stripped = true;
         rc = session_meta_write_path(meta_path, &meta);
     }
-    if (rc == 0 && store_current_id_matches(a, id)) {
+    if (rc == 0 && store_current_id_matches(a, id))
+    {
         a->session_stripped = true;
         a->session_updated = meta.updated;
     }
-    if (rc == 0) {
+    if (rc == 0)
+    {
         agent_statusf(a, "agent: stripped %s\n", id);
-    } else {
+    }
+    else
+    {
         agent_statusf(a, "agent: cannot strip %s\n", id);
     }
     session_meta_free(&meta);
@@ -1961,27 +2388,32 @@ static int store_strip(agent_state *a, const char *name) {
     return rc;
 }
 
-static int utf8_read_cp(const char *s, size_t len, size_t *pos, uint32_t *cp) {
+static int utf8_read_cp(const char *s, size_t len, size_t *pos, uint32_t *cp)
+{
     unsigned char c = (unsigned char)s[*pos];
-    if (c < 0x80) {
+    if (c < 0x80)
+    {
         *cp = c;
         (*pos)++;
         return 1;
     }
-    if ((c & 0xe0) == 0xc0 && *pos + 1 < len) {
+    if ((c & 0xe0) == 0xc0 && *pos + 1 < len)
+    {
         *cp = ((uint32_t)(c & 0x1f) << 6) |
               ((uint32_t)((unsigned char)s[*pos + 1] & 0x3f));
         *pos += 2;
         return 1;
     }
-    if ((c & 0xf0) == 0xe0 && *pos + 2 < len) {
+    if ((c & 0xf0) == 0xe0 && *pos + 2 < len)
+    {
         *cp = ((uint32_t)(c & 0x0f) << 12) |
               ((uint32_t)((unsigned char)s[*pos + 1] & 0x3f) << 6) |
               ((uint32_t)((unsigned char)s[*pos + 2] & 0x3f));
         *pos += 3;
         return 1;
     }
-    if ((c & 0xf8) == 0xf0 && *pos + 3 < len) {
+    if ((c & 0xf8) == 0xf0 && *pos + 3 < len)
+    {
         *cp = ((uint32_t)(c & 0x07) << 18) |
               ((uint32_t)((unsigned char)s[*pos + 1] & 0x3f) << 12) |
               ((uint32_t)((unsigned char)s[*pos + 2] & 0x3f) << 6) |
@@ -1994,19 +2426,25 @@ static int utf8_read_cp(const char *s, size_t len, size_t *pos, uint32_t *cp) {
     return 0;
 }
 
-static int gpt2_codepoint_to_byte(uint32_t cp, unsigned char *out) {
-    if ((cp >= 33 && cp <= 126) || (cp >= 161 && cp <= 172) || cp >= 174) {
-        if (cp <= 255) {
+static int gpt2_codepoint_to_byte(uint32_t cp, unsigned char *out)
+{
+    if ((cp >= 33 && cp <= 126) || (cp >= 161 && cp <= 172) || cp >= 174)
+    {
+        if (cp <= 255)
+        {
             *out = (unsigned char)cp;
             return 1;
         }
     }
     uint32_t n = 0;
-    for (uint32_t b = 0; b < 256; b++) {
-        if ((b >= 33 && b <= 126) || (b >= 161 && b <= 172) || b >= 174) {
+    for (uint32_t b = 0; b < 256; b++)
+    {
+        if ((b >= 33 && b <= 126) || (b >= 161 && b <= 172) || b >= 174)
+        {
             continue;
         }
-        if (cp == 256 + n) {
+        if (cp == 256 + n)
+        {
             *out = (unsigned char)b;
             return 1;
         }
@@ -2015,29 +2453,38 @@ static int gpt2_codepoint_to_byte(uint32_t cp, unsigned char *out) {
     return 0;
 }
 
-static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len) {
+static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len)
+{
     size_t raw_len = 0;
     char *raw = qw3_token_text(engine, token, &raw_len);
-    if (!raw) {
-        if (out_len) *out_len = 0;
+    if (!raw)
+    {
+        if (out_len)
+            *out_len = 0;
         return NULL;
     }
     char *out = malloc(raw_len + 1);
-    if (!out) {
+    if (!out)
+    {
         free(raw);
-        if (out_len) *out_len = 0;
+        if (out_len)
+            *out_len = 0;
         return NULL;
     }
     size_t ip = 0;
     size_t op = 0;
-    while (ip < raw_len) {
+    while (ip < raw_len)
+    {
         uint32_t cp = 0;
         size_t before = ip;
         utf8_read_cp(raw, raw_len, &ip, &cp);
         unsigned char b = 0;
-        if (gpt2_codepoint_to_byte(cp, &b)) {
+        if (gpt2_codepoint_to_byte(cp, &b))
+        {
             out[op++] = (char)b;
-        } else {
+        }
+        else
+        {
             size_t n = ip - before;
             memcpy(out + op, raw + before, n);
             op += n;
@@ -2045,101 +2492,138 @@ static char *token_decoded_text(qw3_engine *engine, int token, size_t *out_len) 
     }
     out[op] = '\0';
     free(raw);
-    if (out_len) *out_len = op;
+    if (out_len)
+        *out_len = op;
     return out;
 }
 
-static char *xml_unescape(const char *s, size_t n) {
+static char *xml_unescape(const char *s, size_t n)
+{
     strbuf out;
     sb_init(&out);
-    for (size_t i = 0; i < n;) {
-        if (i + 5 <= n && !memcmp(s + i, "&amp;", 5)) {
+    for (size_t i = 0; i < n;)
+    {
+        if (i + 5 <= n && !memcmp(s + i, "&amp;", 5))
+        {
             sb_append_n(&out, "&", 1);
             i += 5;
-        } else if (i + 4 <= n && !memcmp(s + i, "&lt;", 4)) {
+        }
+        else if (i + 4 <= n && !memcmp(s + i, "&lt;", 4))
+        {
             sb_append_n(&out, "<", 1);
             i += 4;
-        } else if (i + 4 <= n && !memcmp(s + i, "&gt;", 4)) {
+        }
+        else if (i + 4 <= n && !memcmp(s + i, "&gt;", 4))
+        {
             sb_append_n(&out, ">", 1);
             i += 4;
-        } else if (i + 6 <= n && !memcmp(s + i, "&quot;", 6)) {
+        }
+        else if (i + 6 <= n && !memcmp(s + i, "&quot;", 6))
+        {
             sb_append_n(&out, "\"", 1);
             i += 6;
-        } else if (i + 6 <= n && !memcmp(s + i, "&apos;", 6)) {
+        }
+        else if (i + 6 <= n && !memcmp(s + i, "&apos;", 6))
+        {
             sb_append_n(&out, "'", 1);
             i += 6;
-        } else {
+        }
+        else
+        {
             sb_append_n(&out, s + i, 1);
             i++;
         }
     }
-    if (!out.p) return agent_strdup("");
+    if (!out.p)
+        return agent_strdup("");
     return out.p;
 }
 
-static char *read_attr(const char *tag, const char *name) {
+static char *read_attr(const char *tag, const char *name)
+{
     const char *gt = strchr(tag, '>');
-    if (!gt) return NULL;
+    if (!gt)
+        return NULL;
     char pat[96];
     snprintf(pat, sizeof(pat), "%s=\"", name);
     const char *p = strstr(tag, pat);
-    if (!p || p > gt) return NULL;
+    if (!p || p > gt)
+        return NULL;
     p += strlen(pat);
     const char *e = strchr(p, '"');
-    if (!e || e > gt) return NULL;
+    if (!e || e > gt)
+        return NULL;
     return xml_unescape(p, (size_t)(e - p));
 }
 
-static const char *tool_param_value(const tool_call *call, const char *name) {
-    for (int i = 0; i < call->n_params; i++) {
-        if (!strcmp(call->params[i].name, name)) return call->params[i].value;
+static const char *tool_param_value(const tool_call *call, const char *name)
+{
+    for (int i = 0; i < call->n_params; i++)
+    {
+        if (!strcmp(call->params[i].name, name))
+            return call->params[i].value;
     }
     return NULL;
 }
 
-static void free_tool_calls(tool_call_list *list) {
-    for (int i = 0; i < list->n_calls; i++) {
-        for (int j = 0; j < list->calls[i].n_params; j++) {
+static void free_tool_calls(tool_call_list *list)
+{
+    for (int i = 0; i < list->n_calls; i++)
+    {
+        for (int j = 0; j < list->calls[i].n_params; j++)
+        {
             free(list->calls[i].params[j].value);
         }
     }
     memset(list, 0, sizeof(*list));
 }
 
-static int parse_tool_calls(const char *text, tool_call_list *out) {
+static int parse_tool_calls(const char *text, tool_call_list *out)
+{
     memset(out, 0, sizeof(*out));
     const char *begin = strstr(text, DSML_BEGIN);
     const char *end_block = begin ? strstr(begin, DSML_END) : NULL;
-    if (!begin || !end_block) return 0;
+    if (!begin || !end_block)
+        return 0;
 
     const char *p = begin;
-    while (p < end_block && out->n_calls < 8) {
+    while (p < end_block && out->n_calls < 8)
+    {
         const char *inv = strstr(p, DSML_INVOKE);
-        if (!inv || inv >= end_block) break;
+        if (!inv || inv >= end_block)
+            break;
         const char *tag_end = strchr(inv, '>');
         const char *inv_end = tag_end ? strstr(tag_end, DSML_INVOKE_CLOSE) : NULL;
-        if (!tag_end || !inv_end || inv_end > end_block) break;
+        if (!tag_end || !inv_end || inv_end > end_block)
+            break;
 
         tool_call *call = &out->calls[out->n_calls];
         char *name = read_attr(inv, "name");
-        if (name && name[0]) {
+        if (name && name[0])
+        {
             snprintf(call->name, sizeof(call->name), "%s", name);
             free(name);
-        } else {
+        }
+        else
+        {
             free(name);
             p = inv_end + strlen(DSML_INVOKE_CLOSE);
             continue;
         }
 
         const char *q = tag_end + 1;
-        while (q < inv_end && call->n_params < 16) {
+        while (q < inv_end && call->n_params < 16)
+        {
             const char *pa = strstr(q, DSML_PARAM);
-            if (!pa || pa >= inv_end) break;
+            if (!pa || pa >= inv_end)
+                break;
             const char *pa_tag_end = strchr(pa, '>');
             const char *pa_end = pa_tag_end ? strstr(pa_tag_end, DSML_PARAM_CLOSE) : NULL;
-            if (!pa_tag_end || !pa_end || pa_end > inv_end) break;
+            if (!pa_tag_end || !pa_end || pa_end > inv_end)
+                break;
             char *pname = read_attr(pa, "name");
-            if (pname && pname[0]) {
+            if (pname && pname[0])
+            {
                 tool_param *tp = &call->params[call->n_params++];
                 snprintf(tp->name, sizeof(tp->name), "%s", pname);
                 tp->value = xml_unescape(pa_tag_end + 1,
@@ -2154,139 +2638,391 @@ static int parse_tool_calls(const char *text, tool_call_list *out) {
     return out->n_calls;
 }
 
-static const char *skip_space(const char *p, const char *end) {
-    while (p < end && isspace((unsigned char)*p)) p++;
+static const char *skip_space(const char *p, const char *end)
+{
+    while (p < end && isspace((unsigned char)*p))
+        p++;
     return p;
 }
 
-static char *parse_jsonish_atom(const char **pp, const char *end) {
+static char *parse_jsonish_atom(const char **pp, const char *end)
+{
     const char *p = skip_space(*pp, end);
-    if (p < end && *p == '"') {
+    if (p < end && *p == '"')
+    {
         p++;
         strbuf out;
         sb_init(&out);
-        while (p < end && *p != '"') {
-            if (*p == '\\' && p + 1 < end) {
+        while (p < end && *p != '"')
+        {
+            if (*p == '\\' && p + 1 < end)
+            {
                 p++;
-                if (*p == 'n') sb_append_n(&out, "\n", 1);
-                else if (*p == 'r') sb_append_n(&out, "\r", 1);
-                else if (*p == 't') sb_append_n(&out, "\t", 1);
-                else sb_append_n(&out, p, 1);
+                if (*p == 'n')
+                    sb_append_n(&out, "\n", 1);
+                else if (*p == 'r')
+                    sb_append_n(&out, "\r", 1);
+                else if (*p == 't')
+                    sb_append_n(&out, "\t", 1);
+                else
+                    sb_append_n(&out, p, 1);
                 p++;
-            } else {
+            }
+            else
+            {
                 sb_append_n(&out, p++, 1);
             }
         }
-        if (p < end && *p == '"') p++;
+        if (p < end && *p == '"')
+            p++;
         *pp = p;
         return out.p ? out.p : agent_strdup("");
     }
     const char *q = p;
-    while (q < end && *q != ',' && *q != '}') q++;
+    while (q < end && *q != ',' && *q != '}')
+        q++;
     const char *r = q;
-    while (r > p && isspace((unsigned char)r[-1])) r--;
+    while (r > p && isspace((unsigned char)r[-1]))
+        r--;
     *pp = q;
     return xml_unescape(p, (size_t)(r - p));
 }
 
-static const char *jsonish_object_end(const char *start) {
-    if (!start || *start != '{') return NULL;
+static const char *jsonish_object_end(const char *start)
+{
+    if (!start || *start != '{')
+        return NULL;
     int depth = 0;
     bool in_string = false;
     bool esc = false;
-    for (const char *p = start; *p; p++) {
-        if (in_string) {
-            if (esc) esc = false;
-            else if (*p == '\\') esc = true;
-            else if (*p == '"') in_string = false;
+    for (const char *p = start; *p; p++)
+    {
+        if (in_string)
+        {
+            if (esc)
+                esc = false;
+            else if (*p == '\\')
+                esc = true;
+            else if (*p == '"')
+                in_string = false;
             continue;
         }
-        if (*p == '"') {
+        if (*p == '"')
+        {
             in_string = true;
-        } else if (*p == '{') {
+        }
+        else if (*p == '{')
+        {
             depth++;
-        } else if (*p == '}') {
+        }
+        else if (*p == '}')
+        {
             depth--;
-            if (depth == 0) return p;
+            if (depth == 0)
+                return p;
         }
     }
     return NULL;
 }
 
-static const char *jsonish_payload_start(const char *text, const char *end) {
+static const char *jsonish_payload_start(const char *text, const char *end)
+{
     const char *p = skip_space(text ? text : "", end);
-    if (p + 3 <= end && !strncmp(p, "```", 3)) {
+    if (p + 3 <= end && !strncmp(p, "```", 3))
+    {
         p += 3;
-        while (p < end && *p != '\n' && *p != '\r') p++;
-        while (p < end && (*p == '\n' || *p == '\r')) p++;
+        while (p < end && *p != '\n' && *p != '\r')
+            p++;
+        while (p < end && (*p == '\n' || *p == '\r'))
+            p++;
         p = skip_space(p, end);
     }
     return p;
 }
 
-static void infer_tool_name_from_params(tool_call *call) {
-    if (call->name[0]) return;
-    if (tool_param_value(call, "cmd") || tool_param_value(call, "command")) {
+static void infer_tool_name_from_params(tool_call *call)
+{
+    if (call->name[0])
+        return;
+    if (tool_param_value(call, "cmd") || tool_param_value(call, "command"))
+    {
         snprintf(call->name, sizeof(call->name), "bash");
-    } else if (tool_param_value(call, "url")) {
+    }
+    else if (tool_param_value(call, "url"))
+    {
         snprintf(call->name, sizeof(call->name), "visit_url");
-    } else if (tool_param_value(call, "function_name") ||
-               tool_param_value(call, "symbol")) {
+    }
+    else if (tool_param_value(call, "function_name") ||
+             tool_param_value(call, "symbol"))
+    {
         snprintf(call->name, sizeof(call->name), "get_function");
-    } else if (tool_param_value(call, "query")) {
+    }
+    else if (tool_param_value(call, "query"))
+    {
         snprintf(call->name, sizeof(call->name), "semantic_search");
-    } else if (tool_param_value(call, "pattern")) {
+    }
+    else if (tool_param_value(call, "pattern"))
+    {
         snprintf(call->name, sizeof(call->name), "search");
-    } else if (tool_param_value(call, "old") && tool_param_value(call, "new")) {
+    }
+    else if (tool_param_value(call, "old") && tool_param_value(call, "new"))
+    {
         snprintf(call->name, sizeof(call->name), "edit");
-    } else if (tool_param_value(call, "content")) {
+    }
+    else if (tool_param_value(call, "content"))
+    {
         snprintf(call->name, sizeof(call->name), "write");
-    } else if (tool_param_value(call, "depth") || tool_param_value(call, "max")) {
+    }
+    else if (tool_param_value(call, "depth") || tool_param_value(call, "max"))
+    {
         snprintf(call->name, sizeof(call->name), "list");
-    } else if (tool_param_value(call, "path")) {
+    }
+    else if (tool_param_value(call, "path"))
+    {
         snprintf(call->name, sizeof(call->name), "read");
     }
 }
 
 static const char *native_shorthand_tools[] = {
-    "read", "more", "list", "get_skeleton", "get_function", "get_fucttion",
-    "semantic_search", "search_web", "visit_url", "search", "write",
-    "edit", "bash",
+    "read",
+    "more",
+    "list",
+    "get_skeleton",
+    "get_function",
+    "get_fucttion",
+    "semantic_search",
+    "search_web",
+    "visit_url",
+    "search",
+    "write",
+    "edit",
+    "bash",
 };
 
-static bool native_tool_name_is_known(const char *name, size_t len) {
-    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+static bool native_tool_name_is_known(const char *name, size_t len)
+{
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++)
+    {
         if (strlen(native_shorthand_tools[i]) == len &&
-            !strncmp(native_shorthand_tools[i], name, len)) {
+            !strncmp(native_shorthand_tools[i], name, len))
+        {
             return true;
         }
     }
     return false;
 }
 
-static void clear_tool_call(tool_call *call) {
-    if (!call) return;
-    for (int i = 0; i < call->n_params; i++) free(call->params[i].value);
+static void clear_tool_call(tool_call *call)
+{
+    if (!call)
+        return;
+    for (int i = 0; i < call->n_params; i++)
+        free(call->params[i].value);
     memset(call, 0, sizeof(*call));
 }
 
+static bool inkling_json_codepoint(const char **p, unsigned *cp)
+{
+    *cp = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        unsigned char c = (unsigned char)*(*p);
+        if (!isxdigit(c))
+            return false;
+        *cp = *cp * 16 + (isdigit(c) ? c - '0' : tolower(c) - 'a' + 10);
+        (*p)++;
+    }
+    return true;
+}
+
+static char *inkling_json_string(const char **p)
+{
+    if (**p != '"')
+        return NULL;
+    (*p)++;
+    strbuf s = {0};
+    while (**p && **p != '"')
+    {
+        unsigned char c = (unsigned char)*(*p)++;
+        if (c < 0x20)
+            goto invalid;
+        if (c == '\\')
+        {
+            c = (unsigned char)**p;
+            if (!c)
+                goto invalid;
+            (*p)++;
+            const char *escapes = "\"\\/bfnrt";
+            const char *e = strchr(escapes, c);
+            if (e)
+                c = "\"\\/\b\f\n\r\t"[e - escapes];
+            else if (c == 'u')
+            {
+                unsigned cp;
+                if (!inkling_json_codepoint(p, &cp) || cp == 0)
+                    goto invalid;
+                if (cp >= 0xd800 && cp <= 0xdbff)
+                {
+                    unsigned low;
+                    if (strncmp(*p, "\\u", 2))
+                        goto invalid;
+                    *p += 2;
+                    if (!inkling_json_codepoint(p, &low) || low < 0xdc00 || low > 0xdfff)
+                        goto invalid;
+                    cp = 0x10000 + ((cp - 0xd800) << 10) + (low - 0xdc00);
+                }
+                else if (cp >= 0xdc00 && cp <= 0xdfff)
+                    goto invalid;
+                char bytes[4];
+                int n = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+                for (int i = n - 1; i > 0; i--)
+                {
+                    bytes[i] = (char)(0x80 | (cp & 0x3f));
+                    cp >>= 6;
+                }
+                bytes[0] = (char)(cp | (n == 1 ? 0 : n == 2 ? 0xc0 : n == 3 ? 0xe0 : 0xf0));
+                sb_append_n(&s, bytes, (size_t)n);
+                continue;
+            }
+            else
+                goto invalid;
+        }
+        char byte = (char)c;
+        sb_append_n(&s, &byte, 1);
+    }
+    if (**p != '"')
+        goto invalid;
+    (*p)++;
+    return s.p ? s.p : agent_strdup("");
+invalid:
+    sb_free(&s);
+    return NULL;
+}
+
+static char *inkling_json_arg(const char **p)
+{
+    if (**p == '"')
+        return inkling_json_string(p);
+    const char *start = *p;
+    if (!strncmp(start, "true", 4))
+        *p += 4;
+    else if (!strncmp(start, "false", 5))
+        *p += 5;
+    else
+    {
+        if (**p == '-')
+            (*p)++;
+        if (!isdigit((unsigned char)**p))
+            return NULL;
+        if (**p == '0')
+            (*p)++;
+        else
+            while (isdigit((unsigned char)**p))
+                (*p)++;
+    }
+    return strndup(start, (size_t)(*p - start));
+}
+
+static bool parse_inkling_tool_call(const char *speaker, const char *json,
+                                    tool_call_list *calls)
+{
+    if (!speaker || !json || calls->n_calls >= 8 ||
+        !native_tool_name_is_known(speaker, strlen(speaker)))
+        return false;
+    const char *end = json + strlen(json);
+    const char *p = skip_space(json, end);
+    if (*p++ != '{')
+        return false;
+    p = skip_space(p, end);
+    char *key = inkling_json_string(&p);
+    bool name_key = key && !strcmp(key, "name");
+    free(key);
+    p = skip_space(p, end);
+    if (!name_key || *p++ != ':')
+        return false;
+    p = skip_space(p, end);
+    char *name = inkling_json_string(&p);
+    bool matches = name && !strcmp(name, speaker);
+    free(name);
+    p = skip_space(p, end);
+    if (!matches || *p++ != ',')
+        return false;
+    p = skip_space(p, end);
+    key = inkling_json_string(&p);
+    bool args_key = key && !strcmp(key, "args");
+    free(key);
+    p = skip_space(p, end);
+    if (!args_key || *p++ != ':')
+        return false;
+    p = skip_space(p, end);
+    if (*p++ != '{')
+        return false;
+
+    tool_call *call = &calls->calls[calls->n_calls];
+    p = skip_space(p, end);
+    if (*p != '}')
+    {
+        for (;;)
+        {
+            key = inkling_json_string(&p);
+            p = skip_space(p, end);
+            if (!key || !*key || call->n_params >= 16 ||
+                strlen(key) >= sizeof(call->params[0].name) ||
+                tool_param_value(call, key) || *p++ != ':')
+            {
+                free(key);
+                goto invalid;
+            }
+            tool_param *param = &call->params[call->n_params++];
+            snprintf(param->name, sizeof(param->name), "%s", key);
+            free(key);
+            p = skip_space(p, end);
+            param->value = inkling_json_arg(&p);
+            if (!param->value)
+                goto invalid;
+            p = skip_space(p, end);
+            if (*p != ',')
+                break;
+            p = skip_space(p + 1, end);
+        }
+    }
+    if (*p++ != '}')
+        goto invalid;
+    p = skip_space(p, end);
+    if (*p != '}' || skip_space(p + 1, end) != end)
+        goto invalid;
+    snprintf(call->name, sizeof(call->name), "%s", speaker);
+    calls->n_calls++;
+    return true;
+invalid:
+    clear_tool_call(call);
+    return false;
+}
+
 static void parse_native_xml_params(const char *q, const char *end,
-                                    tool_call *call) {
-    while (q < end && call->n_params < 16) {
+                                    tool_call *call)
+{
+    while (q < end && call->n_params < 16)
+    {
         const char *pa = strstr(q, QWEN_XML_PARAMETER_BEGIN);
-        if (!pa || pa >= end) break;
+        if (!pa || pa >= end)
+            break;
         const char *pa_name = pa + strlen(QWEN_XML_PARAMETER_BEGIN);
         const char *pa_gt = strchr(pa_name, '>');
-        if (!pa_gt || pa_gt >= end) break;
+        if (!pa_gt || pa_gt >= end)
+            break;
         const char *pa_end = strstr(pa_gt + 1, QWEN_XML_PARAMETER_END);
-        if (!pa_end || pa_end > end) break;
+        if (!pa_end || pa_end > end)
+            break;
         tool_param *tp = &call->params[call->n_params++];
         snprintf(tp->name, sizeof(tp->name), "%.*s",
                  (int)(pa_gt - pa_name), pa_name);
         const char *val = pa_gt + 1;
-        while (val < pa_end && (*val == '\n' || *val == '\r')) val++;
+        while (val < pa_end && (*val == '\n' || *val == '\r'))
+            val++;
         const char *val_end = pa_end;
-        while (val_end > val && (val_end[-1] == '\n' || val_end[-1] == '\r')) {
+        while (val_end > val && (val_end[-1] == '\n' || val_end[-1] == '\r'))
+        {
             val_end--;
         }
         tp->value = xml_unescape(val, (size_t)(val_end - val));
@@ -2298,10 +3034,12 @@ static void parse_native_xml_params(const char *q, const char *end,
  * Recover that exact shape, not arbitrary bare parameters or guessed tools.
  * Every argument must be closed and unambiguous before execution. */
 static bool native_parameter_function_wrapper(const char *body,
-                                               const char *end) {
+                                              const char *end)
+{
     const size_t prefix_len = strlen(QWEN_XML_PARAMETER_BEGIN);
     if ((size_t)(end - body) < prefix_len ||
-        strncmp(body, QWEN_XML_PARAMETER_BEGIN, prefix_len)) return false;
+        strncmp(body, QWEN_XML_PARAMETER_BEGIN, prefix_len))
+        return false;
     const char *name = body + prefix_len;
     const char *gt = strchr(name, '>');
     return gt && gt < end &&
@@ -2309,8 +3047,10 @@ static bool native_parameter_function_wrapper(const char *body,
 }
 
 static bool parse_native_parameter_function(const char *body, const char *end,
-                                            tool_call *call) {
-    if (!native_parameter_function_wrapper(body, end)) return false;
+                                            tool_call *call)
+{
+    if (!native_parameter_function_wrapper(body, end))
+        return false;
     const char *name = body + strlen(QWEN_XML_PARAMETER_BEGIN);
     const char *gt = strchr(name, '>');
     const char *fn_end = strstr(gt + 1, QWEN_XML_FUNCTION_END);
@@ -2319,30 +3059,38 @@ static bool parse_native_parameter_function(const char *body, const char *end,
         return false;
     const char *q = skip_space(gt + 1, fn_end);
     int n_params = 0;
-    while (q < fn_end) {
+    while (q < fn_end)
+    {
         const size_t prefix_len = strlen(QWEN_XML_PARAMETER_BEGIN);
         if ((size_t)(fn_end - q) < prefix_len ||
             strncmp(q, QWEN_XML_PARAMETER_BEGIN, prefix_len) ||
-            n_params >= 16) return false;
+            n_params >= 16)
+            return false;
         const char *pa_name = q + prefix_len;
         const char *pa_gt = strchr(pa_name, '>');
         const char *pa_end = pa_gt ? strstr(pa_gt + 1, QWEN_XML_PARAMETER_END) : NULL;
         if (!pa_gt || pa_gt >= fn_end || pa_gt == pa_name ||
             (size_t)(pa_gt - pa_name) >= sizeof(call->params[0].name) ||
-            !pa_end || pa_end >= fn_end) return false;
+            !pa_end || pa_end >= fn_end)
+            return false;
         /* Literal nested parameter markup makes the boundary ambiguous;
          * escaped XML remains opaque data and is decoded only once below. */
         const char *nested = strstr(pa_gt + 1, QWEN_XML_PARAMETER_BEGIN);
-        if (nested && nested < pa_end) return false;
+        if (nested && nested < pa_end)
+            return false;
         n_params++;
         q = skip_space(pa_end + strlen(QWEN_XML_PARAMETER_END), fn_end);
     }
-    if (!n_params) return false;
+    if (!n_params)
+        return false;
     snprintf(call->name, sizeof(call->name), "%.*s", (int)(gt - name), name);
     parse_native_xml_params(gt + 1, fn_end, call);
-    for (int i = 0; i < call->n_params; i++) {
-        for (int j = 0; j < i; j++) {
-            if (!strcmp(call->params[i].name, call->params[j].name)) {
+    for (int i = 0; i < call->n_params; i++)
+    {
+        for (int j = 0; j < i; j++)
+        {
+            if (!strcmp(call->params[i].name, call->params[j].name))
+            {
                 clear_tool_call(call);
                 return false;
             }
@@ -2352,54 +3100,68 @@ static bool parse_native_parameter_function(const char *body, const char *end,
 }
 
 static int parse_native_parameter_functions(const char *text,
-                                            tool_call_list *out) {
+                                            tool_call_list *out)
+{
     const char *p = text ? text : "";
     const char *text_end = p + strlen(p);
-    while (out->n_calls < 8) {
+    while (out->n_calls < 8)
+    {
         const char *start = strstr(p, QWEN_XML_TOOL_CALL_BEGIN);
-        if (!start) break;
+        if (!start)
+            break;
         const char *body = start + strlen(QWEN_XML_TOOL_CALL_BEGIN);
         const char *next = strstr(body, QWEN_XML_TOOL_CALL_BEGIN);
         const char *close = strstr(body, QWEN_XML_TOOL_CALL_END);
         const char *end = close ? close : text_end;
-        if (next && next < end) end = next;
+        if (next && next < end)
+            end = next;
         body = skip_space(body, end);
         tool_call *call = &out->calls[out->n_calls];
-        if (parse_native_parameter_function(body, end, call)) {
+        if (parse_native_parameter_function(body, end, call))
+        {
             out->n_calls++;
             out->n_recovered++;
-        } else {
+        }
+        else
+        {
             if (native_parameter_function_wrapper(body, end))
                 out->n_rejected_wrappers++;
             clear_tool_call(call);
         }
-        if (!next) break;
+        if (!next)
+            break;
         p = next;
     }
     return out->n_calls;
 }
 
 static int parse_native_shorthand_tool_calls(const char *text,
-                                             tool_call_list *out) {
+                                             tool_call_list *out)
+{
     const char *p = text ? text : "";
-    while (out->n_calls < 8) {
+    while (out->n_calls < 8)
+    {
         const char *best = NULL;
         const char *best_name = NULL;
         size_t best_name_len = 0;
-        for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+        for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++)
+        {
             char marker[64];
             snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
             const char *hit = strstr(p, marker);
-            if (hit && (!best || hit < best)) {
+            if (hit && (!best || hit < best))
+            {
                 best = hit;
                 best_name = native_shorthand_tools[i];
                 best_name_len = strlen(native_shorthand_tools[i]);
             }
         }
-        if (!best) break;
+        if (!best)
+            break;
 
         const char *body = strchr(best, '>');
-        if (!body) break;
+        if (!body)
+            break;
         body++;
 
         char close_tag[80];
@@ -2407,95 +3169,124 @@ static int parse_native_shorthand_tool_calls(const char *text,
                  (int)best_name_len, best_name);
         const char *body_end = strstr(body, QWEN_XML_TOOL_CALL_END);
         const char *tag_end = strstr(body, close_tag);
-        if (tag_end && (!body_end || tag_end < body_end)) body_end = tag_end;
+        if (tag_end && (!body_end || tag_end < body_end))
+            body_end = tag_end;
         bool recovered_at_eos = false;
-        if (!body_end && strstr(body, QWEN_XML_PARAMETER_END)) {
+        if (!body_end && strstr(body, QWEN_XML_PARAMETER_END))
+        {
             body_end = text + strlen(text);
             recovered_at_eos = true;
         }
-        if (!body_end) break;
+        if (!body_end)
+            break;
 
         tool_call *call = &out->calls[out->n_calls];
         snprintf(call->name, sizeof(call->name), "%.*s",
                  (int)best_name_len, best_name);
         parse_native_xml_params(body, body_end, call);
         infer_tool_name_from_params(call);
-        if (call->name[0] && call->n_params > 0) {
+        if (call->name[0] && call->n_params > 0)
+        {
             out->n_calls++;
-        } else {
+        }
+        else
+        {
             clear_tool_call(call);
         }
-        if (recovered_at_eos) break;
+        if (recovered_at_eos)
+            break;
         p = body_end + 1;
     }
     return out->n_calls;
 }
 
 static void parse_jsonish_params_object(const char *start, const char *end,
-                                        tool_call *call) {
+                                        tool_call *call)
+{
     const char *p = start;
-    while (p < end && call->n_params < 16) {
+    while (p < end && call->n_params < 16)
+    {
         p = skip_space(p, end);
-        if (p >= end) break;
+        if (p >= end)
+            break;
         char *key = parse_jsonish_atom(&p, end);
-        if (!key || !key[0]) {
+        if (!key || !key[0])
+        {
             free(key);
             break;
         }
         p = skip_space(p, end);
-        if (p >= end || *p != ':') {
+        if (p >= end || *p != ':')
+        {
             free(key);
             break;
         }
         p++;
         p = skip_space(p, end);
-        if (p < end && *p == '{') {
+        if (p < end && *p == '{')
+        {
             const char *obj_end = jsonish_object_end(p);
-            if (!obj_end || obj_end > end) {
+            if (!obj_end || obj_end > end)
+            {
                 free(key);
                 break;
             }
             if (!strcmp(key, "arguments") || !strcmp(key, "parameters") ||
-                !strcmp(key, "args")) {
+                !strcmp(key, "args"))
+            {
                 parse_jsonish_params_object(p + 1, obj_end, call);
             }
             p = obj_end + 1;
             free(key);
-        } else {
+        }
+        else
+        {
             char *value = parse_jsonish_atom(&p, end);
             if (!strcmp(key, "name") || !strcmp(key, "tool") ||
-                !strcmp(key, "function")) {
+                !strcmp(key, "function"))
+            {
                 snprintf(call->name, sizeof(call->name), "%s",
                          value ? value : "");
                 free(key);
                 free(value);
-            } else if (strcmp(key, "type")) {
+            }
+            else if (strcmp(key, "type"))
+            {
                 tool_param *tp = &call->params[call->n_params++];
                 snprintf(tp->name, sizeof(tp->name), "%s", key);
                 tp->value = value ? value : agent_strdup("");
                 free(key);
-            } else {
+            }
+            else
+            {
                 free(key);
                 free(value);
             }
         }
         p = skip_space(p, end);
-        if (p < end && *p == ',') p++;
+        if (p < end && *p == ',')
+            p++;
     }
 }
 
-static int parse_jsonish_tool_call(const char *text, tool_call_list *out) {
-    if (!text) return 0;
+static int parse_jsonish_tool_call(const char *text, tool_call_list *out)
+{
+    if (!text)
+        return 0;
     const char *text_end = text + strlen(text);
     const char *start = jsonish_payload_start(text, text_end);
-    if (!start || start >= text_end || *start != '{') start = strchr(text, '{');
+    if (!start || start >= text_end || *start != '{')
+        start = strchr(text, '{');
     const char *end = start ? jsonish_object_end(start) : NULL;
-    if (!start || !end || out->n_calls >= 8) return 0;
+    if (!start || !end || out->n_calls >= 8)
+        return 0;
     tool_call *call = &out->calls[out->n_calls];
     parse_jsonish_params_object(start + 1, end, call);
     infer_tool_name_from_params(call);
-    if (!call->name[0]) {
-        for (int i = 0; i < call->n_params; i++) free(call->params[i].value);
+    if (!call->name[0])
+    {
+        for (int i = 0; i < call->n_params; i++)
+            free(call->params[i].value);
         memset(call, 0, sizeof(*call));
         return 0;
     }
@@ -2503,26 +3294,34 @@ static int parse_jsonish_tool_call(const char *text, tool_call_list *out) {
     return 1;
 }
 
-static int parse_native_function_blocks(const char *text, tool_call_list *out) {
+static int parse_native_function_blocks(const char *text, tool_call_list *out)
+{
     const char *p = text ? text : "";
     const size_t begin_len = strlen(QWEN_XML_FUNCTION_BEGIN);
     const size_t end_len = strlen(QWEN_XML_FUNCTION_END);
-    while (out->n_calls < 8) {
+    while (out->n_calls < 8)
+    {
         const char *fn = strstr(p, QWEN_XML_FUNCTION_BEGIN);
-        if (!fn) break;
+        if (!fn)
+            break;
         const char *name_start = fn + begin_len;
         const char *name_end = strchr(name_start, '>');
-        if (!name_end) break;
+        if (!name_end)
+            break;
         const char *fn_end = strstr(name_end + 1, QWEN_XML_FUNCTION_END);
-        if (!fn_end) break;
+        if (!fn_end)
+            break;
         tool_call *call = &out->calls[out->n_calls];
         snprintf(call->name, sizeof(call->name), "%.*s",
                  (int)(name_end - name_start), name_start);
         parse_native_xml_params(name_end + 1, fn_end, call);
         infer_tool_name_from_params(call);
-        if (call->name[0] && call->n_params > 0) {
+        if (call->name[0] && call->n_params > 0)
+        {
             out->n_calls++;
-        } else {
+        }
+        else
+        {
             clear_tool_call(call);
         }
         p = fn_end + end_len;
@@ -2530,25 +3329,33 @@ static int parse_native_function_blocks(const char *text, tool_call_list *out) {
     return out->n_calls;
 }
 
-static int parse_native_tool_calls(const char *text, tool_call_list *out) {
+static int parse_native_tool_calls(const char *text, tool_call_list *out)
+{
     memset(out, 0, sizeof(*out));
     const char *p = text ? text : "";
     size_t start_len = strlen(QWEN_XML_TOOL_CALL_BEGIN);
     size_t end_len = strlen(QWEN_XML_TOOL_CALL_END);
-    while (out->n_calls < 8) {
+    while (out->n_calls < 8)
+    {
         const char *start = strstr(p, QWEN_XML_TOOL_CALL_BEGIN);
-        if (!start) break;
+        if (!start)
+            break;
         const char *close = strstr(start + start_len, QWEN_XML_TOOL_CALL_END);
-        if (!close) break;
+        if (!close)
+            break;
         const char *body = start + start_len;
         const char *body_end = close;
         body = skip_space(body, body_end);
         tool_call *call = &out->calls[out->n_calls];
-        if (native_parameter_function_wrapper(body, body_end)) {
-            if (parse_native_parameter_function(body, body_end, call)) {
+        if (native_parameter_function_wrapper(body, body_end))
+        {
+            if (parse_native_parameter_function(body, body_end, call))
+            {
                 out->n_calls++;
                 out->n_recovered++;
-            } else {
+            }
+            else
+            {
                 out->n_rejected_wrappers++;
                 clear_tool_call(call);
             }
@@ -2559,25 +3366,31 @@ static int parse_native_tool_calls(const char *text, tool_call_list *out) {
         const char *fn_end = body_end;
         if ((size_t)(body_end - body) >= strlen(QWEN_XML_FUNCTION_BEGIN) &&
             strncmp(body, QWEN_XML_FUNCTION_BEGIN,
-                    strlen(QWEN_XML_FUNCTION_BEGIN)) == 0) {
+                    strlen(QWEN_XML_FUNCTION_BEGIN)) == 0)
+        {
             body += strlen(QWEN_XML_FUNCTION_BEGIN);
             const char *name_start = body;
             const char *name_end = strchr(body, '>');
-            if (!name_end || name_end >= body_end) {
+            if (!name_end || name_end >= body_end)
+            {
                 p = close + end_len;
                 continue;
             }
             snprintf(call->name, sizeof(call->name), "%.*s",
                      (int)(name_end - name_start), name_start);
             fn_end = strstr(name_end + 1, QWEN_XML_FUNCTION_END);
-            if (!fn_end || fn_end > body_end) fn_end = body_end;
+            if (!fn_end || fn_end > body_end)
+                fn_end = body_end;
             q = name_end + 1;
-        } else if (body < body_end && *body == '<' && body + 1 < body_end &&
-                   body[1] != '/' &&
-                   strncmp(body + 1, "parameter=", strlen("parameter=")) != 0) {
+        }
+        else if (body < body_end && *body == '<' && body + 1 < body_end &&
+                 body[1] != '/' &&
+                 strncmp(body + 1, "parameter=", strlen("parameter=")) != 0)
+        {
             const char *tag_end = strchr(body + 1, '>');
             if (tag_end && tag_end < body_end &&
-                native_tool_name_is_known(body + 1, (size_t)(tag_end - body - 1))) {
+                native_tool_name_is_known(body + 1, (size_t)(tag_end - body - 1)))
+            {
                 snprintf(call->name, sizeof(call->name), "%.*s",
                          (int)(tag_end - body - 1), body + 1);
                 q = tag_end + 1;
@@ -2585,67 +3398,89 @@ static int parse_native_tool_calls(const char *text, tool_call_list *out) {
         }
         parse_native_xml_params(q, fn_end, call);
         infer_tool_name_from_params(call);
-        if (call->name[0] && call->n_params > 0) {
+        if (call->name[0] && call->n_params > 0)
+        {
             out->n_calls++;
-        } else {
+        }
+        else
+        {
             clear_tool_call(call);
         }
         p = close + end_len;
     }
-    if (out->n_calls == 0) {
+    if (out->n_calls == 0)
+    {
         (void)parse_native_parameter_functions(text, out);
     }
     /* A rejected explicit wrapper must not become an inferred command from
      * a JSON object, example or nested function inside one of its arguments. */
-    if (out->n_calls == 0 && out->n_rejected_wrappers) return 0;
-    if (out->n_calls == 0) {
+    if (out->n_calls == 0 && out->n_rejected_wrappers)
+        return 0;
+    if (out->n_calls == 0)
+    {
         (void)parse_native_function_blocks(text, out);
     }
-    if (out->n_calls == 0) {
+    if (out->n_calls == 0)
+    {
         (void)parse_native_shorthand_tool_calls(text, out);
     }
-    if (out->n_calls == 0) {
+    if (out->n_calls == 0)
+    {
         (void)parse_jsonish_tool_call(text, out);
     }
     return out->n_calls;
 }
 
-static int int_param(const tool_call *call, const char *name, int def) {
+static int int_param(const tool_call *call, const char *name, int def)
+{
     const char *v = tool_param_value(call, name);
     return v && v[0] ? atoi(v) : def;
 }
 
-static int agent_env_int(const char *name, int def, int min, int max) {
+static int agent_env_int(const char *name, int def, int min, int max)
+{
     const char *v = getenv(name);
-    if (!v || !v[0]) return def;
+    if (!v || !v[0])
+        return def;
     char *end = NULL;
     long n = strtol(v, &end, 10);
-    if (end == v) return def;
-    if (n < min) return min;
-    if (n > max) return max;
+    if (end == v)
+        return def;
+    if (n < min)
+        return min;
+    if (n > max)
+        return max;
     return (int)n;
 }
 
-static bool bool_param(const tool_call *call, const char *name, bool def) {
+static bool bool_param(const tool_call *call, const char *name, bool def)
+{
     const char *v = tool_param_value(call, name);
-    if (!v || !v[0]) return def;
-    if (str_bool(v)) return true;
+    if (!v || !v[0])
+        return def;
+    if (str_bool(v))
+        return true;
     if (!strcmp(v, "0") || !strcmp(v, "false") || !strcmp(v, "off") ||
-        !strcmp(v, "no")) {
+        !strcmp(v, "no"))
+    {
         return false;
     }
     return def;
 }
 
-static bool agent_has_param_value(const tool_call *call, const char *name) {
+static bool agent_has_param_value(const tool_call *call, const char *name)
+{
     const char *v = tool_param_value(call, name);
     return v && v[0];
 }
 
-static bool agent_path_is_source(const char *path) {
-    if (!path) return false;
+static bool agent_path_is_source(const char *path)
+{
+    if (!path)
+        return false;
     const char *ext = strrchr(path, '.');
-    if (!ext) return false;
+    if (!ext)
+        return false;
     return !strcmp(ext, ".c") || !strcmp(ext, ".h") ||
            !strcmp(ext, ".m") || !strcmp(ext, ".mm") ||
            !strcmp(ext, ".cc") || !strcmp(ext, ".cpp") ||
@@ -2661,7 +3496,8 @@ static bool agent_path_is_source(const char *path) {
 
 static char *agent_source_read_guard_message(const char *path,
                                              long long bytes,
-                                             int max_lines) {
+                                             int max_lines)
+{
     strbuf out;
     sb_init(&out);
     sb_printf(&out,
@@ -2678,9 +3514,12 @@ static char *agent_source_read_guard_message(const char *path,
     return out.p;
 }
 
-static void agent_reset_source_read_budget(agent_state *a) {
-    if (!a) return;
-    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++) {
+static void agent_reset_source_read_budget(agent_state *a)
+{
+    if (!a)
+        return;
+    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++)
+    {
         free(a->source_reads[i].path);
         a->source_reads[i].path = NULL;
         a->source_reads[i].chunks = 0;
@@ -2689,11 +3528,15 @@ static void agent_reset_source_read_budget(agent_state *a) {
 }
 
 static void agent_reset_source_read_budget_for_path(agent_state *a,
-                                                    const char *path) {
-    if (!a || !path || !path[0]) return;
-    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++) {
+                                                    const char *path)
+{
+    if (!a || !path || !path[0])
+        return;
+    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++)
+    {
         if (a->source_reads[i].path &&
-            !strcmp(a->source_reads[i].path, path)) {
+            !strcmp(a->source_reads[i].path, path))
+        {
             free(a->source_reads[i].path);
             a->source_reads[i].path = NULL;
             a->source_reads[i].chunks = 0;
@@ -2704,19 +3547,26 @@ static void agent_reset_source_read_budget_for_path(agent_state *a,
 }
 
 static int agent_source_read_slot(agent_state *a, const char *path,
-                                  bool create) {
-    if (!a || !path || !path[0]) return -1;
+                                  bool create)
+{
+    if (!a || !path || !path[0])
+        return -1;
     int empty = -1;
-    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++) {
+    for (int i = 0; i < QW3_AGENT_SOURCE_READ_TRACKED; i++)
+    {
         if (a->source_reads[i].path &&
-            !strcmp(a->source_reads[i].path, path)) {
+            !strcmp(a->source_reads[i].path, path))
+        {
             return i;
         }
-        if (!a->source_reads[i].path && empty < 0) empty = i;
+        if (!a->source_reads[i].path && empty < 0)
+            empty = i;
     }
-    if (!create || empty < 0) return -1;
+    if (!create || empty < 0)
+        return -1;
     a->source_reads[empty].path = agent_strdup(path);
-    if (!a->source_reads[empty].path) return -1;
+    if (!a->source_reads[empty].path)
+        return -1;
     a->source_reads[empty].chunks = 0;
     a->source_reads[empty].lines = 0;
     return empty;
@@ -2726,7 +3576,8 @@ static char *agent_source_read_budget_message(const char *path,
                                               int used_chunks,
                                               int used_lines,
                                               int max_chunks,
-                                              int max_lines) {
+                                              int max_lines)
+{
     strbuf out;
     sb_init(&out);
     sb_printf(&out,
@@ -2743,41 +3594,54 @@ static char *agent_source_read_budget_message(const char *path,
 static char *agent_apply_source_read_budget(agent_state *a, const char *path,
                                             int *lines, int max_chunks,
                                             int max_lines,
-                                            bool *budget_clamped) {
-    if (budget_clamped) *budget_clamped = false;
-    if (!a || !path || !lines || *lines <= 0) return NULL;
+                                            bool *budget_clamped)
+{
+    if (budget_clamped)
+        *budget_clamped = false;
+    if (!a || !path || !lines || *lines <= 0)
+        return NULL;
     int idx = agent_source_read_slot(a, path, true);
-    if (idx < 0) {
+    if (idx < 0)
+    {
         return agent_strdup("context_guard: too many source files read in this turn; use semantic_search or get_function");
     }
     agent_source_read_budget *b = &a->source_reads[idx];
     int remaining_chunks = max_chunks - b->chunks;
     int remaining_lines = max_lines - b->lines;
-    if (remaining_chunks <= 0 || remaining_lines <= 0) {
+    if (remaining_chunks <= 0 || remaining_lines <= 0)
+    {
         return agent_source_read_budget_message(path, b->chunks, b->lines,
                                                 max_chunks, max_lines);
     }
-    if (*lines > remaining_lines) {
+    if (*lines > remaining_lines)
+    {
         *lines = remaining_lines;
-        if (budget_clamped) *budget_clamped = true;
+        if (budget_clamped)
+            *budget_clamped = true;
     }
     return NULL;
 }
 
 static void agent_record_source_read(agent_state *a, const char *path,
-                                     int emitted) {
-    if (!a || !path || emitted <= 0) return;
+                                     int emitted)
+{
+    if (!a || !path || emitted <= 0)
+        return;
     int idx = agent_source_read_slot(a, path, true);
-    if (idx < 0) return;
+    if (idx < 0)
+        return;
     a->source_reads[idx].chunks++;
     a->source_reads[idx].lines += emitted;
 }
 
 static char *run_argv_capture(char *const argv[], double timeout_sec,
-                              size_t max_bytes) {
-    if (!argv || !argv[0]) return agent_strdup("error: empty command");
+                              size_t max_bytes)
+{
+    if (!argv || !argv[0])
+        return agent_strdup("error: empty command");
     int pipefd[2];
-    if (pipe(pipefd) != 0) {
+    if (pipe(pipefd) != 0)
+    {
         strbuf err;
         sb_init(&err);
         sb_printf(&err, "error: pipe failed: %s", strerror(errno));
@@ -2785,7 +3649,8 @@ static char *run_argv_capture(char *const argv[], double timeout_sec,
     }
 
     pid_t pid = fork();
-    if (pid < 0) {
+    if (pid < 0)
+    {
         close(pipefd[0]);
         close(pipefd[1]);
         strbuf err;
@@ -2793,7 +3658,8 @@ static char *run_argv_capture(char *const argv[], double timeout_sec,
         sb_printf(&err, "error: fork failed: %s", strerror(errno));
         return err.p;
     }
-    if (pid == 0) {
+    if (pid == 0)
+    {
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         dup2(pipefd[1], STDERR_FILENO);
@@ -2817,91 +3683,130 @@ static char *run_argv_capture(char *const argv[], double timeout_sec,
     bool sent_term = false;
     const double t0 = agent_now_sec();
 
-    while (pipe_open || !exited) {
-        if (!exited) {
+    while (pipe_open || !exited)
+    {
+        if (!exited)
+        {
             pid_t wr = waitpid(pid, &status, WNOHANG);
-            if (wr == pid) {
+            if (wr == pid)
+            {
                 exited = true;
-            } else if (wr < 0 && errno != EINTR) {
+            }
+            else if (wr < 0 && errno != EINTR)
+            {
                 exited = true;
             }
         }
 
         double elapsed = agent_now_sec() - t0;
-        if (!exited && timeout_sec > 0.0 && elapsed > timeout_sec) {
-            if (!sent_term) {
+        if (!exited && timeout_sec > 0.0 && elapsed > timeout_sec)
+        {
+            if (!sent_term)
+            {
                 kill(pid, SIGTERM);
                 sent_term = true;
                 timed_out = true;
-            } else if (elapsed > timeout_sec + 1.0) {
+            }
+            else if (elapsed > timeout_sec + 1.0)
+            {
                 kill(pid, SIGKILL);
             }
         }
 
-        if (pipe_open) {
+        if (pipe_open)
+        {
             struct pollfd pfd;
             pfd.fd = pipefd[0];
             pfd.events = POLLIN | POLLHUP;
             pfd.revents = 0;
             int pr = poll(&pfd, 1, 100);
-            if (pr > 0 && (pfd.revents & (POLLIN | POLLHUP))) {
-                for (;;) {
+            if (pr > 0 && (pfd.revents & (POLLIN | POLLHUP)))
+            {
+                for (;;)
+                {
                     char buf[4096];
                     ssize_t n = read(pipefd[0], buf, sizeof(buf));
-                    if (n > 0) {
-                        if (out.len < max_bytes) {
+                    if (n > 0)
+                    {
+                        if (out.len < max_bytes)
+                        {
                             size_t room = max_bytes - out.len;
                             size_t take = (size_t)n < room ? (size_t)n : room;
                             sb_append_n(&out, buf, take);
-                            if (take < (size_t)n) truncated = true;
-                        } else {
+                            if (take < (size_t)n)
+                                truncated = true;
+                        }
+                        else
+                        {
                             truncated = true;
                         }
-                    } else if (n == 0) {
+                    }
+                    else if (n == 0)
+                    {
                         pipe_open = false;
                         break;
-                    } else {
+                    }
+                    else
+                    {
                         if (errno != EAGAIN && errno != EWOULDBLOCK &&
-                            errno != EINTR) {
+                            errno != EINTR)
+                        {
                             pipe_open = false;
                         }
                         break;
                     }
                 }
-            } else if (pr < 0 && errno != EINTR) {
+            }
+            else if (pr < 0 && errno != EINTR)
+            {
                 pipe_open = false;
             }
-        } else if (!exited) {
+        }
+        else if (!exited)
+        {
             struct timespec ts = {0, 100000000};
             nanosleep(&ts, NULL);
         }
     }
     close(pipefd[0]);
-    if (!exited) (void)waitpid(pid, &status, 0);
+    if (!exited)
+        (void)waitpid(pid, &status, 0);
 
-    if (timed_out) {
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    if (timed_out)
+    {
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
         sb_printf(&out, "error: command timed out after %.0fs\n", timeout_sec);
     }
-    if (truncated) {
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    if (truncated)
+    {
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
         sb_printf(&out, "... truncated by qw3-agent (%zu byte cap)\n",
                   max_bytes);
     }
-    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+    {
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
         sb_printf(&out, "exit=%d\n", WEXITSTATUS(status));
-    } else if (WIFSIGNALED(status)) {
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    }
+    else if (WIFSIGNALED(status))
+    {
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
         sb_printf(&out, "signal=%d\n", WTERMSIG(status));
     }
     return out.p ? out.p : agent_strdup("");
 }
 
-static char *tool_read(agent_state *a, const tool_call *call) {
+static char *tool_read(agent_state *a, const tool_call *call)
+{
     const char *path = tool_param_value(call, "path");
-    if (!path || !path[0]) path = tool_param_value(call, "file");
-    if (!path || !path[0]) return agent_strdup("error: read requires path");
+    if (!path || !path[0])
+        path = tool_param_value(call, "file");
+    if (!path || !path[0])
+        return agent_strdup("error: read requires path");
     int start = int_param(call, "start", 1);
     const int max_lines = agent_env_int("QW3_AGENT_READ_MAX_LINES",
                                         QW3_AGENT_READ_MAX_LINES,
@@ -2910,9 +3815,12 @@ static char *tool_read(agent_state *a, const tool_call *call) {
                                             QW3_AGENT_READ_DEFAULT_LINES,
                                             1, max_lines);
     int lines = int_param(call, "lines", default_lines);
-    if (start < 1) start = 1;
-    if (lines <= 0) lines = default_lines;
-    if (lines > max_lines) lines = max_lines;
+    if (start < 1)
+        start = 1;
+    if (lines <= 0)
+        lines = default_lines;
+    if (lines > max_lines)
+        lines = max_lines;
 
     const bool is_source = agent_path_is_source(path);
     const bool explicit_start = agent_has_param_value(call, "start");
@@ -2924,12 +3832,14 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     const bool have_stat = stat(path, &st) == 0;
     if (is_source && have_stat &&
         st.st_size >= QW3_AGENT_SOURCE_READ_LARGE_BYTES &&
-        (!explicit_start || !explicit_lines)) {
+        (!explicit_start || !explicit_lines))
+    {
         return agent_source_read_guard_message(path, (long long)st.st_size,
                                                source_max_lines);
     }
     bool source_clamped = false;
-    if (is_source && lines > source_max_lines) {
+    if (is_source && lines > source_max_lines)
+    {
         lines = source_max_lines;
         source_clamped = true;
     }
@@ -2941,15 +3851,18 @@ static char *tool_read(agent_state *a, const tool_call *call) {
         "QW3_AGENT_SOURCE_READ_TURN_MAX_CHUNKS",
         QW3_AGENT_SOURCE_READ_TURN_MAX_CHUNKS, 1, 32);
     bool budget_clamped = false;
-    if (is_source) {
+    if (is_source)
+    {
         char *budget_err = agent_apply_source_read_budget(
             a, path, &lines, source_turn_max_chunks, source_turn_max_lines,
             &budget_clamped);
-        if (budget_err) return budget_err;
+        if (budget_err)
+            return budget_err;
     }
 
     FILE *fp = fopen(path, "rb");
-    if (!fp) {
+    if (!fp)
+    {
         strbuf err;
         sb_init(&err);
         sb_printf(&err, "error: cannot read %s: %s", path, strerror(errno));
@@ -2958,14 +3871,16 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "read path=%s start=%d lines=%d\n", path, start, lines);
-    if (source_clamped) {
+    if (source_clamped)
+    {
         sb_printf(&out,
                   "context_guard: source read capped at %d lines; prefer "
                   "get_skeleton, semantic_search, or get_function for code "
                   "navigation.\n",
                   source_max_lines);
     }
-    if (budget_clamped) {
+    if (budget_clamped)
+    {
         sb_printf(&out,
                   "context_guard: source read clipped to remaining per-turn "
                   "budget (%d total lines for this source). Use get_function "
@@ -2981,11 +3896,14 @@ static char *tool_read(agent_state *a, const tool_call *call) {
     static const char read_token_notice[] =
         "\ncontext_guard: read token limit=%d returned_lines=%d next_start=%d. "
         "Continue with more or read at next_start; the remaining file stays on disk.\n";
-    while (getline(&line, &cap, fp) >= 0) {
-        if (lno >= start && emitted < lines) {
+    while (getline(&line, &cap, fp) >= 0)
+    {
+        if (lno >= start && emitted < lines)
+        {
             size_t before = out.len;
             sb_printf(&out, "%5d  %s", lno, line);
-            if (token_limit) {
+            if (token_limit)
+            {
                 size_t data_end = out.len;
                 sb_printf(&out, read_token_notice, token_limit, emitted + 1, lno + 1);
                 char *wrapped = native_tool_response_text("read", out.p);
@@ -2995,7 +3913,8 @@ static char *tool_read(agent_state *a, const tool_call *call) {
                 out.p[out.len] = '\0';
                 /* Reserve a few tokens for the actual stop-line numbers and
                  * for the equivalent more/DSML response wrapper. */
-                if (count > token_limit - 16) {
+                if (count > token_limit - 16)
+                {
                     out.len = before;
                     out.p[out.len] = '\0';
                     token_clamped = true;
@@ -3005,38 +3924,49 @@ static char *tool_read(agent_state *a, const tool_call *call) {
             emitted++;
         }
         lno++;
-        if (emitted >= lines) break;
+        if (emitted >= lines)
+            break;
     }
     free(line);
     fclose(fp);
-    if (is_source) agent_record_source_read(a, path, emitted);
+    if (is_source)
+        agent_record_source_read(a, path, emitted);
     char *saved_path = agent_strdup(path);
     free(a->last_read_path);
     a->last_read_path = saved_path;
     a->last_read_next = start + emitted;
-    if (token_clamped) {
+    if (token_clamped)
+    {
         sb_printf(&out, read_token_notice, token_limit, emitted, a->last_read_next);
-        if (emitted == 0) sb_append(&out,
-            "The next line alone is too long. Convert HTML to readable text "
-            "on disk or extract shorter fields; this line has not been skipped.\n");
-    } else if (emitted == 0) sb_append(&out, "(no lines)\n");
+        if (emitted == 0)
+            sb_append(&out,
+                      "The next line alone is too long. Convert HTML to readable text "
+                      "on disk or extract shorter fields; this line has not been skipped.\n");
+    }
+    else if (emitted == 0)
+        sb_append(&out, "(no lines)\n");
     return out.p;
 }
 
-static char *tool_more(agent_state *a, const tool_call *call) {
+static char *tool_more(agent_state *a, const tool_call *call)
+{
     const char *path = tool_param_value(call, "path");
-    if (!path || !path[0]) path = a->last_read_path;
-    if (!path || !path[0]) return agent_strdup("error: no previous read path");
+    if (!path || !path[0])
+        path = a->last_read_path;
+    if (!path || !path[0])
+        return agent_strdup("error: no previous read path");
     tool_call next = *call;
     snprintf(next.name, sizeof(next.name), "read");
-    if (!tool_param_value(&next, "path") && next.n_params < 16) {
+    if (!tool_param_value(&next, "path") && next.n_params < 16)
+    {
         tool_param *tp = &next.params[next.n_params++];
         snprintf(tp->name, sizeof(tp->name), "path");
         tp->value = (char *)path;
     }
     char start_buf[32];
     snprintf(start_buf, sizeof(start_buf), "%d", a->last_read_next);
-    if (!tool_param_value(&next, "start") && next.n_params < 16) {
+    if (!tool_param_value(&next, "start") && next.n_params < 16)
+    {
         tool_param *tp = &next.params[next.n_params++];
         snprintf(tp->name, sizeof(tp->name), "start");
         tp->value = start_buf;
@@ -3045,25 +3975,35 @@ static char *tool_more(agent_state *a, const tool_call *call) {
 }
 
 static void list_dir_rec(strbuf *out, const char *path, int depth,
-                         int max_depth, int *count, int max_count) {
-    if (*count >= max_count) return;
+                         int max_depth, int *count, int max_count)
+{
+    if (*count >= max_count)
+        return;
     DIR *dir = opendir(path);
-    if (!dir) {
+    if (!dir)
+    {
         sb_printf(out, "error: cannot list %s: %s\n", path, strerror(errno));
         return;
     }
     struct dirent *de;
-    while ((de = readdir(dir)) != NULL && *count < max_count) {
-        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
-        if (!strcmp(de->d_name, ".git")) continue;
+    while ((de = readdir(dir)) != NULL && *count < max_count)
+    {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+            continue;
+        if (!strcmp(de->d_name, ".git"))
+            continue;
         char *child = path_join(path, de->d_name);
-        if (!child) continue;
+        if (!child)
+            continue;
         struct stat st;
-        if (stat(child, &st) == 0) {
-            for (int i = 0; i < depth; i++) sb_append(out, "  ");
+        if (stat(child, &st) == 0)
+        {
+            for (int i = 0; i < depth; i++)
+                sb_append(out, "  ");
             sb_printf(out, "%s%s\n", de->d_name, S_ISDIR(st.st_mode) ? "/" : "");
             (*count)++;
-            if (S_ISDIR(st.st_mode) && depth + 1 < max_depth) {
+            if (S_ISDIR(st.st_mode) && depth + 1 < max_depth)
+            {
                 list_dir_rec(out, child, depth + 1, max_depth, count, max_count);
             }
         }
@@ -3072,34 +4012,46 @@ static void list_dir_rec(strbuf *out, const char *path, int depth,
     closedir(dir);
 }
 
-static char *tool_list(const tool_call *call) {
+static char *tool_list(const tool_call *call)
+{
     const char *path = tool_param_value(call, "path");
-    if (!path || !path[0]) path = ".";
+    if (!path || !path[0])
+        path = ".";
     int depth = int_param(call, "depth", 2);
-    if (depth < 1) depth = 1;
-    if (depth > 6) depth = 6;
+    if (depth < 1)
+        depth = 1;
+    if (depth > 6)
+        depth = 6;
     int max = int_param(call, "max", 300);
-    if (max < 1 || max > 2000) max = 300;
+    if (max < 1 || max > 2000)
+        max = 300;
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "list path=%s depth=%d\n", path, depth);
     int count = 0;
     list_dir_rec(&out, path, 0, depth, &count, max);
-    if (count >= max) sb_append(&out, "... truncated\n");
+    if (count >= max)
+        sb_append(&out, "... truncated\n");
     return out.p;
 }
 
-static const char *agent_codenav_command(void) {
+static const char *agent_codenav_command(void)
+{
     const char *env = getenv("QW3_AGENT_CODENAV");
-    if (env && env[0]) return env;
-    if (access("./codenavsrc/codenav", X_OK) == 0) return "./codenavsrc/codenav";
+    if (env && env[0])
+        return env;
+    if (access("./codenavsrc/codenav", X_OK) == 0)
+        return "./codenavsrc/codenav";
     return "codenav";
 }
 
-static char *tool_get_skeleton(const tool_call *call) {
+static char *tool_get_skeleton(const tool_call *call)
+{
     const char *path = tool_param_value(call, "path");
-    if (!path || !path[0]) path = tool_param_value(call, "file");
-    if (!path || !path[0]) {
+    if (!path || !path[0])
+        path = tool_param_value(call, "file");
+    if (!path || !path[0])
+    {
         return agent_strdup("error: get_skeleton requires path");
     }
     int max_bytes = agent_env_int("QW3_AGENT_CODENAV_MAX_BYTES",
@@ -3110,8 +4062,7 @@ static char *tool_get_skeleton(const tool_call *call) {
         (char *)codenav,
         "get_skeleton",
         (char *)path,
-        NULL
-    };
+        NULL};
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "get_skeleton path=%s\n", path);
@@ -3122,15 +4073,20 @@ static char *tool_get_skeleton(const tool_call *call) {
     return out.p;
 }
 
-static char *tool_get_function(const tool_call *call) {
+static char *tool_get_function(const tool_call *call)
+{
     const char *name = tool_param_value(call, "function_name");
-    if (!name || !name[0]) name = tool_param_value(call, "name");
-    if (!name || !name[0]) name = tool_param_value(call, "symbol");
-    if (!name || !name[0]) {
+    if (!name || !name[0])
+        name = tool_param_value(call, "name");
+    if (!name || !name[0])
+        name = tool_param_value(call, "symbol");
+    if (!name || !name[0])
+    {
         return agent_strdup("error: get_function requires function_name");
     }
     const char *path = tool_param_value(call, "path");
-    if (!path || !path[0]) path = tool_param_value(call, "file");
+    if (!path || !path[0])
+        path = tool_param_value(call, "file");
     int max_bytes = agent_env_int("QW3_AGENT_CODENAV_MAX_BYTES",
                                   QW3_AGENT_CODENAV_MAX_BYTES,
                                   4096, 200000);
@@ -3140,19 +4096,20 @@ static char *tool_get_function(const tool_call *call) {
         "get_function",
         (char *)name,
         (char *)path,
-        NULL
-    };
+        NULL};
     char *argv_no_path[] = {
         (char *)codenav,
         "get_function",
         (char *)name,
-        NULL
-    };
+        NULL};
     strbuf out;
     sb_init(&out);
-    if (path && path[0]) {
+    if (path && path[0])
+    {
         sb_printf(&out, "get_function function_name=%s path=%s\n", name, path);
-    } else {
+    }
+    else
+    {
         sb_printf(&out, "get_function function_name=%s\n", name);
     }
     char *captured = run_argv_capture(path && path[0] ? argv_with_path
@@ -3164,23 +4121,30 @@ static char *tool_get_function(const tool_call *call) {
     return out.p;
 }
 
-static char *tool_semantic_search(const tool_call *call) {
+static char *tool_semantic_search(const tool_call *call)
+{
     const char *query = tool_param_value(call, "query");
-    if (!query || !query[0]) query = tool_param_value(call, "q");
-    if (!query || !query[0]) {
+    if (!query || !query[0])
+        query = tool_param_value(call, "q");
+    if (!query || !query[0])
+    {
         return agent_strdup("error: semantic_search requires query");
     }
     const char *path = tool_param_value(call, "path");
-    if (!path || !path[0]) path = tool_param_value(call, "paths");
-    if (!path || !path[0]) path = ".";
+    if (!path || !path[0])
+        path = tool_param_value(call, "paths");
+    if (!path || !path[0])
+        path = ".";
     const char *include = tool_param_value(call, "include");
     const char *exclude = tool_param_value(call, "exclude");
     bool code_only = bool_param(call, "code_only", true);
     bool semantic_only = bool_param(call, "semantic_only", false);
     bool content = bool_param(call, "content", false);
     int results = int_param(call, "results", 10);
-    if (results < 1) results = 1;
-    if (results > 50) results = 50;
+    if (results < 1)
+        results = 1;
+    if (results > 50)
+        results = 50;
     int max_bytes = agent_env_int("QW3_AGENT_SEMANTIC_MAX_BYTES",
                                   QW3_AGENT_SEMANTIC_MAX_BYTES,
                                   4096, 200000);
@@ -3194,14 +4158,19 @@ static char *tool_semantic_search(const tool_call *call) {
     argv[argc++] = "colgrep";
     argv[argc++] = "--results";
     argv[argc++] = results_buf;
-    if (code_only) argv[argc++] = "--code-only";
-    if (semantic_only) argv[argc++] = "--semantic-only";
-    if (content) argv[argc++] = "--content";
-    if (include && include[0]) {
+    if (code_only)
+        argv[argc++] = "--code-only";
+    if (semantic_only)
+        argv[argc++] = "--semantic-only";
+    if (content)
+        argv[argc++] = "--content";
+    if (include && include[0])
+    {
         snprintf(include_arg, sizeof(include_arg), "--include=%s", include);
         argv[argc++] = include_arg;
     }
-    if (exclude && exclude[0]) {
+    if (exclude && exclude[0])
+    {
         snprintf(exclude_arg, sizeof(exclude_arg), "--exclude=%s", exclude);
         argv[argc++] = exclude_arg;
     }
@@ -3220,9 +4189,11 @@ static char *tool_semantic_search(const tool_call *call) {
     return out.p;
 }
 
-static char *tool_search_web(const tool_call *call) {
+static char *tool_search_web(const tool_call *call)
+{
     const char *query = tool_param_value(call, "query");
-    if (!query || !query[0]) {
+    if (!query || !query[0])
+    {
         return agent_strdup("error: search_web requires query");
     }
     static const char script[] =
@@ -3259,15 +4230,18 @@ static char *tool_search_web(const tool_call *call) {
                             QW3_AGENT_WEB_MAX_BYTES);
 }
 
-static char *tool_visit_url(agent_state *a, const tool_call *call) {
+static char *tool_visit_url(agent_state *a, const tool_call *call)
+{
     const char *url = tool_param_value(call, "url");
-    if (!url || !url[0]) return agent_strdup("error: visit_url requires url");
+    if (!url || !url[0])
+        return agent_strdup("error: visit_url requires url");
     char max_chars[32];
     snprintf(max_chars, sizeof(max_chars), "%d",
              QW3_AGENT_WEB_VISIT_MAX_CHARS);
     char *path = NULL, *dir = NULL;
     int fd = agent_create_spill(a, "web-", &path, &dir);
-    if (fd >= 0) close(fd);
+    if (fd >= 0)
+        close(fd);
     static const char script[] =
         "import os, re, sys, urllib.request\n"
         "from html.parser import HTMLParser\n"
@@ -3326,17 +4300,20 @@ static char *tool_visit_url(agent_state *a, const tool_call *call) {
         "else:\n"
         "    print(content)\n";
     char *argv[] = {
-        "python3", "-c", (char *)script, (char *)url, max_chars, path ? path : "", NULL
-    };
+        "python3", "-c", (char *)script, (char *)url, max_chars, path ? path : "", NULL};
     char *out = run_argv_capture(argv, QW3_AGENT_WEB_TIMEOUT_SEC,
                                  QW3_AGENT_WEB_MAX_BYTES);
-    if (path) {
+    if (path)
+    {
         strbuf notice;
         sb_init(&notice);
         sb_printf(&notice, "Full page text saved to %s.", path);
-        if (out && notice.p && strstr(out, notice.p)) {
+        if (out && notice.p && strstr(out, notice.p))
+        {
             agent_prune_spills(dir, "web-", path, QW3_AGENT_WEB_SPILL_KEEP);
-        } else {
+        }
+        else
+        {
             (void)unlink(path);
         }
         sb_free(&notice);
@@ -3346,12 +4323,16 @@ static char *tool_visit_url(agent_state *a, const tool_call *call) {
     return out;
 }
 
-static char *tool_write(agent_state *a, const tool_call *call) {
+static char *tool_write(agent_state *a, const tool_call *call)
+{
     const char *path = tool_param_value(call, "path");
     const char *content = tool_param_value(call, "content");
-    if (!path || !path[0]) return agent_strdup("error: write requires path");
-    if (!content) content = "";
-    if (write_file_text(path, content) != 0) {
+    if (!path || !path[0])
+        return agent_strdup("error: write requires path");
+    if (!content)
+        content = "";
+    if (write_file_text(path, content) != 0)
+    {
         strbuf err;
         sb_init(&err);
         sb_printf(&err, "error: cannot write %s: %s", path, strerror(errno));
@@ -3369,100 +4350,136 @@ static char *tool_write(agent_state *a, const tool_call *call) {
 }
 
 static void edit_append_match_hint(strbuf *out, const char *file,
-                                   const char *needle) {
-    if (!out || !file || !needle || !needle[0]) return;
+                                   const char *needle)
+{
+    if (!out || !file || !needle || !needle[0])
+        return;
 
     char sample[96] = {0};
     size_t sample_len = 0;
     const char *best = NULL;
     size_t best_len = 0;
-    for (const char *p = needle; *p;) {
+    for (const char *p = needle; *p;)
+    {
         while (*p && !(isalnum((unsigned char)*p) || *p == '_' ||
-                       *p == '-' || *p == '.')) {
+                       *p == '-' || *p == '.'))
+        {
             p++;
         }
         const char *start = p;
         while (*p && (isalnum((unsigned char)*p) || *p == '_' ||
-                      *p == '-' || *p == '.')) {
+                      *p == '-' || *p == '.'))
+        {
             p++;
         }
         size_t len = (size_t)(p - start);
-        if (len > best_len) {
+        if (len > best_len)
+        {
             best = start;
             best_len = len;
         }
     }
-    if (best && best_len > 0) {
+    if (best && best_len > 0)
+    {
         sample_len = best_len;
-        if (sample_len >= sizeof(sample)) sample_len = sizeof(sample) - 1;
+        if (sample_len >= sizeof(sample))
+            sample_len = sizeof(sample) - 1;
         memcpy(sample, best, sample_len);
     }
     sample[sample_len] = '\0';
-    if (sample_len < 3) return;
+    if (sample_len < 3)
+        return;
 
     const char *line = file;
     int lno = 1;
     int shown = 0;
-    while (*line && shown < 5) {
+    while (*line && shown < 5)
+    {
         const char *line_end = strchr(line, '\n');
-        if (!line_end) line_end = line + strlen(line);
+        if (!line_end)
+            line_end = line + strlen(line);
         size_t len = (size_t)(line_end - line);
         char *tmp = malloc(len + 1);
-        if (!tmp) return;
+        if (!tmp)
+            return;
         memcpy(tmp, line, len);
         tmp[len] = '\0';
-        if (strstr(tmp, sample)) {
-            if (shown == 0) {
+        if (strstr(tmp, sample))
+        {
+            if (shown == 0)
+            {
                 sb_append(out, "\nnearby candidate lines:\n");
             }
             sb_printf(out, "%d: %s\n", lno, tmp);
             shown++;
         }
         free(tmp);
-        if (*line_end == '\n') {
+        if (*line_end == '\n')
+        {
             line = line_end + 1;
             lno++;
-        } else {
+        }
+        else
+        {
             break;
         }
     }
 }
 
-static int edit_occurrence_count(const char *text, const char *needle) {
-    if (!text || !needle || !needle[0]) return 0;
+static int edit_occurrence_count(const char *text, const char *needle)
+{
+    if (!text || !needle || !needle[0])
+        return 0;
     int count = 0;
     size_t n = strlen(needle);
     const char *p = text;
-    while ((p = strstr(p, needle)) != NULL) {
+    while ((p = strstr(p, needle)) != NULL)
+    {
         count++;
         p += n;
     }
     return count;
 }
 
-static char *edit_unescape_whitespace(const char *text, bool *changed) {
-    if (changed) *changed = false;
+static char *edit_unescape_whitespace(const char *text, bool *changed)
+{
+    if (changed)
+        *changed = false;
     strbuf out;
     sb_init(&out);
-    for (size_t i = 0; text && text[i];) {
+    for (size_t i = 0; text && text[i];)
+    {
         if (text[i] == '\\' && text[i + 1] == 'r' &&
-            text[i + 2] == '\\' && text[i + 3] == 'n') {
+            text[i + 2] == '\\' && text[i + 3] == 'n')
+        {
             sb_append(&out, "\n");
             i += 4;
-            if (changed) *changed = true;
-        } else if (text[i] == '\\' && text[i + 1] == 'n') {
+            if (changed)
+                *changed = true;
+        }
+        else if (text[i] == '\\' && text[i + 1] == 'n')
+        {
             sb_append(&out, "\n");
             i += 2;
-            if (changed) *changed = true;
-        } else if (text[i] == '\\' && text[i + 1] == 't') {
+            if (changed)
+                *changed = true;
+        }
+        else if (text[i] == '\\' && text[i + 1] == 't')
+        {
             sb_append(&out, "\t");
             i += 2;
-            if (changed) *changed = true;
-        } else if (text[i] == '\\' && text[i + 1] == 'r') {
+            if (changed)
+                *changed = true;
+        }
+        else if (text[i] == '\\' && text[i + 1] == 'r')
+        {
             sb_append(&out, "\r");
             i += 2;
-            if (changed) *changed = true;
-        } else {
+            if (changed)
+                *changed = true;
+        }
+        else
+        {
             sb_append_n(&out, text + i, 1);
             i++;
         }
@@ -3470,7 +4487,8 @@ static char *edit_unescape_whitespace(const char *text, bool *changed) {
     return out.p ? out.p : agent_strdup("");
 }
 
-typedef struct {
+typedef struct
+{
     size_t start;
     size_t end;
     size_t trim_start;
@@ -3478,23 +4496,30 @@ typedef struct {
 } edit_line;
 
 static int edit_split_lines(const char *text, size_t len,
-                            edit_line **lines_out, size_t *count_out) {
+                            edit_line **lines_out, size_t *count_out)
+{
     *lines_out = NULL;
     *count_out = 0;
-    if (!text || len == 0) return 0;
+    if (!text || len == 0)
+        return 0;
 
     size_t cap = 16;
     edit_line *lines = malloc(cap * sizeof(*lines));
-    if (!lines) return -1;
+    if (!lines)
+        return -1;
     size_t count = 0;
     size_t pos = 0;
-    while (pos < len) {
+    while (pos < len)
+    {
         size_t end = pos;
-        while (end < len && text[end] != '\n') end++;
-        if (count == cap) {
+        while (end < len && text[end] != '\n')
+            end++;
+        if (count == cap)
+        {
             cap *= 2;
             edit_line *next = realloc(lines, cap * sizeof(*next));
-            if (!next) {
+            if (!next)
+            {
                 free(lines);
                 return -1;
             }
@@ -3502,13 +4527,15 @@ static int edit_split_lines(const char *text, size_t len,
         }
         size_t trim_start = pos;
         while (trim_start < end &&
-               (text[trim_start] == ' ' || text[trim_start] == '\t')) {
+               (text[trim_start] == ' ' || text[trim_start] == '\t'))
+        {
             trim_start++;
         }
         size_t trim_end = end;
         while (trim_end > trim_start &&
                (text[trim_end - 1] == ' ' || text[trim_end - 1] == '\t' ||
-                text[trim_end - 1] == '\r')) {
+                text[trim_end - 1] == '\r'))
+        {
             trim_end--;
         }
         lines[count++] = (edit_line){
@@ -3525,7 +4552,8 @@ static int edit_split_lines(const char *text, size_t len,
 }
 
 static bool edit_line_equal_trimmed(const char *lhs, const edit_line *a,
-                                    const char *rhs, const edit_line *b) {
+                                    const char *rhs, const edit_line *b)
+{
     size_t an = a->trim_end - a->trim_start;
     size_t bn = b->trim_end - b->trim_start;
     return an == bn && !memcmp(lhs + a->trim_start, rhs + b->trim_start, an);
@@ -3533,41 +4561,51 @@ static bool edit_line_equal_trimmed(const char *lhs, const edit_line *a,
 
 static int edit_find_whitespace_span(const char *file, size_t file_len,
                                      const char *old, size_t old_len,
-                                     size_t *start_out, size_t *end_out) {
+                                     size_t *start_out, size_t *end_out)
+{
     edit_line *file_lines = NULL;
     edit_line *old_lines = NULL;
     size_t file_count = 0;
     size_t old_count = 0;
     if (edit_split_lines(file, file_len, &file_lines, &file_count) != 0 ||
-        edit_split_lines(old, old_len, &old_lines, &old_count) != 0) {
+        edit_split_lines(old, old_len, &old_lines, &old_count) != 0)
+    {
         free(file_lines);
         free(old_lines);
         return -1;
     }
 
     bool has_content = false;
-    for (size_t i = 0; i < old_count; i++) {
-        if (old_lines[i].trim_end > old_lines[i].trim_start) {
+    for (size_t i = 0; i < old_count; i++)
+    {
+        if (old_lines[i].trim_end > old_lines[i].trim_start)
+        {
             has_content = true;
             break;
         }
     }
     int matches = 0;
-    if (has_content && old_count <= file_count) {
-        for (size_t i = 0; i + old_count <= file_count; i++) {
+    if (has_content && old_count <= file_count)
+    {
+        for (size_t i = 0; i + old_count <= file_count; i++)
+        {
             size_t j = 0;
             while (j < old_count &&
                    edit_line_equal_trimmed(file, &file_lines[i + j],
-                                           old, &old_lines[j])) {
+                                           old, &old_lines[j]))
+            {
                 j++;
             }
-            if (j != old_count) continue;
+            if (j != old_count)
+                continue;
             matches++;
-            if (matches == 1) {
+            if (matches == 1)
+            {
                 *start_out = file_lines[i].start;
                 *end_out = file_lines[i + old_count - 1].end;
                 if (old_len > 0 && old[old_len - 1] == '\n' &&
-                    *end_out < file_len && file[*end_out] == '\n') {
+                    *end_out < file_len && file[*end_out] == '\n')
+                {
                     (*end_out)++;
                 }
             }
@@ -3579,22 +4617,30 @@ static int edit_find_whitespace_span(const char *file, size_t file_len,
 }
 
 static size_t edit_common_indent(const char *text, const edit_line *lines,
-                                 size_t count, const char **prefix_out) {
+                                 size_t count, const char **prefix_out)
+{
     size_t common = SIZE_MAX;
     const char *prefix = "";
-    for (size_t i = 0; i < count; i++) {
-        if (lines[i].trim_end == lines[i].trim_start) continue;
+    for (size_t i = 0; i < count; i++)
+    {
+        if (lines[i].trim_end == lines[i].trim_start)
+            continue;
         size_t indent = lines[i].trim_start - lines[i].start;
-        if (common == SIZE_MAX) prefix = text + lines[i].start;
-        if (indent < common) common = indent;
+        if (common == SIZE_MAX)
+            prefix = text + lines[i].start;
+        if (indent < common)
+            common = indent;
     }
-    if (common == SIZE_MAX) common = 0;
-    if (prefix_out) *prefix_out = prefix;
+    if (common == SIZE_MAX)
+        common = 0;
+    if (prefix_out)
+        *prefix_out = prefix;
     return common;
 }
 
 static char *edit_reindent_replacement(const char *replacement,
-                                       const char *target, size_t target_len) {
+                                       const char *target, size_t target_len)
+{
     edit_line *target_lines = NULL;
     edit_line *new_lines = NULL;
     size_t target_count = 0;
@@ -3603,7 +4649,8 @@ static char *edit_reindent_replacement(const char *replacement,
     if (edit_split_lines(target, target_len,
                          &target_lines, &target_count) != 0 ||
         edit_split_lines(replacement, new_len,
-                         &new_lines, &new_count) != 0) {
+                         &new_lines, &new_count) != 0)
+    {
         free(target_lines);
         free(new_lines);
         return NULL;
@@ -3617,14 +4664,17 @@ static char *edit_reindent_replacement(const char *replacement,
     bool linewise_indent = target_count == new_count;
     strbuf out;
     sb_init(&out);
-    for (size_t i = 0; i < new_count; i++) {
+    for (size_t i = 0; i < new_count; i++)
+    {
         bool nonblank = new_lines[i].trim_end > new_lines[i].trim_start;
-        if (nonblank) {
+        if (nonblank)
+        {
             size_t replacement_indent = source_indent;
             const char *line_prefix = target_prefix;
             size_t line_indent = target_indent;
             if (linewise_indent &&
-                target_lines[i].trim_end > target_lines[i].trim_start) {
+                target_lines[i].trim_end > target_lines[i].trim_start)
+            {
                 line_prefix = target + target_lines[i].start;
                 line_indent = target_lines[i].trim_start - target_lines[i].start;
                 replacement_indent =
@@ -3632,13 +4682,17 @@ static char *edit_reindent_replacement(const char *replacement,
             }
             sb_append_n(&out, line_prefix, line_indent);
             size_t start = new_lines[i].start + replacement_indent;
-            if (start > new_lines[i].end) start = new_lines[i].end;
+            if (start > new_lines[i].end)
+                start = new_lines[i].end;
             sb_append_n(&out, replacement + start, new_lines[i].end - start);
-        } else {
+        }
+        else
+        {
             sb_append_n(&out, replacement + new_lines[i].start,
                         new_lines[i].end - new_lines[i].start);
         }
-        if (new_lines[i].end < new_len && replacement[new_lines[i].end] == '\n') {
+        if (new_lines[i].end < new_len && replacement[new_lines[i].end] == '\n')
+        {
             sb_append(&out, "\n");
         }
     }
@@ -3649,32 +4703,39 @@ static char *edit_reindent_replacement(const char *replacement,
 
 static void edit_append_mismatch_hint(strbuf *out, const char *file,
                                       size_t file_len, const char *old,
-                                      size_t old_len) {
+                                      size_t old_len)
+{
     edit_line *file_lines = NULL;
     edit_line *old_lines = NULL;
     size_t file_count = 0;
     size_t old_count = 0;
     if (edit_split_lines(file, file_len, &file_lines, &file_count) != 0 ||
-        edit_split_lines(old, old_len, &old_lines, &old_count) != 0) {
+        edit_split_lines(old, old_len, &old_lines, &old_count) != 0)
+    {
         free(file_lines);
         free(old_lines);
         return;
     }
     size_t first = 0;
     while (first < old_count &&
-           old_lines[first].trim_start == old_lines[first].trim_end) {
+           old_lines[first].trim_start == old_lines[first].trim_end)
+    {
         first++;
     }
-    if (first < old_count) {
-        for (size_t i = 0; i < file_count; i++) {
+    if (first < old_count)
+    {
+        for (size_t i = 0; i < file_count; i++)
+        {
             if (!edit_line_equal_trimmed(file, &file_lines[i],
-                                         old, &old_lines[first])) {
+                                         old, &old_lines[first]))
+            {
                 continue;
             }
             size_t compared = 1;
             while (first + compared < old_count && i + compared < file_count &&
                    edit_line_equal_trimmed(file, &file_lines[i + compared],
-                                           old, &old_lines[first + compared])) {
+                                           old, &old_lines[first + compared]))
+            {
                 compared++;
             }
             sb_printf(out,
@@ -3688,19 +4749,23 @@ static void edit_append_mismatch_hint(strbuf *out, const char *file,
     free(old_lines);
 }
 
-static char *tool_edit(agent_state *a, const tool_call *call) {
+static char *tool_edit(agent_state *a, const tool_call *call)
+{
     const char *path = tool_param_value(call, "path");
     const char *old = tool_param_value(call, "old");
     const char *anchor = tool_param_value(call, "anchor");
     const char *new_text = tool_param_value(call, "new");
     const char *mode = tool_param_value(call, "mode");
-    if (!mode || !mode[0]) mode = "replace";
-    if (!path || !new_text) {
+    if (!mode || !mode[0])
+        mode = "replace";
+    if (!path || !new_text)
+    {
         return agent_strdup("error: edit requires path and new");
     }
     size_t n = 0;
     char *file = read_file_text(path, &n);
-    if (!file) {
+    if (!file)
+    {
         strbuf err;
         sb_init(&err);
         sb_printf(&err, "error: cannot read %s: %s", path, strerror(errno));
@@ -3715,34 +4780,44 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
 
     if ((!strcmp(mode, "append") || !strcmp(mode, "prepend") ||
          !strcmp(mode, "insert_before") || !strcmp(mode, "insert_after")) &&
-        !new_text[0]) {
+        !new_text[0])
+    {
         free(file);
         return agent_strdup("error: no-op edit; inserted text is empty");
     }
 
-    if (!strcmp(mode, "append")) {
+    if (!strcmp(mode, "append"))
+    {
         sb_append_n(&out_file, file, n);
-        if (n > 0 && file[n - 1] != '\n') sb_append(&out_file, "\n");
+        if (n > 0 && file[n - 1] != '\n')
+            sb_append(&out_file, "\n");
         sb_append(&out_file, new_text);
         replacements = 1;
-    } else if (!strcmp(mode, "prepend")) {
+    }
+    else if (!strcmp(mode, "prepend"))
+    {
         sb_append(&out_file, new_text);
-        if (new_text[0] && new_text[strlen(new_text) - 1] != '\n') {
+        if (new_text[0] && new_text[strlen(new_text) - 1] != '\n')
+        {
             sb_append(&out_file, "\n");
         }
         sb_append_n(&out_file, file, n);
         replacements = 1;
-    } else if (!strcmp(mode, "insert_before") ||
-               !strcmp(mode, "insert_after")) {
+    }
+    else if (!strcmp(mode, "insert_before") ||
+             !strcmp(mode, "insert_after"))
+    {
         const char *needle = (anchor && anchor[0]) ? anchor : old;
-        if (!needle || !needle[0]) {
+        if (!needle || !needle[0])
+        {
             sb_free(&out_file);
             free(file);
             return agent_strdup(
                 "error: edit insert mode requires anchor or old text");
         }
         int matches = edit_occurrence_count(file, needle);
-        if (matches == 0) {
+        if (matches == 0)
+        {
             strbuf err;
             sb_init(&err);
             sb_append(&err, "error: anchor text not found");
@@ -3751,7 +4826,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             free(file);
             return err.p;
         }
-        if (matches > 1) {
+        if (matches > 1)
+        {
             strbuf err;
             sb_init(&err);
             sb_printf(&err,
@@ -3764,34 +4840,44 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
         }
         char *hit = strstr(file, needle);
         size_t needle_n = strlen(needle);
-        if (!strcmp(mode, "insert_before")) {
+        if (!strcmp(mode, "insert_before"))
+        {
             sb_append_n(&out_file, file, (size_t)(hit - file));
             sb_append(&out_file, new_text);
-            if (new_text[0] && new_text[strlen(new_text) - 1] != '\n') {
+            if (new_text[0] && new_text[strlen(new_text) - 1] != '\n')
+            {
                 sb_append(&out_file, "\n");
             }
             sb_append(&out_file, hit);
-        } else {
+        }
+        else
+        {
             sb_append_n(&out_file, file, (size_t)(hit - file) + needle_n);
-            if (needle_n > 0 && hit[needle_n - 1] != '\n') {
+            if (needle_n > 0 && hit[needle_n - 1] != '\n')
+            {
                 sb_append(&out_file, "\n");
             }
             sb_append(&out_file, new_text);
-            if (new_text[0] && new_text[strlen(new_text) - 1] != '\n') {
+            if (new_text[0] && new_text[strlen(new_text) - 1] != '\n')
+            {
                 sb_append(&out_file, "\n");
             }
             sb_append(&out_file, hit + needle_n);
         }
         replacements = 1;
-    } else if (!strcmp(mode, "replace") ||
-               !strcmp(mode, "replace_first") ||
-               !strcmp(mode, "replace_all")) {
-        if (!old || !old[0]) {
+    }
+    else if (!strcmp(mode, "replace") ||
+             !strcmp(mode, "replace_first") ||
+             !strcmp(mode, "replace_all"))
+    {
+        if (!old || !old[0])
+        {
             sb_free(&out_file);
             free(file);
             return agent_strdup("error: edit replace mode requires old text");
         }
-        if (!strcmp(old, new_text)) {
+        if (!strcmp(old, new_text))
+        {
             sb_free(&out_file);
             free(file);
             return agent_strdup(
@@ -3803,39 +4889,47 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
         char *unescaped_old = NULL;
         char *unescaped_new = NULL;
         int matches = edit_occurrence_count(file, effective_old);
-        if (matches == 0) {
+        if (matches == 0)
+        {
             bool old_changed = false;
             unescaped_old = edit_unescape_whitespace(old, &old_changed);
-            if (old_changed) {
+            if (old_changed)
+            {
                 int recovered_matches =
                     edit_occurrence_count(file, unescaped_old);
-                if (recovered_matches > 0) {
+                if (recovered_matches > 0)
+                {
                     effective_old = unescaped_old;
                     matches = recovered_matches;
                     recovered_whitespace_escapes = true;
-                    if (!strchr(new_text, '\n') && !strchr(new_text, '\r')) {
+                    if (!strchr(new_text, '\n') && !strchr(new_text, '\r'))
+                    {
                         bool new_changed = false;
                         unescaped_new =
                             edit_unescape_whitespace(new_text, &new_changed);
-                        if (new_changed) effective_new = unescaped_new;
+                        if (new_changed)
+                            effective_new = unescaped_new;
                     }
                 }
             }
         }
-        if (matches == 0 && strcmp(mode, "replace_all") != 0) {
+        if (matches == 0 && strcmp(mode, "replace_all") != 0)
+        {
             const char *flex_old = unescaped_old ? unescaped_old : old;
             size_t flex_start = 0;
             size_t flex_end = 0;
             int flex_matches = edit_find_whitespace_span(
                 file, n, flex_old, strlen(flex_old), &flex_start, &flex_end);
-            if (flex_matches < 0) {
+            if (flex_matches < 0)
+            {
                 free(unescaped_new);
                 free(unescaped_old);
                 sb_free(&out_file);
                 free(file);
                 return agent_strdup("error: out of memory matching edit text");
             }
-            if (flex_matches > 1) {
+            if (flex_matches > 1)
+            {
                 strbuf err;
                 sb_init(&err);
                 sb_printf(&err,
@@ -3848,18 +4942,22 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
                 free(file);
                 return err.p;
             }
-            if (flex_matches == 1) {
+            if (flex_matches == 1)
+            {
                 const char *flex_new = new_text;
                 if (unescaped_old && !strchr(new_text, '\n') &&
-                    !strchr(new_text, '\r')) {
+                    !strchr(new_text, '\r'))
+                {
                     bool new_changed = false;
                     unescaped_new = edit_unescape_whitespace(new_text,
-                                                              &new_changed);
-                    if (new_changed) flex_new = unescaped_new;
+                                                             &new_changed);
+                    if (new_changed)
+                        flex_new = unescaped_new;
                 }
                 char *reindented = edit_reindent_replacement(
                     flex_new, file + flex_start, flex_end - flex_start);
-                if (!reindented) {
+                if (!reindented)
+                {
                     free(unescaped_new);
                     free(unescaped_old);
                     sb_free(&out_file);
@@ -3875,7 +4973,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
                 matches = 1;
             }
         }
-        if (matches == 0) {
+        if (matches == 0)
+        {
             strbuf err;
             sb_init(&err);
             sb_append(&err, "error: old text not found");
@@ -3889,7 +4988,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             free(file);
             return err.p;
         }
-        if (strcmp(mode, "replace_all") != 0 && matches > 1) {
+        if (strcmp(mode, "replace_all") != 0 && matches > 1)
+        {
             strbuf err;
             sb_init(&err);
             sb_printf(&err,
@@ -3904,13 +5004,16 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
             return err.p;
         }
 
-        if (!recovered_flexible_whitespace) {
+        if (!recovered_flexible_whitespace)
+        {
             size_t old_n = strlen(effective_old);
             size_t new_n = strlen(effective_new);
             char *cursor = file;
-            while (1) {
+            while (1)
+            {
                 char *hit = strstr(cursor, effective_old);
-                if (!hit) {
+                if (!hit)
+                {
                     sb_append(&out_file, cursor);
                     break;
                 }
@@ -3918,7 +5021,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
                 sb_append_n(&out_file, effective_new, new_n);
                 replacements++;
                 cursor = hit + old_n;
-                if (strcmp(mode, "replace_all") != 0) {
+                if (strcmp(mode, "replace_all") != 0)
+                {
                     sb_append(&out_file, cursor);
                     break;
                 }
@@ -3926,7 +5030,9 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
         }
         free(unescaped_new);
         free(unescaped_old);
-    } else {
+    }
+    else
+    {
         sb_free(&out_file);
         free(file);
         return agent_strdup(
@@ -3935,7 +5041,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
     }
 
     if (out_file.len == n &&
-        !memcmp(out_file.p ? out_file.p : "", file, n)) {
+        !memcmp(out_file.p ? out_file.p : "", file, n))
+    {
         sb_free(&out_file);
         free(file);
         return agent_strdup("error: no-op edit; file would be unchanged");
@@ -3943,7 +5050,8 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
     int rc = write_file_text(path, out_file.p ? out_file.p : "");
     sb_free(&out_file);
     free(file);
-    if (rc != 0) {
+    if (rc != 0)
+    {
         strbuf err;
         sb_init(&err);
         sb_printf(&err, "error: cannot write %s: %s", path, strerror(errno));
@@ -3957,49 +5065,59 @@ static char *tool_edit(agent_state *a, const tool_call *call) {
               "verification_required: run one narrow build, test, syntax "
               "check, or git diff --check before the final answer.",
               path, replacements, replacements == 1 ? "" : "s",
-              recovered_whitespace_escapes ?
-                  ", recovered literal whitespace escapes" : "",
-              recovered_flexible_whitespace ?
-                  ", recovered unique whitespace-only drift" : "");
+              recovered_whitespace_escapes ? ", recovered literal whitespace escapes" : "",
+              recovered_flexible_whitespace ? ", recovered unique whitespace-only drift" : "");
     return ok.p ? ok.p : agent_strdup("ok: edited");
 }
 
-static bool looks_text_file(const char *path) {
+static bool looks_text_file(const char *path)
+{
     const char *ext = strrchr(path, '.');
-    if (!ext) return true;
+    if (!ext)
+        return true;
     const char *bin[] = {
         ".o", ".a", ".dylib", ".so", ".png", ".jpg", ".jpeg", ".gif",
-        ".pdf", ".gguf", ".bin", ".zip", ".tar", ".gz", NULL
-    };
-    for (int i = 0; bin[i]; i++) {
-        if (!strcmp(ext, bin[i])) return false;
+        ".pdf", ".gguf", ".bin", ".zip", ".tar", ".gz", NULL};
+    for (int i = 0; bin[i]; i++)
+    {
+        if (!strcmp(ext, bin[i]))
+            return false;
     }
     return true;
 }
 
-static bool file_looks_binary(const char *path) {
+static bool file_looks_binary(const char *path)
+{
     FILE *fp = fopen(path, "rb");
-    if (!fp) return true;
+    if (!fp)
+        return true;
     unsigned char buf[4096];
     size_t n = fread(buf, 1, sizeof(buf), fp);
     fclose(fp);
-    for (size_t i = 0; i < n; i++) {
-        if (buf[i] == 0) return true;
+    for (size_t i = 0; i < n; i++)
+    {
+        if (buf[i] == 0)
+            return true;
     }
     return false;
 }
 
 static void search_file(strbuf *out, const char *path, const char *pattern,
-                        int *matches, int max_matches) {
+                        int *matches, int max_matches)
+{
     if (*matches >= max_matches || !looks_text_file(path) ||
-        file_looks_binary(path)) return;
+        file_looks_binary(path))
+        return;
     FILE *fp = fopen(path, "rb");
-    if (!fp) return;
+    if (!fp)
+        return;
     char *line = NULL;
     size_t cap = 0;
     int lno = 1;
-    while (*matches < max_matches && getline(&line, &cap, fp) >= 0) {
-        if (strstr(line, pattern)) {
+    while (*matches < max_matches && getline(&line, &cap, fp) >= 0)
+    {
+        if (strstr(line, pattern))
+        {
             sb_printf(out, "%s:%d: %s", path, lno, line);
             (*matches)++;
         }
@@ -4010,23 +5128,33 @@ static void search_file(strbuf *out, const char *path, const char *pattern,
 }
 
 static void search_rec(strbuf *out, const char *path, const char *pattern,
-                       int depth, int max_depth, int *matches, int max_matches) {
-    if (*matches >= max_matches || depth > max_depth) return;
+                       int depth, int max_depth, int *matches, int max_matches)
+{
+    if (*matches >= max_matches || depth > max_depth)
+        return;
     struct stat st;
-    if (stat(path, &st) != 0) return;
-    if (S_ISREG(st.st_mode)) {
+    if (stat(path, &st) != 0)
+        return;
+    if (S_ISREG(st.st_mode))
+    {
         search_file(out, path, pattern, matches, max_matches);
         return;
     }
-    if (!S_ISDIR(st.st_mode)) return;
+    if (!S_ISDIR(st.st_mode))
+        return;
     DIR *dir = opendir(path);
-    if (!dir) return;
+    if (!dir)
+        return;
     struct dirent *de;
-    while (*matches < max_matches && (de = readdir(dir)) != NULL) {
-        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
-        if (!strcmp(de->d_name, ".git")) continue;
+    while (*matches < max_matches && (de = readdir(dir)) != NULL)
+    {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+            continue;
+        if (!strcmp(de->d_name, ".git"))
+            continue;
         char *child = path_join(path, de->d_name);
-        if (child) {
+        if (child)
+        {
             search_rec(out, child, pattern, depth + 1, max_depth,
                        matches, max_matches);
             free(child);
@@ -4035,66 +5163,85 @@ static void search_rec(strbuf *out, const char *path, const char *pattern,
     closedir(dir);
 }
 
-static char *tool_search(agent_state *a, const tool_call *call) {
+static char *tool_search(agent_state *a, const tool_call *call)
+{
     (void)a;
     const char *pattern = tool_param_value(call, "pattern");
-    if (!pattern || !pattern[0]) pattern = tool_param_value(call, "query");
-    if (!pattern || !pattern[0]) return agent_strdup("error: search requires pattern");
+    if (!pattern || !pattern[0])
+        pattern = tool_param_value(call, "query");
+    if (!pattern || !pattern[0])
+        return agent_strdup("error: search requires pattern");
     const char *path = tool_param_value(call, "path");
-    if (!path || !path[0]) path = ".";
+    if (!path || !path[0])
+        path = ".";
     int max = int_param(call, "max", 100);
-    if (max < 1 || max > 1000) max = 100;
+    if (max < 1 || max > 1000)
+        max = 100;
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "search pattern=%s path=%s\n", pattern, path);
     int matches = 0;
     search_rec(&out, path, pattern, 0, 8, &matches, max);
-    if (matches == 0) {
+    if (matches == 0)
+    {
         sb_append(&out, "(no matches)\n");
     }
-    if (matches >= max) sb_append(&out, "... truncated\n");
+    if (matches >= max)
+        sb_append(&out, "... truncated\n");
     return out.p;
 }
 
-typedef struct {
+typedef struct
+{
     char *path;
     time_t mtime;
     bool protected;
 } agent_bash_spill_entry;
 
-static int agent_bash_spill_cmp(const void *lhs, const void *rhs) {
+static int agent_bash_spill_cmp(const void *lhs, const void *rhs)
+{
     const agent_bash_spill_entry *a = lhs;
     const agent_bash_spill_entry *b = rhs;
-    if (a->protected != b->protected) return a->protected ? -1 : 1;
-    if (a->mtime > b->mtime) return -1;
-    if (a->mtime < b->mtime) return 1;
+    if (a->protected != b->protected)
+        return a->protected ? -1 : 1;
+    if (a->mtime > b->mtime)
+        return -1;
+    if (a->mtime < b->mtime)
+        return 1;
     return strcmp(a->path, b->path);
 }
 
 static void agent_prune_spills(const char *dir, const char *prefix,
-                               const char *protected_path, size_t keep) {
+                               const char *protected_path, size_t keep)
+{
     DIR *dp = opendir(dir);
-    if (!dp) return;
+    if (!dp)
+        return;
     agent_bash_spill_entry *items = NULL;
     size_t len = 0;
     size_t cap = 0;
     size_t prefix_len = strlen(prefix ? prefix : "");
     struct dirent *de;
-    while ((de = readdir(dp)) != NULL) {
-        if (strncmp(de->d_name, prefix ? prefix : "", prefix_len) != 0) {
+    while ((de = readdir(dp)) != NULL)
+    {
+        if (strncmp(de->d_name, prefix ? prefix : "", prefix_len) != 0)
+        {
             continue;
         }
         char *path = path_join(dir, de->d_name);
         struct stat st;
-        if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode))
+        {
             free(path);
             continue;
         }
-        if (len == cap) {
+        if (len == cap)
+        {
             size_t next_cap = cap ? cap * 2 : 16;
             agent_bash_spill_entry *next =
                 realloc(items, next_cap * sizeof(*items));
-            if (!next) {
+            if (!next)
+            {
                 free(path);
                 break;
             }
@@ -4109,20 +5256,25 @@ static void agent_prune_spills(const char *dir, const char *prefix,
     }
     closedir(dp);
     qsort(items, len, sizeof(*items), agent_bash_spill_cmp);
-    for (size_t i = 0; i < len; i++) {
-        if (i >= keep) (void)unlink(items[i].path);
+    for (size_t i = 0; i < len; i++)
+    {
+        if (i >= keep)
+            (void)unlink(items[i].path);
         free(items[i].path);
     }
     free(items);
 }
 
 static int agent_create_spill(agent_state *a, const char *prefix,
-                              char **path_out, char **dir_out) {
+                              char **path_out, char **dir_out)
+{
     *path_out = NULL;
     *dir_out = NULL;
-    if (!a || !a->cfg.store_dir) return -1;
+    if (!a || !a->cfg.store_dir)
+        return -1;
     char *dir = path_join(a->cfg.store_dir, "spills");
-    if (!dir || ensure_private_dir(dir) != 0) {
+    if (!dir || ensure_private_dir(dir) != 0)
+    {
         free(dir);
         return -1;
     }
@@ -4132,13 +5284,16 @@ static int agent_create_spill(agent_state *a, const char *prefix,
     sb_append(&name, "XXXXXX");
     char *tmpl = path_join(dir, name.p ? name.p : "spill-XXXXXX");
     sb_free(&name);
-    if (!tmpl) {
+    if (!tmpl)
+    {
         free(dir);
         return -1;
     }
     int fd = mkstemp(tmpl);
-    if (fd < 0 || fchmod(fd, 0600) != 0) {
-        if (fd >= 0) close(fd);
+    if (fd < 0 || fchmod(fd, 0600) != 0)
+    {
+        if (fd >= 0)
+            close(fd);
         (void)unlink(tmpl);
         free(tmpl);
         free(dir);
@@ -4149,29 +5304,40 @@ static int agent_create_spill(agent_state *a, const char *prefix,
     return fd;
 }
 
-static const char *agent_message_kind_name(agent_message_kind kind) {
-    switch (kind) {
-        case AGENT_MESSAGE_SYSTEM: return "system";
-        case AGENT_MESSAGE_USER: return "user";
-        case AGENT_MESSAGE_ASSISTANT: return "assistant";
-        case AGENT_MESSAGE_TOOL: return "tool";
-        case AGENT_MESSAGE_CONTROL: return "control";
-        case AGENT_MESSAGE_LEGACY: return "legacy";
+static const char *agent_message_kind_name(agent_message_kind kind)
+{
+    switch (kind)
+    {
+    case AGENT_MESSAGE_SYSTEM:
+        return "system";
+    case AGENT_MESSAGE_USER:
+        return "user";
+    case AGENT_MESSAGE_ASSISTANT:
+        return "assistant";
+    case AGENT_MESSAGE_TOOL:
+        return "tool";
+    case AGENT_MESSAGE_CONTROL:
+        return "control";
+    case AGENT_MESSAGE_LEGACY:
+        return "legacy";
     }
     return "unknown";
 }
 
-static char *agent_archive_context(agent_state *a) {
+static char *agent_archive_context(agent_state *a)
+{
     char *path = NULL;
     char *dir = NULL;
     int fd = agent_create_spill(a, "context-", &path, &dir);
-    if (fd < 0) {
+    if (fd < 0)
+    {
         free(path);
         free(dir);
         return NULL;
     }
     FILE *fp = fdopen(fd, "wb");
-    if (!fp) {
+    if (!fp)
+    {
         close(fd);
         (void)unlink(path);
         free(path);
@@ -4181,24 +5347,33 @@ static char *agent_archive_context(agent_state *a) {
     int rc = fprintf(fp,
                      "# qw3-agent pre-compaction message archive\n"
                      "# messages=%d tokens=%d\n",
-                     a->messages.len, a->transcript.len) < 0 ? -1 : 0;
-    for (int i = 0; rc == 0 && i < a->messages.len; i++) {
+                     a->messages.len, a->transcript.len) < 0
+                 ? -1
+                 : 0;
+    for (int i = 0; rc == 0 && i < a->messages.len; i++)
+    {
         const agent_message *message = &a->messages.items[i];
-        if (message->kind == AGENT_MESSAGE_SYSTEM) continue;
+        if (message->kind == AGENT_MESSAGE_SYSTEM)
+            continue;
         if (fprintf(fp,
                     "\n--- message %d kind=%s role=%s tokens=%d..%d ---\n",
                     i, agent_message_kind_name(message->kind),
                     message->role ? message->role : "",
                     message->token_start, message->token_end) < 0 ||
             fputs(message->content ? message->content : "", fp) == EOF ||
-            fputs("\n--- end message ---\n", fp) == EOF) {
+            fputs("\n--- end message ---\n", fp) == EOF)
+        {
             rc = -1;
         }
     }
-    if (fflush(fp) != 0) rc = -1;
-    if (fsync(fd) != 0) rc = -1;
-    if (fclose(fp) != 0) rc = -1;
-    if (rc != 0) {
+    if (fflush(fp) != 0)
+        rc = -1;
+    if (fsync(fd) != 0)
+        rc = -1;
+    if (fclose(fp) != 0)
+        rc = -1;
+    if (rc != 0)
+    {
         (void)unlink(path);
         free(path);
         free(dir);
@@ -4211,9 +5386,12 @@ static char *agent_archive_context(agent_state *a) {
 }
 
 static void agent_tail_append(char *tail, size_t cap, size_t *len,
-                              size_t *pos, const char *buf, size_t n) {
-    if (!tail || cap == 0 || !len || !pos || !buf || n == 0) return;
-    if (n >= cap) {
+                              size_t *pos, const char *buf, size_t n)
+{
+    if (!tail || cap == 0 || !len || !pos || !buf || n == 0)
+        return;
+    if (n >= cap)
+    {
         memcpy(tail, buf + n - cap, cap);
         *len = cap;
         *pos = 0;
@@ -4221,41 +5399,56 @@ static void agent_tail_append(char *tail, size_t cap, size_t *len,
     }
     size_t room = cap - *len;
     size_t initial = n < room ? n : room;
-    if (initial) {
+    if (initial)
+    {
         memcpy(tail + *len, buf, initial);
         *len += initial;
         buf += initial;
         n -= initial;
     }
-    if (n == 0) return;
+    if (n == 0)
+        return;
     size_t first = n < cap - *pos ? n : cap - *pos;
     memcpy(tail + *pos, buf, first);
-    if (n > first) memcpy(tail, buf + first, n - first);
+    if (n > first)
+        memcpy(tail, buf + first, n - first);
     *pos = (*pos + n) % cap;
 }
 
-static void agent_append_sanitized(strbuf *out, const char *buf, size_t n) {
+static void agent_append_sanitized(strbuf *out, const char *buf, size_t n)
+{
     size_t start = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (buf[i] != '\0') continue;
-        if (i > start) sb_append_n(out, buf + start, i - start);
+    for (size_t i = 0; i < n; i++)
+    {
+        if (buf[i] != '\0')
+            continue;
+        if (i > start)
+            sb_append_n(out, buf + start, i - start);
         sb_append(out, "?");
         start = i + 1;
     }
-    if (n > start) sb_append_n(out, buf + start, n - start);
+    if (n > start)
+        sb_append_n(out, buf + start, n - start);
 }
 
-static void agent_kill_process_group(pid_t pid, int sig) {
-    if (pid <= 0) return;
-    if (kill(-pid, sig) != 0) (void)kill(pid, sig);
+static void agent_kill_process_group(pid_t pid, int sig)
+{
+    if (pid <= 0)
+        return;
+    if (kill(-pid, sig) != 0)
+        (void)kill(pid, sig);
 }
 
-static char *tool_bash(agent_state *a, const tool_call *call) {
+static char *tool_bash(agent_state *a, const tool_call *call)
+{
     const char *cmd = tool_param_value(call, "cmd");
-    if (!cmd || !cmd[0]) cmd = tool_param_value(call, "command");
-    if (!cmd || !cmd[0]) return agent_strdup("error: bash requires cmd");
+    if (!cmd || !cmd[0])
+        cmd = tool_param_value(call, "command");
+    if (!cmd || !cmd[0])
+        return agent_strdup("error: bash requires cmd");
     int pipefd[2];
-    if (pipe(pipefd) != 0) {
+    if (pipe(pipefd) != 0)
+    {
         strbuf err;
         sb_init(&err);
         sb_printf(&err, "error: pipe failed: %s", strerror(errno));
@@ -4269,11 +5462,14 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
     bool spill_attempted = false;
 
     pid_t pid = fork();
-    if (pid < 0) {
+    if (pid < 0)
+    {
         close(pipefd[0]);
         close(pipefd[1]);
-        if (spill_fd >= 0) close(spill_fd);
-        if (spill_path) (void)unlink(spill_path);
+        if (spill_fd >= 0)
+            close(spill_fd);
+        if (spill_path)
+            (void)unlink(spill_path);
         free(spill_path);
         free(spill_dir);
         strbuf err;
@@ -4281,7 +5477,8 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
         sb_printf(&err, "error: fork failed: %s", strerror(errno));
         return err.p;
     }
-    if (pid == 0) {
+    if (pid == 0)
+    {
         (void)setpgid(0, 0);
         close(pipefd[0]);
         (void)dup2(pipefd[1], STDOUT_FILENO);
@@ -4300,9 +5497,11 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
         "QW3_AGENT_BASH_MAX_BYTES", QW3_AGENT_BASH_MAX_BYTES, 4096,
         1024 * 1024);
     size_t head_bytes = QW3_AGENT_BASH_HEAD_BYTES;
-    if (head_bytes > max_bytes / 2) head_bytes = max_bytes / 2;
+    if (head_bytes > max_bytes / 2)
+        head_bytes = max_bytes / 2;
     size_t tail_bytes = max_bytes - head_bytes;
-    if (tail_bytes > QW3_AGENT_BASH_TAIL_BYTES) {
+    if (tail_bytes > QW3_AGENT_BASH_TAIL_BYTES)
+    {
         tail_bytes = QW3_AGENT_BASH_TAIL_BYTES;
     }
     const int timeout_sec = agent_env_int(
@@ -4324,62 +5523,79 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
     double kill_at = 0.0;
     const double started = agent_now_sec();
 
-    while (pipe_open || !exited) {
-        if (!exited) {
+    while (pipe_open || !exited)
+    {
+        if (!exited)
+        {
             pid_t wr = waitpid(pid, &status, WNOHANG);
-            if (wr == pid) exited = true;
-            else if (wr < 0 && errno != EINTR) exited = true;
+            if (wr == pid)
+                exited = true;
+            else if (wr < 0 && errno != EINTR)
+                exited = true;
         }
 
         const double now = agent_now_sec();
-        if (!sent_term && agent_should_interrupt(a)) {
+        if (!sent_term && agent_should_interrupt(a))
+        {
             interrupted = true;
             sent_term = true;
             term_at = now;
             agent_kill_process_group(pid, SIGTERM);
-        } else if (!sent_term && now - started > (double)timeout_sec) {
+        }
+        else if (!sent_term && now - started > (double)timeout_sec)
+        {
             timed_out = true;
             sent_term = true;
             term_at = now;
             agent_kill_process_group(pid, SIGTERM);
         }
-        if (sent_term && !sent_kill && now - term_at > 1.0) {
+        if (sent_term && !sent_kill && now - term_at > 1.0)
+        {
             sent_kill = true;
             kill_at = now;
             agent_kill_process_group(pid, SIGKILL);
         }
-        if (sent_kill && pipe_open && now - kill_at > 1.0) {
+        if (sent_kill && pipe_open && now - kill_at > 1.0)
+        {
             close(pipefd[0]);
             pipe_open = false;
         }
 
-        if (pipe_open) {
+        if (pipe_open)
+        {
             struct pollfd pfd = {
                 .fd = pipefd[0],
                 .events = POLLIN | POLLHUP,
                 .revents = 0,
             };
             int pr = poll(&pfd, 1, 100);
-            if (pr > 0 && (pfd.revents & (POLLIN | POLLHUP))) {
-                for (;;) {
+            if (pr > 0 && (pfd.revents & (POLLIN | POLLHUP)))
+            {
+                for (;;)
+                {
                     char buf[4096];
                     ssize_t n = read(pipefd[0], buf, sizeof(buf));
-                    if (n > 0) {
+                    if (n > 0)
+                    {
                         size_t got = (size_t)n;
-                        if (!spill_attempted && total + got > max_bytes) {
+                        if (!spill_attempted && total + got > max_bytes)
+                        {
                             spill_attempted = true;
                             spill_fd = agent_create_spill(
                                 a, "bash-", &spill_path, &spill_dir);
                             spill_ok = spill_fd >= 0;
                             if (spill_ok && first.len &&
-                                !agent_write_all(spill_fd, first.p, first.len)) {
+                                !agent_write_all(spill_fd, first.p, first.len))
+                            {
                                 spill_ok = false;
                             }
                         }
-                        if (spill_ok && !agent_write_all(spill_fd, buf, got)) {
+                        if (spill_ok && !agent_write_all(spill_fd, buf, got))
+                        {
                             spill_ok = false;
                         }
-                        if (first.len < max_bytes) {
+                        if (first.len < max_bytes)
+                        {
                             size_t room = max_bytes - first.len;
                             size_t take = got < room ? got : room;
                             sb_append_n(&first, buf, take);
@@ -4387,82 +5603,120 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
                         agent_tail_append(tail, tail_bytes,
                                           &tail_len, &tail_pos, buf, got);
                         total += got;
-                    } else if (n == 0) {
+                    }
+                    else if (n == 0)
+                    {
                         close(pipefd[0]);
                         pipe_open = false;
                         break;
-                    } else {
+                    }
+                    else
+                    {
                         if (errno != EAGAIN && errno != EWOULDBLOCK &&
-                            errno != EINTR) {
+                            errno != EINTR)
+                        {
                             close(pipefd[0]);
                             pipe_open = false;
                         }
                         break;
                     }
                 }
-            } else if (pr < 0 && errno != EINTR) {
+            }
+            else if (pr < 0 && errno != EINTR)
+            {
                 close(pipefd[0]);
                 pipe_open = false;
             }
-        } else if (!exited) {
+        }
+        else if (!exited)
+        {
             struct timespec pause = {0, 100000000};
             nanosleep(&pause, NULL);
         }
     }
 
-    if (pipe_open) close(pipefd[0]);
-    if (!exited) (void)waitpid(pid, &status, 0);
-    if (spill_fd >= 0) close(spill_fd);
+    if (pipe_open)
+        close(pipefd[0]);
+    if (!exited)
+        (void)waitpid(pid, &status, 0);
+    if (spill_fd >= 0)
+        close(spill_fd);
 
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "$ %s\n", cmd);
-    if (total == 0) {
+    if (total == 0)
+    {
         sb_append(&out, "[no output]\n");
-    } else if (total <= max_bytes) {
+    }
+    else if (total <= max_bytes)
+    {
         agent_append_sanitized(&out, first.p ? first.p : "", first.len);
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
-    } else {
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
+    }
+    else
+    {
         size_t head_len = first.len < head_bytes ? first.len : head_bytes;
         agent_append_sanitized(&out, first.p, head_len);
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
         uint64_t kept = (uint64_t)head_len + (uint64_t)tail_len;
         uint64_t omitted = total > kept ? total - kept : 0;
-        if (spill_ok && spill_path) {
+        if (spill_ok && spill_path)
+        {
             sb_printf(&out,
                       "[... %llu bytes omitted; full output saved to %s. "
                       "Use rg/sed on that file instead of rerunning the command ...]\n",
                       (unsigned long long)omitted, spill_path);
-        } else {
+        }
+        else
+        {
             sb_printf(&out,
                       "[... %llu bytes omitted; full output could not be saved ...]\n",
                       (unsigned long long)omitted);
         }
-        if (tail && tail_len) {
-            if (tail_len < tail_bytes || tail_pos == 0) {
+        if (tail && tail_len)
+        {
+            if (tail_len < tail_bytes || tail_pos == 0)
+            {
                 agent_append_sanitized(&out, tail, tail_len);
-            } else {
+            }
+            else
+            {
                 agent_append_sanitized(&out, tail + tail_pos,
                                        tail_len - tail_pos);
                 agent_append_sanitized(&out, tail, tail_pos);
             }
         }
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
     }
 
-    if (interrupted) sb_append(&out, "interrupted=1\n");
-    if (timed_out) sb_printf(&out, "timed_out=%ds\n", timeout_sec);
-    if (WIFEXITED(status)) {
+    if (interrupted)
+        sb_append(&out, "interrupted=1\n");
+    if (timed_out)
+        sb_printf(&out, "timed_out=%ds\n", timeout_sec);
+    if (WIFEXITED(status))
+    {
         sb_printf(&out, "\nexit=%d\n", WEXITSTATUS(status));
-    } else if (WIFSIGNALED(status)) {
+    }
+    else if (WIFSIGNALED(status))
+    {
         sb_printf(&out, "\nsignal=%d\n", WTERMSIG(status));
-    } else {
+    }
+    else
+    {
         sb_append(&out, "\nexit=unknown\n");
     }
 
-    if (total <= max_bytes || !spill_ok) {
-        if (spill_path) (void)unlink(spill_path);
-    } else if (spill_dir) {
+    if (total <= max_bytes || !spill_ok)
+    {
+        if (spill_path)
+            (void)unlink(spill_path);
+    }
+    else if (spill_dir)
+    {
         agent_prune_spills(spill_dir, "bash-", spill_path,
                            QW3_AGENT_BASH_SPILL_KEEP);
     }
@@ -4473,62 +5727,86 @@ static char *tool_bash(agent_state *a, const tool_call *call) {
     return out.p;
 }
 
-static char *execute_one_tool_raw(agent_state *a, const tool_call *call) {
-    if (!a->cfg.tools_enabled) return agent_strdup("error: tools are disabled");
+static char *execute_one_tool_raw(agent_state *a, const tool_call *call)
+{
+    if (!a->cfg.tools_enabled)
+        return agent_strdup("error: tools are disabled");
     if (a->cfg.compact_tools && strcmp(call->name, "read") != 0 &&
         strcmp(call->name, "write") != 0 &&
         strcmp(call->name, "edit") != 0 &&
-        strcmp(call->name, "bash") != 0) {
+        strcmp(call->name, "bash") != 0)
+    {
         return agent_strdup("error: tool is not available with --compact-tools");
     }
-    if (!strcmp(call->name, "read")) return tool_read(a, call);
-    if (!strcmp(call->name, "more")) return tool_more(a, call);
-    if (!strcmp(call->name, "list")) return tool_list(call);
-    if (!strcmp(call->name, "get_skeleton")) return tool_get_skeleton(call);
+    if (!strcmp(call->name, "read"))
+        return tool_read(a, call);
+    if (!strcmp(call->name, "more"))
+        return tool_more(a, call);
+    if (!strcmp(call->name, "list"))
+        return tool_list(call);
+    if (!strcmp(call->name, "get_skeleton"))
+        return tool_get_skeleton(call);
     if (!strcmp(call->name, "get_function") ||
-        !strcmp(call->name, "get_fucttion")) return tool_get_function(call);
-    if (!strcmp(call->name, "semantic_search")) return tool_semantic_search(call);
-    if (!strcmp(call->name, "search_web")) return tool_search_web(call);
-    if (!strcmp(call->name, "visit_url")) return tool_visit_url(a, call);
-    if (!strcmp(call->name, "write")) return tool_write(a, call);
-    if (!strcmp(call->name, "edit")) return tool_edit(a, call);
-    if (!strcmp(call->name, "search")) return tool_search(a, call);
-    if (!strcmp(call->name, "bash")) return tool_bash(a, call);
+        !strcmp(call->name, "get_fucttion"))
+        return tool_get_function(call);
+    if (!strcmp(call->name, "semantic_search"))
+        return tool_semantic_search(call);
+    if (!strcmp(call->name, "search_web"))
+        return tool_search_web(call);
+    if (!strcmp(call->name, "visit_url"))
+        return tool_visit_url(a, call);
+    if (!strcmp(call->name, "write"))
+        return tool_write(a, call);
+    if (!strcmp(call->name, "edit"))
+        return tool_edit(a, call);
+    if (!strcmp(call->name, "search"))
+        return tool_search(a, call);
+    if (!strcmp(call->name, "bash"))
+        return tool_bash(a, call);
     strbuf out;
     sb_init(&out);
     sb_printf(&out, "error: unknown tool '%s'", call->name);
     return out.p;
 }
 
-static bool agent_tool_output_succeeded(const char *out) {
+static bool agent_tool_output_succeeded(const char *out)
+{
     /* Only the terminal status footer is authoritative, not program output
      * containing a literal "exit=0" before a failure/timeout footer. */
-    if (!out) return false;
+    if (!out)
+        return false;
     size_t len = strlen(out);
-    while (len && (out[len - 1] == '\n' || out[len - 1] == '\r')) len--;
+    while (len && (out[len - 1] == '\n' || out[len - 1] == '\r'))
+        len--;
     if (len < 6 || memcmp(out + len - 6, "exit=0", 6) ||
         (len > 6 && out[len - 7] != '\n' && out[len - 7] != '\r'))
         return false;
     size_t end = len - 6;
-    while (end && (out[end - 1] == '\n' || out[end - 1] == '\r')) end--;
+    while (end && (out[end - 1] == '\n' || out[end - 1] == '\r'))
+        end--;
     size_t start = end;
-    while (start && out[start - 1] != '\n' && out[start - 1] != '\r') start--;
+    while (start && out[start - 1] != '\n' && out[start - 1] != '\r')
+        start--;
     return !(end - start == 13 && !memcmp(out + start, "interrupted=1", 13)) &&
            !(end - start >= 10 && !memcmp(out + start, "timed_out=", 10));
 }
 
 static void agent_note_tool_result(agent_state *a, const tool_call *call,
-                                   const char *out) {
-    if (!a || !call || !out) return;
+                                   const char *out)
+{
+    if (!a || !call || !out)
+        return;
     bool changed = (!strcmp(call->name, "write") ||
                     !strcmp(call->name, "edit")) &&
                    !strncmp(out, "ok: ", 4);
-    if (changed) {
+    if (changed)
+    {
         a->edit_verification_pending = true;
         return;
     }
     if (!strcmp(call->name, "bash") && a->edit_verification_pending &&
-        agent_tool_output_succeeded(out)) {
+        agent_tool_output_succeeded(out))
+    {
         /* The executor reports completion, not semantic test coverage. The
          * model must choose a relevant check; guessing that from executable
          * names rejects valid custom commands and can trap follow-up turns. */
@@ -4536,7 +5814,8 @@ static void agent_note_tool_result(agent_state *a, const tool_call *call,
     }
 }
 
-static char *execute_one_tool(agent_state *a, const tool_call *call) {
+static char *execute_one_tool(agent_state *a, const tool_call *call)
+{
     if (a->cfg.read_only && strcmp(call->name, "read") && strcmp(call->name, "more") &&
         strcmp(call->name, "list") && strcmp(call->name, "search") &&
         strcmp(call->name, "get_skeleton") && strcmp(call->name, "get_function") &&
@@ -4549,38 +5828,46 @@ static char *execute_one_tool(agent_state *a, const tool_call *call) {
     return out;
 }
 
-static int agent_verify_guard_selftest(void) {
+static int agent_verify_guard_selftest(void)
+{
     agent_state state = {0};
     tool_call call = {0};
 
     snprintf(call.name, sizeof(call.name), "edit");
     agent_note_tool_result(&state, &call, "error: old text not found");
-    if (state.edit_verification_pending) return 1;
+    if (state.edit_verification_pending)
+        return 1;
     agent_note_tool_result(&state, &call, "ok: edited example.c (1 change)");
-    if (!state.edit_verification_pending) return 2;
+    if (!state.edit_verification_pending)
+        return 2;
 
     memset(&call, 0, sizeof(call));
     snprintf(call.name, sizeof(call.name), "read");
     agent_note_tool_result(&state, &call, "example contents\n");
-    if (!state.edit_verification_pending) return 3;
+    if (!state.edit_verification_pending)
+        return 3;
     snprintf(call.name, sizeof(call.name), "bash");
     call.params[0].value = "./custom-validator --check";
     snprintf(call.params[0].name, sizeof(call.params[0].name), "cmd");
     call.n_params = 1;
     agent_note_tool_result(&state, &call,
                            "$ ./custom-validator --check\n\nexit=1\n");
-    if (!state.edit_verification_pending) return 5;
+    if (!state.edit_verification_pending)
+        return 5;
     agent_note_tool_result(&state, &call,
                            "$ ./custom-validator --check\n\nexit=0\n");
-    if (state.edit_verification_pending) return 6;
+    if (state.edit_verification_pending)
+        return 6;
     snprintf(call.name, sizeof(call.name), "edit");
     agent_note_tool_result(&state, &call, "ok: edited note.txt (1 change)");
-    if (!state.edit_verification_pending) return 7;
+    if (!state.edit_verification_pending)
+        return 7;
     snprintf(call.name, sizeof(call.name), "bash");
     call.params[0].value = "test \"$(cat note.txt)\" = beta";
     agent_note_tool_result(&state, &call,
                            "$ test \"$(cat note.txt)\" = beta\n\nexit=0\n");
-    if (state.edit_verification_pending) return 8;
+    if (state.edit_verification_pending)
+        return 8;
 
     /* Runtime completion must be independent of language, command spelling,
      * wrappers and project-specific runners. These are status fixtures, not
@@ -4593,13 +5880,14 @@ static int agent_verify_guard_selftest(void) {
         "python3 demo.py",
         "sh tests/test_example.sh",
         "git diff --check",
-        "ls", "echo done", NULL
-    };
-    for (int i = 0; commands[i]; i++) {
+        "ls", "echo done", NULL};
+    for (int i = 0; commands[i]; i++)
+    {
         state.edit_verification_pending = true;
         call.params[0].value = (char *)commands[i];
         agent_note_tool_result(&state, &call, "output\n\nexit=0\n");
-        if (state.edit_verification_pending) return 10;
+        if (state.edit_verification_pending)
+            return 10;
     }
     call.params[0].value = "./project-runner";
     static const char *failed_outputs[] = {
@@ -4609,41 +5897,48 @@ static int agent_verify_guard_selftest(void) {
         "exit=0\n\nexit=unknown\n",
         "interrupted=1\n\nexit=0\n",
         "timed_out=10s\n\nexit=0\n",
-        "syntax OK\n", "printed exit=0\n", NULL
-    };
-    for (int i = 0; failed_outputs[i]; i++) {
+        "syntax OK\n", "printed exit=0\n", NULL};
+    for (int i = 0; failed_outputs[i]; i++)
+    {
         state.edit_verification_pending = true;
         agent_note_tool_result(&state, &call, failed_outputs[i]);
-        if (!state.edit_verification_pending) return 11;
+        if (!state.edit_verification_pending)
+            return 11;
     }
     /* Reproduce failed run -> rewrite -> successful run -> follow-up. */
     snprintf(call.name, sizeof(call.name), "write");
     agent_note_tool_result(&state, &call, "ok: wrote project.src (100 bytes)");
     snprintf(call.name, sizeof(call.name), "bash");
     agent_note_tool_result(&state, &call, "Traceback\n\nexit=1\n");
-    if (!state.edit_verification_pending) return 12;
+    if (!state.edit_verification_pending)
+        return 12;
     snprintf(call.name, sizeof(call.name), "write");
     agent_note_tool_result(&state, &call, "ok: wrote project.src (90 bytes)");
     snprintf(call.name, sizeof(call.name), "bash");
     call.params[0].value = "cd /tmp && ./project-runner";
     agent_note_tool_result(&state, &call, "expected result\n\nexit=0\n");
-    if (state.edit_verification_pending) return 13;
+    if (state.edit_verification_pending)
+        return 13;
     /* The same successful check cannot verify a later edit. */
     snprintf(call.name, sizeof(call.name), "write");
     agent_note_tool_result(&state, &call, "ok: wrote project.src (95 bytes)");
-    if (!state.edit_verification_pending) return 14;
+    if (!state.edit_verification_pending)
+        return 14;
     return 0;
 }
 
-static bool tool_result_is_guard_rejection(const char *out) {
+static bool tool_result_is_guard_rejection(const char *out)
+{
     static const char prefix[] = "context_guard:";
     return out && !strncmp(out, prefix, strlen(prefix));
 }
 
-static uint64_t agent_tool_call_hash(const tool_call *call) {
+static uint64_t agent_tool_call_hash(const tool_call *call)
+{
     uint64_t h = 1469598103934665603ull;
     h = agent_hash_update(h, call->name, strlen(call->name));
-    for (int i = 0; i < call->n_params; i++) {
+    for (int i = 0; i < call->n_params; i++)
+    {
         const tool_param *param = &call->params[i];
         static const char separator[] = "\n=";
         h = agent_hash_update(h, separator, sizeof(separator) - 1);
@@ -4657,11 +5952,14 @@ static uint64_t agent_tool_call_hash(const tool_call *call) {
 static bool agent_tool_history_add(const agent_state *a, agent_tool_history *history,
                                    const tool_call_list *calls,
                                    char *repeat_name,
-                                   size_t repeat_name_len) {
+                                   size_t repeat_name_len)
+{
     uint64_t pending[8];
-    for (int i = 0; i < calls->n_calls; i++) {
+    for (int i = 0; i < calls->n_calls; i++)
+    {
         pending[i] = agent_tool_call_hash(&calls->calls[i]);
-        if (a && !strcmp(calls->calls[i].name, "more")) {
+        if (a && !strcmp(calls->calls[i].name, "more"))
+        {
             /* Identical more parameters advance an implicit file cursor.
              * Include that state; unchanged cursors still trigger the guard.
              * The ordinal allows sequential more calls in one tool batch. */
@@ -4673,15 +5971,19 @@ static bool agent_tool_history_add(const agent_state *a, agent_tool_history *his
                                            sizeof(a->last_read_next));
             pending[i] = agent_hash_update(pending[i], &i, sizeof(i));
         }
-        for (int j = 0; j < history->n_items; j++) {
-            if (pending[i] == history->hashes[j]) {
+        for (int j = 0; j < history->n_items; j++)
+        {
+            if (pending[i] == history->hashes[j])
+            {
                 snprintf(repeat_name, repeat_name_len, "%s",
                          calls->calls[i].name);
                 return false;
             }
         }
-        for (int j = 0; j < i; j++) {
-            if (pending[i] == pending[j]) {
+        for (int j = 0; j < i; j++)
+        {
+            if (pending[i] == pending[j])
+            {
                 snprintf(repeat_name, repeat_name_len, "%s",
                          calls->calls[i].name);
                 return false;
@@ -4690,19 +5992,23 @@ static bool agent_tool_history_add(const agent_state *a, agent_tool_history *his
     }
     for (int i = 0;
          i < calls->n_calls && history->n_items < QW3_AGENT_TOOL_HISTORY_MAX;
-         i++) {
+         i++)
+    {
         history->hashes[history->n_items++] = pending[i];
     }
     return true;
 }
 
-static bool agent_more_history_selftest(void) {
+static bool agent_more_history_selftest(void)
+{
     char path[] = "/tmp/qw3-more-history-XXXXXX";
     int fd = mkstemp(path);
-    if (fd < 0) return false;
+    if (fd < 0)
+        return false;
     static const char data[] = "row 1\nrow 2\nrow 3\nrow 4\nrow 5\nrow 6\nrow 7\n";
     bool ok = agent_write_all(fd, data, sizeof(data) - 1);
-    if (close(fd) != 0) ok = false;
+    if (close(fd) != 0)
+        ok = false;
     agent_state a = {0};
     tool_call read = {0};
     snprintf(read.name, sizeof(read.name), "read");
@@ -4724,7 +6030,8 @@ static bool agent_more_history_selftest(void) {
     calls.calls[0].params[0].value = "2";
     agent_tool_history history = {0};
     char repeated[64] = {0};
-    for (int first = 3; ok && first <= 7; first += 2) {
+    for (int first = 3; ok && first <= 7; first += 2)
+    {
         ok = agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
         out = ok ? tool_more(&a, &calls.calls[0]) : NULL;
         char expected[32];
@@ -4732,20 +6039,23 @@ static bool agent_more_history_selftest(void) {
         ok = ok && out && strstr(out, expected) && a.last_read_next == (first == 7 ? 8 : first + 2);
         free(out);
     }
-    if (ok) {
+    if (ok)
+    {
         ok = agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
         out = ok ? tool_more(&a, &calls.calls[0]) : NULL;
         ok = ok && out && strstr(out, "(no lines)") && a.last_read_next == 8;
         free(out);
         ok = ok && !agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
     }
-    if (ok) {
+    if (ok)
+    {
         memset(&history, 0, sizeof(history));
         a.last_read_next = 1;
         calls.n_calls = 2;
         calls.calls[1] = calls.calls[0];
         ok = agent_tool_history_add(&a, &history, &calls, repeated, sizeof(repeated));
-        for (int i = 0; ok && i < 2; i++) {
+        for (int i = 0; ok && i < 2; i++)
+        {
             out = tool_more(&a, &calls.calls[i]);
             ok = out && a.last_read_next == 3 + 2 * i;
             free(out);
@@ -4754,13 +6064,15 @@ static bool agent_more_history_selftest(void) {
     free(a.last_read_path);
     agent_reset_source_read_budget(&a);
     (void)unlink(path);
-    if (ok) puts("PASS more_history continuation=all_7_rows batch=sequential no_progress_repeat=blocked");
+    if (ok)
+        puts("PASS more_history continuation=all_7_rows batch=sequential no_progress_repeat=blocked");
     return ok;
 }
 
 static bool agent_append_tool_loop_guard(agent_state *a,
                                          const char *tool_name,
-                                         char *err, size_t err_len) {
+                                         char *err, size_t err_len)
+{
     strbuf body;
     sb_init(&body);
     sb_printf(&body,
@@ -4774,7 +6086,8 @@ static bool agent_append_tool_loop_guard(agent_state *a,
     bool ok = agent_ensure_message_room(a, "user", response, 64,
                                         "tool loop guard would exceed context",
                                         err, err_len);
-    if (ok) {
+    if (ok)
+    {
         ok = agent_append_message(a, AGENT_MESSAGE_CONTROL,
                                   "user", response);
         agent_statusf(a, "agent: skipped repeated %s tool call\n",
@@ -4785,41 +6098,60 @@ static bool agent_append_tool_loop_guard(agent_state *a,
 }
 
 static char *execute_tools(agent_state *a, const tool_call_list *calls,
-                           bool *all_guard_rejected) {
+                           bool *all_guard_rejected)
+{
     strbuf result;
     sb_init(&result);
     bool all_rejected = calls && calls->n_calls > 0;
-    for (int i = 0; i < calls->n_calls; i++) {
+    for (int i = 0; i < calls->n_calls; i++)
+    {
         const tool_call *call = &calls->calls[i];
         char *out = execute_one_tool(a, call);
         agent_trace_tool_result(a, call->name, out);
-        if (!tool_result_is_guard_rejection(out)) all_rejected = false;
+        if (!tool_result_is_guard_rejection(out))
+            all_rejected = false;
         sb_printf(&result, "<tool_result name=\"%s\">\n%s\n</tool_result>\n",
                   call->name, out ? out : "");
         agent_tool_status_block(a, call->name, out ? out : "");
         free(out);
     }
-    if (all_guard_rejected) *all_guard_rejected = all_rejected;
+    if (all_guard_rejected)
+        *all_guard_rejected = all_rejected;
     return result.p ? result.p : agent_strdup("");
 }
 
 static bool execute_native_tools_append(agent_state *a,
                                         const tool_call_list *calls,
-                                        bool *all_guard_rejected) {
+                                        bool *all_guard_rejected)
+{
     bool all_rejected = calls && calls->n_calls > 0;
-    for (int i = 0; i < calls->n_calls; i++) {
+    for (int i = 0; i < calls->n_calls; i++)
+    {
         const tool_call *call = &calls->calls[i];
+        char tool_role[sizeof(call->name) + sizeof("tool:")];
+        const char *role = "user";
+        if (qw3_engine_is_inkling(a->engine))
+        {
+            snprintf(tool_role, sizeof(tool_role), "tool:%s", call->name);
+            role = tool_role;
+        }
         char *out = execute_one_tool(a, call);
         agent_trace_tool_result(a, call->name, out);
-        if (!tool_result_is_guard_rejection(out)) all_rejected = false;
+        if (!tool_result_is_guard_rejection(out))
+            all_rejected = false;
         agent_tool_status_block(a, call->name, out ? out : "");
         char *response = agent_context_tool_response(a, call->name, out ? out : "");
-        if (!response) { free(out); return false; }
+        if (!response)
+        {
+            free(out);
+            return false;
+        }
         char compact_err[160] = {0};
-        if (!agent_ensure_message_room(a, "user", response,
+        if (!agent_ensure_message_room(a, role, response,
                                        QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS,
                                        "tool result would exceed context",
-                                       compact_err, sizeof(compact_err))) {
+                                       compact_err, sizeof(compact_err)))
+        {
             agent_statusf(a, "agent: %s\n",
                           compact_err[0] ? compact_err : "context full");
             free(response);
@@ -4827,7 +6159,8 @@ static bool execute_native_tools_append(agent_state *a,
             return false;
         }
         if (!agent_append_message(a, AGENT_MESSAGE_TOOL,
-                                  "user", response)) {
+                                  role, response))
+        {
             free(response);
             free(out);
             return false;
@@ -4835,23 +6168,28 @@ static bool execute_native_tools_append(agent_state *a,
         free(response);
         free(out);
     }
-    if (all_guard_rejected) *all_guard_rejected = all_rejected;
+    if (all_guard_rejected)
+        *all_guard_rejected = all_rejected;
     return true;
 }
 
-static int run_tool_dsml(agent_state *a, const char *dsml) {
+static int run_tool_dsml(agent_state *a, const char *dsml)
+{
     tool_call_list calls;
     int n = parse_tool_calls(dsml ? dsml : "", &calls);
-    if (n <= 0) {
+    if (n <= 0)
+    {
         fprintf(stderr, "agent: no complete DSML tool_calls block found\n");
         free_tool_calls(&calls);
         return 1;
     }
     char *result = execute_tools(a, &calls, NULL);
     free_tool_calls(&calls);
-    if (result) {
+    if (result)
+    {
         agent_output_write(a, result, strlen(result));
-        if (result[0] && result[strlen(result) - 1] != '\n') {
+        if (result[0] && result[strlen(result) - 1] != '\n')
+        {
             agent_output_write(a, "\n", 1);
         }
     }
@@ -4859,31 +6197,37 @@ static int run_tool_dsml(agent_state *a, const char *dsml) {
     return 0;
 }
 
-static int run_tool_native(agent_state *a, const char *text) {
+static int run_tool_native(agent_state *a, const char *text)
+{
     tool_call_list calls;
     int n = parse_native_tool_calls(text ? text : "", &calls);
-    if (n <= 0) {
+    if (n <= 0)
+    {
         fprintf(stderr, "agent: no complete Qwen native tool_call block found\n");
         free_tool_calls(&calls);
         return 1;
     }
     strbuf result;
     sb_init(&result);
-    for (int i = 0; i < calls.n_calls; i++) {
+    for (int i = 0; i < calls.n_calls; i++)
+    {
         const tool_call *call = &calls.calls[i];
         char *out = execute_one_tool(a, call);
         agent_trace_tool_result(a, call->name, out);
         agent_tool_status_block(a, call->name, out ? out : "");
         char *response = native_tool_response_text(call->name, out ? out : "");
         sb_append(&result, response ? response : "");
-        if (i + 1 < calls.n_calls) sb_append(&result, "\n");
+        if (i + 1 < calls.n_calls)
+            sb_append(&result, "\n");
         free(response);
         free(out);
     }
     free_tool_calls(&calls);
-    if (result.p) {
+    if (result.p)
+    {
         agent_output_write(a, result.p, result.len);
-        if (result.p[0] && result.p[result.len - 1] != '\n') {
+        if (result.p[0] && result.p[result.len - 1] != '\n')
+        {
             agent_output_write(a, "\n", 1);
         }
     }
@@ -4891,42 +6235,61 @@ static int run_tool_native(agent_state *a, const char *text) {
     return 0;
 }
 
-static bool agent_prefix_match(const char *buf, size_t n, const char *lit) {
+static bool agent_prefix_match(const char *buf, size_t n, const char *lit)
+{
     size_t ln = strlen(lit);
     return n <= ln && memcmp(buf, lit, n) == 0;
 }
 
-static void agent_renderer_raw(agent_renderer *r, const char *s, size_t n) {
-    if (!r || !s || n == 0) return;
-    if (r->write) r->write(r->ud, s, n);
+static void agent_renderer_raw(agent_renderer *r, const char *s, size_t n)
+{
+    if (!r || !s || n == 0)
+        return;
+    if (r->write)
+        r->write(r->ud, s, n);
 }
 
-static size_t agent_utf8_expected_len(unsigned char c) {
-    if (c < 0x80) return 1;
-    if ((c & 0xe0) == 0xc0) return 2;
-    if ((c & 0xf0) == 0xe0) return 3;
-    if ((c & 0xf8) == 0xf0) return 4;
+static size_t agent_utf8_expected_len(unsigned char c)
+{
+    if (c < 0x80)
+        return 1;
+    if ((c & 0xe0) == 0xc0)
+        return 2;
+    if ((c & 0xf0) == 0xe0)
+        return 3;
+    if ((c & 0xf8) == 0xf0)
+        return 4;
     return 1;
 }
 
-static void agent_renderer_apply(agent_renderer *r) {
-    if (!r || !r->color) return;
+static void agent_renderer_apply(agent_renderer *r)
+{
+    if (!r || !r->color)
+        return;
     r->style_started = true;
-    if (r->in_think) {
+    if (r->in_think)
+    {
         agent_renderer_raw(r, AGENT_COLOR_DIM, strlen(AGENT_COLOR_DIM));
-    } else if (r->in_code) {
+    }
+    else if (r->in_code)
+    {
         agent_renderer_raw(r, AGENT_COLOR_CODE, strlen(AGENT_COLOR_CODE));
-    } else {
+    }
+    else
+    {
         agent_renderer_raw(r, AGENT_COLOR_RESET, strlen(AGENT_COLOR_RESET));
     }
 }
 
-static void agent_renderer_ensure_style(agent_renderer *r) {
-    if (r && r->color && !r->style_started) agent_renderer_apply(r);
+static void agent_renderer_ensure_style(agent_renderer *r)
+{
+    if (r && r->color && !r->style_started)
+        agent_renderer_apply(r);
 }
 
 static void agent_renderer_init(agent_renderer *r, agent_output_fn write,
-                                void *ud, bool color, bool initial_think) {
+                                void *ud, bool color, bool initial_think)
+{
     memset(r, 0, sizeof(*r));
     r->write = write ? write : agent_direct_write;
     r->ud = write ? ud : stdout;
@@ -4934,8 +6297,10 @@ static void agent_renderer_init(agent_renderer *r, agent_output_fn write,
     r->in_think = initial_think;
 }
 
-static void agent_renderer_emit_byte(agent_renderer *r, char c) {
-    if (c == '`') {
+static void agent_renderer_emit_byte(agent_renderer *r, char c)
+{
+    if (c == '`')
+    {
         r->in_code = !r->in_code;
         agent_renderer_apply(r);
         return;
@@ -4944,13 +6309,17 @@ static void agent_renderer_emit_byte(agent_renderer *r, char c) {
     agent_renderer_raw(r, &c, 1);
 }
 
-static void agent_renderer_emit_utf8_byte(agent_renderer *r, char c) {
+static void agent_renderer_emit_utf8_byte(agent_renderer *r, char c)
+{
     unsigned char uc = (unsigned char)c;
-    if (r->utf8_pending_len > 0) {
+    if (r->utf8_pending_len > 0)
+    {
         if ((uc & 0xc0) == 0x80 &&
-            r->utf8_pending_len < sizeof(r->utf8_pending)) {
+            r->utf8_pending_len < sizeof(r->utf8_pending))
+        {
             r->utf8_pending[r->utf8_pending_len++] = c;
-            if (r->utf8_pending_len == r->utf8_pending_need) {
+            if (r->utf8_pending_len == r->utf8_pending_need)
+            {
                 agent_renderer_ensure_style(r);
                 agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
                 r->utf8_pending_len = 0;
@@ -4965,7 +6334,8 @@ static void agent_renderer_emit_utf8_byte(agent_renderer *r, char c) {
     }
 
     size_t need = agent_utf8_expected_len(uc);
-    if (need > 1) {
+    if (need > 1)
+    {
         r->utf8_pending[0] = c;
         r->utf8_pending_len = 1;
         r->utf8_pending_need = need;
@@ -4974,71 +6344,99 @@ static void agent_renderer_emit_utf8_byte(agent_renderer *r, char c) {
     agent_renderer_emit_byte(r, c);
 }
 
-static void agent_renderer_flush_pending(agent_renderer *r) {
-    if (!r || r->pending_len == 0) return;
-    for (size_t i = 0; i < r->pending_len; i++) {
+static void agent_renderer_flush_pending(agent_renderer *r)
+{
+    if (!r || r->pending_len == 0)
+        return;
+    for (size_t i = 0; i < r->pending_len; i++)
+    {
         agent_renderer_emit_utf8_byte(r, r->pending[i]);
     }
     r->pending_len = 0;
 }
 
-static void agent_renderer_feed(agent_renderer *r, const char *s, size_t n) {
-    if (!r || !s || n == 0) return;
+static void agent_renderer_feed(agent_renderer *r, const char *s, size_t n)
+{
+    if (!r || !s || n == 0)
+        return;
     const char *think_begin = "<think>";
     const char *think_end = "</think>";
-    for (size_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++)
+    {
         char c = s[i];
-        if (r->pending_len > 0 || c == '<') {
-            if (r->pending_len + 1 < sizeof(r->pending)) {
+        if (r->pending_len > 0 || c == '<')
+        {
+            if (r->pending_len + 1 < sizeof(r->pending))
+            {
                 r->pending[r->pending_len++] = c;
                 r->pending[r->pending_len] = '\0';
-            } else {
+            }
+            else
+            {
                 agent_renderer_flush_pending(r);
                 agent_renderer_emit_utf8_byte(r, c);
                 continue;
             }
 
-            if (!strcmp(r->pending, think_begin)) {
+            if (!strcmp(r->pending, think_begin))
+            {
                 r->pending_len = 0;
                 r->in_think = true;
                 agent_renderer_apply(r);
-            } else if (!strcmp(r->pending, think_end)) {
+            }
+            else if (!strcmp(r->pending, think_end))
+            {
                 r->pending_len = 0;
                 r->in_think = false;
                 agent_renderer_apply(r);
-            } else if (agent_prefix_match(r->pending, r->pending_len, think_begin) ||
-                       agent_prefix_match(r->pending, r->pending_len, think_end)) {
+            }
+            else if (agent_prefix_match(r->pending, r->pending_len, think_begin) ||
+                     agent_prefix_match(r->pending, r->pending_len, think_end))
+            {
                 continue;
-            } else {
+            }
+            else
+            {
                 agent_renderer_flush_pending(r);
             }
-        } else {
+        }
+        else
+        {
             agent_renderer_emit_utf8_byte(r, c);
         }
     }
 }
 
-static void agent_renderer_finish(agent_renderer *r) {
-    if (!r) return;
+static void agent_renderer_finish(agent_renderer *r)
+{
+    if (!r)
+        return;
     agent_renderer_flush_pending(r);
-    if (r->utf8_pending_len > 0) {
+    if (r->utf8_pending_len > 0)
+    {
         agent_renderer_ensure_style(r);
         agent_renderer_raw(r, r->utf8_pending, r->utf8_pending_len);
         r->utf8_pending_len = 0;
         r->utf8_pending_need = 0;
     }
-    if (r->color && r->style_started && (r->in_think || r->in_code)) {
+    if (r->color && r->style_started && (r->in_think || r->in_code))
+    {
         r->in_think = false;
         r->in_code = false;
         agent_renderer_apply(r);
     }
 }
 
-static void agent_renderer_selftest_write(void *ud, const char *s, size_t n) {
+static void agent_renderer_selftest_write(void *ud, const char *s, size_t n)
+{
     sb_append_n((strbuf *)ud, s, n);
 }
 
-static int agent_renderer_color_selftest(void) {
+static void agent_emit_inkling_piece(agent_emit_ctx *ctx, int token,
+                                      const char *text, size_t len);
+
+static int agent_renderer_color_selftest(void)
+{
     agent_renderer renderer;
     strbuf out;
     sb_init(&out);
@@ -5051,7 +6449,8 @@ static int agent_renderer_color_selftest(void) {
     const char *answer = strstr(out.p ? out.p : "", "assistant answer");
     size_t reset_len = strlen(AGENT_COLOR_RESET);
     if (!answer || (size_t)(answer - out.p) < reset_len ||
-        memcmp(answer - reset_len, AGENT_COLOR_RESET, reset_len) != 0) {
+        memcmp(answer - reset_len, AGENT_COLOR_RESET, reset_len) != 0)
+    {
         sb_free(&out);
         return 1;
     }
@@ -5061,7 +6460,8 @@ static int agent_renderer_color_selftest(void) {
     agent_renderer_init(&renderer, agent_renderer_selftest_write, &out,
                         true, false);
     agent_renderer_finish(&renderer);
-    if (out.len != 0) {
+    if (out.len != 0)
+    {
         sb_free(&out);
         return 4;
     }
@@ -5073,7 +6473,8 @@ static int agent_renderer_color_selftest(void) {
     agent_renderer_feed(&renderer, "thinking", 8);
     agent_renderer_finish(&renderer);
     if (!out.p || strncmp(out.p, AGENT_COLOR_DIM,
-                          strlen(AGENT_COLOR_DIM)) != 0) {
+                          strlen(AGENT_COLOR_DIM)) != 0)
+    {
         sb_free(&out);
         return 2;
     }
@@ -5084,22 +6485,64 @@ static int agent_renderer_color_selftest(void) {
                         false, false);
     agent_renderer_feed(&renderer, "plain", 5);
     agent_renderer_finish(&renderer);
-    if (!out.p || strcmp(out.p, "plain") != 0) {
+    if (!out.p || strcmp(out.p, "plain") != 0)
+    {
         sb_free(&out);
         return 3;
     }
     sb_free(&out);
+
+    const struct {
+        int token;
+        const char *text;
+    } pieces[] = {
+        {1, "<|message_model|>"},
+        {2, "<|content_thinking|>"},
+        {0, "thinking"},
+        {4, "<|end_message|>"},
+        {1, "<|message_model|>"},
+        {3, "<|content_text|>"},
+        {0, "answer with a literal <think> tag"},
+        {4, "<|end_message|>"}
+    };
+    for (int show = 0; show <= 1; show++)
+    {
+        agent_emit_ctx ctx = {
+            .inkling_model = 1, .inkling_think = 2, .inkling_text = 3,
+            .inkling_end = 4, .inkling_code = 5, .inkling_call = 6,
+            .inkling_show_think = show != 0,
+        };
+        agent_renderer_init(&ctx.renderer, agent_renderer_selftest_write, &out,
+                            true, false);
+        for (size_t i = 0; i < sizeof(pieces) / sizeof(pieces[0]); i++)
+            agent_emit_inkling_piece(&ctx, pieces[i].token, pieces[i].text,
+                                      strlen(pieces[i].text));
+        agent_renderer_finish(&ctx.renderer);
+        const char *expected = show ?
+            AGENT_COLOR_DIM "thinking" AGENT_COLOR_RESET "\nanswer with a literal <think> tag" :
+            AGENT_COLOR_RESET "answer with a literal <think> tag";
+        const bool ok = out.p && !strcmp(out.p, expected) &&
+                        ctx.text.p && !strcmp(ctx.text.p, pieces[6].text);
+        sb_free(&ctx.text);
+        sb_free(&out);
+        if (!ok)
+            return show ? 6 : 5;
+    }
     return 0;
 }
 
-static bool range_is_space(const char *p, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        if (!isspace((unsigned char)p[i])) return false;
+static bool range_is_space(const char *p, size_t len)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        if (!isspace((unsigned char)p[i]))
+            return false;
     }
     return true;
 }
 
-static bool text_has_jsonish_tool_call(const char *text) {
+static bool text_has_jsonish_tool_call(const char *text)
+{
     tool_call_list calls;
     memset(&calls, 0, sizeof(calls));
     int n = parse_jsonish_tool_call(text ? text : "", &calls);
@@ -5107,69 +6550,92 @@ static bool text_has_jsonish_tool_call(const char *text) {
     return n > 0;
 }
 
-static const char *native_shorthand_tool_marker(const char *text) {
+static const char *native_shorthand_tool_marker(const char *text)
+{
     const char *best = NULL;
-    if (!text) return NULL;
-    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+    if (!text)
+        return NULL;
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++)
+    {
         char marker[64];
         snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
         const char *hit = strstr(text, marker);
-        if (hit && (!best || hit < best)) best = hit;
+        if (hit && (!best || hit < best))
+            best = hit;
     }
     return best;
 }
 
 static bool partial_marker_after_space(const char *text, size_t len,
-                                       const char *marker) {
+                                       const char *marker)
+{
     size_t off = 0;
-    while (off < len && isspace((unsigned char)text[off])) off++;
+    while (off < len && isspace((unsigned char)text[off]))
+        off++;
     size_t remain = len - off;
-    if (remain == 0) return true;
+    if (remain == 0)
+        return true;
     size_t marker_len = strlen(marker);
-    if (remain >= marker_len) return false;
+    if (remain >= marker_len)
+        return false;
     return strncmp(text + off, marker, remain) == 0;
 }
 
 static bool should_hold_tool_candidate(const char *text, size_t len,
-                                       bool final) {
-    if (!text || len == 0 || final) return false;
+                                       bool final)
+{
+    if (!text || len == 0 || final)
+        return false;
     if (partial_marker_after_space(text, len, DSML_BEGIN) ||
-        partial_marker_after_space(text, len, QWEN_XML_TOOL_CALL_BEGIN)) {
+        partial_marker_after_space(text, len, QWEN_XML_TOOL_CALL_BEGIN))
+    {
         return true;
     }
-    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++)
+    {
         char marker[64];
         snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
-        if (partial_marker_after_space(text, len, marker)) return true;
+        if (partial_marker_after_space(text, len, marker))
+            return true;
     }
 
     const char *end = text + len;
     const char *p = jsonish_payload_start(text, end);
-    if (p >= end) return true;
-    if (*p != '{') return false;
-    if (text_has_jsonish_tool_call(p)) return true;
+    if (p >= end)
+        return true;
+    if (*p != '{')
+        return false;
+    if (text_has_jsonish_tool_call(p))
+        return true;
     return jsonish_object_end(p) == NULL;
 }
 
-static bool should_suppress_jsonish_tool_call(const char *text, size_t len) {
-    if (!text || len == 0) return false;
+static bool should_suppress_jsonish_tool_call(const char *text, size_t len)
+{
+    if (!text || len == 0)
+        return false;
     const char *end = text + len;
     const char *p = jsonish_payload_start(text, end);
-    if (p >= end || *p != '{') return false;
+    if (p >= end || *p != '{')
+        return false;
     return text_has_jsonish_tool_call(p);
 }
 
-static bool generated_has_complete_tool_call(const char *text) {
-    if (!text) return false;
+static bool generated_has_complete_tool_call(const char *text)
+{
+    if (!text)
+        return false;
     if (strstr(text, DSML_END) ||
         strstr(text, QWEN_XML_TOOL_CALL_END) ||
         strstr(text, QWEN_XML_FUNCTION_END) ||
-        text_has_jsonish_tool_call(text)) {
+        text_has_jsonish_tool_call(text))
+    {
         return true;
     }
     for (size_t i = 0;
          i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]);
-         i++) {
+         i++)
+    {
         char open_tag[64];
         char close_tag[72];
         snprintf(open_tag, sizeof(open_tag), "<%s>",
@@ -5177,35 +6643,46 @@ static bool generated_has_complete_tool_call(const char *text) {
         snprintf(close_tag, sizeof(close_tag), "</%s>",
                  native_shorthand_tools[i]);
         const char *open = strstr(text, open_tag);
-        if (open && strstr(open + strlen(open_tag), close_tag)) return true;
+        if (open && strstr(open + strlen(open_tag), close_tag))
+            return true;
     }
     return false;
 }
 
-static bool agent_response_has_visible_text(const char *text) {
-    if (!text || range_is_space(text, strlen(text))) return false;
+static bool agent_response_has_visible_text(const char *text)
+{
+    if (!text || range_is_space(text, strlen(text)))
+        return false;
     const char *dsml = strstr(text, DSML_BEGIN);
     const char *native = strstr(text, QWEN_XML_TOOL_CALL_BEGIN);
     const char *native_short = native_shorthand_tool_marker(text);
     const char *hidden = NULL;
-    if (dsml && native) hidden = dsml < native ? dsml : native;
-    else hidden = dsml ? dsml : native;
-    if (native_short && (!hidden || native_short < hidden)) hidden = native_short;
+    if (dsml && native)
+        hidden = dsml < native ? dsml : native;
+    else
+        hidden = dsml ? dsml : native;
+    if (native_short && (!hidden || native_short < hidden))
+        hidden = native_short;
     return !hidden || !range_is_space(text, (size_t)(hidden - text));
 }
 
 static bool agent_response_has_final_text(const char *text,
-                                          qw3_think_mode think_mode) {
-    if (!text) return false;
-    if (qw3_think_mode_enabled(think_mode)) {
+                                          qw3_think_mode think_mode)
+{
+    if (!text)
+        return false;
+    if (qw3_think_mode_enabled(think_mode))
+    {
         const char *think_end = strstr(text, "</think>");
-        if (!think_end) return false;
+        if (!think_end)
+            return false;
         text = think_end + strlen("</think>");
     }
     return agent_response_has_visible_text(text);
 }
 
-static int agent_tool_parse_selftest(void) {
+static int agent_tool_parse_selftest(void)
+{
     static const char complete[] =
         "<tool_call>\n<bash>\n<parameter=cmd>\nprintf OK\n</parameter>\n"
         "</bash>\n</tool_call>";
@@ -5215,48 +6692,65 @@ static int agent_tool_parse_selftest(void) {
         "<tool_call>\n<bash>\n<parameter=cmd>\nprintf OK";
     tool_call_list calls;
 
-    if (!generated_has_complete_tool_call(complete)) return 1;
-    if (generated_has_complete_tool_call(eos_after_parameter)) return 2;
-    if (parse_native_tool_calls(complete, &calls) != 1) return 3;
+    if (!generated_has_complete_tool_call(complete))
+        return 1;
+    if (generated_has_complete_tool_call(eos_after_parameter))
+        return 2;
+    if (parse_native_tool_calls(complete, &calls) != 1)
+        return 3;
     if (strcmp(calls.calls[0].name, "bash") ||
-        strcmp(tool_param_value(&calls.calls[0], "cmd"), "printf OK")) {
+        strcmp(tool_param_value(&calls.calls[0], "cmd"), "printf OK"))
+    {
         free_tool_calls(&calls);
         return 4;
     }
     free_tool_calls(&calls);
 
-    if (parse_native_tool_calls(eos_after_parameter, &calls) != 1) return 5;
+    if (parse_native_tool_calls(eos_after_parameter, &calls) != 1)
+        return 5;
     free_tool_calls(&calls);
-    if (parse_native_tool_calls(incomplete_parameter, &calls) != 0) {
+    if (parse_native_tool_calls(incomplete_parameter, &calls) != 0)
+    {
         free_tool_calls(&calls);
         return 6;
     }
     free_tool_calls(&calls);
-    if (agent_response_has_visible_text(eos_after_parameter)) return 7;
-    if (!agent_response_has_visible_text("normal answer")) return 8;
-    if (agent_response_has_final_text("reasoning only", QW3_THINK_ON)) return 9;
+    if (agent_response_has_visible_text(eos_after_parameter))
+        return 7;
+    if (!agent_response_has_visible_text("normal answer"))
+        return 8;
+    if (agent_response_has_final_text("reasoning only", QW3_THINK_ON))
+        return 9;
     if (agent_response_has_final_text("reasoning</think>   ",
-                                      QW3_THINK_ON)) return 10;
+                                      QW3_THINK_ON))
+        return 10;
     if (!agent_response_has_final_text("reasoning</think>final answer",
-                                       QW3_THINK_ON)) return 11;
+                                       QW3_THINK_ON))
+        return 11;
     if (!agent_response_has_final_text("normal answer",
-                                       QW3_THINK_NONE)) return 12;
+                                       QW3_THINK_NONE))
+        return 12;
 
     static const char wrong_wrapper[] =
         "<tool_call>\n<parameter=bash>\n<parameter=cmd>\n"
         "git log -3 --oneline\n</parameter>\n</function>";
-    if (parse_native_tool_calls(wrong_wrapper, &calls) != 1) return 13;
+    if (parse_native_tool_calls(wrong_wrapper, &calls) != 1)
+        return 13;
     if (strcmp(calls.calls[0].name, "bash") || calls.n_recovered != 1 ||
         strcmp(tool_param_value(&calls.calls[0], "cmd"),
-               "git log -3 --oneline")) {
+               "git log -3 --oneline"))
+    {
         free_tool_calls(&calls);
         return 14;
     }
     free_tool_calls(&calls);
     /* This is a structural recovery for every declared tool, not git/bash. */
     for (size_t i = 0; i < sizeof(native_shorthand_tools) /
-                              sizeof(native_shorthand_tools[0]); i++) {
-        for (int closed = 0; closed < 2; closed++) {
+                               sizeof(native_shorthand_tools[0]);
+         i++)
+    {
+        for (int closed = 0; closed < 2; closed++)
+        {
             strbuf fixture;
             sb_init(&fixture);
             sb_printf(&fixture,
@@ -5268,12 +6762,13 @@ static int agent_tool_parse_selftest(void) {
             int n = parse_native_tool_calls(fixture.p, &calls);
             sb_free(&fixture);
             bool ok = n == 1 && calls.n_recovered == 1 &&
-                !strcmp(calls.calls[0].name, native_shorthand_tools[i]) &&
-                calls.calls[0].n_params == 1 &&
-                !strcmp(tool_param_value(&calls.calls[0], "arg"),
-                        "value <node> & literal");
+                      !strcmp(calls.calls[0].name, native_shorthand_tools[i]) &&
+                      calls.calls[0].n_params == 1 &&
+                      !strcmp(tool_param_value(&calls.calls[0], "arg"),
+                              "value <node> & literal");
             free_tool_calls(&calls);
-            if (!ok) return 15;
+            if (!ok)
+                return 15;
         }
     }
     static const char *rejected[] = {
@@ -5286,12 +6781,13 @@ static int agent_tool_parse_selftest(void) {
         "<tool_call><parameter=bash><parameter=cmd><parameter=arg>x</parameter></parameter></function></tool_call>",
         "<tool_call><parameter=bash><parameter=cmd><function=write><parameter=path>x</parameter></function></parameter></function></tool_call>",
         "<tool_call><parameter=bash><parameter=cmd>{\"name\":\"write\",\"path\":\"x\",\"content\":\"x\"}</function></tool_call>",
-        "<parameter=bash><parameter=cmd>x</parameter></function>", NULL
-    };
-    for (int i = 0; rejected[i]; i++) {
+        "<parameter=bash><parameter=cmd>x</parameter></function>", NULL};
+    for (int i = 0; rejected[i]; i++)
+    {
         int n = parse_native_tool_calls(rejected[i], &calls);
         free_tool_calls(&calls);
-        if (n) return 16;
+        if (n)
+            return 16;
     }
     static const char mixed[] =
         "<tool_call><parameter=read><parameter=path>a.txt</parameter>"
@@ -5300,71 +6796,112 @@ static int agent_tool_parse_selftest(void) {
         "</function></tool_call>";
     int n = parse_native_tool_calls(mixed, &calls);
     bool mixed_ok = n == 2 && calls.n_recovered == 1 &&
-        !strcmp(calls.calls[0].name, "read") &&
-        !strcmp(tool_param_value(&calls.calls[0], "path"), "a.txt") &&
-        !strcmp(calls.calls[1].name, "list");
+                    !strcmp(calls.calls[0].name, "read") &&
+                    !strcmp(tool_param_value(&calls.calls[0], "path"), "a.txt") &&
+                    !strcmp(calls.calls[1].name, "list");
     free_tool_calls(&calls);
-    if (!mixed_ok) return 17;
+    if (!mixed_ok)
+        return 17;
     static const char boundary[] =
         "<tool_call><parameter=write><parameter=path>incomplete\n"
         "<tool_call><parameter=bash><parameter=cmd>safe</parameter>"
         "</function></tool_call>";
     n = parse_native_tool_calls(boundary, &calls);
     bool boundary_ok = n == 1 && calls.n_recovered == 1 &&
-        !strcmp(calls.calls[0].name, "bash") &&
-        !strcmp(tool_param_value(&calls.calls[0], "cmd"), "safe");
+                       !strcmp(calls.calls[0].name, "bash") &&
+                       !strcmp(tool_param_value(&calls.calls[0], "cmd"), "safe");
     free_tool_calls(&calls);
-    if (!boundary_ok) return 18;
+    if (!boundary_ok)
+        return 18;
+    bool inkling_ok = parse_inkling_tool_call(
+        "read", "{\"name\":\"read\",\"args\":{\"path\":\"caf\\u00e9.txt\",\"start\":1}}", &calls);
+    inkling_ok = inkling_ok && calls.n_calls == 1 &&
+        !strcmp(tool_param_value(&calls.calls[0], "path"), "café.txt") &&
+        !strcmp(tool_param_value(&calls.calls[0], "start"), "1");
+    free_tool_calls(&calls);
+    if (!inkling_ok)
+        return 19;
+    if (parse_inkling_tool_call(
+            "read", "{\"name\":\"bash\",\"args\":{\"cmd\":\"ignored\"}}", &calls) ||
+        parse_inkling_tool_call(
+            "read", "{\"name\":\"read\",\"args\":{\"path\":\"a\",\"path\":\"b\"}}", &calls) ||
+        parse_inkling_tool_call(
+            "read", "{\"name\":\"read\",\"args\":{\"path\":\"a\"}", &calls))
+    {
+        free_tool_calls(&calls);
+        return 20;
+    }
     return 0;
 }
 
 static size_t marker_suffix_hold_len(const char *text, size_t len,
-                                     const char *marker) {
-    if (!text || !marker) return 0;
+                                     const char *marker)
+{
+    if (!text || !marker)
+        return 0;
     size_t marker_len = strlen(marker);
     size_t max = len < marker_len ? len : marker_len - 1;
-    for (size_t n = max; n > 0; n--) {
-        if (!memcmp(text + len - n, marker, n)) return n;
+    for (size_t n = max; n > 0; n--)
+    {
+        if (!memcmp(text + len - n, marker, n))
+            return n;
     }
     return 0;
 }
 
-static size_t tool_marker_suffix_hold_len(const char *text, size_t len) {
+static size_t tool_marker_suffix_hold_len(const char *text, size_t len)
+{
     size_t a = marker_suffix_hold_len(text, len, DSML_BEGIN);
     size_t b = marker_suffix_hold_len(text, len, QWEN_XML_TOOL_CALL_BEGIN);
     size_t best = a > b ? a : b;
-    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++) {
+    for (size_t i = 0; i < sizeof(native_shorthand_tools) / sizeof(native_shorthand_tools[0]); i++)
+    {
         char marker[64];
         snprintf(marker, sizeof(marker), "<%s>", native_shorthand_tools[i]);
         size_t n = marker_suffix_hold_len(text, len, marker);
-        if (n > best) best = n;
+        if (n > best)
+            best = n;
     }
     return best;
 }
 
-static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
+static void agent_flush_visible(agent_emit_ctx *ctx, bool final)
+{
     const char *dsml = ctx->text.p ? strstr(ctx->text.p, DSML_BEGIN) : NULL;
     const char *native = ctx->text.p ? strstr(ctx->text.p, QWEN_XML_TOOL_CALL_BEGIN) : NULL;
     const char *native_short = native_shorthand_tool_marker(ctx->text.p);
     const char *hidden = NULL;
-    if (dsml && native) hidden = dsml < native ? dsml : native;
-    else hidden = dsml ? dsml : native;
-    if (native_short && (!hidden || native_short < hidden)) hidden = native_short;
+    if (dsml && native)
+        hidden = dsml < native ? dsml : native;
+    else
+        hidden = dsml ? dsml : native;
+    if (native_short && (!hidden || native_short < hidden))
+        hidden = native_short;
     size_t limit = 0;
-    if (hidden) {
+    if (hidden)
+    {
         size_t hidden_off = (size_t)(hidden - ctx->text.p);
         limit = range_is_space(ctx->text.p, hidden_off) ? 0 : hidden_off;
-    } else if (should_suppress_jsonish_tool_call(ctx->text.p, ctx->text.len)) {
+    }
+    else if (should_suppress_jsonish_tool_call(ctx->text.p, ctx->text.len))
+    {
         limit = 0;
-    } else if (should_hold_tool_candidate(ctx->text.p, ctx->text.len, final)) {
+    }
+    else if (should_hold_tool_candidate(ctx->text.p, ctx->text.len, final))
+    {
         limit = 0;
-    } else if (final) {
+    }
+    else if (final)
+    {
         limit = ctx->text.len;
-    } else {
+    }
+    else
+    {
         size_t hold = tool_marker_suffix_hold_len(ctx->text.p, ctx->text.len);
         limit = ctx->text.len > hold ? ctx->text.len - hold : 0;
     }
-    if (limit > ctx->printed) {
+    if (limit > ctx->printed)
+    {
         agent_renderer_feed(&ctx->renderer,
                             ctx->text.p + ctx->printed,
                             limit - ctx->printed);
@@ -5373,75 +6910,168 @@ static void agent_flush_visible(agent_emit_ctx *ctx, bool final) {
     }
 }
 
-static void agent_emit_token(void *ud, int token) {
+static void agent_emit_inkling_piece(agent_emit_ctx *ctx, int token,
+                                      const char *text, size_t len)
+{
+    if (token == ctx->inkling_model)
+    {
+        sb_free(&ctx->inkling_speaker);
+        sb_free(&ctx->inkling_args);
+        ctx->inkling_block = INKLING_SPEAKER;
+    }
+    else if (token == ctx->inkling_end)
+    {
+        if (ctx->inkling_block == INKLING_CALL)
+            (void)parse_inkling_tool_call(ctx->inkling_speaker.p,
+                                          ctx->inkling_args.p,
+                                          ctx->inkling_calls);
+        ctx->inkling_block = INKLING_HIDDEN;
+    }
+    else if (ctx->inkling_block == INKLING_SPEAKER && token == ctx->inkling_think)
+    {
+        ctx->inkling_block = INKLING_THINK;
+    }
+    else if (ctx->inkling_block == INKLING_SPEAKER &&
+             (token == ctx->inkling_text || token == ctx->inkling_code))
+    {
+        ctx->inkling_block = INKLING_TEXT;
+    }
+    else if (ctx->inkling_block == INKLING_SPEAKER && token == ctx->inkling_call)
+    {
+        ctx->inkling_block = INKLING_CALL;
+    }
+    else if (len >= 4 && !memcmp(text, "<|", 2) &&
+             !memcmp(text + len - 2, "|>", 2))
+    {
+        ctx->inkling_block = INKLING_HIDDEN;
+    }
+    else if (ctx->inkling_block == INKLING_SPEAKER)
+    {
+        sb_append_n(&ctx->inkling_speaker, text, len);
+    }
+    else if (ctx->inkling_block == INKLING_CALL)
+    {
+        sb_append_n(&ctx->inkling_args, text, len);
+    }
+    else if (ctx->inkling_block == INKLING_TEXT ||
+             (ctx->inkling_block == INKLING_THINK && ctx->inkling_show_think))
+    {
+        const bool thinking = ctx->inkling_block == INKLING_THINK;
+        if (!thinking)
+            sb_append_n(&ctx->text, text, len);
+        agent_renderer *renderer = &ctx->renderer;
+        if (renderer->in_think != thinking)
+        {
+            agent_renderer_finish(renderer);
+            if (ctx->printed_any && ctx->inkling_last_byte != '\n')
+                agent_renderer_raw(renderer, "\n", 1);
+            renderer->in_code = false;
+            renderer->in_think = thinking;
+            if (thinking)
+                renderer->style_started = false;
+        }
+        for (size_t i = 0; i < len; i++)
+            agent_renderer_emit_utf8_byte(renderer, text[i]);
+        ctx->inkling_last_byte = text[len - 1];
+        ctx->printed_any = true;
+    }
+}
+
+static void agent_emit_token(void *ud, int token)
+{
     agent_emit_ctx *ctx = (agent_emit_ctx *)ud;
     qw3_tokens_push(&ctx->generated, token);
     size_t len = 0;
     char *text = token_decoded_text(ctx->engine, token, &len);
-    if (text && len) {
-        sb_append_n(&ctx->text, text, len);
-        agent_flush_visible(ctx, false);
+    if (text && len)
+    {
+        if (!ctx->inkling_calls)
+        {
+            sb_append_n(&ctx->text, text, len);
+            agent_flush_visible(ctx, false);
+        }
+        else
+            agent_emit_inkling_piece(ctx, token, text, len);
     }
     free(text);
 }
 
 static bool token_window_equal_with_next(const qw3_tokens *tokens, int next,
-                                         int a_start, int b_start, int n) {
-    for (int i = 0; i < n; i++) {
+                                         int a_start, int b_start, int n)
+{
+    for (int i = 0; i < n; i++)
+    {
         int ai = a_start + i;
         int bi = b_start + i;
         int av = ai == tokens->len ? next : tokens->v[ai];
         int bv = bi == tokens->len ? next : tokens->v[bi];
-        if (av != bv) return false;
+        if (av != bv)
+            return false;
     }
     return true;
 }
 
-static int agent_repeated_token_ngram_size(const qw3_tokens *tokens, int next) {
-    if (!tokens || tokens->len < 8) return 0;
+static int agent_repeated_token_ngram_size(const qw3_tokens *tokens, int next)
+{
+    if (!tokens || tokens->len < 8)
+        return 0;
     const int total = tokens->len + 1;
     const int max_n = total / 4 < 16 ? total / 4 : 16;
-    for (int n = 1; n <= max_n; n++) {
+    for (int n = 1; n <= max_n; n++)
+    {
         int reps = n == 1 ? 8 : (n == 2 ? 5 : 4);
-        if (total < n * reps) continue;
+        if (total < n * reps)
+            continue;
         bool same = true;
         int last = total - n;
-        for (int r = 1; r < reps; r++) {
+        for (int r = 1; r < reps; r++)
+        {
             int prev = total - n * (r + 1);
-            if (!token_window_equal_with_next(tokens, next, prev, last, n)) {
+            if (!token_window_equal_with_next(tokens, next, prev, last, n))
+            {
                 same = false;
                 break;
             }
         }
-        if (same) return n;
+        if (same)
+            return n;
     }
 
     /* Catch paragraph-sized loops after their second contiguous copy. */
     const int min_long_n = 32;
     const int max_long_n = total / 2 < 512 ? total / 2 : 512;
-    for (int n = min_long_n; n <= max_long_n; n++) {
+    for (int n = min_long_n; n <= max_long_n; n++)
+    {
         const int previous = total - 2 * n;
         const int last = total - n;
-        if (token_window_equal_with_next(tokens, next, previous, last, n)) {
+        if (token_window_equal_with_next(tokens, next, previous, last, n))
+        {
             return n;
         }
     }
     return 0;
 }
 
-static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next) {
+static bool agent_would_repeat_token_ngram(const qw3_tokens *tokens, int next)
+{
     return agent_repeated_token_ngram_size(tokens, next) != 0;
 }
 
-static bool agent_is_formatting_cp(uint32_t cp) {
-    if (cp == '\t' || cp == '\n' || cp == '\r') return true;
+static bool agent_is_formatting_cp(uint32_t cp)
+{
+    if (cp == '\t' || cp == '\n' || cp == '\r')
+        return true;
     size_t lo = 0, hi = sizeof(agent_unicode_format_ranges) /
-                          sizeof(agent_unicode_format_ranges[0]);
-    while (lo < hi) {
+                        sizeof(agent_unicode_format_ranges[0]);
+    while (lo < hi)
+    {
         size_t mid = lo + (hi - lo) / 2;
-        if (cp < agent_unicode_format_ranges[mid][0]) hi = mid;
-        else if (cp > agent_unicode_format_ranges[mid][1]) lo = mid + 1;
-        else return true;
+        if (cp < agent_unicode_format_ranges[mid][0])
+            hi = mid;
+        else if (cp > agent_unicode_format_ranges[mid][1])
+            lo = mid + 1;
+        else
+            return true;
     }
     return false;
 }
@@ -5451,35 +7081,50 @@ static bool agent_is_formatting_cp(uint32_t cp) {
  * same allowance. Partial UTF-8 at the streaming edge is counted once;
  * invalid complete sequences never get the formatting exemption. */
 static size_t agent_formatting_suffix(const char *text, size_t len,
-                                       bool *bounded) {
+                                      bool *bounded)
+{
     size_t end = len, chars = 0, line = 0;
     *bounded = true;
-    while (end) {
+    while (end)
+    {
         size_t start = end - 1;
-        while (start && ((unsigned char)text[start] & 0xc0) == 0x80) start--;
+        while (start && ((unsigned char)text[start] & 0xc0) == 0x80)
+            start--;
         unsigned char lead = (unsigned char)text[start];
         size_t need = agent_utf8_expected_len(lead), have = end - start;
-        if ((lead >= 0x80 && (lead < 0xc2 || lead > 0xf4 || need == 1)) || have > need) break;
+        if ((lead >= 0x80 && (lead < 0xc2 || lead > 0xf4 || need == 1)) || have > need)
+            break;
         bool valid = true;
-        for (size_t i = start + 1; i < end; i++) {
-            if (((unsigned char)text[i] & 0xc0) != 0x80) valid = false;
+        for (size_t i = start + 1; i < end; i++)
+        {
+            if (((unsigned char)text[i] & 0xc0) != 0x80)
+                valid = false;
         }
-        if (!valid) break;
+        if (!valid)
+            break;
         uint32_t cp = 0;
-        if (have < need) {
-            if (end != len) break;
-        } else {
+        if (have < need)
+        {
+            if (end != len)
+                break;
+        }
+        else
+        {
             size_t pos = start;
             if (!utf8_read_cp(text, end, &pos, &cp) || pos != end ||
                 (need == 2 && cp < 0x80) || (need == 3 && cp < 0x800) ||
                 (need == 4 && cp < 0x10000) || cp > 0x10ffff ||
-                (cp >= 0xd800 && cp <= 0xdfff) || !agent_is_formatting_cp(cp)) break;
+                (cp >= 0xd800 && cp <= 0xdfff) || !agent_is_formatting_cp(cp))
+                break;
         }
         chars++;
-        if (cp == '\n' || cp == '\r' || cp == 0x2028 || cp == 0x2029) line = 0;
-        else line++;
+        if (cp == '\n' || cp == '\r' || cp == 0x2028 || cp == 0x2029)
+            line = 0;
+        else
+            line++;
         end = start;
-        if (line > 256 || chars > 1024) {
+        if (line > 256 || chars > 1024)
+        {
             *bounded = false;
             break;
         }
@@ -5488,19 +7133,30 @@ static size_t agent_formatting_suffix(const char *text, size_t len,
 }
 
 static bool agent_token_repeat_is_formatting(qw3_engine *engine,
-                                              const agent_emit_ctx *emit,
-                                              int next, int ngram) {
+                                             const agent_emit_ctx *emit,
+                                             int next, int ngram)
+{
     const int total = emit->generated.len + 1;
     size_t pattern_bytes = 0, next_len = 0;
     char *next_text = NULL;
-    for (int i = total - ngram; i < total; i++) {
+    for (int i = total - ngram; i < total; i++)
+    {
         size_t n = 0;
         int token = i == total - 1 ? next : emit->generated.v[i];
         char *piece = token_decoded_text(engine, token, &n);
-        if (!piece) { free(next_text); return false; }
+        if (!piece)
+        {
+            free(next_text);
+            return false;
+        }
         pattern_bytes += n;
-        if (i == total - 1) { next_text = piece; next_len = n; }
-        else free(piece);
+        if (i == total - 1)
+        {
+            next_text = piece;
+            next_len = n;
+        }
+        else
+            free(piece);
     }
     strbuf combined = {0};
     sb_append_n(&combined, emit->text.p ? emit->text.p : "", emit->text.len);
@@ -5508,7 +7164,9 @@ static bool agent_token_repeat_is_formatting(qw3_engine *engine,
     free(next_text);
     bool bounded = false;
     size_t formatting_bytes = agent_formatting_suffix(combined.p, combined.len, &bounded);
-    int reps = ngram == 1 ? 8 : ngram == 2 ? 5 : ngram <= 16 ? 4 : 2;
+    int reps = ngram == 1 ? 8 : ngram == 2 ? 5
+                            : ngram <= 16  ? 4
+                                           : 2;
     bool result = pattern_bytes && bounded && formatting_bytes >= pattern_bytes * (size_t)reps;
     sb_free(&combined);
     return result;
@@ -5516,25 +7174,33 @@ static bool agent_token_repeat_is_formatting(qw3_engine *engine,
 
 static bool agent_text_has_repeated_suffix(const char *text, size_t len);
 
-static int agent_repeat_guard_selftest(void) {
+static int agent_repeat_guard_selftest(void)
+{
     int storage[96];
     qw3_tokens tokens = {.v = storage, .len = 0, .cap = 96};
 
-    for (int i = 0; i < 32; i++) storage[i] = 1000 + i;
+    for (int i = 0; i < 32; i++)
+        storage[i] = 1000 + i;
     tokens.len = 32;
-    if (agent_would_repeat_token_ngram(&tokens, 2000)) return 1;
+    if (agent_would_repeat_token_ngram(&tokens, 2000))
+        return 1;
 
-    for (int i = 0; i < 31; i++) storage[32 + i] = storage[i];
+    for (int i = 0; i < 31; i++)
+        storage[32 + i] = storage[i];
     tokens.len = 63;
-    if (!agent_would_repeat_token_ngram(&tokens, storage[31])) return 2;
+    if (!agent_would_repeat_token_ngram(&tokens, storage[31]))
+        return 2;
 
     storage[32 + 15]++;
-    if (agent_would_repeat_token_ngram(&tokens, storage[31])) return 3;
+    if (agent_would_repeat_token_ngram(&tokens, storage[31]))
+        return 3;
     storage[32 + 15]--;
 
-    for (int i = 0; i < 8; i++) storage[i] = 42;
+    for (int i = 0; i < 8; i++)
+        storage[i] = 42;
     tokens.len = 8;
-    if (!agent_would_repeat_token_ngram(&tokens, 42)) return 4;
+    if (!agent_would_repeat_token_ngram(&tokens, 42))
+        return 4;
 
     agent_tool_history history = {0};
     tool_call_list calls = {0};
@@ -5546,43 +7212,55 @@ static int agent_repeat_guard_selftest(void) {
     calls.calls[0].params[0].value = "https://example.test/one";
     char repeated[64] = {0};
     if (!agent_tool_history_add(NULL, &history, &calls, repeated,
-                                sizeof(repeated))) return 5;
+                                sizeof(repeated)))
+        return 5;
     if (agent_tool_history_add(NULL, &history, &calls, repeated,
-                               sizeof(repeated))) return 6;
+                               sizeof(repeated)))
+        return 6;
     calls.calls[0].params[0].value = "https://example.test/two";
     if (!agent_tool_history_add(NULL, &history, &calls, repeated,
-                                sizeof(repeated))) return 7;
-    if (!agent_more_history_selftest()) return 13;
+                                sizeof(repeated)))
+        return 7;
+    if (!agent_more_history_selftest())
+        return 13;
 
     /* Stream the box border: checking only the completed line would miss
      * false positives before its closing corner arrives. */
     strbuf border = {0};
     sb_append(&border, "Analisi del progetto\n\n┌");
-    for (int i = 0; i < 80; i++) {
+    for (int i = 0; i < 80; i++)
+    {
         sb_append(&border, "─");
-        if (agent_text_has_repeated_suffix(border.p, border.len)) {
+        if (agent_text_has_repeated_suffix(border.p, border.len))
+        {
             sb_free(&border);
             return 8;
         }
     }
     sb_append(&border, "┐\n│ Moduli del progetto │\n└");
-    for (int i = 0; i < 80; i++) sb_append(&border, "─");
+    for (int i = 0; i < 80; i++)
+        sb_append(&border, "─");
     sb_append(&border, "┘\n");
-    if (agent_text_has_repeated_suffix(border.p, border.len)) {
+    if (agent_text_has_repeated_suffix(border.p, border.len))
+    {
         sb_free(&border);
         return 9;
     }
     sb_free(&border);
 
     const char *decorations[] = {"=", "*", "+-", "#", ".", "═", "●", "→", "✦", "　", "⚠️", "👩‍💻"};
-    for (size_t d = 0; d < sizeof(decorations) / sizeof(decorations[0]); d++) {
+    for (size_t d = 0; d < sizeof(decorations) / sizeof(decorations[0]); d++)
+    {
         strbuf text = {0};
         sb_append(&text, "Diagramma:\n");
-        for (int i = 0; i < 80; i++) {
+        for (int i = 0; i < 80; i++)
+        {
             /* Token decoding can split UTF-8: exercise each byte boundary. */
-            for (size_t j = 0; j < strlen(decorations[d]); j++) {
+            for (size_t j = 0; j < strlen(decorations[d]); j++)
+            {
                 sb_append_n(&text, decorations[d] + j, 1);
-                if (agent_text_has_repeated_suffix(text.p, text.len)) {
+                if (agent_text_has_repeated_suffix(text.p, text.len))
+                {
                     sb_free(&text);
                     return 10;
                 }
@@ -5590,63 +7268,91 @@ static int agent_repeat_guard_selftest(void) {
         }
         bool bounded = false;
         size_t bytes = agent_formatting_suffix(text.p, text.len, &bounded);
-        if (!bounded || bytes < strlen(decorations[d]) * 80) {
+        if (!bounded || bytes < strlen(decorations[d]) * 80)
+        {
             sb_free(&text);
             return 11;
         }
-        for (int i = 0; i < 256; i++) sb_append(&text, decorations[d]);
-        if (!agent_text_has_repeated_suffix(text.p, text.len)) {
+        for (int i = 0; i < 256; i++)
+            sb_append(&text, decorations[d]);
+        if (!agent_text_has_repeated_suffix(text.p, text.len))
+        {
             sb_free(&text);
             return 12;
         }
         sb_free(&text);
     }
     const char *prose[] = {"risposta ripetuta senza senso. ", "é", "é", "中", "7"};
-    for (size_t p = 0; p < sizeof(prose) / sizeof(prose[0]); p++) {
+    for (size_t p = 0; p < sizeof(prose) / sizeof(prose[0]); p++)
+    {
         strbuf text = {0};
-        for (int i = 0; i < 128; i++) sb_append(&text, prose[p]);
-        if (!agent_text_has_repeated_suffix(text.p, text.len)) {
+        for (int i = 0; i < 128; i++)
+            sb_append(&text, prose[p]);
+        if (!agent_text_has_repeated_suffix(text.p, text.len))
+        {
             sb_free(&text);
             return 13;
         }
         sb_free(&text);
     }
     strbuf rows = {0};
-    for (int r = 0; r < 8; r++) {
-        for (int i = 0; i < 80; i++) sb_append(&rows, "=");
+    for (int r = 0; r < 8; r++)
+    {
+        for (int i = 0; i < 80; i++)
+            sb_append(&rows, "=");
         sb_append(&rows, "\n");
     }
-    if (agent_text_has_repeated_suffix(rows.p, rows.len)) { sb_free(&rows); return 14; }
-    for (int r = 0; r < 8; r++) {
-        for (int i = 0; i < 80; i++) sb_append(&rows, "=");
+    if (agent_text_has_repeated_suffix(rows.p, rows.len))
+    {
+        sb_free(&rows);
+        return 14;
+    }
+    for (int r = 0; r < 8; r++)
+    {
+        for (int i = 0; i < 80; i++)
+            sb_append(&rows, "=");
         sb_append(&rows, "\n");
     }
-    if (!agent_text_has_repeated_suffix(rows.p, rows.len)) { sb_free(&rows); return 15; }
+    if (!agent_text_has_repeated_suffix(rows.p, rows.len))
+    {
+        sb_free(&rows);
+        return 15;
+    }
     sb_free(&rows);
 
     return 0;
 }
 
-static bool text_slice_has_nonspace(const char *s, size_t n) {
-    for (size_t i = 0; i < n; i++) {
-        if (!isspace((unsigned char)s[i])) return true;
+static bool text_slice_has_nonspace(const char *s, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+    {
+        if (!isspace((unsigned char)s[i]))
+            return true;
     }
     return false;
 }
 
-static bool agent_text_has_repeated_suffix(const char *text, size_t len) {
-    if (!text || len < 96) return false;
+static bool agent_text_has_repeated_suffix(const char *text, size_t len)
+{
+    if (!text || len < 96)
+        return false;
     bool bounded = false;
     size_t formatting_bytes = agent_formatting_suffix(text, len, &bounded);
     const size_t max_pat = len / 4 < 96 ? len / 4 : 96;
-    for (size_t pat = 8; pat <= max_pat; pat++) {
-        if (!text_slice_has_nonspace(text + len - pat, pat)) continue;
+    for (size_t pat = 8; pat <= max_pat; pat++)
+    {
+        if (!text_slice_has_nonspace(text + len - pat, pat))
+            continue;
         size_t reps = 1;
         while (len >= pat * (reps + 1) &&
-               !memcmp(text + len - pat, text + len - pat * (reps + 1), pat)) {
+               !memcmp(text + len - pat, text + len - pat * (reps + 1), pat))
+        {
             reps++;
-            if (reps >= 4 && pat * reps >= 80) {
-                if (bounded && pat * reps <= formatting_bytes) break;
+            if (reps >= 4 && pat * reps >= 80)
+            {
+                if (bounded && pat * reps <= formatting_bytes)
+                    break;
                 return true;
             }
         }
@@ -5654,11 +7360,14 @@ static bool agent_text_has_repeated_suffix(const char *text, size_t len) {
     return false;
 }
 
-static void agent_emit_done(void *ud) {
+static void agent_emit_done(void *ud)
+{
     agent_emit_ctx *ctx = (agent_emit_ctx *)ud;
-    agent_flush_visible(ctx, true);
+    if (!ctx->inkling_calls)
+        agent_flush_visible(ctx, true);
     agent_renderer_finish(&ctx->renderer);
-    if (ctx->printed_any) {
+    if (ctx->printed_any)
+    {
         agent_renderer_raw(&ctx->renderer, "\n", 1);
     }
 }
@@ -5666,14 +7375,17 @@ static void agent_emit_done(void *ud) {
 static bool append_generated_assistant(agent_state *a,
                                        const qw3_tokens *generated,
                                        int token_start,
-                                       const char *content) {
-    for (int i = 0; i < generated->len; i++) {
+                                       const char *content)
+{
+    for (int i = 0; i < generated->len; i++)
+    {
         qw3_tokens_push(&a->transcript, generated->v[i]);
     }
     qw3_chat_append_assistant_end(a->engine, &a->transcript);
     if (!agent_message_ledger_add(&a->messages, AGENT_MESSAGE_ASSISTANT,
                                   "assistant", content ? content : "",
-                                  token_start, a->transcript.len)) {
+                                  token_start, a->transcript.len))
+    {
         a->transcript.len = token_start;
         return false;
     }
@@ -5681,22 +7393,27 @@ static bool append_generated_assistant(agent_state *a,
 }
 
 static void agent_prefill_progress(void *ud, const char *event,
-                                   int current, int total) {
+                                   int current, int total)
+{
     agent_state *a = (agent_state *)ud;
-    if (!a || !event || strcmp(event, "prefill_chunk")) return;
+    if (!a || !event || strcmp(event, "prefill_chunk"))
+        return;
     double elapsed = agent_now_sec() - a->progress_start_sec;
     double tps = elapsed > 0.001 ? (double)current / elapsed : 0.0;
-    if (a->progress_update) {
+    if (a->progress_update)
+    {
         a->progress_update(a->progress_ud, "prefill", current, total, tps);
     }
 }
 
-static bool agent_session_should_interrupt(void *ud) {
+static bool agent_session_should_interrupt(void *ud)
+{
     return agent_should_interrupt((agent_state *)ud);
 }
 
 static int agent_sync_with_progress(agent_state *a, const qw3_tokens *prompt,
-                                    char *err, size_t err_len) {
+                                    char *err, size_t err_len)
+{
     a->progress_start_sec = agent_now_sec();
     agent_set_activity(a, "prefill", NULL);
     qw3_session_set_progress(a->session, agent_prefill_progress, a);
@@ -5704,34 +7421,47 @@ static int agent_sync_with_progress(agent_state *a, const qw3_tokens *prompt,
                                             agent_session_should_interrupt,
                                             a, err, err_len);
     qw3_session_set_progress(a->session, NULL, NULL);
-    if (a->progress_update) {
+    if (a->progress_update)
+    {
         a->progress_update(a->progress_ud, "prefill_done", 0, 0, 0.0);
     }
     return rc;
 }
 
-static bool agent_should_compact_context(agent_state *a) {
-    if (!a || a->cfg.ctx_size <= 0 || a->transcript.len <= 0) return false;
+static bool agent_should_compact_context(agent_state *a)
+{
+    if (!a || a->cfg.ctx_size <= 0 || a->transcript.len <= 0 ||
+        qw3_engine_is_inkling(a->engine))
+        return false;
     int used = a->transcript.len;
     int ctx = a->cfg.ctx_size;
-    if (a->compact_retry_after_tokens > used) return false;
-    if (used >= (ctx * QW3_AGENT_COMPACT_SOFT_PERCENT) / 100) return true;
+    if (a->compact_retry_after_tokens > used)
+        return false;
+    if (used >= (ctx * QW3_AGENT_COMPACT_SOFT_PERCENT) / 100)
+        return true;
     int free_threshold = QW3_AGENT_COMPACT_MIN_FREE_TOKENS;
     int proportional = ctx / 8;
-    if (free_threshold > proportional) free_threshold = proportional;
+    if (free_threshold > proportional)
+        free_threshold = proportional;
     return ctx - used <= free_threshold;
 }
 
 static void agent_tokens_append_range(qw3_tokens *dst, const qw3_tokens *src,
-                                      int start, int end) {
-    if (!dst || !src) return;
-    if (start < 0) start = 0;
-    if (end > src->len) end = src->len;
-    for (int i = start; i < end; i++) qw3_tokens_push(dst, src->v[i]);
+                                      int start, int end)
+{
+    if (!dst || !src)
+        return;
+    if (start < 0)
+        start = 0;
+    if (end > src->len)
+        end = src->len;
+    for (int i = start; i < end; i++)
+        qw3_tokens_push(dst, src->v[i]);
 }
 
 static int agent_single_rendered_token_id(qw3_engine *engine,
-                                          const char *text) {
+                                          const char *text)
+{
     qw3_tokens t = {0};
     qw3_tokenize_rendered_chat(engine, text ? text : "", &t);
     int id = t.len == 1 ? t.v[0] : -1;
@@ -5740,9 +7470,12 @@ static int agent_single_rendered_token_id(qw3_engine *engine,
 }
 
 static int agent_message_tail_start(agent_state *a, int target,
-                                    int bottom, int sys_len) {
-    if (target < sys_len) target = sys_len;
-    for (int i = 0; i < a->messages.len; i++) {
+                                    int bottom, int sys_len)
+{
+    if (target < sys_len)
+        target = sys_len;
+    for (int i = 0; i < a->messages.len; i++)
+    {
         const agent_message *message = &a->messages.items[i];
         /* A long tool turn may have no new user message in the tail window.
          * Preserve a complete assistant request plus its following results,
@@ -5752,28 +7485,35 @@ static int agent_message_tail_start(agent_state *a, int target,
              message->kind == AGENT_MESSAGE_ASSISTANT) &&
             message->token_start >= target &&
             message->token_start >= sys_len &&
-            message->token_end <= bottom) {
+            message->token_end <= bottom)
+        {
             return message->token_start;
         }
     }
     return bottom;
 }
 
-static int agent_compact_tail_start(agent_state *a, int bottom, int sys_len) {
+static int agent_compact_tail_start(agent_state *a, int bottom, int sys_len)
+{
     int tail_budget = a->cfg.ctx_size / QW3_AGENT_COMPACT_TAIL_DIVISOR;
-    if (tail_budget > QW3_AGENT_COMPACT_TAIL_CAP_TOKENS) {
+    if (tail_budget > QW3_AGENT_COMPACT_TAIL_CAP_TOKENS)
+    {
         tail_budget = QW3_AGENT_COMPACT_TAIL_CAP_TOKENS;
     }
-    if (tail_budget < 1) tail_budget = 1;
+    if (tail_budget < 1)
+        tail_budget = 1;
     return agent_message_tail_start(a, bottom - tail_budget,
                                     bottom, sys_len);
 }
 
 static const agent_message *agent_compact_user_request(const agent_state *a,
-                                                       int bottom) {
-    for (int i = a->messages.len - 1; i >= 0; i--) {
+                                                       int bottom)
+{
+    for (int i = a->messages.len - 1; i >= 0; i--)
+    {
         const agent_message *message = &a->messages.items[i];
-        if (message->kind == AGENT_MESSAGE_USER && message->token_end <= bottom) {
+        if (message->kind == AGENT_MESSAGE_USER && message->token_end <= bottom)
+        {
             return message;
         }
     }
@@ -5781,72 +7521,96 @@ static const agent_message *agent_compact_user_request(const agent_state *a,
 }
 
 static void agent_compact_append_read_cursor(strbuf *out,
-                                             const agent_state *a) {
-    if (!a->last_read_path || a->last_read_next < 1) return;
+                                             const agent_state *a)
+{
+    if (!a->last_read_path || a->last_read_next < 1)
+        return;
     sb_append(out, "\nRuntime read cursor after the most recent read invocation: {\"path\":\"");
-    for (const unsigned char *p = (const unsigned char *)a->last_read_path; *p; p++) {
-        if (*p == '\\' || *p == '"') sb_append(out, "\\");
-        if (*p < 32) sb_printf(out, "\\u%04x", (unsigned)*p);
-        else sb_append_n(out, (const char *)p, 1);
+    for (const unsigned char *p = (const unsigned char *)a->last_read_path; *p; p++)
+    {
+        if (*p == '\\' || *p == '"')
+            sb_append(out, "\\");
+        if (*p < 32)
+            sb_printf(out, "\\u%04x", (unsigned)*p);
+        else
+            sb_append_n(out, (const char *)p, 1);
     }
     sb_printf(out, "\",\"next_start\":%d}.\n", a->last_read_next);
     sb_append(out,
-        "more continues from this cursor. The last result may follow this "
-        "summary. Preserve collected requested fields or their compact result "
-        "file; reread earlier ranges only for specific missing facts, not to "
-        "restart the same scan.\n");
+              "more continues from this cursor. The last result may follow this "
+              "summary. Preserve collected requested fields or their compact result "
+              "file; reread earlier ranges only for specific missing facts, not to "
+              "restart the same scan.\n");
 }
 
-typedef struct {
+typedef struct
+{
     int thinking_removed;
     int tool_results_shortened;
 } agent_compact_source_stats;
 
 static char *agent_compact_without_thinking(const char *content,
-                                            bool *changed) {
-    if (changed) *changed = false;
-    if (!content) return agent_strdup("");
+                                            bool *changed)
+{
+    if (changed)
+        *changed = false;
+    if (!content)
+        return agent_strdup("");
     const char *end = strstr(content, "</think>");
-    if (!end) return agent_strdup(content);
+    if (!end)
+        return agent_strdup(content);
 
     const char *after = end + strlen("</think>");
-    while (*after && isspace((unsigned char)*after)) after++;
+    while (*after && isspace((unsigned char)*after))
+        after++;
     const char *begin = strstr(content, "<think>");
-    if (begin && begin < end) {
+    if (begin && begin < end)
+    {
         strbuf out;
         sb_init(&out);
         sb_append_n(&out, content, (size_t)(begin - content));
-        if (*after) {
-            if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+        if (*after)
+        {
+            if (out.len && out.p[out.len - 1] != '\n')
+                sb_append(&out, "\n");
             sb_append(&out, after);
         }
-        if (!out.p || !out.p[0]) {
+        if (!out.p || !out.p[0])
+        {
             sb_append(&out, "[Earlier assistant thinking omitted.]");
         }
-        if (changed) *changed = true;
+        if (changed)
+            *changed = true;
         return out.p;
     }
 
-    if (*after) {
-        if (changed) *changed = true;
+    if (*after)
+    {
+        if (changed)
+            *changed = true;
         return agent_strdup(after);
     }
-    if (changed) *changed = true;
+    if (changed)
+        *changed = true;
     return agent_strdup("[Earlier assistant thinking omitted; no final answer.]");
 }
 
-static size_t agent_utf8_head_boundary(const char *text, size_t cut) {
+static size_t agent_utf8_head_boundary(const char *text, size_t cut)
+{
     while (cut > 0 &&
-           (((unsigned char)text[cut] & 0xc0u) == 0x80u)) {
+           (((unsigned char)text[cut] & 0xc0u) == 0x80u))
+    {
         cut--;
     }
     return cut;
 }
 
 static size_t agent_utf8_tail_boundary(const char *text, size_t len,
-                                       size_t cut) {
+                                       size_t cut)
+{
     while (cut < len &&
-           (((unsigned char)text[cut] & 0xc0u) == 0x80u)) {
+           (((unsigned char)text[cut] & 0xc0u) == 0x80u))
+    {
         cut++;
     }
     return cut;
@@ -5854,7 +7618,8 @@ static size_t agent_utf8_tail_boundary(const char *text, size_t len,
 
 /* Bound the rendered message, not bytes: HTML/JSON can have far more tokens
  * than prose. Keep full tool results on disk before any context compaction. */
-static int agent_rendered_message_tokens(agent_state *a, const char *text) {
+static int agent_rendered_message_tokens(agent_state *a, const char *text)
+{
     qw3_tokens tokens = {0};
     qw3_chat_append_message(a->engine, &tokens, "user", text);
     int count = tokens.len;
@@ -5863,28 +7628,39 @@ static int agent_rendered_message_tokens(agent_state *a, const char *text) {
 }
 
 static char *agent_context_tool_response(agent_state *a, const char *tool_name,
-                                         const char *value) {
+                                         const char *value)
+{
+    const bool inkling = qw3_engine_is_inkling(a->engine);
     const char *body = value ? value : "";
-    char *response = native_tool_response_text(tool_name, body);
+    char *response = inkling ? agent_strdup(body) :
+        native_tool_response_text(tool_name, body);
     int limit = agent_tool_result_token_limit(a);
-    if (!limit || !response) return response;
+    if (!limit || !response)
+        return response;
     int original_tokens = agent_rendered_message_tokens(a, response);
-    if (original_tokens <= limit) return response;
+    if (original_tokens <= limit)
+        return response;
     free(response);
 
     char *path = NULL, *dir = NULL;
     int fd = agent_create_spill(a, "tool-", &path, &dir);
     size_t bytes = strlen(body);
     bool saved = fd >= 0;
-    if (saved && (!agent_write_all(fd, body, bytes) || fsync(fd) != 0)) saved = false;
-    if (fd >= 0 && close(fd) != 0) saved = false;
-    if (saved) agent_prune_spills(dir, "tool-", path, QW3_AGENT_TOOL_SPILL_KEEP);
-    else if (path) (void)unlink(path);
+    if (saved && (!agent_write_all(fd, body, bytes) || fsync(fd) != 0))
+        saved = false;
+    if (fd >= 0 && close(fd) != 0)
+        saved = false;
+    if (saved)
+        agent_prune_spills(dir, "tool-", path, QW3_AGENT_TOOL_SPILL_KEEP);
+    else if (path)
+        (void)unlink(path);
 
     size_t keep = (size_t)limit * 2u;
-    if (keep > bytes) keep = bytes;
+    if (keep > bytes)
+        keep = bytes;
     int kept_tokens = 0;
-    for (;;) {
+    for (;;)
+    {
         size_t head = agent_utf8_head_boundary(body, keep * 3u / 4u);
         size_t tail_start = agent_utf8_tail_boundary(body, bytes,
                                                      bytes - (keep - head));
@@ -5893,21 +7669,28 @@ static char *agent_context_tool_response(agent_state *a, const char *tool_name,
         sb_append_n(&excerpt, body, head);
         sb_printf(&excerpt, "\n[... %zu bytes omitted from tool result; context budget=%d tokens; ",
                   tail_start - head, limit);
-        if (saved) {
+        if (saved)
+        {
             sb_printf(&excerpt, "full result saved to %s. Use rg/sed or a smaller read on that file", path);
-        } else {
+        }
+        else
+        {
             sb_append(&excerpt, "full result could not be saved. Request a smaller read/search output");
         }
         sb_append(&excerpt, " ...]\n");
         sb_append_n(&excerpt, body + tail_start, bytes - tail_start);
-        response = native_tool_response_text(tool_name, excerpt.p);
+        response = inkling ? agent_strdup(excerpt.p) :
+            native_tool_response_text(tool_name, excerpt.p);
         sb_free(&excerpt);
-        if (!response) break;
+        if (!response)
+            break;
         kept_tokens = agent_rendered_message_tokens(a, response);
-        if (kept_tokens <= limit) break;
+        if (kept_tokens <= limit)
+            break;
         free(response);
         response = NULL;
-        if (keep == 0) break;
+        if (keep == 0)
+            break;
         keep /= 2u;
     }
     agent_trace_begin(a, "tool_context_limit");
@@ -5928,32 +7711,42 @@ static char *agent_context_tool_response(agent_state *a, const char *tool_name,
 
 static char *agent_compact_shorten_tool_result(const char *content,
                                                const char *archive_path,
-                                               bool *changed) {
-    if (changed) *changed = false;
-    if (!content) return agent_strdup("");
+                                               bool *changed)
+{
+    if (changed)
+        *changed = false;
+    if (!content)
+        return agent_strdup("");
 
     const char *body = content;
     const char *suffix = content + strlen(content);
     const size_t open_len = strlen(QWEN_XML_TOOL_RESPONSE_BEGIN);
-    if (!strncmp(content, QWEN_XML_TOOL_RESPONSE_BEGIN, open_len)) {
+    if (!strncmp(content, QWEN_XML_TOOL_RESPONSE_BEGIN, open_len))
+    {
         body = content + open_len;
-        if (*body == '\n') body++;
+        if (*body == '\n')
+            body++;
         const char *close = strstr(body, QWEN_XML_TOOL_RESPONSE_END);
-        if (close) suffix = close;
+        if (close)
+            suffix = close;
     }
     size_t body_len = (size_t)(suffix - body);
     while (body_len > 0 &&
-           isspace((unsigned char)body[body_len - 1])) {
+           isspace((unsigned char)body[body_len - 1]))
+    {
         body_len--;
     }
-    if (body_len <= QW3_AGENT_COMPACT_TOOL_BODY_MAX_BYTES) {
+    if (body_len <= QW3_AGENT_COMPACT_TOOL_BODY_MAX_BYTES)
+    {
         return agent_strdup(content);
     }
 
     size_t head = QW3_AGENT_COMPACT_TOOL_HEAD_BYTES;
     size_t tail = QW3_AGENT_COMPACT_TOOL_TAIL_BYTES;
-    if (head > body_len) head = body_len;
-    if (tail > body_len - head) tail = body_len - head;
+    if (head > body_len)
+        head = body_len;
+    if (tail > body_len - head)
+        tail = body_len - head;
     head = agent_utf8_head_boundary(body, head);
     size_t tail_start = agent_utf8_tail_boundary(
         body, body_len, body_len - tail);
@@ -5961,36 +7754,44 @@ static char *agent_compact_shorten_tool_result(const char *content,
 
     strbuf out;
     sb_init(&out);
-    if (body != content) {
+    if (body != content)
+    {
         sb_append(&out, QWEN_XML_TOOL_RESPONSE_BEGIN "\n");
     }
     sb_append_n(&out, body, head);
-    if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    if (out.len && out.p[out.len - 1] != '\n')
+        sb_append(&out, "\n");
     sb_printf(&out,
               "[... %zu bytes omitted from old tool result; full message: %s ...]\n",
-              omitted, archive_path && archive_path[0] ? archive_path :
-                                                        "pre-compaction archive");
+              omitted, archive_path && archive_path[0] ? archive_path : "pre-compaction archive");
     sb_append_n(&out, body + tail_start, body_len - tail_start);
-    if (body != content) {
-        if (out.len && out.p[out.len - 1] != '\n') sb_append(&out, "\n");
+    if (body != content)
+    {
+        if (out.len && out.p[out.len - 1] != '\n')
+            sb_append(&out, "\n");
         sb_append(&out, QWEN_XML_TOOL_RESPONSE_END);
     }
-    if (changed) *changed = true;
+    if (changed)
+        *changed = true;
     return out.p ? out.p : agent_strdup("");
 }
 
 static bool agent_message_ledger_is_complete(const agent_state *a,
-                                             int bottom) {
+                                             int bottom)
+{
     if (!a || a->messages.len < 1 ||
-        a->messages.items[0].kind != AGENT_MESSAGE_SYSTEM) {
+        a->messages.items[0].kind != AGENT_MESSAGE_SYSTEM)
+    {
         return false;
     }
     int cursor = 0;
-    for (int i = 0; i < a->messages.len; i++) {
+    for (int i = 0; i < a->messages.len; i++)
+    {
         const agent_message *message = &a->messages.items[i];
         if (message->token_start != cursor ||
             message->token_end < message->token_start ||
-            message->token_end > bottom) {
+            message->token_end > bottom)
+        {
             return false;
         }
         cursor = message->token_end;
@@ -6003,34 +7804,45 @@ static void agent_compact_build_source(agent_state *a,
                                        int bottom, int tail_start,
                                        const char *archive_path,
                                        qw3_tokens *out,
-                                       agent_compact_source_stats *stats) {
+                                       agent_compact_source_stats *stats)
+{
     memset(stats, 0, sizeof(*stats));
-    if (!agent_message_ledger_is_complete(a, bottom)) {
+    if (!agent_message_ledger_is_complete(a, bottom))
+    {
         qw3_tokens_copy(out, &a->transcript);
         return;
     }
 
     qw3_tokens staged = {0};
     qw3_tokens_copy(&staged, sys);
-    for (int i = 1; i < a->messages.len; i++) {
+    for (int i = 1; i < a->messages.len; i++)
+    {
         const agent_message *message = &a->messages.items[i];
         bool is_old = message->token_end <= tail_start;
         bool changed = false;
         char *content = NULL;
-        if (is_old && message->kind == AGENT_MESSAGE_ASSISTANT) {
+        if (is_old && message->kind == AGENT_MESSAGE_ASSISTANT)
+        {
             content = agent_compact_without_thinking(message->content,
                                                      &changed);
-            if (changed && content) stats->thinking_removed++;
-        } else if (is_old && message->kind == AGENT_MESSAGE_TOOL) {
+            if (changed && content)
+                stats->thinking_removed++;
+        }
+        else if (is_old && message->kind == AGENT_MESSAGE_TOOL)
+        {
             content = agent_compact_shorten_tool_result(
                 message->content, archive_path, &changed);
-            if (changed && content) stats->tool_results_shortened++;
+            if (changed && content)
+                stats->tool_results_shortened++;
         }
 
-        if (changed && content) {
+        if (changed && content)
+        {
             qw3_chat_append_message(a->engine, &staged, message->role,
                                     content);
-        } else {
+        }
+        else
+        {
             agent_tokens_append_range(&staged, &a->transcript,
                                       message->token_start,
                                       message->token_end);
@@ -6038,7 +7850,8 @@ static void agent_compact_build_source(agent_state *a,
         free(content);
     }
 
-    if (staged.len >= bottom) {
+    if (staged.len >= bottom)
+    {
         stats->thinking_removed = 0;
         stats->tool_results_shortened = 0;
         qw3_tokens_free(&staged);
@@ -6048,7 +7861,8 @@ static void agent_compact_build_source(agent_state *a,
     *out = staged;
 }
 
-static int agent_context_ledger_selftest(void) {
+static int agent_context_ledger_selftest(void)
+{
     agent_state state = {0};
     state.cfg.ctx_size = 800;
     if (!agent_message_ledger_add(&state.messages, AGENT_MESSAGE_SYSTEM,
@@ -6062,11 +7876,13 @@ static int agent_context_ledger_selftest(void) {
         !agent_message_ledger_add(&state.messages, AGENT_MESSAGE_USER,
                                   "user", "next question", 350, 400) ||
         !agent_message_ledger_add(&state.messages, AGENT_MESSAGE_ASSISTANT,
-                                  "assistant", "next answer", 400, 500)) {
+                                  "assistant", "next answer", 400, 500))
+    {
         agent_message_ledger_clear(&state.messages);
         return 1;
     }
-    if (agent_compact_tail_start(&state, 500, 100) != 350) {
+    if (agent_compact_tail_start(&state, 500, 100) != 350)
+    {
         agent_message_ledger_clear(&state.messages);
         return 2;
     }
@@ -6075,25 +7891,25 @@ static int agent_context_ledger_selftest(void) {
     tool_turn.cfg.ctx_size = 800;
     bool tail_ok =
         agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_SYSTEM,
-                                  "system", "system", 0, 100) &&
+                                 "system", "system", 0, 100) &&
         agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_USER,
-                                  "user", "one long task", 100, 200) &&
+                                 "user", "one long task", 100, 200) &&
         agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_ASSISTANT,
-                                  "assistant", "first request", 200, 300) &&
+                                 "assistant", "first request", 200, 300) &&
         agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_TOOL,
-                                  "user", "first result", 300, 350) &&
+                                 "user", "first result", 300, 350) &&
         agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_ASSISTANT,
-                                  "assistant", "latest request", 350, 400) &&
+                                 "assistant", "latest request", 350, 400) &&
         agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_TOOL,
-                                  "user", "latest result", 400, 500);
+                                 "user", "latest result", 400, 500);
     tail_ok = tail_ok && agent_compact_tail_start(&tool_turn, 500, 100) == 350 &&
-        agent_message_tail_start(&tool_turn, 360, 500, 100) == 500;
+              agent_message_tail_start(&tool_turn, 360, 500, 100) == 500;
     const agent_message *request = agent_compact_user_request(&tool_turn, 500);
     tail_ok = tail_ok && request && request->token_start == 100 &&
-        !strcmp(request->content, "one long task");
+              !strcmp(request->content, "one long task");
     tail_ok = tail_ok &&
-        agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_ASSISTANT,
-                                  "assistant", "pending request", 500, 530);
+              agent_message_ledger_add(&tool_turn.messages, AGENT_MESSAGE_ASSISTANT,
+                                       "assistant", "pending request", 500, 530);
     tool_turn.cfg.ctx_size = 600;
     tail_ok = tail_ok && agent_compact_tail_start(&tool_turn, 530, 100) == 500;
     tool_turn.last_read_path = "/tmp/page\"notes\\row\n.txt";
@@ -6101,42 +7917,55 @@ static int agent_context_ledger_selftest(void) {
     strbuf cursor = {0};
     agent_compact_append_read_cursor(&cursor, &tool_turn);
     tail_ok = tail_ok && cursor.p && strstr(cursor.p, "\"next_start\":196") &&
-        strstr(cursor.p, "page\\\"notes\\\\row\\u000a.txt");
+              strstr(cursor.p, "page\\\"notes\\\\row\\u000a.txt");
     sb_free(&cursor);
     agent_message_ledger_clear(&tool_turn.messages);
-    if (!tail_ok) { agent_message_ledger_clear(&state.messages); return 14; }
+    if (!tail_ok)
+    {
+        agent_message_ledger_clear(&state.messages);
+        return 14;
+    }
 
     char path[] = "/tmp/qw3-agent-messages-XXXXXX";
     int fd = mkstemp(path);
-    if (fd < 0) {
+    if (fd < 0)
+    {
         agent_message_ledger_clear(&state.messages);
         return 3;
     }
     close(fd);
     agent_message_ledger loaded = {0};
     int rc = store_write_messages_path(path, &state.messages) == 0 ? 0 : 4;
-    if (rc == 0 && store_read_messages_path(path, 501, &loaded) == 0) rc = 4;
-    if (rc == 0 && store_read_messages_path(path, 500, &loaded) != 0) rc = 4;
+    if (rc == 0 && store_read_messages_path(path, 501, &loaded) == 0)
+        rc = 4;
+    if (rc == 0 && store_read_messages_path(path, 500, &loaded) != 0)
+        rc = 4;
     (void)unlink(path);
     if (rc == 0 &&
         (loaded.len != 6 || loaded.items[3].kind != AGENT_MESSAGE_TOOL ||
          loaded.items[4].token_start != 350 ||
-         strcmp(loaded.items[3].content, "tool result"))) {
+         strcmp(loaded.items[3].content, "tool result")))
+    {
         rc = 5;
     }
     agent_message_ledger_truncate(&loaded, 350);
-    if (rc == 0 && loaded.len != 4) rc = 6;
+    if (rc == 0 && loaded.len != 4)
+        rc = 6;
     agent_message_ledger_clear(&loaded);
 
     char store_dir[] = "/tmp/qw3-agent-context-store-XXXXXX";
     char *last_archive = NULL;
-    if (rc == 0 && !mkdtemp(store_dir)) rc = 7;
-    if (rc == 0) {
+    if (rc == 0 && !mkdtemp(store_dir))
+        rc = 7;
+    if (rc == 0)
+    {
         state.cfg.store_dir = store_dir;
         state.transcript.len = 500;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 10; i++)
+        {
             char *archive = agent_archive_context(&state);
-            if (!archive) {
+            if (!archive)
+            {
                 rc = 8;
                 break;
             }
@@ -6144,31 +7973,37 @@ static int agent_context_ledger_selftest(void) {
             last_archive = archive;
         }
     }
-    if (rc == 0) {
+    if (rc == 0)
+    {
         struct stat st;
         size_t archive_len = 0;
         char *archive_text = read_file_text(last_archive, &archive_len);
         if (stat(last_archive, &st) != 0 || (st.st_mode & 0777) != 0600 ||
-            !archive_text || !strstr(archive_text, "tool result")) {
+            !archive_text || !strstr(archive_text, "tool result"))
+        {
             rc = 9;
         }
         free(archive_text);
     }
-    if (rc == 0) {
+    if (rc == 0)
+    {
         bool changed = false;
         char *without_thinking = agent_compact_without_thinking(
             "private reasoning</think>\n\nfinal answer", &changed);
         if (!changed || !without_thinking ||
-            strcmp(without_thinking, "final answer")) {
+            strcmp(without_thinking, "final answer"))
+        {
             rc = 11;
         }
         free(without_thinking);
     }
-    if (rc == 0) {
+    if (rc == 0)
+    {
         strbuf large_tool;
         sb_init(&large_tool);
         sb_append(&large_tool, QWEN_XML_TOOL_RESPONSE_BEGIN "\n");
-        for (int i = 0; i < 9000; i++) sb_append_n(&large_tool, "x", 1);
+        for (int i = 0; i < 9000; i++)
+            sb_append_n(&large_tool, "x", 1);
         sb_append(&large_tool, "\n" QWEN_XML_TOOL_RESPONSE_END);
         bool changed = false;
         char *short_tool = agent_compact_shorten_tool_result(
@@ -6178,71 +8013,89 @@ static int agent_context_ledger_selftest(void) {
             !strstr(short_tool, "/tmp/context-test") ||
             strncmp(short_tool, QWEN_XML_TOOL_RESPONSE_BEGIN,
                     strlen(QWEN_XML_TOOL_RESPONSE_BEGIN)) ||
-            !strstr(short_tool, QWEN_XML_TOOL_RESPONSE_END)) {
+            !strstr(short_tool, QWEN_XML_TOOL_RESPONSE_END))
+        {
             rc = 12;
         }
         free(short_tool);
         sb_free(&large_tool);
     }
-    if (rc == 0) {
+    if (rc == 0)
+    {
         state.transcript.len = 700;
         state.compact_retry_after_tokens = 750;
-        if (agent_should_compact_context(&state)) rc = 13;
+        if (agent_should_compact_context(&state))
+            rc = 13;
         state.compact_retry_after_tokens = 0;
-        if (rc == 0 && !agent_should_compact_context(&state)) rc = 13;
+        if (rc == 0 && !agent_should_compact_context(&state))
+            rc = 13;
         state.transcript.len = 500;
     }
     char *spills_dir = rc == 7 ? NULL : path_join(store_dir, "spills");
-    if (spills_dir) {
+    if (spills_dir)
+    {
         DIR *dir = opendir(spills_dir);
         int count = 0;
         struct dirent *entry;
-        while (dir && (entry = readdir(dir)) != NULL) {
-            if (!strncmp(entry->d_name, "context-", 8)) count++;
+        while (dir && (entry = readdir(dir)) != NULL)
+        {
+            if (!strncmp(entry->d_name, "context-", 8))
+                count++;
         }
-        if (dir) closedir(dir);
-        if (rc == 0 && count > QW3_AGENT_CONTEXT_ARCHIVE_KEEP) rc = 10;
+        if (dir)
+            closedir(dir);
+        if (rc == 0 && count > QW3_AGENT_CONTEXT_ARCHIVE_KEEP)
+            rc = 10;
         dir = opendir(spills_dir);
-        while (dir && (entry = readdir(dir)) != NULL) {
-            if (entry->d_name[0] == '.') continue;
+        while (dir && (entry = readdir(dir)) != NULL)
+        {
+            if (entry->d_name[0] == '.')
+                continue;
             char *entry_path = path_join(spills_dir, entry->d_name);
-            if (entry_path) (void)unlink(entry_path);
+            if (entry_path)
+                (void)unlink(entry_path);
             free(entry_path);
         }
-        if (dir) closedir(dir);
+        if (dir)
+            closedir(dir);
         (void)rmdir(spills_dir);
     }
     free(spills_dir);
     free(last_archive);
-    if (rc != 7) (void)rmdir(store_dir);
+    if (rc != 7)
+        (void)rmdir(store_dir);
     agent_message_ledger_clear(&state.messages);
-    if (rc == 0) puts("PASS long_tool_turn recent_request_and_result=retained pending_request=retained orphan_result=excluded read_cursor=exact user_goal=retained");
+    if (rc == 0)
+        puts("PASS long_tool_turn recent_request_and_result=retained pending_request=retained orphan_result=excluded read_cursor=exact user_goal=retained");
     return rc;
 }
 
 static char *agent_compact_make_prompt(const agent_state *a, const char *reason,
-                                       const char *archive_path) {
+                                       const char *archive_path)
+{
     strbuf sb;
     sb_init(&sb);
     sb_append(&sb,
-        "Internal qw3-agent context compaction request. This is not a user request.\n"
-        "Write a durable task-state summary of the conversation so far. Preserve only facts needed to continue the work:\n"
-        "- user goals, constraints, and preferences\n"
-        "- files inspected or edited\n"
-        "- commands run and important results\n"
-        "- decisions, rejected approaches, known bugs, and pending next steps\n"
-        "- reloadable bulky data with exact paths/ranges/commands when available\n\n"
-        "For a list or catalog, retain the collected requested entries as compact field values, or the exact path of a compact result file. A statement that data was read is not a substitute for the collected entries. Preserve the first unread line and completed ranges.\n"
-        "Do not invent facts. Do not include generic narration. Do not include raw file contents unless essential.\n"
-        "Do not continue the user task. Do not call tools. Do not output thinking tags, XML tool calls, or DSML markup.\n"
-        "Output only the compact summary.\n");
+              "Internal qw3-agent context compaction request. This is not a user request.\n"
+              "Write a durable task-state summary of the conversation so far. Preserve only facts needed to continue the work:\n"
+              "- user goals, constraints, and preferences\n"
+              "- files inspected or edited\n"
+              "- commands run and important results\n"
+              "- decisions, rejected approaches, known bugs, and pending next steps\n"
+              "- reloadable bulky data with exact paths/ranges/commands when available\n\n"
+              "For a list or catalog, retain the collected requested entries as compact field values, or the exact path of a compact result file. A statement that data was read is not a substitute for the collected entries. Preserve the first unread line and completed ranges.\n"
+              "Do not invent facts. Do not include generic narration. Do not include raw file contents unless essential.\n"
+              "Do not continue the user task. Do not call tools. Do not output thinking tags, XML tool calls, or DSML markup.\n"
+              "Output only the compact summary.\n");
     agent_compact_append_read_cursor(&sb, a);
-    if (reason && reason[0]) {
+    if (reason && reason[0])
+    {
         sb_append(&sb, "\nCompaction reason: ");
         sb_append(&sb, reason);
         sb_append(&sb, "\n");
     }
-    if (archive_path && archive_path[0]) {
+    if (archive_path && archive_path[0])
+    {
         sb_append(&sb,
                   "Full pre-compaction messages are recoverable at: ");
         sb_append(&sb, archive_path);
@@ -6255,39 +8108,58 @@ static char *agent_compact_make_prompt(const agent_state *a, const char *reason,
 
 static bool agent_message_fits_context(agent_state *a, const char *role,
                                        const char *text, int reserve,
-                                       int *projected_out) {
-    if (!a) return false;
-    if (reserve > 0 && a->cfg.ctx_size > 0) {
+                                       int *projected_out)
+{
+    if (!a)
+        return false;
+    if (reserve > 0 && a->cfg.ctx_size > 0)
+    {
         int proportional = a->cfg.ctx_size / 8;
-        if (proportional < 16) proportional = 16;
-        if (reserve > proportional) reserve = proportional;
+        if (proportional < 16)
+            proportional = 16;
+        if (reserve > proportional)
+            reserve = proportional;
     }
     qw3_tokens tmp = {0};
     qw3_tokens_copy(&tmp, &a->transcript);
     qw3_chat_append_message(a->engine, &tmp, role, text);
     int projected = tmp.len + (reserve > 0 ? reserve : 0);
-    if (projected_out) *projected_out = projected;
+    if (projected_out)
+        *projected_out = projected;
     bool ok = projected < a->cfg.ctx_size;
     qw3_tokens_free(&tmp);
     return ok;
 }
 
 static bool agent_compact_context(agent_state *a, const char *reason,
-                                  char *err, size_t err_len) {
-    if (!a || !a->engine || !a->session) return true;
+                                  char *err, size_t err_len)
+{
+    if (!a || !a->engine || !a->session)
+        return true;
+    if (qw3_engine_is_inkling(a->engine))
+    {
+        snprintf(err, err_len,
+                 "Inkling context compaction is unavailable (%d/%d); use /new or increase --ctx",
+                 a->transcript.len, a->cfg.ctx_size);
+        return false;
+    }
     const int bottom = a->transcript.len;
-    if (bottom <= 0) return true;
+    if (bottom <= 0)
+        return true;
 
     qw3_tokens sys = {0};
     qw3_chat_append_message(a->engine, &sys, "system", a->cfg.system_prompt);
-    if (bottom <= sys.len) {
+    if (bottom <= sys.len)
+    {
         qw3_tokens_free(&sys);
         return true;
     }
     int non_system_tokens = bottom - sys.len;
     int min_compactable = a->cfg.ctx_size / 16;
-    if (min_compactable < 128) min_compactable = 128;
-    if (non_system_tokens < min_compactable) {
+    if (min_compactable < 128)
+        min_compactable = 128;
+    if (non_system_tokens < min_compactable)
+    {
         agent_statusf(a,
                       "agent: context compaction skipped, only %d non-system tokens\n",
                       non_system_tokens);
@@ -6301,15 +8173,16 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     agent_trace_compaction(a, "attempt", reason, bottom, -1, -1);
 
     bool complete_ledger = agent_message_ledger_is_complete(a, bottom);
-    int transcript_sys_len = complete_ledger ?
-        a->messages.items[0].token_end : sys.len;
+    int transcript_sys_len = complete_ledger ? a->messages.items[0].token_end : sys.len;
     int source_tail_start = agent_compact_tail_start(
         a, bottom, transcript_sys_len);
     if (complete_ledger &&
         a->messages.len > 1 &&
-        source_tail_start <= a->messages.items[1].token_start) {
+        source_tail_start <= a->messages.items[1].token_start)
+    {
         int retry = a->cfg.ctx_size / 16;
-        if (retry < 128) retry = 128;
+        if (retry < 128)
+            retry = 128;
         a->compact_retry_after_tokens = bottom + retry;
         agent_statusf(a,
                       "agent: compaction skipped; context contains only the "
@@ -6321,7 +8194,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     }
 
     char *archive_path = agent_archive_context(a);
-    if (!archive_path) {
+    if (!archive_path)
+    {
         snprintf(err, err_len,
                  "cannot archive messages; context left unchanged");
         qw3_tokens_free(&sys);
@@ -6333,7 +8207,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     agent_compact_build_source(a, &sys, bottom, source_tail_start,
                                archive_path, &prompt, &source_stats);
     if (source_stats.thinking_removed ||
-        source_stats.tool_results_shortened) {
+        source_stats.tool_results_shortened)
+    {
         agent_statusf(a,
                       "agent: compact source old=%d staged=%d "
                       "thinking=%d tool_results=%d\n",
@@ -6346,7 +8221,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
 
     int summary_room = a->cfg.ctx_size - prompt.len - 1;
     int min_summary_room = a->cfg.ctx_size < 2048 ? 96 : 256;
-    if (summary_room < min_summary_room) {
+    if (summary_room < min_summary_room)
+    {
         snprintf(err, err_len,
                  "not enough room to compact context (prompt=%d ctx=%d)",
                  prompt.len, a->cfg.ctx_size);
@@ -6355,11 +8231,11 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         free(archive_path);
         return false;
     }
-    int summary_max = summary_room < QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS ?
-                      summary_room : QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS;
+    int summary_max = summary_room < QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS ? summary_room : QW3_AGENT_COMPACT_SUMMARY_MAX_TOKENS;
 
     char sync_err[256] = {0};
-    if (agent_sync_with_progress(a, &prompt, sync_err, sizeof(sync_err)) != 0) {
+    if (agent_sync_with_progress(a, &prompt, sync_err, sizeof(sync_err)) != 0)
+    {
         qw3_session_invalidate(a->session);
         snprintf(err, err_len, "%s", sync_err);
         qw3_tokens_free(&prompt);
@@ -6374,8 +8250,10 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     int eos = qw3_token_eos(a->engine);
     int think_end_id = agent_single_rendered_token_id(a->engine, "</think>");
     char eval_err[160] = {0};
-    for (int i = 0; i < summary_max; i++) {
-        if (agent_should_interrupt(a)) {
+    for (int i = 0; i < summary_max; i++)
+    {
+        if (agent_should_interrupt(a))
+        {
             snprintf(err, err_len, "compaction interrupted");
             qw3_session_invalidate(a->session);
             qw3_tokens_free(&prompt);
@@ -6385,16 +8263,19 @@ static bool agent_compact_context(agent_state *a, const char *reason,
             return false;
         }
         int token = qw3_session_argmax(a->session);
-        if (token < 0 || token == eos || token == think_end_id) break;
+        if (token < 0 || token == eos || token == think_end_id)
+            break;
 
         size_t text_len = 0;
         char *text = token_decoded_text(a->engine, token, &text_len);
-        if (text && (strstr(text, "<tool_call>") || strstr(text, "DSML"))) {
+        if (text && (strstr(text, "<tool_call>") || strstr(text, "DSML")))
+        {
             free(text);
             break;
         }
         if (qw3_session_eval_gpu_logits(a->session, token,
-                                        eval_err, sizeof(eval_err)) != 0) {
+                                        eval_err, sizeof(eval_err)) != 0)
+        {
             snprintf(err, err_len, "%s", eval_err);
             qw3_session_invalidate(a->session);
             qw3_tokens_free(&prompt);
@@ -6404,12 +8285,14 @@ static bool agent_compact_context(agent_state *a, const char *reason,
             free(archive_path);
             return false;
         }
-        if (text && text_len) sb_append_n(&summary, text, text_len);
+        if (text && text_len)
+            sb_append_n(&summary, text, text_len);
         free(text);
     }
     qw3_tokens_free(&prompt);
 
-    if (!summary.p || !summary.p[0]) {
+    if (!summary.p || !summary.p[0])
+    {
         snprintf(err, err_len, "compaction summary was empty");
         qw3_session_invalidate(a->session);
         qw3_tokens_free(&sys);
@@ -6423,7 +8306,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     agent_message_ledger compacted_messages = {0};
     if (!agent_message_ledger_add(&compacted_messages, AGENT_MESSAGE_SYSTEM,
                                   "system", a->cfg.system_prompt,
-                                  0, compacted.len)) {
+                                  0, compacted.len))
+    {
         snprintf(err, err_len, "out of memory recording compacted system");
         qw3_session_invalidate(a->session);
         qw3_tokens_free(&compacted);
@@ -6441,7 +8325,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     sb_append(&summary_msg, archive_path);
     sb_append(&summary_msg, "\n");
     agent_compact_append_read_cursor(&summary_msg, a);
-    if (summary_msg.len && summary_msg.p[summary_msg.len - 1] != '\n') {
+    if (summary_msg.len && summary_msg.p[summary_msg.len - 1] != '\n')
+    {
         sb_append(&summary_msg, "\n");
     }
     sb_append(&summary_msg,
@@ -6450,7 +8335,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     qw3_chat_append_message(a->engine, &compacted, "system", summary_msg.p);
     if (!agent_message_ledger_add(&compacted_messages, AGENT_MESSAGE_CONTROL,
                                   "system", summary_msg.p, summary_start,
-                                  compacted.len)) {
+                                  compacted.len))
+    {
         snprintf(err, err_len, "out of memory recording compacted summary");
         agent_message_ledger_clear(&compacted_messages);
         sb_free(&summary_msg);
@@ -6467,12 +8353,14 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     int tail_start = agent_compact_tail_start(a, bottom,
                                               transcript_sys_len);
     int initial_tail_room = a->cfg.ctx_size - compacted.len - 128;
-    if (initial_tail_room >= 0 && tail_start < bottom - initial_tail_room) {
+    if (initial_tail_room >= 0 && tail_start < bottom - initial_tail_room)
+    {
         tail_start = agent_message_tail_start(a, bottom - initial_tail_room,
                                               bottom, transcript_sys_len);
     }
     const agent_message *request = agent_compact_user_request(a, bottom);
-    if (request && request->token_start < tail_start) {
+    if (request && request->token_start < tail_start)
+    {
         /* Ground an assistant/tool tail in the actual user task, rather than
          * depending entirely on the model-generated system summary. Large
          * requests stay recoverable in the archive without refilling them. */
@@ -6480,16 +8368,20 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         sb_init(&resume);
         const char *text = request->content;
         int request_limit = a->cfg.ctx_size / 16;
-        if (request_limit > 512) request_limit = 512;
-        if (request_limit < 64) request_limit = 64;
-        if (agent_rendered_message_tokens(a, text) > request_limit) {
+        if (request_limit > 512)
+            request_limit = 512;
+        if (request_limit < 64)
+            request_limit = 64;
+        if (agent_rendered_message_tokens(a, text) > request_limit)
+        {
             sb_printf(&resume, "Continue my task from the durable summary and recent tool exchanges. My full original request is recoverable in %s.", archive_path);
             text = resume.p;
         }
         int start = compacted.len;
         qw3_chat_append_message(a->engine, &compacted, "user", text);
         if (!agent_message_ledger_add(&compacted_messages, AGENT_MESSAGE_USER,
-                                      "user", text, start, compacted.len)) {
+                                      "user", text, start, compacted.len))
+        {
             sb_free(&resume);
             free(archive_path);
             agent_message_ledger_clear(&compacted_messages);
@@ -6503,7 +8395,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     }
     free(archive_path);
     int tail_room = a->cfg.ctx_size - compacted.len - 128;
-    if (tail_room < 0) {
+    if (tail_room < 0)
+    {
         snprintf(err, err_len,
                  "compaction summary too large (base=%d ctx=%d)",
                  compacted.len, a->cfg.ctx_size);
@@ -6514,22 +8407,26 @@ static bool agent_compact_context(agent_state *a, const char *reason,
         return false;
     }
     int min_tail_start = bottom - tail_room;
-    if (tail_start < min_tail_start) {
+    if (tail_start < min_tail_start)
+    {
         tail_start = agent_message_tail_start(a, min_tail_start,
                                               bottom, transcript_sys_len);
     }
     agent_tokens_append_range(&compacted, &a->transcript, tail_start, bottom);
     int tail_base = compacted.len - (bottom - tail_start);
-    for (int i = 0; i < a->messages.len; i++) {
+    for (int i = 0; i < a->messages.len; i++)
+    {
         const agent_message *message = &a->messages.items[i];
-        if (message->token_start < tail_start || message->token_end > bottom) {
+        if (message->token_start < tail_start || message->token_end > bottom)
+        {
             continue;
         }
         int start = tail_base + message->token_start - tail_start;
         int end = tail_base + message->token_end - tail_start;
         if (!agent_message_ledger_add(&compacted_messages, message->kind,
                                       message->role, message->content,
-                                      start, end)) {
+                                      start, end))
+        {
             snprintf(err, err_len,
                      "out of memory recording compacted message tail");
             agent_message_ledger_clear(&compacted_messages);
@@ -6541,11 +8438,15 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     }
 
     int min_savings = a->cfg.ctx_size / 32;
-    if (min_savings < 128) min_savings = 128;
-    if (min_savings > 512) min_savings = 512;
-    if (compacted.len > bottom - min_savings) {
+    if (min_savings < 128)
+        min_savings = 128;
+    if (min_savings > 512)
+        min_savings = 512;
+    if (compacted.len > bottom - min_savings)
+    {
         int retry = a->cfg.ctx_size / 16;
-        if (retry < min_savings) retry = min_savings;
+        if (retry < min_savings)
+            retry = min_savings;
         a->compact_retry_after_tokens = bottom + retry;
         agent_statusf(a,
                       "agent: compaction skipped; low yield old=%d candidate=%d "
@@ -6567,7 +8468,8 @@ static bool agent_compact_context(agent_state *a, const char *reason,
     a->session_stripped = false;
     qw3_session_invalidate(a->session);
     if (agent_sync_with_progress(a, &a->transcript, sync_err,
-                                 sizeof(sync_err)) != 0) {
+                                 sizeof(sync_err)) != 0)
+    {
         qw3_session_invalidate(a->session);
         qw3_tokens_free(&a->transcript);
         a->transcript = old;
@@ -6589,21 +8491,27 @@ static bool agent_compact_context(agent_state *a, const char *reason,
 }
 
 static bool agent_compact_if_needed(agent_state *a, const char *reason,
-                                    char *err, size_t err_len) {
-    if (!agent_should_compact_context(a)) return true;
+                                    char *err, size_t err_len)
+{
+    if (!agent_should_compact_context(a))
+        return true;
     return agent_compact_context(a, reason, err, err_len);
 }
 
 static bool agent_ensure_message_room(agent_state *a, const char *role,
                                       const char *text, int reserve,
                                       const char *reason,
-                                      char *err, size_t err_len) {
+                                      char *err, size_t err_len)
+{
     int projected = 0;
-    if (agent_message_fits_context(a, role, text, reserve, &projected)) {
+    if (agent_message_fits_context(a, role, text, reserve, &projected))
+    {
         return true;
     }
-    if (!agent_compact_context(a, reason, err, err_len)) return false;
-    if (agent_message_fits_context(a, role, text, reserve, &projected)) {
+    if (!agent_compact_context(a, reason, err, err_len))
+        return false;
+    if (agent_message_fits_context(a, role, text, reserve, &projected))
+    {
         return true;
     }
     snprintf(err, err_len,
@@ -6613,7 +8521,9 @@ static bool agent_ensure_message_room(agent_state *a, const char *role,
 }
 
 static int generate_once(agent_state *a, char **assistant_text,
-                         bool suppress_output) {
+                         tool_call_list *inkling_calls,
+                         bool suppress_output)
+{
     *assistant_text = NULL;
     int prefix_start = a->transcript.len;
     qw3_chat_append_assistant_prefix(a->engine, &a->transcript,
@@ -6622,45 +8532,56 @@ static int generate_once(agent_state *a, char **assistant_text,
     agent_emit_ctx emit;
     memset(&emit, 0, sizeof(emit));
     emit.engine = a->engine;
+    emit.inkling_calls = inkling_calls;
+    if (inkling_calls)
+    {
+        emit.inkling_model = qw3_inkling_chat_control_id(a->engine, "<|message_model|>");
+        emit.inkling_text = qw3_inkling_chat_control_id(a->engine, "<|content_text|>");
+        emit.inkling_code = qw3_inkling_chat_control_id(a->engine, "<|content_code|>");
+        emit.inkling_think = qw3_inkling_chat_control_id(a->engine, "<|content_thinking|>");
+        emit.inkling_call = qw3_inkling_chat_control_id(a->engine, "<|content_invoke_tool_json|>");
+        emit.inkling_end = qw3_inkling_chat_control_id(a->engine, "<|end_message|>");
+        emit.inkling_show_think = qw3_think_mode_enabled(a->cfg.think_mode);
+    }
     agent_renderer_init(&emit.renderer,
-                        suppress_output ? agent_discard_write :
-                            (a->output_write ? a->output_write :
-                                               agent_direct_write),
-                        suppress_output ? NULL :
-                            (a->output_write ? a->output_ud : stdout),
+                        suppress_output ? agent_discard_write : (a->output_write ? a->output_write : agent_direct_write),
+                        suppress_output ? NULL : (a->output_write ? a->output_ud : stdout),
                         !suppress_output && a->output_color &&
                             isatty(STDOUT_FILENO),
-                        qw3_think_mode_enabled(a->cfg.think_mode));
+                        !inkling_calls && qw3_think_mode_enabled(a->cfg.think_mode));
 
     int rc = -1;
     char err[256] = {0};
     int session_pos = qw3_session_pos(a->session);
     int common = qw3_session_common_prefix(a->session, &a->transcript);
-    int cached = (common == session_pos && a->transcript.len >= common) ?
-                 common : 0;
+    int cached = (common == session_pos && a->transcript.len >= common) ? common : 0;
     const double t_prefill0 = agent_now_sec();
     a->progress_start_sec = t_prefill0;
     agent_set_activity(a, "prefill", NULL);
     qw3_session_set_progress(a->session, agent_prefill_progress, a);
     if (qw3_session_sync_interruptible(a->session, &a->transcript,
                                        agent_session_should_interrupt, a,
-                                       err, sizeof(err)) != 0) {
+                                       err, sizeof(err)) != 0)
+    {
         qw3_session_set_progress(a->session, NULL, NULL);
-        if (a->progress_update) {
+        if (a->progress_update)
+        {
             a->progress_update(a->progress_ud, "prefill_done", 0, 0, 0.0);
         }
         agent_statusf(a, "agent: prefill failed: %s\n", err);
         a->transcript.len = prefix_start;
         qw3_session_invalidate(a->session);
         rc = -1;
-    } else {
+    }
+    else
+    {
         qw3_session_set_progress(a->session, NULL, NULL);
         const double t_prefill1 = agent_now_sec();
         const int prefill_tokens_done = a->transcript.len - cached;
-        if (a->progress_update) {
+        if (a->progress_update)
+        {
             double prefill_s_done = t_prefill1 - t_prefill0;
-            double tps_done = prefill_s_done > 0.0 ?
-                (double)prefill_tokens_done / prefill_s_done : 0.0;
+            double tps_done = prefill_s_done > 0.0 ? (double)prefill_tokens_done / prefill_s_done : 0.0;
             a->progress_update(a->progress_ud, "prefill_done",
                                prefill_tokens_done, prefill_tokens_done,
                                tps_done);
@@ -6672,12 +8593,16 @@ static int generate_once(agent_state *a, char **assistant_text,
         const double t_gen0 = agent_now_sec();
         int max_tokens = a->cfg.n_predict;
         int room = qw3_session_ctx(a->session) - qw3_session_pos(a->session);
-        if (room <= 1) {
+        if (room <= 1)
+        {
             max_tokens = 0;
-        } else if (max_tokens > room - 1) {
+        }
+        else if (max_tokens > room - 1)
+        {
             max_tokens = room - 1;
         }
-        if (max_tokens <= 0) {
+        if (max_tokens <= 0)
+        {
             agent_statusf(a, "agent: context full before generation (%d/%d)\n",
                           qw3_session_pos(a->session),
                           qw3_session_ctx(a->session));
@@ -6686,68 +8611,81 @@ static int generate_once(agent_state *a, char **assistant_text,
             rc = -1;
         }
         int *repeat_buf = NULL;
-        const int repeat_last_n_cfg = a->cfg.sample.repeat_last_n;
-        if (rc == 0 && repeat_last_n_cfg > 0 &&
-            a->cfg.sample.repeat_penalty > 1.0f) {
-            repeat_buf = malloc((size_t)repeat_last_n_cfg * sizeof(*repeat_buf));
-            if (!repeat_buf) rc = -1;
-        }
-        for (int i = 0; rc == 0 && i < max_tokens; i++) {
-            if (agent_should_interrupt(a)) break;
-            const int repeat_last_n = a->cfg.sample.repeat_last_n;
-            const int generated_len = emit.generated.len;
-            int repeat_len = 0;
-            const int *repeat_tokens = NULL;
-            if (repeat_last_n <= 0 || a->cfg.sample.repeat_penalty <= 1.0f) {
-                repeat_len = 0;
-                repeat_tokens = NULL;
-            } else if (repeat_buf) {
-                int gen_take = generated_len;
-                if (gen_take > repeat_last_n) gen_take = repeat_last_n;
-                int ctx_take = repeat_last_n - gen_take;
-                if (ctx_take > a->transcript.len) ctx_take = a->transcript.len;
-                if (ctx_take > 0) {
+        int repeat_len = 0;
+        int repeat_pos = 0;
+        const int repeat_last_n = a->cfg.sample.repeat_last_n;
+        if (rc == 0 && repeat_last_n > 0 &&
+            a->cfg.sample.repeat_penalty > 1.0f)
+        {
+            repeat_buf = malloc((size_t)repeat_last_n * sizeof(*repeat_buf));
+            if (!repeat_buf)
+            {
+                rc = -1;
+            }
+            else
+            {
+                int ctx_take = a->transcript.len;
+                if (ctx_take > repeat_last_n)
+                    ctx_take = repeat_last_n;
+                if (ctx_take > 0)
+                {
                     memcpy(repeat_buf,
                            a->transcript.v + (a->transcript.len - ctx_take),
                            (size_t)ctx_take * sizeof(*repeat_buf));
                 }
-                if (gen_take > 0) {
-                    memcpy(repeat_buf + ctx_take,
-                           emit.generated.v + (generated_len - gen_take),
-                           (size_t)gen_take * sizeof(*repeat_buf));
-                }
-                repeat_len = ctx_take + gen_take;
-                repeat_tokens = repeat_buf;
+                repeat_len = ctx_take;
+                repeat_pos = repeat_len < repeat_last_n ? repeat_len : 0;
             }
+        }
+        for (int i = 0; rc == 0 && i < max_tokens; i++)
+        {
+            if (agent_should_interrupt(a))
+                break;
+            const int *repeat_tokens = repeat_len > 0 ? repeat_buf : NULL;
             int token = qw3_session_sample_repetition(
                 a->session, a->cfg.sample.temperature,
                 a->cfg.sample.sample_top_k, a->cfg.sample.top_p,
                 a->cfg.sample.min_p, &a->cfg.sample.rng,
                 repeat_tokens, repeat_len, a->cfg.sample.repeat_penalty);
-            if (token < 0) {
+            if (token < 0)
+            {
                 rc = -1;
                 break;
             }
-            if (token == eos) break;
+            if (token == eos)
+                break;
             int repeat_ngram = agent_repeated_token_ngram_size(&emit.generated, token);
             if (repeat_ngram && !agent_token_repeat_is_formatting(a->engine, &emit,
-                                                                 token, repeat_ngram)) {
+                                                                  token, repeat_ngram))
+            {
                 agent_statusf(a, "agent: stopped repeated token loop\n");
                 break;
             }
             agent_emit_token(&emit, token);
             n_generated++;
-            if (agent_text_has_repeated_suffix(emit.text.p, emit.text.len)) {
+            if (repeat_buf)
+            {
+                repeat_buf[repeat_pos] = token;
+                repeat_pos++;
+                if (repeat_pos == repeat_last_n)
+                    repeat_pos = 0;
+                if (repeat_len < repeat_last_n)
+                    repeat_len++;
+            }
+            if (agent_text_has_repeated_suffix(emit.text.p, emit.text.len))
+            {
                 agent_statusf(a, "agent: stopped repeated text loop\n");
                 break;
             }
             if (qw3_session_eval_gpu_logits(a->session, token,
-                                            err, sizeof(err)) != 0) {
+                                            err, sizeof(err)) != 0)
+            {
                 agent_statusf(a, "agent: decode failed: %s\n", err);
                 rc = -1;
                 break;
             }
-            if (generated_has_complete_tool_call(emit.text.p)) {
+            if (!inkling_calls && generated_has_complete_tool_call(emit.text.p))
+            {
                 break;
             }
         }
@@ -6758,7 +8696,8 @@ static int generate_once(agent_state *a, char **assistant_text,
         const int prefill_tokens = a->transcript.len - cached;
         const double prefill_s = t_prefill1 - t_prefill0;
         const double gen_s = t_gen1 - t_gen0;
-        if (a->timing_update) {
+        if (a->timing_update)
+        {
             a->timing_update(a->timing_ud, qw3_backend_name(a->cfg.backend),
                              cached, a->transcript.len,
                              prefill_tokens, prefill_s * 1000.0,
@@ -6773,8 +8712,7 @@ static int generate_once(agent_state *a, char **assistant_text,
         agent_trace_i64(a, "prefill_tokens", prefill_tokens);
         agent_trace_f64(a, "prefill_ms", prefill_s * 1000.0);
         agent_trace_f64(a, "prefill_tps",
-                        prefill_s > 0.0 ?
-                            (double)prefill_tokens / prefill_s : 0.0);
+                        prefill_s > 0.0 ? (double)prefill_tokens / prefill_s : 0.0);
         agent_trace_i64(a, "generation_tokens", n_generated);
         agent_trace_i64(a, "assistant_bytes", (int64_t)emit.text.len);
         agent_trace_bool(a, "assistant_nonempty",
@@ -6787,26 +8725,37 @@ static int generate_once(agent_state *a, char **assistant_text,
         agent_set_activity(a, "processing", NULL);
     }
 
-    if (rc == 0) {
+    if (rc == 0)
+    {
         if (append_generated_assistant(a, &emit.generated, prefix_start,
-                                       emit.text.p ? emit.text.p : "")) {
+                                       emit.text.p ? emit.text.p : ""))
+        {
             *assistant_text = emit.text.p ? emit.text.p : agent_strdup("");
             emit.text.p = NULL;
-        } else {
+        }
+        else
+        {
             qw3_session_invalidate(a->session);
             rc = -1;
         }
-    } else {
+    }
+    else
+    {
         a->transcript.len = prefix_start;
         qw3_session_invalidate(a->session);
     }
     qw3_tokens_free(&emit.generated);
     sb_free(&emit.text);
+    sb_free(&emit.inkling_speaker);
+    sb_free(&emit.inkling_args);
     return rc;
 }
 
-static int run_agent_turn(agent_state *a, const char *user_message) {
-    if (agent_should_interrupt(a)) return 0;
+static int run_agent_turn(agent_state *a, const char *user_message)
+{
+    const bool inkling = qw3_engine_is_inkling(a->engine);
+    if (agent_should_interrupt(a))
+        return 0;
     memset(&a->turn, 0, sizeof(a->turn));
     a->turn.guard_retry_credits = 2;
     a->turn.empty_retry_credits = 2;
@@ -6821,30 +8770,35 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
     agent_reset_source_read_budget(a);
     char compact_err[160] = {0};
     if (!agent_compact_if_needed(a, "soft limit before user turn",
-                                 compact_err, sizeof(compact_err))) {
+                                 compact_err, sizeof(compact_err)))
+    {
         agent_statusf(a, "agent: %s\n",
                       compact_err[0] ? compact_err : "context compaction failed");
         return -1;
     }
     if (!agent_ensure_message_room(a, "user", user_message, 64,
                                    "user turn would exceed context",
-                                   compact_err, sizeof(compact_err))) {
+                                   compact_err, sizeof(compact_err)))
+    {
         agent_statusf(a, "agent: %s\n",
                       compact_err[0] ? compact_err : "context full");
         return -1;
     }
     agent_note_user_message(a, user_message);
     if (!agent_append_message(a, AGENT_MESSAGE_USER,
-                              "user", user_message)) return -1;
+                              "user", user_message))
+        return -1;
 
     user_message = a->turn_request;
     const int final_attempts = 3;
     const int verification_attempts = 3;
     for (;
          a->turn.round < a->cfg.max_tool_rounds + final_attempts +
-                     verification_attempts;
-         a->turn.round++) {
-        if (agent_should_interrupt(a)) return 0;
+                             verification_attempts;
+         a->turn.round++)
+    {
+        if (agent_should_interrupt(a))
+            return 0;
         const bool verification_extension =
             a->edit_verification_pending &&
             a->turn.round >= a->cfg.max_tool_rounds;
@@ -6852,13 +8806,15 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                 !verification_extension;
         if (a->turn.round > 0 &&
             !agent_compact_if_needed(a, "soft limit before tool continuation",
-                                     compact_err, sizeof(compact_err))) {
+                                     compact_err, sizeof(compact_err)))
+        {
             agent_statusf(a, "agent: %s\n",
                           compact_err[0] ? compact_err : "context compaction failed");
             return -1;
         }
         if (a->turn.round == a->cfg.max_tool_rounds &&
-            !a->edit_verification_pending) {
+            !a->edit_verification_pending)
+        {
             static const char budget_control_intro[] =
                 "Internal qw3-agent control: the tool-call budget for this "
                 "user turn is exhausted. Do not call any more tools. Give the "
@@ -6874,14 +8830,16 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             if (!agent_ensure_message_room(a, "user", final_control.p, 128,
                                            "final tool-budget response would "
                                            "exceed context",
-                                           compact_err, sizeof(compact_err))) {
+                                           compact_err, sizeof(compact_err)))
+            {
                 sb_free(&final_control);
                 agent_statusf(a, "agent: %s\n",
                               compact_err[0] ? compact_err : "context full");
                 return -1;
             }
             if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
-                                      "user", final_control.p)) {
+                                      "user", final_control.p))
+            {
                 sb_free(&final_control);
                 return -1;
             }
@@ -6893,30 +8851,41 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         int transcript_before_generation = a->transcript.len;
         bool suppress_output = a->edit_verification_pending;
         char *assistant = NULL;
-        if (generate_once(a, &assistant, suppress_output) != 0) {
+        tool_call_list native_calls = {0};
+        if (generate_once(a, &assistant, inkling ? &native_calls : NULL,
+                          suppress_output) != 0)
+        {
+            free_tool_calls(&native_calls);
             free(assistant);
             return -1;
         }
         const char *debug_tools = getenv("QW3_AGENT_DEBUG_TOOLS");
-        if (debug_tools && debug_tools[0] && strcmp(debug_tools, "0")) {
+        if (debug_tools && debug_tools[0] && strcmp(debug_tools, "0"))
+        {
             agent_statusf(a, "\n[debug assistant raw]\n%s\n[/debug]\n",
                           assistant ? assistant : "");
         }
-        if (agent_should_interrupt(a)) {
+        if (agent_should_interrupt(a))
+        {
+            free_tool_calls(&native_calls);
             free(assistant);
             return 0;
         }
-        tool_call_list native_calls;
-        int n_native = parse_native_tool_calls(assistant ? assistant : "",
-                                               &native_calls);
-        if (n_native > 0) {
-            if (native_calls.n_recovered) {
+        int n_native = inkling ? native_calls.n_calls :
+            parse_native_tool_calls(assistant ? assistant : "", &native_calls);
+        if (inkling && !a->cfg.tools_enabled)
+            n_native = 0;
+        if (n_native > 0)
+        {
+            if (native_calls.n_recovered)
+            {
                 agent_trace_begin(a, "tool_call_recovery");
                 agent_trace_string(a, "kind", "parameter_function_wrapper");
                 agent_trace_i64(a, "calls", native_calls.n_recovered);
                 agent_trace_end(a);
             }
-            if (final_only) {
+            if (final_only)
+            {
                 free_tool_calls(&native_calls);
                 free(assistant);
                 char *response = native_tool_response_text(
@@ -6928,15 +8897,16 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                                "tool-budget refusal would "
                                                "exceed context",
                                                compact_err,
-                                               sizeof(compact_err))) {
+                                               sizeof(compact_err)))
+                {
                     free(response);
                     agent_statusf(a, "agent: %s\n",
-                                  compact_err[0] ? compact_err :
-                                  "context full");
+                                  compact_err[0] ? compact_err : "context full");
                     return -1;
                 }
                 if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
-                                          "user", response)) {
+                                          "user", response))
+                {
                     free(response);
                     return -1;
                 }
@@ -6948,15 +8918,16 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             }
             char repeat_name[64] = {0};
             if (!agent_tool_history_add(a, &a->turn.tool_history, &native_calls,
-                                        repeat_name, sizeof(repeat_name))) {
+                                        repeat_name, sizeof(repeat_name)))
+            {
                 free_tool_calls(&native_calls);
                 free(assistant);
                 if (!agent_append_tool_loop_guard(a, repeat_name,
                                                   compact_err,
-                                                  sizeof(compact_err))) {
+                                                  sizeof(compact_err)))
+                {
                     agent_statusf(a, "agent: %s\n",
-                                  compact_err[0] ? compact_err :
-                                  "context full");
+                                  compact_err[0] ? compact_err : "context full");
                     return -1;
                 }
                 continue;
@@ -6966,8 +8937,10 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                                   &all_guard_rejected);
             free_tool_calls(&native_calls);
             free(assistant);
-            if (!ok) return -1;
-            if (all_guard_rejected && a->turn.guard_retry_credits > 0) {
+            if (!ok)
+                return -1;
+            if (all_guard_rejected && a->turn.guard_retry_credits > 0)
+            {
                 a->turn.guard_retry_credits--;
                 a->turn.round--;
             }
@@ -6975,17 +8948,21 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         }
         free_tool_calls(&native_calls);
 
-        tool_call_list dsml_calls;
-        int n_dsml = parse_tool_calls(assistant ? assistant : "", &dsml_calls);
-        if (n_dsml <= 0) {
+        tool_call_list dsml_calls = {0};
+        int n_dsml = inkling ? 0 :
+            parse_tool_calls(assistant ? assistant : "", &dsml_calls);
+        if (n_dsml <= 0)
+        {
             free_tool_calls(&dsml_calls);
-            if (a->edit_verification_pending) {
+            if (a->edit_verification_pending)
+            {
                 a->transcript.len = transcript_before_generation;
                 agent_message_ledger_truncate(&a->messages,
                                               transcript_before_generation);
                 qw3_session_invalidate(a->session);
                 free(assistant);
-                if (a->turn.verification_guard_credits-- <= 0) {
+                if (a->turn.verification_guard_credits-- <= 0)
+                {
                     agent_statusf(a,
                                   "agent: refusing to finish with unverified "
                                   "file changes\n");
@@ -7000,14 +8977,15 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 if (!agent_ensure_message_room(
                         a, "user", verification_control, 128,
                         "verification control would exceed context",
-                        compact_err, sizeof(compact_err))) {
+                        compact_err, sizeof(compact_err)))
+                {
                     agent_statusf(a, "agent: %s\n",
-                                  compact_err[0] ? compact_err :
-                                  "context full");
+                                  compact_err[0] ? compact_err : "context full");
                     return -1;
                 }
                 if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
-                                          "user", verification_control)) {
+                                          "user", verification_control))
+                {
                     return -1;
                 }
                 agent_statusf(a,
@@ -7015,15 +8993,18 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                               "requesting a check\n");
                 continue;
             }
-            if (!agent_response_has_final_text(assistant,
-                                                a->cfg.think_mode)) {
+            const bool has_final = inkling ?
+                (assistant && text_slice_has_nonspace(assistant, strlen(assistant))) :
+                agent_response_has_final_text(assistant, a->cfg.think_mode);
+            if (!has_final)
+            {
                 const bool has_text = assistant &&
-                    text_slice_has_nonspace(assistant, strlen(assistant));
+                                      text_slice_has_nonspace(assistant, strlen(assistant));
                 const bool malformed_tool = has_text &&
-                    (!qw3_think_mode_enabled(a->cfg.think_mode) ||
-                     strstr(assistant, QWEN_XML_TOOL_CALL_BEGIN) ||
-                     strstr(assistant, DSML_BEGIN) ||
-                     native_shorthand_tool_marker(assistant));
+                                            (!qw3_think_mode_enabled(a->cfg.think_mode) ||
+                                             strstr(assistant, QWEN_XML_TOOL_CALL_BEGIN) ||
+                                             strstr(assistant, DSML_BEGIN) ||
+                                             native_shorthand_tool_marker(assistant));
                 const bool thought_only =
                     has_text && !malformed_tool;
                 a->transcript.len = transcript_before_generation;
@@ -7036,45 +9017,42 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                 agent_trace_i64(a, "round", a->turn.round);
                 agent_trace_i64(a, "retries_left", a->turn.empty_retry_credits);
                 agent_trace_bool(a, "final_only", final_only);
-                agent_trace_string(a, "kind", malformed_tool ? "malformed_tool" :
-                                   thought_only ? "reasoning_only" : "empty");
+                agent_trace_string(a, "kind", malformed_tool ? "malformed_tool" : thought_only ? "reasoning_only"
+                                                                                               : "empty");
                 agent_trace_end(a);
-                if (a->turn.empty_retry_credits-- > 0) {
-                    const char *retry_control = final_only ?
-                        "Internal qw3-agent control: your previous final "
-                        "response contained no usable answer. Do not call tools. Answer the "
-                        "user now with the evidence already available." :
-                        thought_only ?
-                        "Internal qw3-agent control: your previous response "
-                        "ended with reasoning but produced neither a tool "
-                        "call nor a final answer. Continue the task now. If "
-                        "current or external information is required, call "
-                        "the appropriate tool instead of only announcing it." :
-                        malformed_tool ?
-                        "Internal qw3-agent control: your previous output "
-                        "contained malformed or incomplete tool markup and was not shown. "
-                        "Retry the tool call using the complete native XML "
-                        "format, including all closing tags." :
-                        "Internal qw3-agent control: your previous response "
-                        "was empty. Continue the current task now: call a "
-                        "tool if the request requires one, otherwise answer "
-                        "the user directly. Do not return an empty response.";
+                if (a->turn.empty_retry_credits-- > 0)
+                {
+                    const char *retry_control = final_only       ? "Internal qw3-agent control: your previous final "
+                                                                   "response contained no usable answer. Do not call tools. Answer the "
+                                                                   "user now with the evidence already available."
+                                                : thought_only   ? "Internal qw3-agent control: your previous response "
+                                                                   "ended with reasoning but produced neither a tool "
+                                                                   "call nor a final answer. Continue the task now. If "
+                                                                   "current or external information is required, call "
+                                                                   "the appropriate tool instead of only announcing it."
+                                                : malformed_tool ? "Internal qw3-agent control: your previous output "
+                                                                   "contained malformed or incomplete tool markup and was not shown. "
+                                                                   "Retry the tool call using the complete native XML "
+                                                                   "format, including all closing tags."
+                                                                 : "Internal qw3-agent control: your previous response "
+                                                                   "was empty. Continue the current task now: call a "
+                                                                   "tool if the request requires one, otherwise answer "
+                                                                   "the user directly. Do not return an empty response.";
                     if (!agent_ensure_message_room(
                             a, "user", retry_control, 128,
                             "empty-response retry would exceed context",
                             compact_err, sizeof(compact_err)) ||
                         !agent_append_message(a, AGENT_MESSAGE_CONTROL,
-                                              "user", retry_control)) {
+                                              "user", retry_control))
+                    {
                         agent_statusf(a, "agent: %s\n",
-                                      compact_err[0] ? compact_err :
-                                      "cannot append empty-response retry");
+                                      compact_err[0] ? compact_err : "cannot append empty-response retry");
                         return -1;
                     }
                     agent_statusf(a,
                                   "agent: %s; retrying (%d left)\n",
-                                  malformed_tool ? "malformed tool call" :
-                                  thought_only ? "reasoning without answer or tool" :
-                                  "empty response",
+                                  malformed_tool ? "malformed tool call" : thought_only ? "reasoning without answer or tool"
+                                                                                        : "empty response",
                                   a->turn.empty_retry_credits);
                     a->turn.round--;
                     continue;
@@ -7084,10 +9062,13 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                               "after retries\n");
                 return -1;
             }
+            if (a->final_write && assistant)
+                a->final_write(a->final_ud, assistant, strlen(assistant));
             free(assistant);
             return 0;
         }
-        if (final_only) {
+        if (final_only)
+        {
             free_tool_calls(&dsml_calls);
             free(assistant);
             char *response = native_tool_response_text(
@@ -7099,14 +9080,16 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                            "tool-budget refusal would exceed "
                                            "context",
                                            compact_err,
-                                           sizeof(compact_err))) {
+                                           sizeof(compact_err)))
+            {
                 free(response);
                 agent_statusf(a, "agent: %s\n",
                               compact_err[0] ? compact_err : "context full");
                 return -1;
             }
             if (!agent_append_message(a, AGENT_MESSAGE_CONTROL,
-                                      "user", response)) {
+                                      "user", response))
+            {
                 free(response);
                 return -1;
             }
@@ -7118,11 +9101,13 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         }
         char repeat_name[64] = {0};
         if (!agent_tool_history_add(a, &a->turn.tool_history, &dsml_calls,
-                                    repeat_name, sizeof(repeat_name))) {
+                                    repeat_name, sizeof(repeat_name)))
+        {
             free_tool_calls(&dsml_calls);
             free(assistant);
             if (!agent_append_tool_loop_guard(a, repeat_name, compact_err,
-                                              sizeof(compact_err))) {
+                                              sizeof(compact_err)))
+            {
                 agent_statusf(a, "agent: %s\n",
                               compact_err[0] ? compact_err : "context full");
                 return -1;
@@ -7134,11 +9119,17 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
                                           &all_guard_rejected);
         free_tool_calls(&dsml_calls);
         char *response = agent_context_tool_response(a, "dsml", tool_result);
-        if (!response) { free(tool_result); free(assistant); return -1; }
+        if (!response)
+        {
+            free(tool_result);
+            free(assistant);
+            return -1;
+        }
         if (!agent_ensure_message_room(a, "user", response,
                                        QW3_AGENT_TOOL_RESULT_RESERVE_TOKENS,
                                        "tool result would exceed context",
-                                       compact_err, sizeof(compact_err))) {
+                                       compact_err, sizeof(compact_err)))
+        {
             free(response);
             strbuf small;
             sb_init(&small);
@@ -7150,7 +9141,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             sb_free(&small);
             if (!agent_ensure_message_room(a, "user", response, 16,
                                            "small tool error would exceed context",
-                                           compact_err, sizeof(compact_err))) {
+                                           compact_err, sizeof(compact_err)))
+            {
                 agent_statusf(a, "agent: %s\n",
                               compact_err[0] ? compact_err : "context full");
                 free(response);
@@ -7160,7 +9152,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
             }
         }
         if (!agent_append_message(a, AGENT_MESSAGE_TOOL,
-                                  "user", response)) {
+                                  "user", response))
+        {
             free(response);
             free(tool_result);
             free(assistant);
@@ -7169,7 +9162,8 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
         free(response);
         free(tool_result);
         free(assistant);
-        if (all_guard_rejected && a->turn.guard_retry_credits > 0) {
+        if (all_guard_rejected && a->turn.guard_retry_credits > 0)
+        {
             a->turn.guard_retry_credits--;
             a->turn.round--;
         }
@@ -7181,99 +9175,104 @@ static int run_agent_turn(agent_state *a, const char *user_message) {
 }
 
 static char *build_system_prompt(const char *user_system, bool tools_enabled,
-                                 bool compact_tools, bool read_only) {
+                                 bool compact_tools, bool read_only)
+{
     strbuf sb;
     sb_init(&sb);
-    if (tools_enabled) {
+    if (tools_enabled)
+    {
         sb_append(&sb,
-            "# Tools\n\n"
-            "You have access to the following functions:\n\n"
-            "<tools>\n");
-        char *tools = native_tool_declarations(compact_tools, read_only);
+                  "# Tools\n\n"
+                  "You have access to the following functions:\n\n"
+                  "<tools>\n");
+        char *tools = native_tool_declarations(compact_tools, read_only, false);
         sb_append(&sb, tools ? tools : "");
         free(tools);
         sb_append(&sb,
-            "</tools>\n\n"
-            "If you choose to call a function ONLY reply in the following format "
-            "with NO suffix:\n\n"
-            "<tool_call>\n"
-            "<function=example_function_name>\n"
-            "<parameter=example_parameter_1>\n"
-            "value_1\n"
-            "</parameter>\n"
-            "<parameter=example_parameter_2>\n"
-            "This is the value for the second parameter\n"
-            "that can span\n"
-            "multiple lines\n"
-            "</parameter>\n"
-            "</function>\n"
-            "</tool_call>\n\n"
-            "<IMPORTANT>\n"
-            "Reminder:\n"
-            "- Function calls MUST follow the specified format: an inner "
-            "<function=...></function> block must be nested within "
-            "<tool_call></tool_call> XML tags\n"
-            "- Required parameters MUST be specified\n"
-            "- You may provide optional reasoning for your function call in "
-            "natural language BEFORE the function call, but NOT after\n"
-            "- If there is no function call available, answer the question "
-            "like normal with your current knowledge and do not tell the user "
-            "about function calls\n"
-            "- When a task requires current, external, or project information, "
-            "call the appropriate function; do not merely say that you will "
-            "use it\n"
-            "</IMPORTANT>\n\n"
-        );
-        if (compact_tools) {
+                  "</tools>\n\n"
+                  "If you choose to call a function ONLY reply in the following format "
+                  "with NO suffix:\n\n"
+                  "<tool_call>\n"
+                  "<function=example_function_name>\n"
+                  "<parameter=example_parameter_1>\n"
+                  "value_1\n"
+                  "</parameter>\n"
+                  "<parameter=example_parameter_2>\n"
+                  "This is the value for the second parameter\n"
+                  "that can span\n"
+                  "multiple lines\n"
+                  "</parameter>\n"
+                  "</function>\n"
+                  "</tool_call>\n\n"
+                  "<IMPORTANT>\n"
+                  "Reminder:\n"
+                  "- Function calls MUST follow the specified format: an inner "
+                  "<function=...></function> block must be nested within "
+                  "<tool_call></tool_call> XML tags\n"
+                  "- Required parameters MUST be specified\n"
+                  "- You may provide optional reasoning for your function call in "
+                  "natural language BEFORE the function call, but NOT after\n"
+                  "- If there is no function call available, answer the question "
+                  "like normal with your current knowledge and do not tell the user "
+                  "about function calls\n"
+                  "- When a task requires current, external, or project information, "
+                  "call the appropriate function; do not merely say that you will "
+                  "use it\n"
+                  "</IMPORTANT>\n\n");
+        if (compact_tools)
+        {
             sb_append(&sb,
-                "Use read for precise ranges; broad source reads are blocked. "
-                "Use write/edit for file changes, then verify with the narrowest "
-                "relevant bash build or test before the final answer.\n\n");
-        } else {
-        sb_append(&sb,
-            "Context discipline:\n"
-            "- Do not use read(path) to inspect source files broadly; broad "
-            "source reads are rejected by the context guard.\n"
-            "- Do not walk source files with repeated read chunks; each turn "
-            "has a small per-source read budget.\n"
-            "- Use get_skeleton before any source line reads when inspecting "
-            "file structure.\n"
-            "- Prefer get_function when you need one function or method body.\n"
-            "- Prefer semantic_search when you know the intent but not the "
-            "exact symbol name.\n"
-            "- Use read only for small non-source files or precise source line "
-            "ranges with explicit start and lines.\n"
-            "- After write or edit succeeds, run the narrowest relevant build, "
-            "test, syntax check, or git diff --check with bash before giving the "
-            "final answer. A read-back alone is not verification.\n\n");
-        if (!read_only) sb_append(&sb,
-            "Web page reading:\n"
-            "- Use search_web to find sources and visit_url to read web pages. "
-            "visit_url saves the complete parsed readable text in a local file. "
-            "Use its full-page file path to search and read relevant line "
-            "ranges with the adaptive read/more tools.\n"
-            "- If a fetched page is truncated and no complete-page file "
-            "path is provided, download the complete page "
-            "directly into a local file with bash (for example curl -L URL -o FILE). "
-            "If the tool already saved the complete page, use that file. "
-            "A saved truncated tool response is not a complete page.\n"
-            "- Keep the complete page on disk; convert HTML to readable text "
-            "in a second file without printing it. When conversion is needed, "
-            "use an HTML parser that excludes tag attributes and emits "
-            "separate headings and list items. Search that file with search "
-            "or rg to locate the relevant section, then use read with explicit "
-            "start and lines. Its complete-line token budget adapts to the "
-            "session context. Continue with more or from the returned next_start "
-            "until all relevant lines have been read.\n"
-            "- If a tool result has an omission notice, reduce the next range; "
-            "halve it again if it is still limited. Never cat the whole saved "
-            "result or repeat the same oversized extraction. For long lists, "
-            "extract only the requested fields (such as titles and years) "
-            "to a file, then read it in small successive chunks. Keep collected "
-            "requested entries in a compact local result file when they need "
-            "to survive compaction. Do not "
-            "repeatedly fetch the same truncated page prefix. Cite the source "
-            "URL in the answer.\n\n");
+                      "Use read for precise ranges; broad source reads are blocked. "
+                      "Use write/edit for file changes, then verify with the narrowest "
+                      "relevant bash build or test before the final answer.\n\n");
+        }
+        else
+        {
+            sb_append(&sb,
+                      "Context discipline:\n"
+                      "- Do not use read(path) to inspect source files broadly; broad "
+                      "source reads are rejected by the context guard.\n"
+                      "- Do not walk source files with repeated read chunks; each turn "
+                      "has a small per-source read budget.\n"
+                      "- Use get_skeleton before any source line reads when inspecting "
+                      "file structure.\n"
+                      "- Prefer get_function when you need one function or method body.\n"
+                      "- Prefer semantic_search when you know the intent but not the "
+                      "exact symbol name.\n"
+                      "- Use read only for small non-source files or precise source line "
+                      "ranges with explicit start and lines.\n"
+                      "- After write or edit succeeds, run the narrowest relevant build, "
+                      "test, syntax check, or git diff --check with bash before giving the "
+                      "final answer. A read-back alone is not verification.\n\n");
+            if (!read_only)
+                sb_append(&sb,
+                          "Web page reading:\n"
+                          "- Use search_web to find sources and visit_url to read web pages. "
+                          "visit_url saves the complete parsed readable text in a local file. "
+                          "Use its full-page file path to search and read relevant line "
+                          "ranges with the adaptive read/more tools.\n"
+                          "- If a fetched page is truncated and no complete-page file "
+                          "path is provided, download the complete page "
+                          "directly into a local file with bash (for example curl -L URL -o FILE). "
+                          "If the tool already saved the complete page, use that file. "
+                          "A saved truncated tool response is not a complete page.\n"
+                          "- Keep the complete page on disk; convert HTML to readable text "
+                          "in a second file without printing it. When conversion is needed, "
+                          "use an HTML parser that excludes tag attributes and emits "
+                          "separate headings and list items. Search that file with search "
+                          "or rg to locate the relevant section, then use read with explicit "
+                          "start and lines. Its complete-line token budget adapts to the "
+                          "session context. Continue with more or from the returned next_start "
+                          "until all relevant lines have been read.\n"
+                          "- If a tool result has an omission notice, reduce the next range; "
+                          "halve it again if it is still limited. Never cat the whole saved "
+                          "result or repeat the same oversized extraction. For long lists, "
+                          "extract only the requested fields (such as titles and years) "
+                          "to a file, then read it in small successive chunks. Keep collected "
+                          "requested entries in a compact local result file when they need "
+                          "to survive compaction. Do not "
+                          "repeatedly fetch the same truncated page prefix. Cite the source "
+                          "URL in the answer.\n\n");
         }
     }
     char now_text[96] = {0};
@@ -7281,7 +9280,8 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
     struct tm local_now;
     if (now != (time_t)-1 && localtime_r(&now, &local_now) &&
         strftime(now_text, sizeof(now_text), "%A %Y-%m-%d %Z",
-                 &local_now) > 0) {
+                 &local_now) > 0)
+    {
         sb_append(&sb, "Current local date: ");
         sb_append(&sb, now_text);
         sb_append(&sb,
@@ -7290,75 +9290,82 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
                   "the bash/date tool when exact seconds are needed.\n");
     }
     sb_append(&sb,
-        "You are qw3-agent, a local coding assistant. Work in the current "
-        "project, be concise, and be careful with file changes.\n");
-    if (user_system && user_system[0]) {
+              "You are qw3-agent, a local coding assistant. Work in the current "
+              "project, be concise, and be careful with file changes.\n");
+    if (user_system && user_system[0])
+    {
         sb_append(&sb, "\n");
         sb_append(&sb, user_system);
         sb_append(&sb, "\n");
     }
-    if (read_only) sb_append(&sb,
-        "\nRead-only analysis: write, edit, bash, semantic indexing and web tools are disabled by the executor. "
-        "Inspect code with get_function/read/search. Provide a concrete counterexample and distinguish inference "
-        "from an executed test. Never modify the project or claim to have executed a verification.\n");
+    if (read_only)
+        sb_append(&sb,
+                  "\nRead-only analysis: write, edit, bash, semantic indexing and web tools are disabled by the executor. "
+                  "Inspect code with get_function/read/search. Provide a concrete counterexample and distinguish inference "
+                  "from an executed test. Never modify the project or claim to have executed a verification.\n");
     return sb.p;
 }
 
-static void print_help(void) {
+static void print_help(void)
+{
     fprintf(stderr,
-        "qw3-agent - Qwen3 local agent\n\n"
-        "Usage:\n"
-        "  qw3-agent -m MODEL [options]\n\n"
-        "Options:\n"
-        "  -m PATH              Model GGUF path\n"
-        "  -p TEXT              Run one prompt and exit\n"
-        "  --prompt-file PATH   Read prompt from a file\n"
-        "  -sys TEXT            Extra system prompt\n"
-        "  --system-file PATH   Read extra system prompt from a file\n"
-        "  -n N                 Max tokens per assistant turn (default: 2048)\n"
-        "  --ctx N              Context size (default: 32768)\n"
-        "  --ngl N              Metal trunk layers on GPU, 0..model layer count\n"
-        "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32, f16, or q8_0\n"
-        "  --kv-f16             Use f16 Metal GQA KV cache (recommended for large ctx)\n"
-        "  --kv-f32             Use f32 Metal GQA KV cache\n"
-        "  --kv-q8              Use q8_0 Metal GQA KV cache (experimental)\n"
-        "  --temp N             Temperature (default: 0.6)\n"
-        "  --sample-top-k N     Sampling top-k (default: 20)\n"
-        "  --top-p N            Sampling top-p (default: 0.95)\n"
-        "  --min-p N            Sampling min-p (default: 0)\n"
-        "  --repeat-penalty N   Repetition penalty (default: %.2f, 1 disables)\n"
-        "  --repeat-last-n N    Recent prompt/generated tokens to penalize (default: %d)\n"
-        "  --seed N             Sampling seed\n"
-        "  --dump-prompt        Print the rendered prompt and exit\n"
-        "  --cpu                Use CPU backend\n"
-        "  --metal              Use Metal backend\n"
-        "  --nothink            Disable thinking mode\n"
-        "  --read-only          Diagnose with local read tools; no writes, shell or indexing\n"
-        "  --store-dir PATH     Conversation store directory\n"
-        "  --conversation NAME  Load/save a named conversation\n"
-        "  --chdir PATH         Change working directory before loading/running\n"
-        "  --trace PATH         Append machine-readable JSONL agent events\n"
-        "  --no-prefix-cache   Disable the reusable Metal system-prompt cache\n"
-        "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
-        "  --no-tools           Disable tool execution\n"
-        "  --compact-tools      Advertise only read, write, edit, and bash\n"
-        "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
-        "  --tool-dsml-file PATH\n"
-        "                       Execute DSML tool_calls read from a file and exit\n"
-        "  --tool-native TEXT   Execute literal Qwen <tool_call> XML and exit\n"
-        "  --tool-native-file PATH\n"
-        "                       Execute Qwen tool_call text read from a file and exit\n"
-        "  --help               Show help\n\n"
-        "Interactive commands:\n"
-        "  /help, /quit, /new, /ctx, /chdir [path], /compact, /save [name], /list, /switch id\n"
-        "  /del id, /strip [id], /load name, /sessions\n"
-        "  /read PATH, /think, /nothink, /tools on|off\n",
-        (double)QW3_AGENT_REPEAT_PENALTY_DEFAULT,
-        QW3_AGENT_REPEAT_LAST_N_DEFAULT);
+            "qw3-agent - local agent for Qwen3 and Inkling 2 Mini\n\n"
+            "Usage:\n"
+            "  qw3-agent -m MODEL [options]\n\n"
+            "Options:\n"
+            "  -m PATH              Model GGUF path\n"
+            "  -p TEXT              Run one prompt and exit\n"
+            "  --prompt-file PATH   Read prompt from a file\n"
+            "  -sys TEXT            Extra system prompt\n"
+            "  --system-file PATH   Read extra system prompt from a file\n"
+            "  -n N                 Max tokens per assistant turn (default: 2048)\n"
+            "  --ctx N              Context size (default: 32768)\n"
+            "  --ngl N              Metal trunk layers on GPU, 0..model layer count\n"
+            "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32, f16, or q8_0\n"
+            "  --kv-f16             Use f16 Metal GQA KV cache (recommended for large ctx)\n"
+            "  --kv-f32             Use f32 Metal GQA KV cache\n"
+            "  --kv-q8              Use q8_0 Metal GQA KV cache (experimental)\n"
+            "  --temp N             Temperature (default: 0.6)\n"
+            "  --sample-top-k N     Sampling top-k (default: 20)\n"
+            "  --top-p N            Sampling top-p (default: 0.95)\n"
+            "  --min-p N            Sampling min-p (default: 0)\n"
+            "  --repeat-penalty N   Repetition penalty (default: %.2f, 1 disables)\n"
+            "  --repeat-last-n N    Recent prompt/generated tokens to penalize (default: %d)\n"
+            "  --seed N             Sampling seed\n"
+            "  --dump-prompt        Print the rendered prompt and exit\n"
+            "  --cpu                Use CPU backend\n"
+            "  --metal              Use Metal backend\n"
+            "  --nothink            Disable thinking mode\n"
+            "  --read-only          Diagnose with local read tools; no writes, shell or indexing\n"
+            "  --store-dir PATH     Conversation store directory\n"
+            "  --conversation NAME  Load/save a named conversation\n"
+            "  --chdir PATH         Change working directory before loading/running\n"
+            "  --trace PATH         Append machine-readable JSONL agent events\n"
+            "  --no-prefix-cache   Disable the reusable Metal system-prompt cache\n"
+            "  --max-tool-rounds N  Maximum tool/assistant cycles (default: 24)\n"
+            "  --no-tools           Disable tool execution\n"
+            "  --compact-tools      Advertise only read, write, edit, and bash\n"
+            "  --tool-dsml TEXT     Execute a literal DSML tool_calls block and exit\n"
+            "  --tool-dsml-file PATH\n"
+            "                       Execute DSML tool_calls read from a file and exit\n"
+            "  --tool-native TEXT   Execute literal Qwen <tool_call> XML and exit\n"
+            "  --tool-native-file PATH\n"
+            "                       Execute Qwen tool_call text read from a file and exit\n"
+#ifdef QW3_ENABLE_VOICE
+            "  --voice-config PATH  Enable native macOS voice turns using audio.cpp\n"
+            "  --voice-check        Check audio.cpp/model IDs and exit without loading QW3\n"
+#endif
+            "  --help               Show help\n\n"
+            "Interactive commands:\n"
+            "  /help, /quit, /new, /ctx, /chdir [path], /compact, /save [name], /list, /switch id\n"
+            "  /del id, /strip [id], /load name, /sessions\n"
+            "  /read PATH, /think, /nothink, /tools on|off\n",
+            (double)QW3_AGENT_REPEAT_PENALTY_DEFAULT,
+            QW3_AGENT_REPEAT_LAST_N_DEFAULT);
 }
 
-
-static int parse_args(agent_config *cfg, int argc, char **argv) {
+static int parse_args(agent_config *cfg, int argc, char **argv)
+{
     memset(cfg, 0, sizeof(*cfg));
     cfg->model_path = "./qw3.gguf";
     cfg->n_predict = 2048;
@@ -7382,141 +9389,256 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
     const char *cache_type_k = NULL;
     const char *cache_type_v = NULL;
     const char *cache_type_alias = NULL;
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h"))
+        {
             print_help();
             exit(0);
-        } else if (!strcmp(argv[i], "--read-only")) {
+#ifdef QW3_ENABLE_VOICE
+        }
+        else if (!strcmp(argv[i], "--voice-config") && i + 1 < argc)
+        {
+            cfg->voice_config_path = argv[++i];
+        }
+        else if (!strcmp(argv[i], "--voice-check"))
+        {
+            cfg->voice_check = true;
+#endif
+        }
+        else if (!strcmp(argv[i], "--read-only"))
+        {
             cfg->read_only = true;
-        } else if (!strcmp(argv[i], "-m") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "-m") && i + 1 < argc)
+        {
             cfg->model_path = argv[++i];
-        } else if (!strcmp(argv[i], "-p") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "-p") && i + 1 < argc)
+        {
             cfg->prompt = argv[++i];
-        } else if (!strcmp(argv[i], "--prompt-file") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--prompt-file") && i + 1 < argc)
+        {
             const char *path = argv[++i];
             cfg->prompt_owned = read_file_text(path, NULL);
-            if (!cfg->prompt_owned) {
+            if (!cfg->prompt_owned)
+            {
                 fprintf(stderr, "agent: cannot read prompt file %s\n", path);
                 return -1;
             }
             cfg->prompt = cfg->prompt_owned;
-        } else if ((!strcmp(argv[i], "-sys") || !strcmp(argv[i], "--system")) &&
-                   i + 1 < argc) {
+        }
+        else if ((!strcmp(argv[i], "-sys") || !strcmp(argv[i], "--system")) &&
+                 i + 1 < argc)
+        {
             cfg->user_system = argv[++i];
-        } else if (!strcmp(argv[i], "--system-file") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--system-file") && i + 1 < argc)
+        {
             const char *path = argv[++i];
             cfg->user_system_owned = read_file_text(path, NULL);
-            if (!cfg->user_system_owned) {
+            if (!cfg->user_system_owned)
+            {
                 fprintf(stderr, "agent: cannot read system file %s\n", path);
                 return -1;
             }
             cfg->user_system = cfg->user_system_owned;
-        } else if (!strcmp(argv[i], "-n") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "-n") && i + 1 < argc)
+        {
             cfg->n_predict = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--ctx") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--ctx") && i + 1 < argc)
+        {
             cfg->ctx_size = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--ngl") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--ngl") && i + 1 < argc)
+        {
             const char *value = argv[++i];
             char *end = NULL;
             errno = 0;
             long ngl = strtol(value, &end, 10);
-            if (errno || end == value || *end || ngl < 0 || ngl > INT_MAX) {
+            if (errno || end == value || *end || ngl < 0 || ngl > INT_MAX)
+            {
                 fprintf(stderr, "agent: --ngl requires a non-negative integer\n");
                 return -1;
             }
             cfg->metal_n_gpu_layers = (int)ngl;
             cfg->metal_n_gpu_layers_set = true;
             cfg->backend = QW3_BACKEND_METAL;
-        } else if ((!strcmp(argv[i], "-ctk") || !strcmp(argv[i], "--ctk")) &&
-                   i + 1 < argc) {
+        }
+        else if ((!strcmp(argv[i], "-ctk") || !strcmp(argv[i], "--ctk")) &&
+                 i + 1 < argc)
+        {
             cache_type_k = argv[++i];
             cfg->backend = QW3_BACKEND_METAL;
-        } else if ((!strcmp(argv[i], "-ctv") || !strcmp(argv[i], "--ctv")) &&
-                   i + 1 < argc) {
+        }
+        else if ((!strcmp(argv[i], "-ctv") || !strcmp(argv[i], "--ctv")) &&
+                 i + 1 < argc)
+        {
             cache_type_v = argv[++i];
             cfg->backend = QW3_BACKEND_METAL;
-        } else if (!strcmp(argv[i], "--kv-f16")) {
+        }
+        else if (!strcmp(argv[i], "--kv-f16"))
+        {
             cache_type_alias = "f16";
             cfg->backend = QW3_BACKEND_METAL;
-        } else if (!strcmp(argv[i], "--kv-f32")) {
+        }
+        else if (!strcmp(argv[i], "--kv-f32"))
+        {
             cache_type_alias = "f32";
             cfg->backend = QW3_BACKEND_METAL;
-        } else if (!strcmp(argv[i], "--kv-q8")) {
+        }
+        else if (!strcmp(argv[i], "--kv-q8"))
+        {
             cache_type_alias = "q8_0";
             cfg->backend = QW3_BACKEND_METAL;
-        } else if (!strcmp(argv[i], "--temp") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--temp") && i + 1 < argc)
+        {
             cfg->sample.temperature = strtof(argv[++i], NULL);
-        } else if (!strcmp(argv[i], "--sample-top-k") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--sample-top-k") && i + 1 < argc)
+        {
             cfg->sample.sample_top_k = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--top-p") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--top-p") && i + 1 < argc)
+        {
             cfg->sample.top_p = strtof(argv[++i], NULL);
-        } else if (!strcmp(argv[i], "--min-p") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--min-p") && i + 1 < argc)
+        {
             cfg->sample.min_p = strtof(argv[++i], NULL);
-        } else if (!strcmp(argv[i], "--repeat-penalty") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--repeat-penalty") && i + 1 < argc)
+        {
             cfg->sample.repeat_penalty = strtof(argv[++i], NULL);
-        } else if (!strcmp(argv[i], "--repeat-last-n") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--repeat-last-n") && i + 1 < argc)
+        {
             cfg->sample.repeat_last_n = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--seed") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--seed") && i + 1 < argc)
+        {
             cfg->sample.rng = strtoull(argv[++i], NULL, 10);
-        } else if (!strcmp(argv[i], "--dump-prompt")) {
+        }
+        else if (!strcmp(argv[i], "--dump-prompt"))
+        {
             cfg->dump_prompt = true;
-        } else if (!strcmp(argv[i], "--cpu")) {
+        }
+        else if (!strcmp(argv[i], "--cpu"))
+        {
             cfg->backend = QW3_BACKEND_CPU;
-        } else if (!strcmp(argv[i], "--metal")) {
+        }
+        else if (!strcmp(argv[i], "--metal"))
+        {
             cfg->backend = QW3_BACKEND_METAL;
-        } else if (!strcmp(argv[i], "--nothink")) {
+        }
+        else if (!strcmp(argv[i], "--nothink"))
+        {
             cfg->think_mode = QW3_THINK_NONE;
-        } else if (!strcmp(argv[i], "--store-dir") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--store-dir") && i + 1 < argc)
+        {
             cfg->store_dir = agent_strdup(argv[++i]);
-        } else if (!strcmp(argv[i], "--conversation") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--conversation") && i + 1 < argc)
+        {
             cfg->conversation = agent_strdup(argv[++i]);
-        } else if (!strcmp(argv[i], "--chdir") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--chdir") && i + 1 < argc)
+        {
             cfg->chdir_path = agent_strdup(argv[++i]);
-        } else if (!strcmp(argv[i], "--trace") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--trace") && i + 1 < argc)
+        {
             cfg->trace_path = argv[++i];
-        } else if (!strcmp(argv[i], "--no-prefix-cache")) {
+        }
+        else if (!strcmp(argv[i], "--no-prefix-cache"))
+        {
             cfg->prefix_cache = false;
-        } else if (!strcmp(argv[i], "--max-tool-rounds") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--max-tool-rounds") && i + 1 < argc)
+        {
             cfg->max_tool_rounds = atoi(argv[++i]);
-            if (cfg->max_tool_rounds < 1) cfg->max_tool_rounds = 1;
-            if (cfg->max_tool_rounds > 128) cfg->max_tool_rounds = 128;
-        } else if (!strcmp(argv[i], "--no-tools")) {
+            if (cfg->max_tool_rounds < 1)
+                cfg->max_tool_rounds = 1;
+            if (cfg->max_tool_rounds > 128)
+                cfg->max_tool_rounds = 128;
+        }
+        else if (!strcmp(argv[i], "--no-tools"))
+        {
             cfg->tools_enabled = false;
-        } else if (!strcmp(argv[i], "--compact-tools")) {
+        }
+        else if (!strcmp(argv[i], "--compact-tools"))
+        {
             cfg->compact_tools = true;
-        } else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--tool-dsml") && i + 1 < argc)
+        {
             cfg->tool_dsml = argv[++i];
-        } else if (!strcmp(argv[i], "--tool-dsml-file") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--tool-dsml-file") && i + 1 < argc)
+        {
             const char *path = argv[++i];
             cfg->tool_dsml_owned = read_file_text(path, NULL);
-            if (!cfg->tool_dsml_owned) {
+            if (!cfg->tool_dsml_owned)
+            {
                 fprintf(stderr, "agent: cannot read DSML file %s\n", path);
                 return -1;
             }
             cfg->tool_dsml = cfg->tool_dsml_owned;
-        } else if (!strcmp(argv[i], "--tool-native") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--tool-native") && i + 1 < argc)
+        {
             cfg->tool_native = argv[++i];
-        } else if (!strcmp(argv[i], "--tool-native-file") && i + 1 < argc) {
+        }
+        else if (!strcmp(argv[i], "--tool-native-file") && i + 1 < argc)
+        {
             const char *path = argv[++i];
             cfg->tool_native_owned = read_file_text(path, NULL);
-            if (!cfg->tool_native_owned) {
+            if (!cfg->tool_native_owned)
+            {
                 fprintf(stderr, "agent: cannot read native tool file %s\n", path);
                 return -1;
             }
             cfg->tool_native = cfg->tool_native_owned;
-        } else {
+        }
+        else
+        {
             fprintf(stderr, "agent: unknown option '%s'\n", argv[i]);
             print_help();
             return -1;
         }
     }
-    if (!qw3_backend_supported(cfg->backend)) {
+#ifdef QW3_ENABLE_VOICE
+    if (cfg->voice_check && !cfg->voice_config_path)
+    {
+        fprintf(stderr, "agent: --voice-check requires --voice-config PATH\n");
+        return -1;
+    }
+    if (cfg->voice_config_path && (cfg->tool_dsml || cfg->tool_native || cfg->dump_prompt))
+    {
+        fprintf(stderr, "agent: voice mode cannot be combined with tool-only or dump-prompt mode\n");
+        return -1;
+    }
+    if (cfg->voice_config_path && !cfg->voice_check && !cfg->prompt && !isatty(STDIN_FILENO))
+    {
+        fprintf(stderr, "agent: interactive voice mode requires a terminal (or use -p TEXT)\n");
+        return -1;
+    }
+#endif
+    if (!qw3_backend_supported(cfg->backend))
+    {
         fprintf(stderr, "agent: backend %s is not supported\n",
                 qw3_backend_name(cfg->backend));
         return -1;
     }
-    if (cfg->metal_n_gpu_layers_set) {
-        if (cfg->backend != QW3_BACKEND_METAL) {
+    if (cfg->metal_n_gpu_layers_set)
+    {
+        if (cfg->backend != QW3_BACKEND_METAL)
+        {
             fprintf(stderr, "agent: --ngl is available only with the Metal backend\n");
             return -1;
         }
@@ -7524,8 +9646,10 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         snprintf(ngl_env, sizeof(ngl_env), "%d", cfg->metal_n_gpu_layers);
         setenv("QW3_METAL_NGL", ngl_env, 1);
     }
-    if (cache_type_alias) {
-        if (cache_type_k || cache_type_v) {
+    if (cache_type_alias)
+    {
+        if (cache_type_k || cache_type_v)
+        {
             fprintf(stderr,
                     "agent: use either --kv-f16/--kv-f32/--kv-q8 or -ctk/-ctv, not both\n");
             return -1;
@@ -7533,41 +9657,96 @@ static int parse_args(agent_config *cfg, int argc, char **argv) {
         cache_type_k = cache_type_alias;
         cache_type_v = cache_type_alias;
     }
-    if (cache_type_k || cache_type_v) {
+    if (cache_type_k || cache_type_v)
+    {
         if (cfg->backend != QW3_BACKEND_METAL || !cache_type_k || !cache_type_v ||
-            strcmp(cache_type_k, cache_type_v) != 0) {
+            strcmp(cache_type_k, cache_type_v) != 0)
+        {
             fprintf(stderr, "agent: -ctk/-ctv require matching Metal types\n");
             return -1;
         }
-        if (!strcmp(cache_type_k, "q8_0")) {
+        if (!strcmp(cache_type_k, "q8_0"))
+        {
             setenv("QW3_METAL_KV_Q8_0", "1", 1);
             setenv("QW3_METAL_KV_F16", "0", 1);
-        } else if (!strcmp(cache_type_k, "f16")) {
+        }
+        else if (!strcmp(cache_type_k, "f16"))
+        {
             setenv("QW3_METAL_KV_Q8_0", "0", 1);
             setenv("QW3_METAL_KV_F16", "1", 1);
-        } else if (!strcmp(cache_type_k, "f32")) {
+        }
+        else if (!strcmp(cache_type_k, "f32"))
+        {
             setenv("QW3_METAL_KV_Q8_0", "0", 1);
             setenv("QW3_METAL_KV_F16", "0", 1);
-        } else {
+        }
+        else
+        {
             fprintf(stderr,
                     "agent: unsupported KV cache type '%s' (expected f32, f16, or q8_0)\n",
                     cache_type_k);
             return -1;
         }
     }
-    if (!cfg->store_dir) cfg->store_dir = default_store_dir();
-    if (!cfg->store_dir || ensure_dir(cfg->store_dir) != 0) {
+    if (!cfg->store_dir)
+        cfg->store_dir = default_store_dir();
+    if (!cfg->store_dir || ensure_dir(cfg->store_dir) != 0)
+    {
         fprintf(stderr, "agent: cannot create store directory\n");
         return -1;
     }
     cfg->system_prompt = build_system_prompt(cfg->user_system,
                                              cfg->tools_enabled,
                                              cfg->compact_tools, cfg->read_only);
-    if (!cfg->system_prompt) return -1;
+    if (!cfg->system_prompt)
+        return -1;
+#ifdef QW3_ENABLE_VOICE
+    if (cfg->voice_config_path)
+    {
+        strbuf spoken;
+        sb_init(&spoken);
+        sb_append(&spoken, cfg->system_prompt);
+        sb_append(&spoken,
+                  "\nSpoken interaction:\n"
+                  "Your final answer will be heard aloud. Address the user's actual "
+                  "question, including everyday questions outside coding. Use the "
+                  "user's language and natural, concise sentences that can be understood "
+                  "without seeing a screen. Lead with the useful result.\n"
+                  "Present data as a coherent spoken explanation: name the entity, "
+                  "its relevant values and units, and make comparisons explicit. "
+                  "Group related facts into short paragraphs with clear transitions. "
+                  "Make dates, times, quantities and percentages unambiguous for a "
+                  "listener. Preserve exact values and uncertainty; never invent "
+                  "missing entries or round values just to simplify speech.\n"
+                  "Expand units and abbreviations in ordinary speech when their "
+                  "meaning is clear from context. Read decimal values, negative signs "
+                  "and percentage changes explicitly; distinguish percentages from "
+                  "percentage points. Avoid strings of isolated numbers: repeat the "
+                  "entity or measurement name when needed. Preserve identifiers and "
+                  "version numbers as identifiers, without guessing a numeric meaning.\n"
+                  "Use prose instead of Markdown tables, column separators, headings, "
+                  "emoji, decorative symbols or long numbered lists. If the user "
+                  "explicitly requests a visual format, honor it. For large datasets, "
+                  "start with the relevant overview and state the scope; include "
+                  "every requested item when completeness is required. Refer to "
+                  "sources by name in the explanation instead of reciting long URLs.\n"
+                  "These presentation rules apply to final answers only. Keep tool "
+                  "calls in their exact required syntax. Use available tools to verify "
+                  "current information; say clearly when you cannot verify it.\n");
+        free(cfg->system_prompt);
+        cfg->system_prompt = spoken.p;
+        if (!cfg->system_prompt)
+            return -1;
+    }
+#endif
     return 0;
 }
 
-static void free_config(agent_config *cfg) {
+static void free_config(agent_config *cfg)
+{
+#ifdef QW3_ENABLE_VOICE
+    qw3_voice_close(cfg->voice);
+#endif
     free(cfg->model_path_owned);
     free(cfg->prompt_owned);
     free(cfg->user_system_owned);
@@ -7579,20 +9758,27 @@ static void free_config(agent_config *cfg) {
     free(cfg->tool_native_owned);
 }
 
-static void agent_absolutize_env_path(const char *name) {
+static void agent_absolutize_env_path(const char *name)
+{
     const char *value = getenv(name);
-    if (!value || !value[0] || value[0] == '/') return;
+    if (!value || !value[0] || value[0] == '/')
+        return;
     char *absolute = realpath(value, NULL);
-    if (!absolute) return;
+    if (!absolute)
+        return;
     setenv(name, absolute, 1);
     free(absolute);
 }
 
-static int agent_prepare_chdir_paths(agent_config *cfg) {
-    if (!cfg || !cfg->chdir_path) return 0;
-    if (!cfg->tool_dsml && !cfg->tool_native) {
+static int agent_prepare_chdir_paths(agent_config *cfg)
+{
+    if (!cfg || !cfg->chdir_path)
+        return 0;
+    if (!cfg->tool_dsml && !cfg->tool_native)
+    {
         cfg->model_path_owned = realpath(cfg->model_path, NULL);
-        if (!cfg->model_path_owned) {
+        if (!cfg->model_path_owned)
+        {
             fprintf(stderr, "agent: cannot resolve model %s before --chdir\n",
                     cfg->model_path);
             return -1;
@@ -7600,21 +9786,25 @@ static int agent_prepare_chdir_paths(agent_config *cfg) {
         cfg->model_path = cfg->model_path_owned;
     }
     char *store = realpath(cfg->store_dir, NULL);
-    if (!store) {
+    if (!store)
+    {
         fprintf(stderr, "agent: cannot resolve store directory before --chdir\n");
         return -1;
     }
     free(cfg->store_dir);
     cfg->store_dir = store;
 
-    if (cfg->backend == QW3_BACKEND_METAL) {
+    if (cfg->backend == QW3_BACKEND_METAL)
+    {
         agent_absolutize_env_path("QW3_METAL_KERNEL_DIR");
         agent_absolutize_env_path("QW3_METAL_KERNEL_SOURCE");
         agent_absolutize_env_path("QW3_METAL_FLASH_ATTN_SOURCE");
         if (!getenv("QW3_METAL_KERNEL_DIR") &&
-            !getenv("QW3_METAL_KERNEL_SOURCE")) {
+            !getenv("QW3_METAL_KERNEL_SOURCE"))
+        {
             char cwd[PATH_MAX];
-            if (getcwd(cwd, sizeof(cwd))) {
+            if (getcwd(cwd, sizeof(cwd)))
+            {
                 char *kernel_dir = path_join(cwd, "metal");
                 char *probe = path_join(kernel_dir, "qw3_core_common.metal");
                 if (access(probe, R_OK) == 0)
@@ -7628,41 +9818,54 @@ static int agent_prepare_chdir_paths(agent_config *cfg) {
 }
 
 static int agent_validate_model_config(const agent_config *cfg,
-                                       qw3_engine *engine) {
-    if (!cfg || !engine) return -1;
+                                       qw3_engine *engine)
+{
+    if (!cfg || !engine)
+        return -1;
     const int n_layers = qw3_engine_layer_count(engine);
-    if (n_layers <= 0) return -1;
-    if (cfg->backend != QW3_BACKEND_METAL) return 0;
+    if (n_layers <= 0)
+        return -1;
+    if (cfg->backend != QW3_BACKEND_METAL)
+        return 0;
 
     int ngl = n_layers;
-    if (cfg->metal_n_gpu_layers_set) {
+    if (cfg->metal_n_gpu_layers_set)
+    {
         ngl = cfg->metal_n_gpu_layers;
-    } else {
+    }
+    else
+    {
         const char *env = getenv("QW3_METAL_NGL");
-        if (env && env[0]) {
+        if (env && env[0])
+        {
             char *end = NULL;
             errno = 0;
             long value = strtol(env, &end, 10);
             if (!errno && end != env && !*end && value >= 0 &&
-                value <= INT_MAX) {
+                value <= INT_MAX)
+            {
                 ngl = (int)value;
             }
         }
     }
-    if (ngl > n_layers) {
+    if (ngl > n_layers)
+    {
         fprintf(stderr, "agent: --ngl must be in the range 0..%d for this model\n",
                 n_layers);
         return -1;
     }
-    if (qw3_engine_is_dense(engine)) {
-        if (ngl != n_layers) {
+    if (qw3_engine_is_dense(engine))
+    {
+        if (ngl != n_layers)
+        {
             fprintf(stderr,
                     "agent: dense Metal requires full %d-layer offload; use --ngl %d or --cpu\n",
                     n_layers, n_layers);
             return -1;
         }
         const char *q8 = getenv("QW3_METAL_KV_Q8_0");
-        if (q8 && strcmp(q8, "0") != 0) {
+        if (q8 && strcmp(q8, "0") != 0)
+        {
             fprintf(stderr,
                     "agent: dense Metal Q8 KV is not validated; use --kv-f16 or --kv-f32\n");
             return -1;
@@ -7671,198 +9874,339 @@ static int agent_validate_model_config(const agent_config *cfg,
     return 0;
 }
 
-static void agent_init_transcript(agent_state *a) {
+static void agent_build_inkling_preamble(agent_state *a, qw3_tokens *tokens)
+{
+    if (a->cfg.tools_enabled)
+    {
+        char *tools = native_tool_declarations(a->cfg.compact_tools,
+                                               a->cfg.read_only, true);
+        qw3_chat_append_message(a->engine, tokens, "tool_declare", tools);
+        free(tools);
+    }
+    qw3_chat_append_message(a->engine, tokens, "system", a->cfg.system_prompt);
+    qw3_inkling_chat_append_effort(a->engine, tokens, a->cfg.think_mode);
+}
+
+static bool agent_refresh_inkling_preamble(agent_state *a)
+{
+    if (!qw3_engine_is_inkling(a->engine))
+        return true;
+    if (a->messages.len == 0 || a->messages.items[0].kind != AGENT_MESSAGE_SYSTEM)
+        return false;
+    agent_message *system = &a->messages.items[0];
+    const int old_end = system->token_end;
+    qw3_tokens next = {0};
+    agent_build_inkling_preamble(a, &next);
+    const int shift = next.len - old_end;
+    if (!shift && agent_transcript_has_prefix(a, &next))
+    {
+        qw3_tokens_free(&next);
+        return true;
+    }
+    if (a->transcript.len + shift >= a->cfg.ctx_size)
+    {
+        qw3_tokens_free(&next);
+        return false;
+    }
+    agent_tokens_append_range(&next, &a->transcript, old_end, a->transcript.len);
+    qw3_tokens_free(&a->transcript);
+    a->transcript = next;
+    system->token_end += shift;
+    agent_set_owned(&system->content, a->cfg.system_prompt);
+    for (int i = 1; i < a->messages.len; i++)
+    {
+        a->messages.items[i].token_start += shift;
+        a->messages.items[i].token_end += shift;
+    }
+    return true;
+}
+
+static void agent_init_transcript(agent_state *a)
+{
     agent_clear_session_meta(a);
     a->compact_retry_after_tokens = 0;
     qw3_tokens_free(&a->transcript);
     memset(&a->transcript, 0, sizeof(a->transcript));
     agent_message_ledger_clear(&a->messages);
-    (void)agent_append_message(a, AGENT_MESSAGE_SYSTEM,
-                               "system", a->cfg.system_prompt);
-    if (a->session) qw3_session_invalidate(a->session);
+    if (qw3_engine_is_inkling(a->engine))
+    {
+        agent_build_inkling_preamble(a, &a->transcript);
+        (void)agent_message_ledger_add(&a->messages, AGENT_MESSAGE_SYSTEM, "system",
+            a->cfg.system_prompt, 0, a->transcript.len);
+    }
+    else
+        (void)agent_append_message(a, AGENT_MESSAGE_SYSTEM,
+                                   "system", a->cfg.system_prompt);
+    if (a->session)
+        qw3_session_invalidate(a->session);
 }
 
-static int agent_dump_rendered_prompt(agent_state *a, const char *user_prompt) {
-    if (!a) return 1;
+static int agent_dump_rendered_prompt(agent_state *a, const char *user_prompt)
+{
+    if (!a)
+        return 1;
     qw3_tokens tmp;
     memset(&tmp, 0, sizeof(tmp));
     qw3_tokens_copy(&tmp, &a->transcript);
-    if (user_prompt && user_prompt[0]) {
+    if (user_prompt && user_prompt[0])
+    {
         qw3_chat_append_message(a->engine, &tmp, "user", user_prompt);
         qw3_chat_append_assistant_prefix(a->engine, &tmp, a->cfg.think_mode);
     }
     char *text = transcript_rendered_text(a, &tmp);
-    if (!text) {
+    if (!text)
+    {
         qw3_tokens_free(&tmp);
         return 1;
     }
     fwrite(text, 1, strlen(text), stdout);
-    if (text[0] && text[strlen(text) - 1] != '\n') fputc('\n', stdout);
+    if (text[0] && text[strlen(text) - 1] != '\n')
+        fputc('\n', stdout);
     free(text);
     qw3_tokens_free(&tmp);
     return ferror(stdout) ? 1 : 0;
 }
 
-static void interactive_help(void) {
+static void interactive_help(void)
+{
     fprintf(stderr,
-        "Commands:\n"
-        "  /help              Show this help\n"
-        "  /quit              Exit\n"
-        "  /new               Start a new conversation\n"
-        "  /ctx               Print token count and context size\n"
-        "  /chdir [path]      Change or print working directory\n"
-        "  /compact           Compact the current context now\n"
-        "  /save [name]       Save conversation\n"
-        "  /list              List saved conversations\n"
-        "  /switch id         Switch to a saved conversation\n"
-        "  /del id            Delete a saved conversation\n"
-        "  /strip [id]        Keep text/metadata and remove token payload\n"
-        "  /read PATH         Send file content as the next message\n"
-        "  /think             Enable thinking mode\n"
-        "  /nothink           Disable thinking mode\n"
-        "  /tools on|off      Enable or disable tool execution\n");
+            "Commands:\n"
+            "  /help              Show this help\n"
+            "  /quit              Exit\n"
+            "  /new               Start a new conversation\n"
+            "  /ctx               Print token count and context size\n"
+            "  /chdir [path]      Change or print working directory\n"
+            "  /compact           Compact the current context now\n"
+            "  /save [name]       Save conversation\n"
+            "  /list              List saved conversations\n"
+            "  /switch id         Switch to a saved conversation\n"
+            "  /del id            Delete a saved conversation\n"
+            "  /strip [id]        Keep text/metadata and remove token payload\n"
+            "  /read PATH         Send file content as the next message\n"
+            "  /think             Enable thinking mode\n"
+            "  /nothink           Disable thinking mode\n"
+            "  /tools on|off      Enable or disable tool execution\n");
 }
 
-static char *read_line_agent(agent_state *a) {
+static char *read_line_agent(agent_state *a)
+{
     (void)a;
-    if (isatty(STDIN_FILENO)) {
+    if (isatty(STDIN_FILENO))
+    {
         char *line = linenoise(agent_editor_prompt());
-        if (line && line[0]) linenoiseHistoryAdd(line);
+        if (line && line[0])
+            linenoiseHistoryAdd(line);
         return line;
     }
     char *line = NULL;
     size_t cap = 0;
     ssize_t n = getline(&line, &cap, stdin);
-    if (n < 0) {
+    if (n < 0)
+    {
         free(line);
         return NULL;
     }
-    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+    {
         line[--n] = '\0';
     }
     return line;
 }
 
-static char *trim_command_arg(char *s) {
-    while (*s && isspace((unsigned char)*s)) s++;
+static char *trim_command_arg(char *s)
+{
+    while (*s && isspace((unsigned char)*s))
+        s++;
     char *end = s + strlen(s);
-    while (end > s && isspace((unsigned char)end[-1])) *--end = '\0';
+    while (end > s && isspace((unsigned char)end[-1]))
+        *--end = '\0';
     return s;
 }
 
-static void handle_chdir_command(agent_state *a, char *arg) {
+static void handle_chdir_command(agent_state *a, char *arg)
+{
     arg = trim_command_arg(arg);
-    if (!arg[0]) {
+    if (!arg[0])
+    {
         char cwd[PATH_MAX];
-        if (getcwd(cwd, sizeof(cwd))) {
+        if (getcwd(cwd, sizeof(cwd)))
+        {
             agent_statusf(a, "agent: cwd=%s\n", cwd);
-        } else {
+        }
+        else
+        {
             agent_statusf(a, "agent: cannot get cwd: %s\n", strerror(errno));
         }
         return;
     }
-    if (chdir(arg) != 0) {
+    if (chdir(arg) != 0)
+    {
         agent_statusf(a, "agent: cannot chdir to %s: %s\n",
                       arg, strerror(errno));
         return;
     }
     char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof(cwd))) {
+    if (getcwd(cwd, sizeof(cwd)))
+    {
         agent_statusf(a, "agent: cwd=%s\n", cwd);
-    } else {
+    }
+    else
+    {
         agent_statusf(a, "agent: changed directory to %s\n", arg);
     }
 }
 
-static int handle_command(agent_state *a, char *line, char **message_out) {
+static int handle_command(agent_state *a, char *line, char **message_out)
+{
     *message_out = NULL;
-    if (line[0] != '/') {
+    if (line[0] != '/')
+    {
         *message_out = agent_strdup(line);
         return 1;
     }
-    if (!strcmp(line, "/help")) {
+    if (!strcmp(line, "/help"))
+    {
         interactive_help();
-    } else if (!strcmp(line, "/quit") || !strcmp(line, "/exit")) {
+    }
+    else if (!strcmp(line, "/quit") || !strcmp(line, "/exit"))
+    {
         return -1;
-    } else if (!strcmp(line, "/new")) {
+    }
+    else if (!strcmp(line, "/new"))
+    {
         agent_init_transcript(a);
         (void)agent_prepare_prefix_cache(a);
         agent_statusf(a, "agent: new conversation\n");
-    } else if (!strcmp(line, "/ctx")) {
+    }
+    else if (!strcmp(line, "/ctx"))
+    {
         agent_statusf(a, "tokens=%d ctx=%d tools=%s think=%s\n",
                       a->transcript.len, a->cfg.ctx_size,
                       a->cfg.tools_enabled ? "on" : "off",
                       qw3_think_mode_name(a->cfg.think_mode));
-    } else if (!strcmp(line, "/chdir")) {
+    }
+    else if (!strcmp(line, "/chdir"))
+    {
         handle_chdir_command(a, "");
-    } else if (!strncmp(line, "/chdir ", 7)) {
+    }
+    else if (!strncmp(line, "/chdir ", 7))
+    {
         handle_chdir_command(a, line + 7);
-    } else if (!strcmp(line, "/compact")) {
+    }
+    else if (!strcmp(line, "/compact"))
+    {
         char err[160] = {0};
-        if (!agent_compact_context(a, "manual /compact", err, sizeof(err))) {
+        if (!agent_compact_context(a, "manual /compact", err, sizeof(err)))
+        {
             agent_statusf(a, "agent: %s\n",
                           err[0] ? err : "context compaction failed");
         }
-    } else if (!strncmp(line, "/save", 5)) {
+    }
+    else if (!strncmp(line, "/save", 5))
+    {
         const char *name = line[5] == ' ' ? line + 6 : a->cfg.conversation;
-        if (name && !name[0]) name = NULL;
+        if (name && !name[0])
+            name = NULL;
         store_save(a, name);
-    } else if (!strcmp(line, "/list") || !strcmp(line, "/sessions")) {
+    }
+    else if (!strcmp(line, "/list") || !strcmp(line, "/sessions"))
+    {
         store_list(a);
-    } else if (!strncmp(line, "/switch ", 8)) {
-        if (a->session_id || a->session_title) (void)store_save(a, NULL);
-        if (store_load(a, line + 8) != 0) {
+    }
+    else if (!strncmp(line, "/switch ", 8))
+    {
+        if (a->session_id || a->session_title)
+            (void)store_save(a, NULL);
+        if (store_load(a, line + 8) != 0)
+        {
             agent_statusf(a, "agent: cannot switch to %s\n", line + 8);
-        } else {
+        }
+        else
+        {
             (void)agent_prepare_prefix_cache(a);
         }
-    } else if (!strncmp(line, "/load ", 6)) {
-        if (a->session_id || a->session_title) (void)store_save(a, NULL);
-        if (store_load(a, line + 6) != 0) {
+    }
+    else if (!strncmp(line, "/load ", 6))
+    {
+        if (a->session_id || a->session_title)
+            (void)store_save(a, NULL);
+        if (store_load(a, line + 6) != 0)
+        {
             agent_statusf(a, "agent: cannot load %s\n", line + 6);
-        } else {
+        }
+        else
+        {
             (void)agent_prepare_prefix_cache(a);
         }
-    } else if (!strncmp(line, "/del ", 5)) {
+    }
+    else if (!strncmp(line, "/del ", 5))
+    {
         (void)store_delete(a, line + 5);
-    } else if (!strcmp(line, "/strip")) {
+    }
+    else if (!strcmp(line, "/strip"))
+    {
         (void)store_strip(a, NULL);
-    } else if (!strncmp(line, "/strip ", 7)) {
+    }
+    else if (!strncmp(line, "/strip ", 7))
+    {
         (void)store_strip(a, line + 7);
-    } else if (!strncmp(line, "/read ", 6)) {
+    }
+    else if (!strncmp(line, "/read ", 6))
+    {
         char *text = read_file_text(line + 6, NULL);
-        if (!text) {
+        if (!text)
+        {
             agent_statusf(a, "agent: cannot read %s: %s\n",
                           line + 6, strerror(errno));
-        } else {
+        }
+        else
+        {
             *message_out = text;
             return 1;
         }
-    } else if (!strcmp(line, "/think")) {
-        a->cfg.think_mode = QW3_THINK_ON;
-        agent_statusf(a, "agent: thinking enabled\n");
-    } else if (!strcmp(line, "/nothink")) {
-        a->cfg.think_mode = QW3_THINK_NONE;
-        agent_statusf(a, "agent: thinking disabled\n");
-    } else if (!strcmp(line, "/tools on")) {
-        a->cfg.tools_enabled = true;
-        agent_statusf(a, "agent: tools enabled\n");
-    } else if (!strcmp(line, "/tools off")) {
-        a->cfg.tools_enabled = false;
-        agent_statusf(a, "agent: tools disabled\n");
-    } else {
+    }
+    else if (!strcmp(line, "/think") || !strcmp(line, "/nothink"))
+    {
+        qw3_think_mode previous = a->cfg.think_mode;
+        a->cfg.think_mode = !strcmp(line, "/think") ? QW3_THINK_ON : QW3_THINK_NONE;
+        if (agent_refresh_inkling_preamble(a))
+            agent_statusf(a, "agent: thinking %s\n", a->cfg.think_mode == QW3_THINK_NONE ?
+                          "disabled" : "enabled");
+        else
+        {
+            a->cfg.think_mode = previous;
+            agent_statusf(a, "agent: use /new to change this Inkling session's thinking mode\n");
+        }
+    }
+    else if (!strcmp(line, "/tools on") || !strcmp(line, "/tools off"))
+    {
+        bool previous = a->cfg.tools_enabled;
+        a->cfg.tools_enabled = !strcmp(line, "/tools on");
+        if (agent_refresh_inkling_preamble(a))
+            agent_statusf(a, "agent: tools %s\n", a->cfg.tools_enabled ?
+                          "enabled" : "disabled");
+        else
+        {
+            a->cfg.tools_enabled = previous;
+            agent_statusf(a, "agent: use /new to change this Inkling session's tools\n");
+        }
+    }
+    else
+    {
         agent_statusf(a, "agent: unknown command '%s'\n", line);
     }
     return 0;
 }
 
-typedef struct {
+typedef struct
+{
     char **v;
     int len;
     int cap;
 } agent_input_queue;
 
-typedef struct {
+typedef struct
+{
     agent_state *agent;
     pthread_t thread;
     pthread_mutex_t mu;
@@ -7896,49 +10240,61 @@ typedef struct {
 
 static volatile sig_atomic_t g_agent_sigint = 0;
 
-static void agent_sigint_handler(int sig) {
+static void agent_sigint_handler(int sig)
+{
     (void)sig;
     g_agent_sigint = 1;
 }
 
-static int agent_set_nonblock(int fd) {
+static int agent_set_nonblock(int fd)
+{
     int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0) return -1;
+    if (flags < 0)
+        return -1;
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-static void agent_worker_wake(agent_worker *w) {
-    if (!w || w->wake_wr < 0) return;
+static void agent_worker_wake(agent_worker *w)
+{
+    if (!w || w->wake_wr < 0)
+        return;
     char b = 1;
     ssize_t n = write(w->wake_wr, &b, 1);
     (void)n;
 }
 
-static void agent_worker_drain_wake(agent_worker *w) {
+static void agent_worker_drain_wake(agent_worker *w)
+{
     char buf[64];
-    while (w && w->wake_rd >= 0 && read(w->wake_rd, buf, sizeof(buf)) > 0) {
+    while (w && w->wake_rd >= 0 && read(w->wake_rd, buf, sizeof(buf)) > 0)
+    {
     }
 }
 
-static void agent_worker_output_write(void *ud, const char *s, size_t n) {
+static void agent_worker_output_write(void *ud, const char *s, size_t n)
+{
     agent_worker *w = (agent_worker *)ud;
-    if (!w || !s || n == 0) return;
+    if (!w || !s || n == 0)
+        return;
     pthread_mutex_lock(&w->mu);
     sb_append_n(&w->out, s, n);
     pthread_mutex_unlock(&w->mu);
     agent_worker_wake(w);
 }
 
-static bool agent_worker_should_interrupt(void *ud) {
+static bool agent_worker_should_interrupt(void *ud)
+{
     agent_worker *w = (agent_worker *)ud;
-    if (!w) return false;
+    if (!w)
+        return false;
     pthread_mutex_lock(&w->mu);
     bool v = w->interrupt || w->stop;
     pthread_mutex_unlock(&w->mu);
     return v;
 }
 
-static bool agent_worker_is_busy(agent_worker *w) {
+static bool agent_worker_is_busy(agent_worker *w)
+{
     pthread_mutex_lock(&w->mu);
     bool busy = w->busy || w->has_job;
     pthread_mutex_unlock(&w->mu);
@@ -7949,14 +10305,21 @@ static void agent_worker_progress_snapshot(agent_worker *w, bool *busy,
                                            bool *active, int *current,
                                            int *total, double *tps,
                                            char *activity,
-                                           size_t activity_len) {
+                                           size_t activity_len)
+{
     pthread_mutex_lock(&w->mu);
-    if (busy) *busy = w->busy || w->has_job;
-    if (active) *active = w->progress_active;
-    if (current) *current = w->progress_current;
-    if (total) *total = w->progress_total;
-    if (tps) *tps = w->progress_tps;
-    if (activity && activity_len > 0) {
+    if (busy)
+        *busy = w->busy || w->has_job;
+    if (active)
+        *active = w->progress_active;
+    if (current)
+        *current = w->progress_current;
+    if (total)
+        *total = w->progress_total;
+    if (tps)
+        *tps = w->progress_tps;
+    if (activity && activity_len > 0)
+    {
         snprintf(activity, activity_len, "%s",
                  w->activity[0] ? w->activity : "working");
     }
@@ -7964,14 +10327,19 @@ static void agent_worker_progress_snapshot(agent_worker *w, bool *busy,
 }
 
 static void agent_worker_activity_update(void *ud, const char *phase,
-                                         const char *detail) {
+                                         const char *detail)
+{
     agent_worker *w = (agent_worker *)ud;
-    if (!w) return;
+    if (!w)
+        return;
     pthread_mutex_lock(&w->mu);
-    if (detail && detail[0]) {
+    if (detail && detail[0])
+    {
         snprintf(w->activity, sizeof(w->activity), "%s:%s",
                  phase && phase[0] ? phase : "tool", detail);
-    } else {
+    }
+    else
+    {
         snprintf(w->activity, sizeof(w->activity), "%s",
                  phase && phase[0] ? phase : "working");
     }
@@ -7987,34 +10355,50 @@ static void agent_worker_timing_snapshot(agent_worker *w, bool *has,
                                          double *prefill_tps,
                                          int *gen_tokens,
                                          double *gen_ms,
-                                         double *gen_tps) {
+                                         double *gen_tps)
+{
     pthread_mutex_lock(&w->mu);
-    if (has) *has = w->has_timing;
-    if (backend && backend_len > 0) {
+    if (has)
+        *has = w->has_timing;
+    if (backend && backend_len > 0)
+    {
         snprintf(backend, backend_len, "%s", w->timing_backend);
     }
-    if (cached) *cached = w->timing_cached;
-    if (prompt) *prompt = w->timing_prompt;
-    if (prefill_tokens) *prefill_tokens = w->timing_prefill_tokens;
-    if (prefill_ms) *prefill_ms = w->timing_prefill_ms;
-    if (prefill_tps) *prefill_tps = w->timing_prefill_tps;
-    if (gen_tokens) *gen_tokens = w->timing_gen_tokens;
-    if (gen_ms) *gen_ms = w->timing_gen_ms;
-    if (gen_tps) *gen_tps = w->timing_gen_tps;
+    if (cached)
+        *cached = w->timing_cached;
+    if (prompt)
+        *prompt = w->timing_prompt;
+    if (prefill_tokens)
+        *prefill_tokens = w->timing_prefill_tokens;
+    if (prefill_ms)
+        *prefill_ms = w->timing_prefill_ms;
+    if (prefill_tps)
+        *prefill_tps = w->timing_prefill_tps;
+    if (gen_tokens)
+        *gen_tokens = w->timing_gen_tokens;
+    if (gen_ms)
+        *gen_ms = w->timing_gen_ms;
+    if (gen_tps)
+        *gen_tps = w->timing_gen_tps;
     pthread_mutex_unlock(&w->mu);
 }
 
 static void agent_worker_progress_update(void *ud, const char *phase,
-                                         int current, int total, double tps) {
+                                         int current, int total, double tps)
+{
     agent_worker *w = (agent_worker *)ud;
-    if (!w || !phase) return;
+    if (!w || !phase)
+        return;
     pthread_mutex_lock(&w->mu);
-    if (!strcmp(phase, "prefill_done")) {
+    if (!strcmp(phase, "prefill_done"))
+    {
         w->progress_active = false;
         w->progress_current = current;
         w->progress_total = total;
         w->progress_tps = tps;
-    } else if (!strcmp(phase, "prefill")) {
+    }
+    else if (!strcmp(phase, "prefill"))
+    {
         w->progress_active = total > 0;
         w->progress_current = current;
         w->progress_total = total;
@@ -8029,9 +10413,11 @@ static void agent_worker_timing_update(void *ud, const char *backend,
                                        int prefill_tokens, double prefill_ms,
                                        double prefill_tps,
                                        int gen_tokens, double gen_ms,
-                                       double gen_tps) {
+                                       double gen_tps)
+{
     agent_worker *w = (agent_worker *)ud;
-    if (!w) return;
+    if (!w)
+        return;
     pthread_mutex_lock(&w->mu);
     w->has_timing = true;
     snprintf(w->timing_backend, sizeof(w->timing_backend), "%s",
@@ -8048,12 +10434,16 @@ static void agent_worker_timing_update(void *ud, const char *backend,
     agent_worker_wake(w);
 }
 
-static int agent_worker_submit(agent_worker *w, const char *message) {
-    if (!w || !message) return -1;
+static int agent_worker_submit(agent_worker *w, const char *message)
+{
+    if (!w || !message)
+        return -1;
     char *job = agent_strdup(message);
-    if (!job) return -1;
+    if (!job)
+        return -1;
     pthread_mutex_lock(&w->mu);
-    if (w->busy || w->has_job || w->stop) {
+    if (w->busy || w->has_job || w->stop)
+    {
         pthread_mutex_unlock(&w->mu);
         free(job);
         return -1;
@@ -8067,33 +10457,43 @@ static int agent_worker_submit(agent_worker *w, const char *message) {
     return 0;
 }
 
-static void agent_worker_interrupt(agent_worker *w) {
-    if (!w) return;
+static void agent_worker_interrupt(agent_worker *w)
+{
+    if (!w)
+        return;
     pthread_mutex_lock(&w->mu);
-    if (w->busy || w->has_job) w->interrupt = true;
+    if (w->busy || w->has_job)
+        w->interrupt = true;
     pthread_mutex_unlock(&w->mu);
     agent_worker_wake(w);
 }
 
 static void agent_worker_collect(agent_worker *w, char **out, size_t *out_len,
-                                 bool *turn_done, int *turn_rc) {
+                                 bool *turn_done, int *turn_rc)
+{
     *out = NULL;
-    if (out_len) *out_len = 0;
+    if (out_len)
+        *out_len = 0;
     *turn_done = false;
     *turn_rc = 0;
     pthread_mutex_lock(&w->mu);
-    if (w->out.len > 0) {
+    if (w->out.len > 0)
+    {
         size_t n = w->out.len;
         *out = malloc(n + 1);
-        if (*out) {
+        if (*out)
+        {
             memcpy(*out, w->out.p, n);
             (*out)[n] = '\0';
-            if (out_len) *out_len = n;
+            if (out_len)
+                *out_len = n;
             w->out.len = 0;
-            if (w->out.p) w->out.p[0] = '\0';
+            if (w->out.p)
+                w->out.p[0] = '\0';
         }
     }
-    if (w->turn_done) {
+    if (w->turn_done)
+    {
         *turn_done = true;
         *turn_rc = w->turn_rc;
         w->turn_done = false;
@@ -8101,14 +10501,18 @@ static void agent_worker_collect(agent_worker *w, char **out, size_t *out_len,
     pthread_mutex_unlock(&w->mu);
 }
 
-static void *agent_worker_main(void *ud) {
+static void *agent_worker_main(void *ud)
+{
     agent_worker *w = (agent_worker *)ud;
-    for (;;) {
+    for (;;)
+    {
         pthread_mutex_lock(&w->mu);
-        while (!w->stop && !w->has_job) {
+        while (!w->stop && !w->has_job)
+        {
             pthread_cond_wait(&w->cond, &w->mu);
         }
-        if (w->stop) {
+        if (w->stop)
+        {
             pthread_mutex_unlock(&w->mu);
             break;
         }
@@ -8120,19 +10524,25 @@ static void *agent_worker_main(void *ud) {
         pthread_mutex_unlock(&w->mu);
 
         int rc;
-        if (!strcmp(job, "/compact")) {
+        if (!strcmp(job, "/compact"))
+        {
             char err[160] = {0};
             rc = agent_compact_context(w->agent, "manual /compact", err, sizeof(err)) ? 0 : -1;
-            if (rc) agent_statusf(w->agent, "agent: %s\n", err);
-        } else {
+            if (rc)
+                agent_statusf(w->agent, "agent: %s\n", err);
+        }
+        else
+        {
             rc = run_agent_turn(w->agent, job);
         }
         free(job);
         /* User cancellation is a completed worker job, not a fatal TUI error.
          * Retain the flag until submission of the next job; it also blocks an
          * autosave from replaying the interrupted transcript. */
-        if (agent_should_interrupt(w->agent)) rc = 0;
-        if (rc == 0 && !agent_should_interrupt(w->agent) && w->agent->cfg.conversation) {
+        if (agent_should_interrupt(w->agent))
+            rc = 0;
+        if (rc == 0 && !agent_should_interrupt(w->agent) && w->agent->cfg.conversation)
+        {
             store_save(w->agent, w->agent->cfg.conversation);
         }
 
@@ -8147,7 +10557,8 @@ static void *agent_worker_main(void *ud) {
     return NULL;
 }
 
-static int agent_worker_init(agent_worker *w, agent_state *a) {
+static int agent_worker_init(agent_worker *w, agent_state *a)
+{
     memset(w, 0, sizeof(*w));
     w->agent = a;
     w->wake_rd = -1;
@@ -8157,7 +10568,8 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     pthread_cond_init(&w->cond, NULL);
     sb_init(&w->out);
     int pfd[2];
-    if (pipe(pfd) != 0) return -1;
+    if (pipe(pfd) != 0)
+        return -1;
     w->wake_rd = pfd[0];
     w->wake_wr = pfd[1];
     (void)agent_set_nonblock(w->wake_rd);
@@ -8175,7 +10587,8 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     a->activity_ud = w;
     a->timing_update = agent_worker_timing_update;
     a->timing_ud = w;
-    if (pthread_create(&w->thread, NULL, agent_worker_main, w) != 0) {
+    if (pthread_create(&w->thread, NULL, agent_worker_main, w) != 0)
+    {
         close(w->wake_rd);
         close(w->wake_wr);
         w->wake_rd = -1;
@@ -8185,8 +10598,10 @@ static int agent_worker_init(agent_worker *w, agent_state *a) {
     return 0;
 }
 
-static void agent_worker_destroy(agent_worker *w) {
-    if (!w) return;
+static void agent_worker_destroy(agent_worker *w)
+{
+    if (!w)
+        return;
     pthread_mutex_lock(&w->mu);
     w->stop = true;
     w->interrupt = true;
@@ -8196,42 +10611,53 @@ static void agent_worker_destroy(agent_worker *w) {
     pthread_mutex_unlock(&w->mu);
     agent_worker_wake(w);
     pthread_join(w->thread, NULL);
-    if (w->wake_rd >= 0) close(w->wake_rd);
-    if (w->wake_wr >= 0) close(w->wake_wr);
+    if (w->wake_rd >= 0)
+        close(w->wake_rd);
+    if (w->wake_wr >= 0)
+        close(w->wake_wr);
     sb_free(&w->out);
     pthread_cond_destroy(&w->cond);
     pthread_mutex_destroy(&w->mu);
 }
 
-static int agent_queue_push(agent_input_queue *q, const char *line) {
-    if (q->len == q->cap) {
+static int agent_queue_push(agent_input_queue *q, const char *line)
+{
+    if (q->len == q->cap)
+    {
         int nc = q->cap ? q->cap * 2 : 8;
         char **nv = realloc(q->v, (size_t)nc * sizeof(*nv));
-        if (!nv) return -1;
+        if (!nv)
+            return -1;
         q->v = nv;
         q->cap = nc;
     }
     q->v[q->len] = agent_strdup(line);
-    if (!q->v[q->len]) return -1;
+    if (!q->v[q->len])
+        return -1;
     q->len++;
     return 0;
 }
 
-static char *agent_queue_pop(agent_input_queue *q) {
-    if (!q || q->len == 0) return NULL;
+static char *agent_queue_pop(agent_input_queue *q)
+{
+    if (!q || q->len == 0)
+        return NULL;
     char *out = q->v[0];
     memmove(q->v, q->v + 1, (size_t)(q->len - 1) * sizeof(*q->v));
     q->len--;
     return out;
 }
 
-static void agent_queue_free(agent_input_queue *q) {
-    for (int i = 0; i < q->len; i++) free(q->v[i]);
+static void agent_queue_free(agent_input_queue *q)
+{
+    for (int i = 0; i < q->len; i++)
+        free(q->v[i]);
     free(q->v);
     memset(q, 0, sizeof(*q));
 }
 
-typedef struct {
+typedef struct
+{
     struct linenoiseState edit;
     char prompt[80];
     char status[QW3_AGENT_STATUS_MAX];
@@ -8248,66 +10674,91 @@ typedef struct {
     bool output_cursor_saved;
     bool output_line_open;
     bool prompt_below_output;
+    const char *output_style;
     int output_col;
     double last_prompt_redraw_time;
 } agent_editor;
 
-static void agent_editor_write_terminal_text(const char *text, size_t len) {
+static void agent_editor_write_terminal_text(const char *text, size_t len)
+{
     agent_write_fd_crlf(STDOUT_FILENO, text, len);
 }
 
-static bool agent_editor_get_terminal_size(int *rows, int *cols) {
+static bool agent_editor_get_terminal_size(int *rows, int *cols)
+{
     struct winsize ws;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0) return false;
-    if (ws.ws_row < 1 || ws.ws_col < 1) return false;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0)
+        return false;
+    if (ws.ws_row < 1 || ws.ws_col < 1)
+        return false;
     *rows = ws.ws_row;
     *cols = ws.ws_col;
     return true;
 }
 
-static void agent_editor_csi_cursor(int row, int col) {
+static void agent_editor_csi_cursor(int row, int col)
+{
     char seq[64];
     int n = snprintf(seq, sizeof(seq), "\x1b[%d;%dH", row, col);
-    if (n > 0) agent_write_all(STDOUT_FILENO, seq, (size_t)n);
+    if (n > 0)
+        agent_write_all(STDOUT_FILENO, seq, (size_t)n);
 }
 
-static void agent_editor_save_output_cursor(agent_editor *ed) {
-    if (!ed->scroll_region) return;
+static void agent_editor_save_output_cursor(agent_editor *ed)
+{
+    if (!ed->scroll_region)
+        return;
     agent_write_all(STDOUT_FILENO, "\0337", 2);
     ed->output_cursor_saved = true;
 }
 
-static void agent_editor_restore_output_cursor(agent_editor *ed) {
-    if (!ed->scroll_region) return;
-    if (ed->output_cursor_saved) {
+static void agent_editor_restore_output_cursor(agent_editor *ed)
+{
+    if (!ed->scroll_region)
+        return;
+    if (ed->output_cursor_saved)
+    {
         agent_write_all(STDOUT_FILENO, "\0338", 2);
-    } else {
+    }
+    else
+    {
         agent_editor_csi_cursor(ed->output_bottom, 1);
     }
 }
 
-static void agent_editor_move_to_prompt_row(agent_editor *ed) {
-    if (ed->scroll_region) agent_editor_csi_cursor(ed->prompt_row, 1);
+static void agent_editor_move_to_prompt_row(agent_editor *ed)
+{
+    if (ed->scroll_region)
+        agent_editor_csi_cursor(ed->prompt_row, 1);
 }
 
-static void agent_editor_move_to_prompt_cursor(agent_editor *ed) {
-    if (!ed->scroll_region) return;
-    if (ed->edit.screen_cursor_row > 0 && ed->edit.screen_cursor_col > 0) {
+static void agent_editor_move_to_prompt_cursor(agent_editor *ed)
+{
+    if (!ed->scroll_region)
+        return;
+    if (ed->edit.screen_cursor_row > 0 && ed->edit.screen_cursor_col > 0)
+    {
         agent_editor_csi_cursor(ed->edit.screen_cursor_row,
                                 ed->edit.screen_cursor_col);
-    } else {
+    }
+    else
+    {
         agent_editor_move_to_prompt_row(ed);
     }
 }
 
-static void agent_editor_clear_row(int row) {
+static void agent_editor_clear_row(int row)
+{
     agent_editor_csi_cursor(row, 1);
     agent_write_all(STDOUT_FILENO, "\r\x1b[0K", 5);
 }
 
-static void agent_editor_clear_prompt_region(agent_editor *ed) {
-    if (!ed->scroll_region) return;
-    for (int row = ed->prompt_row; row <= ed->term_rows; row++) {
+static void agent_editor_clear_prompt_region(agent_editor *ed)
+{
+    if (!ed->scroll_region)
+        return;
+    for (int row = ed->prompt_row; row <= ed->term_rows; row++)
+    {
         agent_editor_clear_row(row);
     }
     ed->edit.oldrows = 0;
@@ -8316,32 +10767,44 @@ static void agent_editor_clear_prompt_region(agent_editor *ed) {
     ed->edit.oldpos = ed->edit.pos;
 }
 
-static void agent_editor_set_scroll_margin(int bottom) {
+static void agent_editor_set_scroll_margin(int bottom)
+{
     char seq[96];
     int n = snprintf(seq, sizeof(seq), "\x1b[1;%dr", bottom);
-    if (n > 0) agent_write_all(STDOUT_FILENO, seq, (size_t)n);
+    if (n > 0)
+        agent_write_all(STDOUT_FILENO, seq, (size_t)n);
 }
 
-static void agent_editor_scroll_output_up(int bottom, int lines) {
-    if (lines <= 0) return;
+static void agent_editor_scroll_output_up(int bottom, int lines)
+{
+    if (lines <= 0)
+        return;
     agent_editor_set_scroll_margin(bottom);
     agent_editor_csi_cursor(bottom, 1);
-    for (int i = 0; i < lines; i++) agent_write_all(STDOUT_FILENO, "\n", 1);
+    for (int i = 0; i < lines; i++)
+        agent_write_all(STDOUT_FILENO, "\n", 1);
 }
 
 static bool agent_editor_set_scroll_layout(agent_editor *ed, int reserved_rows,
                                            bool allow_shrink,
-                                           bool scroll_on_grow) {
-    if (!ed->scroll_region) return false;
+                                           bool scroll_on_grow)
+{
+    if (!ed->scroll_region)
+        return false;
     int rows = 0;
     int cols = 0;
-    if (!agent_editor_get_terminal_size(&rows, &cols)) return false;
-    if (rows < 8 || cols < 20) return false;
-    if (reserved_rows < 2) reserved_rows = 2;
-    if (reserved_rows > rows - 2) reserved_rows = rows - 2;
+    if (!agent_editor_get_terminal_size(&rows, &cols))
+        return false;
+    if (rows < 8 || cols < 20)
+        return false;
+    if (reserved_rows < 2)
+        reserved_rows = 2;
+    if (reserved_rows > rows - 2)
+        reserved_rows = rows - 2;
     if (!allow_shrink && ed->reserved_rows > 0 &&
         ed->term_rows == rows && ed->term_cols == cols &&
-        reserved_rows < ed->reserved_rows) {
+        reserved_rows < ed->reserved_rows)
+    {
         reserved_rows = ed->reserved_rows;
     }
 
@@ -8352,12 +10815,14 @@ static bool agent_editor_set_scroll_layout(agent_editor *ed, int reserved_rows,
                    ed->output_bottom != output_bottom ||
                    ed->prompt_row != prompt_row ||
                    ed->reserved_rows != reserved_rows;
-    if (!changed) return true;
+    if (!changed)
+        return true;
 
     bool scrolled_output = false;
     if (scroll_on_grow &&
         ed->term_rows == rows && ed->term_cols == cols &&
-        ed->output_bottom > 0 && output_bottom < ed->output_bottom) {
+        ed->output_bottom > 0 && output_bottom < ed->output_bottom)
+    {
         agent_editor_scroll_output_up(ed->output_bottom,
                                       ed->output_bottom - output_bottom);
         scrolled_output = true;
@@ -8371,11 +10836,14 @@ static bool agent_editor_set_scroll_layout(agent_editor *ed, int reserved_rows,
     ed->reserved_rows = reserved_rows;
     ed->output_cursor_saved = false;
 
-    for (int row = prompt_row; row <= rows; row++) agent_editor_clear_row(row);
+    for (int row = prompt_row; row <= rows; row++)
+        agent_editor_clear_row(row);
 
     int output_col = ed->output_line_open ? ed->output_col + 1 : 1;
-    if (output_col < 1) output_col = 1;
-    if (output_col > cols) output_col = cols;
+    if (output_col < 1)
+        output_col = 1;
+    if (output_col > cols)
+        output_col = cols;
     agent_editor_csi_cursor(output_bottom, output_col);
     agent_editor_save_output_cursor(ed);
     agent_editor_move_to_prompt_row(ed);
@@ -8386,23 +10854,32 @@ static bool agent_editor_set_scroll_layout(agent_editor *ed, int reserved_rows,
 static int agent_editor_linenoise_layout_changed(struct linenoiseState *l,
                                                  size_t prompt_rows,
                                                  size_t status_rows,
-                                                 void *privdata) {
+                                                 void *privdata)
+{
     (void)l;
     agent_editor *ed = (agent_editor *)privdata;
-    if (!ed || !ed->scroll_region) return 0;
-    if (prompt_rows < 1) prompt_rows = 1;
+    if (!ed || !ed->scroll_region)
+        return 0;
+    if (prompt_rows < 1)
+        prompt_rows = 1;
     int reserved = (int)(prompt_rows + status_rows);
-    if (!agent_editor_set_scroll_layout(ed, reserved, true, true)) return 0;
+    if (!agent_editor_set_scroll_layout(ed, reserved, true, true))
+        return 0;
     return ed->prompt_row;
 }
 
-static bool agent_editor_configure_scroll_region(agent_editor *ed) {
-    if (ed->scroll_region) return true;
-    if (!agent_stdout_is_tty() || !isatty(STDIN_FILENO)) return false;
+static bool agent_editor_configure_scroll_region(agent_editor *ed)
+{
+    if (ed->scroll_region)
+        return true;
+    if (!agent_stdout_is_tty() || !isatty(STDIN_FILENO))
+        return false;
     int rows = 0;
     int cols = 0;
-    if (!agent_editor_get_terminal_size(&rows, &cols)) return false;
-    if (rows < 8 || cols < 20) return false;
+    if (!agent_editor_get_terminal_size(&rows, &cols))
+        return false;
+    if (rows < 8 || cols < 20)
+        return false;
     ed->scroll_region = true;
     ed->term_rows = 0;
     ed->term_cols = 0;
@@ -8410,7 +10887,8 @@ static bool agent_editor_configure_scroll_region(agent_editor *ed) {
     ed->prompt_row = 0;
     ed->reserved_rows = 0;
     ed->output_cursor_saved = false;
-    if (!agent_editor_set_scroll_layout(ed, 2, true, false)) {
+    if (!agent_editor_set_scroll_layout(ed, 2, true, false))
+    {
         ed->scroll_region = false;
         return false;
     }
@@ -8422,8 +10900,10 @@ static bool agent_editor_configure_scroll_region(agent_editor *ed) {
     return true;
 }
 
-static void agent_editor_restore_terminal_layout(agent_editor *ed) {
-    if (!ed->scroll_region) return;
+static void agent_editor_restore_terminal_layout(agent_editor *ed)
+{
+    if (!ed->scroll_region)
+        return;
     agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
     agent_write_all(STDOUT_FILENO, "\x1b[r", 3);
     agent_editor_csi_cursor(ed->term_rows, 1);
@@ -8436,22 +10916,26 @@ static void agent_editor_restore_terminal_layout(agent_editor *ed) {
 }
 
 static int agent_editor_start(agent_editor *ed, const char *prompt,
-                              const char *status, const char *initial) {
+                              const char *status, const char *initial)
+{
     memset(&ed->edit, 0, sizeof(ed->edit));
     ed->input = malloc(QW3_AGENT_INPUT_INITIAL_BUFLEN);
-    if (!ed->input) return -1;
+    if (!ed->input)
+        return -1;
     snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
     snprintf(ed->status, sizeof(ed->status), "%s", status ? status : "");
     bool had_scroll_region = ed->scroll_region;
     bool use_scroll_region = agent_editor_configure_scroll_region(ed);
-    if (use_scroll_region) {
+    if (use_scroll_region)
+    {
         if (had_scroll_region)
             agent_editor_set_scroll_layout(ed, 2, true, false);
         agent_editor_move_to_prompt_row(ed);
     }
     if (linenoiseEditStart(&ed->edit, STDIN_FILENO, STDOUT_FILENO,
                            ed->input, QW3_AGENT_INPUT_INITIAL_BUFLEN,
-                           ed->prompt) != 0) {
+                           ed->prompt) != 0)
+    {
         free(ed->input);
         ed->input = NULL;
         agent_editor_restore_terminal_layout(ed);
@@ -8459,22 +10943,24 @@ static int agent_editor_start(agent_editor *ed, const char *prompt,
     }
     linenoiseEditSetStatus(&ed->edit, ed->status,
                            agent_ui_color_enabled() ? QW3_AGENT_STATUS_STYLE_START : "",
-                           agent_ui_color_enabled() && ed->status[0] ?
-                               QW3_AGENT_STATUS_STYLE_END : "");
+                           agent_ui_color_enabled() && ed->status[0] ? QW3_AGENT_STATUS_STYLE_END : "");
     linenoiseEditSetLayoutCallback(&ed->edit,
                                    agent_editor_linenoise_layout_changed, ed);
     ed->edit.buflen_max = QW3_AGENT_INPUT_MAX_BUFLEN;
     ed->active = true;
     ed->hidden = false;
     if (agent_set_nonblock_mode(STDIN_FILENO, true,
-                                &ed->old_stdin_flags) != 0) {
+                                &ed->old_stdin_flags) != 0)
+    {
         ed->old_stdin_flags = -1;
     }
-    if (agent_stdout_is_tty()) {
+    if (agent_stdout_is_tty())
+    {
         linenoiseHide(&ed->edit);
         linenoiseShow(&ed->edit);
     }
-    if (initial && initial[0]) {
+    if (initial && initial[0])
+    {
         linenoiseEditInsert(&ed->edit, initial, strlen(initial));
     }
     ed->output_line_open = false;
@@ -8484,76 +10970,115 @@ static int agent_editor_start(agent_editor *ed, const char *prompt,
     return 0;
 }
 
-static void agent_editor_move_to_output_cursor(agent_editor *ed) {
+static void agent_editor_move_to_output_cursor(agent_editor *ed)
+{
     char seq[64];
     agent_write_all(STDOUT_FILENO, "\x1b[1A", 4);
     int n = snprintf(seq, sizeof(seq), "\x1b[%dG", ed->output_col + 1);
-    if (n > 0) agent_write_all(STDOUT_FILENO, seq, (size_t)n);
+    if (n > 0)
+        agent_write_all(STDOUT_FILENO, seq, (size_t)n);
 }
 
 static void agent_editor_note_output(agent_editor *ed,
-                                     const char *text, size_t len) {
+                                     const char *text, size_t len)
+{
     int cols = ed->edit.cols > 0 ? (int)ed->edit.cols : 80;
-    for (size_t i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++)
+    {
         unsigned char c = (unsigned char)text[i];
-        if (c == 0x1b && i + 1 < len && text[i + 1] == '[') {
+        if (c == 0x1b && i + 1 < len && text[i + 1] == '[')
+        {
+            const size_t start = i;
             i += 2;
-            while (i < len) {
+            while (i < len)
+            {
                 unsigned char e = (unsigned char)text[i];
-                if (e >= 0x40 && e <= 0x7e) break;
+                if (e >= 0x40 && e <= 0x7e)
+                    break;
                 i++;
+            }
+            if (i < len && text[i] == 'm')
+            {
+                static const char *const styles[] = {
+                    AGENT_COLOR_RESET, AGENT_COLOR_DIM, AGENT_COLOR_CODE, AGENT_COLOR_TOOL
+                };
+                const size_t n = i - start + 1;
+                for (size_t j = 0; j < sizeof(styles) / sizeof(styles[0]); j++)
+                {
+                    if (strlen(styles[j]) == n && !memcmp(text + start, styles[j], n))
+                    {
+                        ed->output_style = j == 0 ? NULL : styles[j];
+                        break;
+                    }
+                }
             }
             continue;
         }
-        if (c == '\n') {
+        if (c == '\n')
+        {
             ed->output_col = 0;
             ed->output_line_open = false;
             continue;
         }
-        if (c == '\r') {
+        if (c == '\r')
+        {
             ed->output_col = 0;
             continue;
         }
-        if (c == '\b') {
-            if (ed->output_col > 0) ed->output_col--;
+        if (c == '\b')
+        {
+            if (ed->output_col > 0)
+                ed->output_col--;
             continue;
         }
-        int width = c == '\t' ? 8 - (ed->output_col & 7) :
-                    (c < 0x20 || c == 0x7f) ? 0 : 1;
-        if (c >= 0xc0) {
+        int width = c == '\t' ? 8 - (ed->output_col & 7) : (c < 0x20 || c == 0x7f) ? 0
+                                                                                   : 1;
+        if (c >= 0xc0)
+        {
             while (i + 1 < len &&
-                   (((unsigned char)text[i + 1]) & 0xc0) == 0x80) {
+                   (((unsigned char)text[i + 1]) & 0xc0) == 0x80)
+            {
                 i++;
             }
-        } else if ((c & 0xc0) == 0x80) {
+        }
+        else if ((c & 0xc0) == 0x80)
+        {
             width = 0;
         }
-        if (width > 0) {
+        if (width > 0)
+        {
             ed->output_col = (ed->output_col + width) % cols;
             ed->output_line_open = true;
         }
     }
 }
 
-static void agent_editor_hide(agent_editor *ed) {
-    if (!ed->active || ed->hidden) return;
-    if (ed->scroll_region) {
+static void agent_editor_hide(agent_editor *ed)
+{
+    if (!ed->active || ed->hidden)
+        return;
+    if (ed->scroll_region)
+    {
         agent_editor_clear_prompt_region(ed);
         agent_editor_restore_output_cursor(ed);
         ed->hidden = true;
         return;
     }
     linenoiseHide(&ed->edit);
-    if (ed->prompt_below_output) {
+    if (ed->prompt_below_output)
+    {
         agent_editor_move_to_output_cursor(ed);
         ed->prompt_below_output = false;
     }
     ed->hidden = true;
 }
 
-static void agent_editor_show(agent_editor *ed) {
-    if (!ed->active || !ed->hidden) return;
-    if (ed->scroll_region) {
+static void agent_editor_show(agent_editor *ed)
+{
+    if (!ed->active || !ed->hidden)
+        return;
+    if (ed->scroll_region)
+    {
         agent_editor_save_output_cursor(ed);
         agent_editor_move_to_prompt_row(ed);
         agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
@@ -8562,10 +11087,13 @@ static void agent_editor_show(agent_editor *ed) {
         ed->last_prompt_redraw_time = agent_now_sec();
         return;
     }
-    if (ed->output_line_open) {
+    if (ed->output_line_open)
+    {
         agent_write_all(STDOUT_FILENO, "\r\n", 2);
         ed->prompt_below_output = true;
-    } else {
+    }
+    else
+    {
         ed->prompt_below_output = false;
     }
     agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
@@ -8574,11 +11102,15 @@ static void agent_editor_show(agent_editor *ed) {
     ed->last_prompt_redraw_time = agent_now_sec();
 }
 
-static void agent_editor_stop(agent_editor *ed) {
-    if (!ed->active) return;
-    if (!ed->hidden && agent_stdout_is_tty()) agent_editor_hide(ed);
+static void agent_editor_stop(agent_editor *ed)
+{
+    if (!ed->active)
+        return;
+    if (!ed->hidden && agent_stdout_is_tty())
+        agent_editor_hide(ed);
     linenoiseEditStop(&ed->edit);
-    if (ed->old_stdin_flags >= 0) {
+    if (ed->old_stdin_flags >= 0)
+    {
         fcntl(STDIN_FILENO, F_SETFL, ed->old_stdin_flags);
     }
     free(ed->input);
@@ -8590,48 +11122,58 @@ static void agent_editor_stop(agent_editor *ed) {
     ed->output_col = 0;
 }
 
-static void agent_editor_update_status(agent_editor *ed, const char *status) {
+static void agent_editor_update_status(agent_editor *ed, const char *status)
+{
     snprintf(ed->status, sizeof(ed->status), "%s", status ? status : "");
     linenoiseEditSetStatus(&ed->edit, ed->status,
                            agent_ui_color_enabled() ? QW3_AGENT_STATUS_STYLE_START : "",
-                           agent_ui_color_enabled() && ed->status[0] ?
-                               QW3_AGENT_STATUS_STYLE_END : "");
+                           agent_ui_color_enabled() && ed->status[0] ? QW3_AGENT_STATUS_STYLE_END : "");
 }
 
 static void agent_editor_set_prompt_status(agent_editor *ed,
                                            const char *prompt,
-                                           const char *status) {
+                                           const char *status)
+{
     bool prompt_changed = strcmp(ed->prompt, prompt ? prompt : "") != 0;
     bool status_changed = strcmp(ed->status, status ? status : "") != 0;
-    if (!ed->active || (!prompt_changed && !status_changed)) return;
-    if (ed->hidden) {
-        if (prompt_changed) {
+    if (!ed->active || (!prompt_changed && !status_changed))
+        return;
+    if (ed->hidden)
+    {
+        if (prompt_changed)
+        {
             snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
             ed->edit.prompt = ed->prompt;
             ed->edit.plen = strlen(ed->prompt);
         }
-        if (status_changed) agent_editor_update_status(ed, status);
+        if (status_changed)
+            agent_editor_update_status(ed, status);
         return;
     }
     agent_editor_hide(ed);
-    if (prompt_changed) {
+    if (prompt_changed)
+    {
         snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
         ed->edit.prompt = ed->prompt;
         ed->edit.plen = strlen(ed->prompt);
     }
-    if (status_changed) agent_editor_update_status(ed, status);
+    if (status_changed)
+        agent_editor_update_status(ed, status);
     agent_editor_show(ed);
 }
 
-static bool agent_editor_prompt_redraw_due(agent_editor *ed) {
+static bool agent_editor_prompt_redraw_due(agent_editor *ed)
+{
     double now = agent_now_sec();
     return ed->last_prompt_redraw_time <= 0.0 ||
            now - ed->last_prompt_redraw_time >=
                QW3_AGENT_STATUS_REDRAW_INTERVAL_SEC;
 }
 
-static void agent_editor_redraw_visible_prompt(agent_editor *ed) {
-    if (!ed->active || !ed->scroll_region) return;
+static void agent_editor_redraw_visible_prompt(agent_editor *ed)
+{
+    if (!ed->active || !ed->scroll_region)
+        return;
     agent_editor_clear_prompt_region(ed);
     agent_editor_move_to_prompt_row(ed);
     agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
@@ -8639,15 +11181,25 @@ static void agent_editor_redraw_visible_prompt(agent_editor *ed) {
     ed->last_prompt_redraw_time = agent_now_sec();
 }
 
-static void agent_editor_write_scroll_output(agent_editor *ed,
-                                             const char *text, size_t len) {
-    static const char sync_start[] = "\x1b[?2026h";
-    static const char sync_end[] = "\x1b[?2026l";
-    if (!len) return;
-    agent_write_all(STDOUT_FILENO, sync_start, sizeof(sync_start) - 1);
-    agent_editor_restore_output_cursor(ed);
+static void agent_editor_write_output(agent_editor *ed, const char *text, size_t len)
+{
+    /* The prompt uses its own style between chunks of streamed output. */
+    if (ed->output_style)
+        agent_write_all(STDOUT_FILENO, ed->output_style, strlen(ed->output_style));
     agent_editor_write_terminal_text(text, len);
     agent_editor_note_output(ed, text, len);
+}
+
+static void agent_editor_write_scroll_output(agent_editor *ed,
+                                             const char *text, size_t len)
+{
+    static const char sync_start[] = "\x1b[?2026h";
+    static const char sync_end[] = "\x1b[?2026l";
+    if (!len)
+        return;
+    agent_write_all(STDOUT_FILENO, sync_start, sizeof(sync_start) - 1);
+    agent_editor_restore_output_cursor(ed);
+    agent_editor_write_output(ed, text, len);
     agent_editor_save_output_cursor(ed);
     agent_write_all(STDOUT_FILENO, "\x1b[0m", 4);
     agent_editor_move_to_prompt_cursor(ed);
@@ -8656,60 +11208,74 @@ static void agent_editor_write_scroll_output(agent_editor *ed,
 
 static void agent_editor_write_async(agent_editor *ed, const char *text,
                                      size_t len, const char *prompt,
-                                     const char *status, bool force_show) {
-    if (!ed || !ed->active) {
+                                     const char *status, bool force_show)
+{
+    if (!ed || !ed->active)
+    {
         agent_write_fd_crlf(STDOUT_FILENO, text, len);
         return;
     }
-    if (ed->scroll_region && !ed->hidden && len) {
+    if (ed->scroll_region && !ed->hidden && len)
+    {
         bool prompt_changed = strcmp(ed->prompt, prompt ? prompt : "") != 0;
         bool status_changed = strcmp(ed->status, status ? status : "") != 0;
         agent_editor_write_scroll_output(ed, text, len);
-        if (prompt_changed) {
+        if (prompt_changed)
+        {
             snprintf(ed->prompt, sizeof(ed->prompt), "%s", prompt ? prompt : "");
             ed->edit.prompt = ed->prompt;
             ed->edit.plen = strlen(ed->prompt);
         }
-        if (status_changed) agent_editor_update_status(ed, status);
+        if (status_changed)
+            agent_editor_update_status(ed, status);
         if ((force_show || agent_editor_prompt_redraw_due(ed)) &&
-            (prompt_changed || status_changed)) {
+            (prompt_changed || status_changed))
+        {
             agent_editor_redraw_visible_prompt(ed);
         }
         return;
     }
     agent_editor_hide(ed);
-    if (len) {
-        agent_editor_write_terminal_text(text, len);
-        agent_editor_note_output(ed, text, len);
-    }
-    if (ed->active) {
+    if (len)
+        agent_editor_write_output(ed, text, len);
+    if (ed->active)
+    {
         agent_editor_set_prompt_status(ed, prompt, status);
-        if (force_show || len) agent_editor_show(ed);
+        if (force_show || len)
+            agent_editor_show(ed);
     }
 }
 
-static void agent_editor_read_stdin(agent_editor *ed) {
+static void agent_editor_read_stdin(agent_editor *ed)
+{
     char buf[512];
-    for (;;) {
+    for (;;)
+    {
         ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
-        if (n > 0) {
+        if (n > 0)
+        {
             linenoiseEditQueueInput(&ed->edit, buf, (size_t)n);
             continue;
         }
-        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && errno == EINTR)
+            continue;
         break;
     }
 }
 
 static bool agent_editor_take_queued_byte(agent_editor *ed,
-                                          unsigned char byte) {
+                                          unsigned char byte)
+{
     struct linenoiseState *l = &ed->edit;
-    for (size_t i = l->queued_input_pos; i < l->queued_input_len; i++) {
-        if ((unsigned char)l->queued_input[i] != byte) continue;
+    for (size_t i = l->queued_input_pos; i < l->queued_input_len; i++)
+    {
+        if ((unsigned char)l->queued_input[i] != byte)
+            continue;
         memmove(l->queued_input + i, l->queued_input + i + 1,
                 l->queued_input_len - i - 1);
         l->queued_input_len--;
-        if (l->queued_input_pos > l->queued_input_len) {
+        if (l->queued_input_pos > l->queued_input_len)
+        {
             l->queued_input_pos = l->queued_input_len;
         }
         return true;
@@ -8719,13 +11285,14 @@ static bool agent_editor_take_queued_byte(agent_editor *ed,
 
 static void agent_editor_cancel_input(agent_editor *ed,
                                       const char *prompt,
-                                      const char *status) {
-    if (!ed->active) return;
-    if (ed->hidden) agent_editor_show(ed);
+                                      const char *status)
+{
+    if (!ed->active)
+        return;
+    if (ed->hidden)
+        agent_editor_show(ed);
     linenoiseEditClear(&ed->edit);
-    const char *msg = agent_ui_color_enabled() ?
-        "\033[1;33mpress Ctrl+D to exit\033[0m\n" :
-        "press Ctrl+D to exit\n";
+    const char *msg = agent_ui_color_enabled() ? "\033[1;33mpress Ctrl+D to exit\033[0m\n" : "press Ctrl+D to exit\n";
     agent_editor_write_async(ed, msg, strlen(msg), prompt, status, true);
 }
 
@@ -8733,17 +11300,22 @@ static void agent_build_editor_status(agent_worker *w,
                                       const agent_input_queue *q,
                                       char *status, size_t status_len);
 
-static char *agent_format_user_prompt_echo(const char *text) {
+static char *agent_format_user_prompt_echo(const char *text)
+{
     strbuf out;
     sb_init(&out);
     const bool color = agent_ui_color_enabled();
     sb_append(&out, "\n");
-    if (color) sb_append(&out, "\033[1;38;5;117myou>\033[0m ");
-    else sb_append(&out, "you> ");
+    if (color)
+        sb_append(&out, "\033[1;38;5;117myou>\033[0m ");
+    else
+        sb_append(&out, "you> ");
     const char *p = text ? text : "";
-    while (*p) {
+    while (*p)
+    {
         const char *nl = strchr(p, '\n');
-        if (!nl) {
+        if (!nl)
+        {
             sb_append(&out, p);
             break;
         }
@@ -8758,10 +11330,13 @@ static char *agent_format_user_prompt_echo(const char *text) {
 static void agent_editor_echo_user_prompt(agent_editor *ed,
                                           agent_worker *w,
                                           const agent_input_queue *q,
-                                          const char *line) {
-    if (!line || !line[0]) return;
+                                          const char *line)
+{
+    if (!line || !line[0])
+        return;
     char *echo = agent_format_user_prompt_echo(line);
-    if (!echo) return;
+    if (!echo)
+        return;
     char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(w, q, status, sizeof(status));
     agent_editor_write_async(ed, echo, strlen(echo), agent_editor_prompt(),
@@ -8770,19 +11345,24 @@ static void agent_editor_echo_user_prompt(agent_editor *ed,
 }
 
 static void agent_status_segment(strbuf *out, bool color,
-                                  const char *style, const char *text) {
-    if (color) sb_append(out, style);
+                                 const char *style, const char *text)
+{
+    if (color)
+        sb_append(out, style);
     sb_append(out, text);
-    if (color) sb_append(out, QW3_AGENT_STATUS_TEXT);
+    if (color)
+        sb_append(out, QW3_AGENT_STATUS_TEXT);
 }
 
-static void agent_status_separator(strbuf *out, bool color) {
+static void agent_status_separator(strbuf *out, bool color)
+{
     agent_status_segment(out, color, QW3_AGENT_STATUS_MUTED, "  │  ");
 }
 
 static void agent_build_editor_status(agent_worker *w,
                                       const agent_input_queue *q,
-                                      char *status, size_t status_len) {
+                                      char *status, size_t status_len)
+{
     bool busy = false;
     bool progress_active = false;
     int progress_current = 0;
@@ -8807,32 +11387,45 @@ static void agent_build_editor_status(agent_worker *w,
     strbuf out = {0};
     char field[192];
     sb_append(&out, " ");
-    if (busy && progress_active && progress_total > 0) {
+    if (busy && progress_active && progress_total > 0)
+    {
         int pct = (int)((100.0 * (double)progress_current /
-                         (double)progress_total) + 0.5);
-        if (pct < 0) pct = 0;
-        if (pct > 100) pct = 100;
+                         (double)progress_total) +
+                        0.5);
+        if (pct < 0)
+            pct = 0;
+        if (pct > 100)
+            pct = 100;
         int fill = (int)((12.0 * (double)progress_current /
-                          (double)progress_total) + 0.5);
-        if (fill < 0) fill = 0;
-        if (fill > 12) fill = 12;
+                          (double)progress_total) +
+                         0.5);
+        if (fill < 0)
+            fill = 0;
+        if (fill > 12)
+            fill = 12;
         agent_status_segment(&out, color, QW3_AGENT_STATUS_PROGRESS, "● prefill");
         sb_append(&out, "  ");
-        if (color) sb_append(&out, QW3_AGENT_STATUS_PROGRESS);
-        for (int i = 0; i < 12; i++) {
-            if (color && i == fill) sb_append(&out, QW3_AGENT_STATUS_MUTED);
+        if (color)
+            sb_append(&out, QW3_AGENT_STATUS_PROGRESS);
+        for (int i = 0; i < 12; i++)
+        {
+            if (color && i == fill)
+                sb_append(&out, QW3_AGENT_STATUS_MUTED);
             sb_append(&out, i < fill ? "━" : "─");
         }
-        if (color) sb_append(&out, QW3_AGENT_STATUS_TEXT);
+        if (color)
+            sb_append(&out, QW3_AGENT_STATUS_TEXT);
         snprintf(field, sizeof(field), " %d%%  %d/%d  %.0f tok/s",
                  pct, progress_current, progress_total, progress_tps);
         sb_append(&out, field);
-    } else {
+    }
+    else
+    {
         snprintf(field, sizeof(field), "● %s", busy ? activity : "ready");
         agent_status_segment(&out, color,
-                             !busy ? QW3_AGENT_STATUS_READY :
-                             !strncmp(activity, "tool:", 5) ? QW3_AGENT_STATUS_TOOL :
-                             QW3_AGENT_STATUS_BUSY, field);
+                             !busy ? QW3_AGENT_STATUS_READY : !strncmp(activity, "tool:", 5) ? QW3_AGENT_STATUS_TOOL
+                                                                                             : QW3_AGENT_STATUS_BUSY,
+                             field);
         agent_status_separator(&out, color);
         snprintf(field, sizeof(field), "ctx %d/%d",
                  w->agent->transcript.len, w->agent->cfg.ctx_size);
@@ -8841,18 +11434,21 @@ static void agent_build_editor_status(agent_worker *w,
         snprintf(field, sizeof(field), "tools %s", w->agent->cfg.tools_enabled ? "on" : "off");
         sb_append(&out, field);
         qw3_think_mode active_think = w->agent->cfg.think_mode;
-        if (active_think != QW3_THINK_NONE) {
+        if (active_think != QW3_THINK_NONE)
+        {
             agent_status_separator(&out, color);
             snprintf(field, sizeof(field), "think %s", qw3_think_mode_name(active_think));
             sb_append(&out, field);
         }
     }
-    if (q && q->len > 0) {
+    if (q && q->len > 0)
+    {
         agent_status_separator(&out, color);
         snprintf(field, sizeof(field), "queued %d", q->len);
         agent_status_segment(&out, color, QW3_AGENT_STATUS_TOOL, field);
     }
-    if (has_timing) {
+    if (has_timing)
+    {
         agent_status_separator(&out, color);
         snprintf(field, sizeof(field), "pp %d@%.0f/s  tg %d@%.1f/s",
                  timing_prefill_tokens, timing_prefill_tps,
@@ -8863,7 +11459,8 @@ static void agent_build_editor_status(agent_worker *w,
     sb_free(&out);
 }
 
-static int agent_status_line_selftest(void) {
+static int agent_status_line_selftest(void)
+{
     agent_state state = {0};
     state.cfg.ctx_size = 32000;
     state.cfg.tools_enabled = true;
@@ -8878,7 +11475,8 @@ static int agent_status_line_selftest(void) {
     char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
     if (!strstr(status, "tool:visit_url") ||
-        !strstr(status, "queued 2")) {
+        !strstr(status, "queued 2"))
+    {
         pthread_mutex_destroy(&worker.mu);
         return 1;
     }
@@ -8889,7 +11487,8 @@ static int agent_status_line_selftest(void) {
     worker.progress_tps = 300.0;
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
     if (!strstr(status, "prefill") ||
-        !strstr(status, "256/1024")) {
+        !strstr(status, "256/1024"))
+    {
         pthread_mutex_destroy(&worker.mu);
         return 2;
     }
@@ -8903,27 +11502,35 @@ static int agent_status_line_selftest(void) {
 
 static void agent_redraw_editor(agent_editor *edit,
                                 agent_worker *w,
-                                const agent_input_queue *q) {
-    if (!edit) return;
+                                const agent_input_queue *q)
+{
+    if (!edit)
+        return;
     char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(w, q, status, sizeof(status));
     agent_editor_set_prompt_status(edit, agent_editor_prompt(), status);
 }
 
 static int agent_submit_or_queue(agent_worker *w, agent_input_queue *q,
-                                 const char *message) {
-    if (!agent_worker_is_busy(w) && q->len == 0) {
+                                 const char *message)
+{
+    if (!agent_worker_is_busy(w) && q->len == 0)
+    {
         return agent_worker_submit(w, message);
     }
-    if (agent_queue_push(q, message) != 0) return -1;
+    if (agent_queue_push(q, message) != 0)
+        return -1;
     agent_statusf(w->agent, "agent: queued prompt (%d pending)\n", q->len);
     return 0;
 }
 
-static int agent_submit_next_if_idle(agent_worker *w, agent_input_queue *q) {
-    if (agent_worker_is_busy(w) || q->len == 0) return 0;
+static int agent_submit_next_if_idle(agent_worker *w, agent_input_queue *q)
+{
+    if (agent_worker_is_busy(w) || q->len == 0)
+        return 0;
     char *next = agent_queue_pop(q);
-    if (!next) return 0;
+    if (!next)
+        return 0;
     int rc = agent_worker_submit(w, next);
     free(next);
     return rc;
@@ -8933,7 +11540,8 @@ static void agent_display_worker_output(agent_worker *w,
                                         agent_editor *edit,
                                         const agent_input_queue *q,
                                         bool *streaming_output,
-                                        bool *turn_done, int *turn_rc) {
+                                        bool *turn_done, int *turn_rc)
+{
     char *out = NULL;
     size_t out_len = 0;
     bool done = false;
@@ -8943,58 +11551,77 @@ static void agent_display_worker_output(agent_worker *w,
     char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(w, q, status, sizeof(status));
     bool had_out = out != NULL;
-    if (out) {
-        if (edit) {
+    if (out)
+    {
+        if (edit)
+        {
             bool force_show = !busy_now || done;
             agent_editor_write_async(edit, out, out_len, agent_editor_prompt(),
                                      status, force_show);
-        } else {
+        }
+        else
+        {
             agent_write_fd_crlf(STDOUT_FILENO, out, out_len);
             fflush(stdout);
         }
-        if (streaming_output && busy_now) *streaming_output = true;
+        if (streaming_output && busy_now)
+            *streaming_output = true;
         free(out);
     }
-    if (!busy_now && streaming_output) *streaming_output = false;
-    if (done && streaming_output) *streaming_output = false;
-    if (edit) {
-        if (!had_out || !streaming_output || !*streaming_output) {
+    if (!busy_now && streaming_output)
+        *streaming_output = false;
+    if (done && streaming_output)
+        *streaming_output = false;
+    if (edit)
+    {
+        if (!had_out || !streaming_output || !*streaming_output)
+        {
             agent_redraw_editor(edit, w, q);
         }
     }
-    if (done) {
+    if (done)
+    {
         *turn_done = true;
         *turn_rc = rc;
     }
 }
 
 static int agent_process_interactive_line(agent_state *a, agent_worker *w,
-                                          agent_input_queue *q, char *line) {
-    if (!line || !line[0]) return 0;
+                                          agent_input_queue *q, char *line)
+{
+    if (!line || !line[0])
+        return 0;
     linenoiseHistoryAdd(line);
-    if (!strcmp(line, "/quit") || !strcmp(line, "/exit")) {
+    if (!strcmp(line, "/quit") || !strcmp(line, "/exit"))
+    {
         return -1;
     }
-    if (!strcmp(line, "/interrupt") || !strcmp(line, "/stop")) {
+    if (!strcmp(line, "/interrupt") || !strcmp(line, "/stop"))
+    {
         agent_worker_interrupt(w);
         agent_statusf(a, "agent: interrupt requested\n");
         return 0;
     }
-    if (line[0] == '/' && agent_worker_is_busy(w)) {
+    if (line[0] == '/' && agent_worker_is_busy(w))
+    {
         agent_statusf(a, "agent: busy; use /interrupt or wait for the prompt\n");
         return 0;
     }
-    if (!strcmp(line, "/compact")) {
+    if (!strcmp(line, "/compact"))
+    {
         return agent_submit_or_queue(w, q, line);
     }
-    if (line[0] == '/') {
+    if (line[0] == '/')
+    {
         char *message = NULL;
         int action = handle_command(a, line, &message);
-        if (action < 0) {
+        if (action < 0)
+        {
             free(message);
             return -1;
         }
-        if (action == 1) {
+        if (action == 1)
+        {
             int rc = agent_submit_or_queue(w, q, message);
             free(message);
             return rc;
@@ -9004,15 +11631,18 @@ static int agent_process_interactive_line(agent_state *a, agent_worker *w,
     return agent_submit_or_queue(w, q, line);
 }
 
-static int interactive_loop_worker(agent_state *a) {
+static int interactive_loop_worker(agent_state *a)
+{
     char *hist = path_join(a->cfg.store_dir, "history");
-    if (hist) {
+    if (hist)
+    {
         linenoiseHistorySetMaxLen(1000);
         linenoiseHistoryLoad(hist);
     }
 
     agent_worker worker;
-    if (agent_worker_init(&worker, a) != 0) {
+    if (agent_worker_init(&worker, a) != 0)
+    {
         fprintf(stderr, "agent: cannot start worker thread\n");
         free(hist);
         return 1;
@@ -9038,14 +11668,18 @@ static int interactive_loop_worker(agent_state *a) {
     linenoiseSetMultiLine(1);
     char status[QW3_AGENT_STATUS_MAX];
     agent_build_editor_status(&worker, &queue, status, sizeof(status));
-    if (agent_editor_start(&edit, agent_editor_prompt(), status, NULL) != 0) {
+    if (agent_editor_start(&edit, agent_editor_prompt(), status, NULL) != 0)
+    {
         rc = 1;
         done = true;
-    } else {
+    }
+    else
+    {
         edit_active = true;
     }
 
-    while (!done) {
+    while (!done)
+    {
         struct pollfd fds[2];
         fds[0].fd = STDIN_FILENO;
         fds[0].events = POLLIN;
@@ -9054,35 +11688,49 @@ static int interactive_loop_worker(agent_state *a) {
         fds[1].events = POLLIN;
         fds[1].revents = 0;
         int timeout = edit_active &&
-                      linenoiseEditQueuedInput(&edit.edit) > 0 ? 0 : 100;
+                              linenoiseEditQueuedInput(&edit.edit) > 0
+                          ? 0
+                          : 100;
         int pr = poll(fds, 2, timeout);
-        if (g_agent_sigint) {
+        if (g_agent_sigint)
+        {
             g_agent_sigint = 0;
-            if (agent_worker_is_busy(&worker)) {
+            if (agent_worker_is_busy(&worker))
+            {
                 agent_worker_interrupt(&worker);
                 agent_statusf(a, "\nagent: interrupt requested\n");
-            } else {
+            }
+            else
+            {
                 agent_build_editor_status(&worker, &queue, status, sizeof(status));
                 agent_editor_cancel_input(&edit, agent_editor_prompt(), status);
             }
         }
-        if (pr < 0) {
-            if (errno == EINTR) continue;
+        if (pr < 0)
+        {
+            if (errno == EINTR)
+                continue;
             rc = 1;
             break;
         }
-        if (pr > 0 && (fds[0].revents & POLLIN) && edit_active) {
+        if (pr > 0 && (fds[0].revents & POLLIN) && edit_active)
+        {
             agent_editor_read_stdin(&edit);
         }
-        if (edit_active && agent_editor_take_queued_byte(&edit, 3)) {
-            if (agent_worker_is_busy(&worker)) {
+        if (edit_active && agent_editor_take_queued_byte(&edit, 3))
+        {
+            if (agent_worker_is_busy(&worker))
+            {
                 agent_worker_interrupt(&worker);
-            } else {
+            }
+            else
+            {
                 agent_build_editor_status(&worker, &queue, status, sizeof(status));
                 agent_editor_cancel_input(&edit, agent_editor_prompt(), status);
             }
         }
-        if (fds[1].revents & POLLIN) {
+        if (fds[1].revents & POLLIN)
+        {
             agent_worker_drain_wake(&worker);
         }
 
@@ -9091,29 +11739,40 @@ static int interactive_loop_worker(agent_state *a) {
         agent_display_worker_output(&worker, edit_active ? &edit : NULL,
                                     &queue, &streaming_output,
                                     &turn_done, &turn_rc);
-        if (turn_done) {
-            if (turn_rc != 0) rc = 1;
-            if (agent_submit_next_if_idle(&worker, &queue) != 0) rc = 1;
-            if (edit_active) {
+        if (turn_done)
+        {
+            if (turn_rc != 0)
+                rc = 1;
+            if (agent_submit_next_if_idle(&worker, &queue) != 0)
+                rc = 1;
+            if (edit_active)
+            {
                 agent_redraw_editor(&edit, &worker, &queue);
             }
         }
 
-        if (edit_active && !edit.hidden) {
+        if (edit_active && !edit.hidden)
+        {
             agent_build_editor_status(&worker, &queue, status, sizeof(status));
             agent_editor_set_prompt_status(&edit, agent_editor_prompt(), status);
         }
 
-        if (edit_active && linenoiseEditQueuedInput(&edit.edit) > 0) {
-            if (edit.hidden) agent_editor_show(&edit);
+        if (edit_active && linenoiseEditQueuedInput(&edit.edit) > 0)
+        {
+            if (edit.hidden)
+                agent_editor_show(&edit);
             errno = 0;
             char *line = linenoiseEditFeed(&edit.edit);
-            if (line == linenoiseEditMore) {
+            if (line == linenoiseEditMore)
+            {
                 continue;
             }
-            if (!line) {
-                if (errno == EAGAIN) {
-                    if (agent_worker_is_busy(&worker)) {
+            if (!line)
+            {
+                if (errno == EAGAIN)
+                {
+                    if (agent_worker_is_busy(&worker))
+                    {
                         agent_worker_interrupt(&worker);
                         agent_statusf(a, "\nagent: interrupt requested\n");
                     }
@@ -9129,7 +11788,8 @@ static int interactive_loop_worker(agent_state *a) {
             agent_editor_echo_user_prompt(&edit, &worker, &queue, line);
             int action = agent_process_interactive_line(a, &worker, &queue, line);
             linenoiseFree(line);
-            if (action < 0) {
+            if (action < 0)
+            {
                 done = true;
                 break;
             }
@@ -9139,19 +11799,27 @@ static int interactive_loop_worker(agent_state *a) {
             agent_display_worker_output(&worker, NULL, &queue,
                                         &streaming_output,
                                         &turn_done, &turn_rc);
-            if (turn_done) {
-                if (turn_rc != 0) rc = 1;
-                if (agent_submit_next_if_idle(&worker, &queue) != 0) rc = 1;
+            if (turn_done)
+            {
+                if (turn_rc != 0)
+                    rc = 1;
+                if (agent_submit_next_if_idle(&worker, &queue) != 0)
+                    rc = 1;
             }
 
-            if (!done) {
+            if (!done)
+            {
                 agent_build_editor_status(&worker, &queue, status, sizeof(status));
-                if (agent_editor_start(&edit, agent_editor_prompt(), status, NULL) != 0) {
+                if (agent_editor_start(&edit, agent_editor_prompt(), status, NULL) != 0)
+                {
                     rc = 1;
                     done = true;
-                } else {
+                }
+                else
+                {
                     edit_active = true;
-                    if (!streaming_output) {
+                    if (!streaming_output)
+                    {
                         agent_redraw_editor(&edit, &worker, &queue);
                     }
                 }
@@ -9159,11 +11827,13 @@ static int interactive_loop_worker(agent_state *a) {
         }
     }
 
-    if (edit_active) agent_editor_stop(&edit);
+    if (edit_active)
+        agent_editor_stop(&edit);
     agent_editor_restore_terminal_layout(&edit);
     agent_queue_free(&queue);
     sigaction(SIGINT, &old_int, NULL);
-    if (hist) {
+    if (hist)
+    {
         linenoiseHistorySave(hist);
         free(hist);
     }
@@ -9181,78 +11851,388 @@ static int interactive_loop_worker(agent_state *a) {
     return rc;
 }
 
-static int interactive_loop_blocking(agent_state *a) {
+static int interactive_loop_blocking(agent_state *a)
+{
     char *hist = path_join(a->cfg.store_dir, "history");
-    if (hist) {
+    if (hist)
+    {
         linenoiseHistorySetMaxLen(1000);
         linenoiseHistoryLoad(hist);
     }
     fprintf(stderr, "qw3-agent ready. /help for commands. store=%s\n",
             a->cfg.store_dir);
     int rc = 0;
-    for (;;) {
+    for (;;)
+    {
         char *line = read_line_agent(a);
-        if (!line) break;
-        if (!line[0]) {
+        if (!line)
+            break;
+        if (!line[0])
+        {
             linenoiseFree(line);
             continue;
         }
         char *message = NULL;
         int action = handle_command(a, line, &message);
         linenoiseFree(line);
-        if (action < 0) break;
-        if (action == 0) continue;
+        if (action < 0)
+            break;
+        if (action == 0)
+            continue;
         int turn_rc = run_agent_turn(a, message);
-        if (turn_rc != 0) {
+        if (turn_rc != 0)
+        {
             free(message);
             rc = 1;
             break;
         }
         free(message);
-        if (a->cfg.conversation) store_save(a, a->cfg.conversation);
+        if (a->cfg.conversation)
+            store_save(a, a->cfg.conversation);
     }
-    if (hist) {
+    if (hist)
+    {
         linenoiseHistorySave(hist);
         free(hist);
     }
     return rc;
 }
 
-static int interactive_loop(agent_state *a) {
-    if (isatty(STDIN_FILENO)) return interactive_loop_worker(a);
+static int interactive_loop(agent_state *a)
+{
+    if (isatty(STDIN_FILENO))
+        return interactive_loop_worker(a);
     return interactive_loop_blocking(a);
 }
 
-typedef struct {
+#ifdef QW3_ENABLE_VOICE
+static bool agent_voice_interrupted(void *ud)
+{
+    (void)ud;
+    return g_agent_sigint != 0;
+}
+
+static void agent_voice_final(void *ud, const char *text, size_t n)
+{
+    sb_append_n((strbuf *)ud, text, n);
+}
+
+static int agent_voice_activate(agent_state *a)
+{
+    char error[512] = {0};
+    if (qw3_voice_release_models(a->cfg.voice, agent_voice_interrupted, NULL,
+                                 error, sizeof(error)) != 0)
+    {
+        agent_statusf(a, "voice: %s\n", error);
+        return -1;
+    }
+    return qw3_engine_set_weights_active(a->engine, true);
+}
+
+/* Keep audio on the main thread; AVFoundation uses its run loop. */
+static int agent_voice_turn(agent_state *a, const char *message, bool *spoken_out)
+{
+    const double turn_started = agent_now_sec();
+    if (spoken_out)
+        *spoken_out = false;
+    strbuf final;
+    sb_init(&final);
+    a->final_write = agent_voice_final;
+    a->final_ud = &final;
+    int rc;
+    @autoreleasepool
+    {
+        if (agent_voice_activate(a) != 0)
+        {
+            agent_statusf(a, "voice: cannot reactivate model weights\n");
+            a->final_write = NULL;
+            a->final_ud = NULL;
+            sb_free(&final);
+            return -1;
+        }
+        rc = run_agent_turn(a, message);
+        if (rc == 0 && a->cfg.conversation)
+            store_save(a, a->cfg.conversation);
+    }
+    a->final_write = NULL;
+    a->final_ud = NULL;
+    char *prose = qw3_voice_prepare_text(final.p, qw3_think_mode_enabled(a->cfg.think_mode));
+    sb_free(&final);
+    if (qw3_engine_set_weights_active(a->engine, false) != 0)
+    {
+        agent_statusf(a, "voice: cannot release model weight views\n");
+        free(prose);
+        return -1;
+    }
+    if (rc == 0 && prose && prose[0] && !g_agent_sigint)
+    {
+        char error[512] = {0};
+        qw3_voice_speech_stats speech = {0};
+        double handoff_ms = (agent_now_sec() - turn_started) * 1000;
+        agent_statusf(a, "voice: synthesizing final answer...\n");
+        int audio_rc = qw3_voice_speak(a->cfg.voice, prose, qw3_voice_play,
+                                       agent_voice_interrupted, NULL, &speech, error, sizeof(error));
+        if (audio_rc)
+            agent_statusf(a, "voice: %s (text answer remains available)\n", error);
+        else if (spoken_out)
+            *spoken_out = true;
+        agent_trace_begin(a, "voice_audio");
+        agent_trace_i64(a, "chunks_total", (int64_t)speech.chunks_total);
+        agent_trace_i64(a, "chunks_played", (int64_t)speech.chunks_played);
+        agent_trace_f64(a, "generation_and_handoff_ms", handoff_ms);
+        agent_trace_f64(a, "first_chunk_ready_ms", speech.first_chunk_ready_ms);
+        agent_trace_f64(a, "synthesis_ms", speech.synthesis_ms);
+        agent_trace_f64(a, "playback_ms", speech.playback_ms);
+        agent_trace_f64(a, "audio_total_ms", speech.total_ms);
+        agent_trace_i64(a, "wired_before_bytes", (int64_t)speech.wired_before_bytes);
+        agent_trace_i64(a, "wired_sample_max_bytes", (int64_t)speech.wired_sample_max_bytes);
+        agent_trace_bool(a, "ok", audio_rc == 0);
+        agent_trace_end(a);
+    }
+    free(prose);
+    return rc;
+}
+
+static int interactive_loop_voice(agent_state *a)
+{
+    struct sigaction sa = {0}, previous;
+    sa.sa_handler = agent_sigint_handler;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, &previous);
+    a->should_interrupt = agent_voice_interrupted;
+    a->interrupt_ud = NULL;
+    if (qw3_engine_set_weights_active(a->engine, false) != 0)
+    {
+        a->should_interrupt = NULL;
+        sigaction(SIGINT, &previous, NULL);
+        return 1;
+    }
+    fprintf(stderr,
+            "qw3 voice ready. Enter or /voice starts recording; silence or Enter stops.\n"
+            "/listen starts continuous turns; Ctrl-C returns to the keyboard.\n"
+            "Type a message or /help for normal agent commands. Ctrl-C cancels audio/generation.\n"
+            "Recognized speech is sent as a user message, never interpreted as a slash command.\n");
+    int rc = 0;
+    bool continuous = false;
+    for (;;)
+    {
+        if (g_agent_sigint)
+            continuous = false;
+        g_agent_sigint = 0;
+        char *line = continuous ? agent_strdup("/voice") : read_line_agent(a);
+        if (!line)
+        {
+            if (g_agent_sigint)
+                continue;
+            break;
+        }
+        if (!strcmp(line, "/quit") || !strcmp(line, "/exit"))
+        {
+            linenoiseFree(line);
+            break;
+        }
+        if (!strcmp(line, "/help"))
+        {
+            interactive_help();
+            fprintf(stderr, "  /voice or Enter    Record speech; silence or Enter stops\n"
+                            "  /listen [on|off]   Continuous turns; Ctrl-C returns to keyboard\n"
+                            "  /speed [0.5..2|default]  Show/change speech speed for this session\n");
+            linenoiseFree(line);
+            continue;
+        }
+        if (!strcmp(line, "/speed") || !strncmp(line, "/speed ", 7))
+        {
+            char error[512] = {0};
+            const char *value = line + 6;
+            while (isspace((unsigned char)*value))
+                value++;
+            int status = 0;
+            if (*value)
+            {
+                char *end = NULL;
+                double speed = 0;
+                if (strcmp(value, "default"))
+                {
+                    errno = 0;
+                    speed = strtod(value, &end);
+                    while (end && isspace((unsigned char)*end))
+                        end++;
+                    if (errno || end == value || !end || *end || speed == 0)
+                        status = -1;
+                }
+                if (!status)
+                    status = qw3_voice_set_speed(a->cfg.voice, speed, error, sizeof(error));
+            }
+            if (status)
+            {
+                fprintf(stderr, "voice: use /speed 0.5..2 or /speed default\n");
+            }
+            else
+            {
+                double speed = qw3_voice_get_speed(a->cfg.voice);
+                if (speed > 0)
+                    fprintf(stderr, "voice: speech speed %.3g (this session)\n", speed);
+                else
+                    fprintf(stderr, "voice: speech speed uses the audio.cpp server default\n");
+            }
+            linenoiseFree(line);
+            continue;
+        }
+        if (!strcmp(line, "/listen off"))
+        {
+            continuous = false;
+            linenoiseFree(line);
+            continue;
+        }
+        if (!strcmp(line, "/listen") || !strcmp(line, "/listen on"))
+        {
+            continuous = true;
+            fprintf(stderr, "voice: continuous turns enabled; Ctrl-C returns to the keyboard.\n");
+            linenoiseFree(line);
+            line = agent_strdup("/voice");
+            if (!line)
+            {
+                rc = -1;
+                break;
+            }
+        }
+        char *message = NULL;
+        if (!line[0] || !strcmp(line, "/voice"))
+        {
+            char directory[] = "/tmp/qw3-record-XXXXXX";
+            char error[512] = {0};
+            if (!mkdtemp(directory))
+            {
+                fprintf(stderr, "voice: cannot create temporary directory: %s\n", strerror(errno));
+            }
+            else
+            {
+                char *wav = path_join(directory, "input.wav");
+                if (!wav)
+                {
+                    fprintf(stderr, "voice: out of memory\n");
+                }
+                else if (qw3_voice_record(a->cfg.voice, wav, agent_voice_interrupted, NULL,
+                                          error, sizeof(error)) == 0)
+                {
+                    fprintf(stderr, "voice: transcribing...\n");
+                    if (qw3_voice_transcribe(a->cfg.voice, wav, &message, agent_voice_interrupted, NULL,
+                                             error, sizeof(error)) == 0)
+                        fprintf(stderr, "voice: %s\n", message);
+                }
+                if (error[0])
+                    fprintf(stderr, "voice: %s\n", error);
+                if (wav)
+                {
+                    unlink(wav);
+                    free(wav);
+                }
+                rmdir(directory);
+            }
+        }
+        else
+        {
+            /* Commands such as /new and /compact can themselves run inference. */
+            int action;
+            @autoreleasepool
+            {
+                if (agent_voice_activate(a) != 0)
+                {
+                    linenoiseFree(line);
+                    rc = -1;
+                    break;
+                }
+                action = handle_command(a, line, &message);
+            }
+            if (action < 0)
+            {
+                linenoiseFree(line);
+                break;
+            }
+            if (!message && qw3_engine_set_weights_active(a->engine, false) != 0)
+            {
+                linenoiseFree(line);
+                rc = -1;
+                break;
+            }
+        }
+        linenoiseFree(line);
+        if (message && !g_agent_sigint)
+        {
+            bool spoken = false;
+            rc = agent_voice_turn(a, message, &spoken);
+            free(message);
+            if (rc != 0)
+                break;
+            if (!spoken || g_agent_sigint)
+                continuous = false;
+        }
+        else
+        {
+            free(message);
+            continuous = false;
+        }
+        if (continuous)
+        {
+            /* Let the speaker's acoustic tail settle before reopening the mic. */
+            double resume = agent_now_sec() + 0.3;
+            while (agent_now_sec() < resume && !g_agent_sigint)
+                usleep(10000);
+            if (g_agent_sigint)
+                continuous = false;
+            else
+                fprintf(stderr, "voice: listening for the next turn...\n");
+        }
+    }
+    a->should_interrupt = NULL;
+    a->interrupt_ud = NULL;
+    sigaction(SIGINT, &previous, NULL);
+    return rc == 0 ? 0 : 1;
+}
+#endif
+
+typedef struct
+{
     bool active;
 } agent_direct_progress;
 
-static bool agent_direct_progress_enabled(void) {
+static bool agent_direct_progress_enabled(void)
+{
     const char *force = getenv("QW3_AGENT_PROGRESS");
     return (force && force[0] && strcmp(force, "0")) || isatty(STDERR_FILENO);
 }
 
 static void agent_direct_progress_update(void *ud, const char *phase,
-                                         int current, int total, double tps) {
+                                         int current, int total, double tps)
+{
     agent_direct_progress *p = (agent_direct_progress *)ud;
-    if (!p || !phase) return;
-    if (!strcmp(phase, "prefill_done")) {
-        if (p->active) {
+    if (!p || !phase)
+        return;
+    if (!strcmp(phase, "prefill_done"))
+    {
+        if (p->active)
+        {
             fprintf(stderr, "\n");
             fflush(stderr);
             p->active = false;
         }
         return;
     }
-    if (strcmp(phase, "prefill") || total <= 0) return;
+    if (strcmp(phase, "prefill") || total <= 0)
+        return;
     int pct = (int)((100.0 * (double)current / (double)total) + 0.5);
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
+    if (pct < 0)
+        pct = 0;
+    if (pct > 100)
+        pct = 100;
     char bar[25];
     int fill = (int)((24.0 * (double)current / (double)total) + 0.5);
-    if (fill < 0) fill = 0;
-    if (fill > 24) fill = 24;
-    for (int i = 0; i < 24; i++) bar[i] = i < fill ? '=' : '.';
+    if (fill < 0)
+        fill = 0;
+    if (fill > 24)
+        fill = 24;
+    for (int i = 0; i < 24; i++)
+        bar[i] = i < fill ? '=' : '.';
     bar[24] = '\0';
     fprintf(stderr, "\rprefill [%s] %d/%d %d%% %.1f tok/s",
             bar, current, total, pct, tps);
@@ -9260,56 +12240,68 @@ static void agent_direct_progress_update(void *ud, const char *phase,
     p->active = true;
 }
 
-
-int main(int argc, char **argv) {
-    if (getenv("QW3_AGENT_TOOL_PARSE_SELFTEST")) {
+int main(int argc, char **argv)
+{
+    if (getenv("QW3_AGENT_TOOL_PARSE_SELFTEST"))
+    {
         int rc = agent_tool_parse_selftest();
-        if (rc != 0) {
+        if (rc != 0)
+        {
             fprintf(stderr, "test-agent-tool-parse: FAIL case %d\n", rc);
             return 1;
         }
         fprintf(stderr, "test-agent-tool-parse: ok\n");
         return 0;
     }
-    if (getenv("QW3_AGENT_STATUS_SELFTEST")) {
+    if (getenv("QW3_AGENT_STATUS_SELFTEST"))
+    {
         int rc = agent_status_line_selftest();
-        if (rc != 0) {
+        if (rc != 0)
+        {
             fprintf(stderr, "test-agent-status: FAIL case %d\n", rc);
             return 1;
         }
         fprintf(stderr, "test-agent-status: ok\n");
         return 0;
     }
-    if (getenv("QW3_AGENT_COLOR_SELFTEST")) {
+    if (getenv("QW3_AGENT_COLOR_SELFTEST"))
+    {
         int rc = agent_renderer_color_selftest();
-        if (rc != 0) {
+        if (rc != 0)
+        {
             fprintf(stderr, "test-agent-color: FAIL case %d\n", rc);
             return 1;
         }
         fprintf(stderr, "test-agent-color: ok\n");
         return 0;
     }
-    if (getenv("QW3_AGENT_CONTEXT_LEDGER_SELFTEST")) {
+    if (getenv("QW3_AGENT_CONTEXT_LEDGER_SELFTEST"))
+    {
         int rc = agent_context_ledger_selftest();
-        if (rc != 0) {
+        if (rc != 0)
+        {
             fprintf(stderr, "test-agent-context: FAIL case %d\n", rc);
             return 1;
         }
         fprintf(stderr, "test-agent-context: ok\n");
         return 0;
     }
-    if (getenv("QW3_AGENT_VERIFY_GUARD_SELFTEST")) {
+    if (getenv("QW3_AGENT_VERIFY_GUARD_SELFTEST"))
+    {
         int rc = agent_verify_guard_selftest();
-        if (rc != 0) {
+        if (rc != 0)
+        {
             fprintf(stderr, "test-agent-verify: FAIL case %d\n", rc);
             return 1;
         }
         fprintf(stderr, "test-agent-verify: ok\n");
         return 0;
     }
-    if (getenv("QW3_AGENT_REPEAT_GUARD_SELFTEST")) {
+    if (getenv("QW3_AGENT_REPEAT_GUARD_SELFTEST"))
+    {
         int rc = agent_repeat_guard_selftest();
-        if (rc != 0) {
+        if (rc != 0)
+        {
             fprintf(stderr, "test-agent-repeat-guard: FAIL case %d\n", rc);
             return 1;
         }
@@ -9317,26 +12309,54 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-
     agent_state a;
     memset(&a, 0, sizeof(a));
-    if (parse_args(&a.cfg, argc, argv) != 0) {
+    if (parse_args(&a.cfg, argc, argv) != 0)
+    {
         free_config(&a.cfg);
         return 1;
     }
-    if (agent_prepare_chdir_paths(&a.cfg) != 0) {
+#ifdef QW3_ENABLE_VOICE
+    if (a.cfg.voice_config_path)
+    {
+        char error[512] = {0};
+        if (qw3_voice_open(&a.cfg.voice, a.cfg.voice_config_path, error, sizeof(error)) != 0 ||
+            qw3_voice_check(a.cfg.voice, error, sizeof(error)) != 0)
+        {
+            fprintf(stderr, "voice: %s\n", error);
+            free_config(&a.cfg);
+            return 1;
+        }
+        if (a.cfg.voice_check)
+        {
+            fprintf(stderr, "voice: audio.cpp is ready; ASR and TTS model IDs are configured (inference not checked).\n");
+            free_config(&a.cfg);
+            return 0;
+        }
+        if (qw3_voice_release_models(a.cfg.voice, NULL, NULL, error, sizeof(error)) != 0)
+        {
+            fprintf(stderr, "voice: %s\n", error);
+            free_config(&a.cfg);
+            return 1;
+        }
+    }
+#endif
+    if (agent_prepare_chdir_paths(&a.cfg) != 0)
+    {
         free_config(&a.cfg);
         return 1;
     }
     a.output_color = !getenv("NO_COLOR") &&
                      (isatty(STDOUT_FILENO) || isatty(STDERR_FILENO));
-    if (a.cfg.chdir_path && chdir(a.cfg.chdir_path) != 0) {
+    if (a.cfg.chdir_path && chdir(a.cfg.chdir_path) != 0)
+    {
         fprintf(stderr, "agent: cannot chdir to %s: %s\n",
                 a.cfg.chdir_path, strerror(errno));
         free_config(&a.cfg);
         return 1;
     }
-    if (!agent_trace_open(&a)) {
+    if (!agent_trace_open(&a))
+    {
         fprintf(stderr, "agent: cannot open trace %s: %s\n",
                 a.cfg.trace_path ? a.cfg.trace_path : "", strerror(errno));
         free_config(&a.cfg);
@@ -9350,7 +12370,8 @@ int main(int argc, char **argv) {
     agent_trace_string(&a, "think", qw3_think_mode_name(a.cfg.think_mode));
     agent_trace_end(&a);
 
-    if (a.cfg.tool_dsml) {
+    if (a.cfg.tool_dsml)
+    {
         int rc = run_tool_dsml(&a, a.cfg.tool_dsml);
         agent_reset_source_read_budget(&a);
         free(a.last_read_path);
@@ -9358,7 +12379,8 @@ int main(int argc, char **argv) {
         free_config(&a.cfg);
         return rc;
     }
-    if (a.cfg.tool_native) {
+    if (a.cfg.tool_native)
+    {
         int rc = run_tool_native(&a, a.cfg.tool_native);
         agent_reset_source_read_budget(&a);
         free(a.last_read_path);
@@ -9367,85 +12389,141 @@ int main(int argc, char **argv) {
         return rc;
     }
 
-
     qw3_log(stderr, QW3_LOG_OK,
             "qw3-agent: model=%s backend=%s ctx=%d think=%s tools=%s\n",
             a.cfg.model_path, qw3_backend_name(a.cfg.backend), a.cfg.ctx_size,
             qw3_think_mode_name(a.cfg.think_mode),
             a.cfg.tools_enabled ? "on" : "off");
-    qw3_engine_options opt = {
-        .model_path = a.cfg.model_path,
-        .backend = a.cfg.backend,
-        .n_threads = 0,
-        .warm_weights = false,
-    };
-    if (qw3_engine_open(&a.engine, &opt) != 0) {
-        fprintf(stderr, "agent: engine open failed\n");
-        agent_trace_close(&a);
-        free_config(&a.cfg);
-        return 1;
-    }
-    if (agent_validate_model_config(&a.cfg, a.engine) != 0) {
-        qw3_engine_close(a.engine);
-        agent_trace_close(&a);
-        free_config(&a.cfg);
-        return 1;
-    }
-    qw3_context_memory mem =
-        qw3_engine_context_memory_estimate(a.engine, a.cfg.ctx_size);
-    qw3_log(stderr, QW3_LOG_TIMING,
-            "qw3-agent: memory estimate %.1f MB\n",
-            (double)mem.total_bytes / (1024.0 * 1024.0));
-    const double session_init_start = agent_now_sec();
-    qw3_log(stderr, QW3_LOG_TIMING,
-            "qw3-agent: initializing %s session and kernels...\n",
-            qw3_backend_name(a.cfg.backend));
-    if (qw3_session_create(&a.session, a.engine, a.cfg.ctx_size) != 0) {
-        fprintf(stderr, "agent: cannot create %s session\n",
+#ifdef QW3_ENABLE_VOICE
+    @autoreleasepool
+    {
+#endif
+        qw3_engine_options opt = {
+            .model_path = a.cfg.model_path,
+            .backend = a.cfg.backend,
+            .n_threads = 0,
+            .warm_weights = false,
+            .enable_inkling = true,
+        };
+        if (qw3_engine_open(&a.engine, &opt) != 0)
+        {
+            fprintf(stderr, "agent: engine open failed\n");
+            agent_trace_close(&a);
+            free_config(&a.cfg);
+            return 1;
+        }
+        if (agent_validate_model_config(&a.cfg, a.engine) != 0)
+        {
+            qw3_engine_close(a.engine);
+            agent_trace_close(&a);
+            free_config(&a.cfg);
+            return 1;
+        }
+        if (qw3_engine_is_inkling(a.engine))
+        {
+            char *system = build_system_prompt(a.cfg.user_system, false,
+                                               a.cfg.compact_tools, a.cfg.read_only);
+            if (!system)
+            {
+                qw3_engine_close(a.engine);
+                agent_trace_close(&a);
+                free_config(&a.cfg);
+                return 1;
+            }
+            free(a.cfg.system_prompt);
+            a.cfg.system_prompt = system;
+            a.cfg.prefix_cache = false;
+        }
+        qw3_context_memory mem =
+            qw3_engine_context_memory_estimate(a.engine, a.cfg.ctx_size);
+        qw3_log(stderr, QW3_LOG_TIMING,
+                "qw3-agent: memory estimate %.1f MB\n",
+                (double)mem.total_bytes / (1024.0 * 1024.0));
+        const double session_init_start = agent_now_sec();
+        qw3_log(stderr, QW3_LOG_TIMING,
+                "qw3-agent: initializing %s session and kernels...\n",
                 qw3_backend_name(a.cfg.backend));
-        qw3_engine_close(a.engine);
-        agent_trace_close(&a);
-        free_config(&a.cfg);
-        return 1;
-    }
-    qw3_log(stderr, QW3_LOG_TIMING,
-            "qw3-agent: session ready in %.2f s\n",
-            agent_now_sec() - session_init_start);
+        if (qw3_session_create(&a.session, a.engine, a.cfg.ctx_size) != 0)
+        {
+            fprintf(stderr, "agent: cannot create %s session\n",
+                    qw3_backend_name(a.cfg.backend));
+            qw3_engine_close(a.engine);
+            agent_trace_close(&a);
+            free_config(&a.cfg);
+            return 1;
+        }
+        qw3_log(stderr, QW3_LOG_TIMING,
+                "qw3-agent: session ready in %.2f s\n",
+                agent_now_sec() - session_init_start);
 
-    agent_init_transcript(&a);
-    if (a.cfg.conversation) {
-        (void)store_load(&a, a.cfg.conversation);
-    }
-    (void)agent_prepare_prefix_cache(&a);
-    if (a.cfg.dump_prompt) {
-        int dump_rc = agent_dump_rendered_prompt(&a, a.cfg.prompt);
-        agent_reset_source_read_budget(&a);
-        free(a.last_read_path);
-        agent_clear_session_meta(&a);
-        agent_message_ledger_clear(&a.messages);
-        qw3_tokens_free(&a.transcript);
-        qw3_session_free(a.session);
-        qw3_engine_close(a.engine);
-        agent_trace_close(&a);
-        free_config(&a.cfg);
-        return dump_rc;
-    }
+        agent_init_transcript(&a);
+        if (a.cfg.conversation)
+        {
+            (void)store_load(&a, a.cfg.conversation);
+        }
+        (void)agent_prepare_prefix_cache(&a);
+        if (a.cfg.dump_prompt)
+        {
+            int dump_rc = agent_dump_rendered_prompt(&a, a.cfg.prompt);
+            agent_reset_source_read_budget(&a);
+            free(a.last_read_path);
+            agent_clear_session_meta(&a);
+            agent_message_ledger_clear(&a.messages);
+            qw3_tokens_free(&a.transcript);
+            qw3_session_free(a.session);
+            qw3_engine_close(a.engine);
+            agent_trace_close(&a);
+            free_config(&a.cfg);
+            return dump_rc;
+        }
 
+#ifdef QW3_ENABLE_VOICE
+    }
+#endif
     int rc = 0;
     agent_direct_progress direct_progress = {0};
-    if (a.cfg.prompt) {
-        if (agent_direct_progress_enabled()) {
+    if (a.cfg.prompt)
+    {
+        if (agent_direct_progress_enabled())
+        {
             a.progress_update = agent_direct_progress_update;
             a.progress_ud = &direct_progress;
         }
-        rc = run_agent_turn(&a, a.cfg.prompt) == 0 ? 0 : 1;
-        if (direct_progress.active) {
+#ifdef QW3_ENABLE_VOICE
+        if (a.cfg.voice)
+        {
+            struct sigaction sa = {0}, previous;
+            sa.sa_handler = agent_sigint_handler;
+            sigemptyset(&sa.sa_mask);
+            sigaction(SIGINT, &sa, &previous);
+            g_agent_sigint = 0;
+            a.should_interrupt = agent_voice_interrupted;
+            rc = agent_voice_turn(&a, a.cfg.prompt, NULL) == 0 ? 0 : 1;
+            a.should_interrupt = NULL;
+            sigaction(SIGINT, &previous, NULL);
+        }
+        else
+#endif
+            rc = run_agent_turn(&a, a.cfg.prompt) == 0 ? 0 : 1;
+        if (direct_progress.active)
+        {
             fprintf(stderr, "\n");
             direct_progress.active = false;
         }
-        if (rc == 0 && a.cfg.conversation) store_save(&a, a.cfg.conversation);
-    } else {
-        rc = interactive_loop(&a);
+#ifdef QW3_ENABLE_VOICE
+        if (!a.cfg.voice)
+#endif
+            if (rc == 0 && a.cfg.conversation)
+                store_save(&a, a.cfg.conversation);
+    }
+    else
+    {
+#ifdef QW3_ENABLE_VOICE
+        if (a.cfg.voice)
+            rc = interactive_loop_voice(&a);
+        else
+#endif
+            rc = interactive_loop(&a);
     }
 
     agent_reset_source_read_budget(&a);

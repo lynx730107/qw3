@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>local.qw3.voice</string>
+  <key>CFBundleName</key><string>QW3 Voice</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>QW3 records speech when you start a voice turn and sends it to your configured audio.cpp server for transcription.</string>
+</dict></plist>

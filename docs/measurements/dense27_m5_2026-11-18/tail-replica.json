@@ -1,0 +1,258 @@
+[
+  {
+    "n": 65,
+    "mode": 0,
+    "order": 0,
+    "ms": [
+      911.823,
+      913.165,
+      914.443
+    ],
+    "mean_ms": 913.1436666666666,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "65",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  },
+  {
+    "n": 65,
+    "mode": 3,
+    "order": 1,
+    "ms": [
+      609.208,
+      607.734,
+      609.109
+    ],
+    "mean_ms": 608.6836666666667,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "65",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  },
+  {
+    "n": 65,
+    "mode": 3,
+    "order": 2,
+    "ms": [
+      610.66,
+      607.03,
+      607.392
+    ],
+    "mean_ms": 608.3606666666667,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "65",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  },
+  {
+    "n": 65,
+    "mode": 0,
+    "order": 3,
+    "ms": [
+      912.103,
+      910.977,
+      912.431
+    ],
+    "mean_ms": 911.837,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "65",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  },
+  {
+    "n": 95,
+    "mode": 3,
+    "order": 0,
+    "ms": [
+      662.858,
+      660.287,
+      661.223
+    ],
+    "mean_ms": 661.456,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "95",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  },
+  {
+    "n": 95,
+    "mode": 0,
+    "order": 1,
+    "ms": [
+      967.826,
+      968.616,
+      967.836
+    ],
+    "mean_ms": 968.0926666666667,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "95",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  },
+  {
+    "n": 95,
+    "mode": 0,
+    "order": 2,
+    "ms": [
+      968.563,
+      968.295,
+      968.032
+    ],
+    "mean_ms": 968.2966666666666,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "95",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  },
+  {
+    "n": 95,
+    "mode": 3,
+    "order": 3,
+    "ms": [
+      661.592,
+      661.184,
+      660.673
+    ],
+    "mean_ms": 661.1496666666667,
+    "command": [
+      "./bench",
+      "-m",
+      "/Users/pasqualecapasso/Downloads/models/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "--metal",
+      "--ngl",
+      "64",
+      "--llama-style",
+      "--ctx-alloc",
+      "256",
+      "-p",
+      "95",
+      "-n",
+      "0",
+      "-r",
+      "3",
+      "--seed",
+      "1",
+      "-t",
+      "4"
+    ]
+  }
+]

@@ -19,8 +19,8 @@ discipline.
 ## Status
 
 - Main backend: Metal on macOS/Apple Silicon.
-- Validated GGUFs: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` and
-  `Qwen3.8-27B-UD-Q3_K_XL.gguf`. Other quantizations remain unvalidated.
+- Validated GGUFs include `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`,
+  `Qwen3.8-27B-UD-Q3_K_XL.gguf`, and `Qwen3.8-27B-UD-IQ3_XXS.gguf`.
 - Qwen3.6 Metal generation is stable; its warmed `pp4096` prefill reaches
   about 633 tok/s on the tested Apple M5 setup.
 - Qwen3.8 CPU and full-offload Metal decode pass differential logits and
@@ -30,6 +30,11 @@ discipline.
   tokenwise projections.
 - Agent: usable, with local tools, context compaction, and code-navigation
   helpers.
+- Inkling 2 Mini supports native single-turn text generation on macOS with the
+  original Unsloth `Inkling-2-Mini-UD-Q3_K_XL.gguf`. Metal runs the model
+  graph with private FP16 KV buffers and private convolution state for each of
+  the 48 visits across 24 weight layers. The CPU schedules commands and uses
+  the selected expert indices and final logits for dispatch and sampling.
 
 All tests and performance measurements so far were run only on a MacBook Air
 M5 with 24 GB of unified memory. Because of that hardware limit, the largest
@@ -63,6 +68,15 @@ CPU-only targets are still available explicitly:
 make cpu
 ```
 
+Optional local voice mode on macOS (Qwen3-ASR + Kokoro through audio.cpp):
+
+```sh
+make voice-setup
+```
+
+See [the voice setup and usage guide](docs/voice.md) for starting the audio
+server, microphone turns, memory sharing with the 35B model, and tests.
+
 Clean generated files:
 
 ```sh
@@ -70,6 +84,26 @@ make clean
 ```
 
 ## Quick Start
+
+Inkling 2 Mini on macOS:
+
+```sh
+./qw3-cli --metal --kv-f16 -m ../../models/Inkling-2-Mini-UD-Q3_K_XL.gguf \
+  --ctx 128 --nothink --temp 0 -n 80 -p "Rispondi solo OK."
+```
+
+`--nothink` sets Inkling's thinking effort to zero. The model may still use
+part of the generation budget before producing visible text. The CLI reports
+the KV allocation and prefill and generation throughput. FP16 is the default
+KV format for Inkling Metal. The `--cpu` reference uses FP32 KV.
+Set `QW3_INKLING_PREFILL_BATCH=128` to try the experimental Metal 4 prefill.
+The default evaluates the prompt serially. The batched path uses the same
+FP16 cache and hands off to the ordinary decode path for generation.
+`--inspect` prints the physical layer for each visit and validates the tensor
+directory. `make test-inkling-cpu` and `make test-inkling-metal` check the
+tokenizer, the top logits against llama.cpp b12588, and exact replay after a
+rewind. `make test-inkling-window` exercises causal attention and cache
+updates when a batch wraps the ring. [Inkling implementation and roadmap](docs/inkling-2-mini.md)
 
 Generation:
 
@@ -84,6 +118,10 @@ Qwen3.8 dense generation (all 64 trunk layers on Metal; F16 KV by default):
 ./qw3-cli -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf \
   --ngl 64 --ctx 32 --nothink -p "ciao" -n 1
 ```
+
+On Apple M5, dense IQ1_S and IQ1_M projections use the Metal tensor API for
+prefill batches of at least 16 tokens. Set `QW3_METAL_IQ1_BATCH=0` to compare
+with tokenwise IQ1 projections.
 
 Use `--cpu` if full Metal offload is unavailable. Dense Q8 KV is not yet
 validated; use F16 or `--kv-f32`.
@@ -172,6 +210,21 @@ Reproduce the `qw3` measurement with:
 ./qw3-bench -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ngl 64 \
   --llama-style -p 128 -n 32 -r 1 --no-warmup --ctx-alloc 256
 ```
+
+Two experimental switches are available for the base M5. Set them before
+starting the agent, CLI or benchmark.
+
+- `QW3_METAL_DENSE_PARTIAL_TILES=1` enables the staged dense prefill kernels
+  on chunks of 64–127 tokens. The 27B agent benefits when an uncached prompt
+  extension ends in that range. It requires the matching tensor shaders and
+  respects `QW3_METAL_STAGED128=0`.
+- `QW3_METAL_IQ3_NIBBLE=1` predecodes the IQ3_S single-vector lookup table
+  into nibbles. Its measured decode benefit on the 27B is small and variable.
+
+Both default to off. The partial prefill matches the existing qw3 outputs
+on the tested prefixes. The existing and accelerated prefill both exceed
+the project's batched llama.cpp logit tolerances on those prefixes. Keep the same switch settings when
+resuming checkpoints. [Integrated 27B tests](docs/measurements/dense27_runtime_2026-11-19/report.md)
 
 Set `QW3_METAL_DENSE_PREFILL_BATCH=1` to disable dense batching for comparison,
 or a value from 2 to 128 to choose the batch size. The next speed step is

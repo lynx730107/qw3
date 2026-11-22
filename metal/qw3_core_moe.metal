@@ -186,8 +186,13 @@ inline float qw3_iq3s_dot32_shared(device const uchar *blk,
         for (uint j = 0; j < 4u; j++) {
             const float sign1 = (uint(s) & (1u << j)) ? -1.0f : 1.0f;
             const float sign2 = (uint(s) & (1u << (j + 4u))) ? -1.0f : 1.0f;
+#ifdef QW3_ENABLE_IQ3_NIBBLE
+            const float v1 = float((uint(g1) >> (4u*j)) & 15u);
+            const float v2 = float((uint(g2) >> (4u*j)) & 15u);
+#else
             const float v1 = qw3_iq3s_grid_value(g1, j);
             const float v2 = qw3_iq3s_grid_value(g2, j);
+#endif
             sum += db * v1 * sign1 * xx[8u * l + j];
             sum += db * v2 * sign2 * xx[8u * l + j + 4u];
         }
@@ -206,7 +211,15 @@ kernel void qw3_matvec_iq3_s_fast(constant qw3_matvec_q8_0_args &args,
     (void)sh;
     threadgroup ushort grid[512];
     const uint tid = uint(simd_idx) * 32u + uint(lane);
-    for (uint i = tid; i < 512u; i += 64u) grid[i] = kgrid[i];
+    for (uint i = tid; i < 512u; i += 64u) {
+#ifdef QW3_ENABLE_IQ3_NIBBLE
+        const uint p = kgrid[i];
+        grid[i] = ushort(((p & 7u) << 1u) | (((p >> 3u) & 7u) << 5u) |
+                         (((p >> 6u) & 7u) << 9u) | (((p >> 9u) & 7u) << 13u) | 0x1111u);
+#else
+        grid[i] = kgrid[i];
+#endif
+    }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     const uint nr0 = 4u;
     const uint nsg = 2u;
@@ -1218,6 +1231,90 @@ kernel void qw3_moe_topk_expert_map(constant qw3_moe_expert_map_args &args,
         dispatch_embd[0] = n_blocks;
     }
 }
+kernel void qw3_moe_topk_expert_map_n16(constant qw3_moe_expert_map_args &args,
+                                        device const int *ids,
+                                        device uint *counts,
+                                        device int *pair_ids,
+                                        device atomic_uint *block_count,
+                                        device uint *block_ids,
+                                        device uint *dispatch_ff,
+                                        device uint *dispatch_embd,
+                                        uint expert [[thread_position_in_grid]]) {
+    if (expert >= args.n_expert) return;
+    if (expert == 0u) {
+        atomic_store_explicit(block_count, 0u, memory_order_relaxed);
+        dispatch_ff[1] = (args.n_ff + 63u) / 64u;
+        dispatch_ff[2] = 1u;
+        dispatch_embd[1] = (args.n_embd + 63u) / 64u;
+        dispatch_embd[2] = 1u;
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    uint n = 0u;
+    for (uint t = 0u; t < args.n_tokens; t++) {
+        int found = -1;
+        for (uint slot = 0u; slot < args.n_active; slot++) {
+            int eid = ids[t * args.n_active + slot];
+            if (eid == int(expert)) { found = int(slot); break; }
+        }
+        if (found >= 0 && n < args.pair_capacity) {
+            pair_ids[expert * args.pair_capacity + n] = int(t * args.n_active + uint(found));
+            n++;
+        }
+    }
+    counts[expert] = n;
+    for (uint r1u = 0u; r1u < n; r1u += 16u) {
+        uint dst = atomic_fetch_add_explicit(block_count, 1u, memory_order_relaxed);
+        block_ids[dst] = expert | (r1u << 8u);
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    if (expert == 0u) {
+        uint n_blocks = atomic_load_explicit(block_count, memory_order_relaxed);
+        dispatch_ff[0] = n_blocks;
+        dispatch_embd[0] = n_blocks;
+    }
+}
+kernel void qw3_moe_topk_expert_map_n64(constant qw3_moe_expert_map_args &args,
+                                        device const int *ids,
+                                        device uint *counts,
+                                        device int *pair_ids,
+                                        device atomic_uint *block_count,
+                                        device uint *block_ids,
+                                        device uint *dispatch_ff,
+                                        device uint *dispatch_embd,
+                                        uint expert [[thread_position_in_grid]]) {
+    if (expert >= args.n_expert) return;
+    if (expert == 0u) {
+        atomic_store_explicit(block_count, 0u, memory_order_relaxed);
+        dispatch_ff[1] = (args.n_ff + 63u) / 64u;
+        dispatch_ff[2] = 1u;
+        dispatch_embd[1] = (args.n_embd + 63u) / 64u;
+        dispatch_embd[2] = 1u;
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    uint n = 0u;
+    for (uint t = 0u; t < args.n_tokens; t++) {
+        int found = -1;
+        for (uint slot = 0u; slot < args.n_active; slot++) {
+            int eid = ids[t * args.n_active + slot];
+            if (eid == int(expert)) { found = int(slot); break; }
+        }
+        if (found >= 0 && n < args.pair_capacity) {
+            pair_ids[expert * args.pair_capacity + n] = int(t * args.n_active + uint(found));
+            n++;
+        }
+    }
+    counts[expert] = n;
+    for (uint r1u = 0u; r1u < n; r1u += 64u) {
+        uint dst = atomic_fetch_add_explicit(block_count, 1u, memory_order_relaxed);
+        block_ids[dst] = expert | (r1u << 8u);
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    if (expert == 0u) {
+        uint n_blocks = atomic_load_explicit(block_count, memory_order_relaxed);
+        dispatch_ff[0] = n_blocks;
+        dispatch_embd[0] = n_blocks;
+    }
+}
 inline half qw3_iq3s_dequant_k_expanded(device const uchar *row, device const uchar *kgrid, uint k) {
     uint block = k >> 8u;
     uint local = k & 255u;
@@ -1279,6 +1376,11 @@ inline half4x4 qw3_iq3s_dequant4x4_expanded(float dl, device const uchar *qs16, 
     return reg;
 }
 #ifdef QW3_METAL_HAS_TENSOR
+#ifdef QW3_ENABLE_PARTIAL_TILES
+#define QW3_PARTIAL_IQ_TILE(row, count) ((row) < int(count))
+#else
+#define QW3_PARTIAL_IQ_TILE(row, count) true
+#endif
 kernel void qw3_matmul_iq3_s_mpp_direct(
     constant qw3_matmul_q8_0_batch_args &args,
     device const uchar *weights,
@@ -1373,6 +1475,8 @@ kernel void qw3_matmul_iq3_s_mpp_staged128(
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
+    const bool token_group_active = QW3_PARTIAL_IQ_TILE(token0, args.n_tokens);
     threadgroup half *sa = (threadgroup half *)shmem;
     auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
     device float *ptrB = (device float *)x + args.in_offset;
@@ -1425,16 +1529,17 @@ kernel void qw3_matmul_iq3_s_mpp_staged128(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         auto mA = tA.slice(0, 0);
-        auto mB = tB.slice(int(loop_k),
-                           r1 + int(simd_group) * ROWS_PER_SG);
-        mm.run(mB, mA, cT);
+        if (token_group_active) {
+            auto mB = tB.slice(int(loop_k), token0);
+            mm.run(mB, mA, cT);
+        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     auto tD = tensor(out + args.out_offset,
                     dextents<int32_t, 2>(int(args.n_out),
                                          int(args.n_tokens)),
                     array<int, 2>({1, int(args.out_stride)}));
-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
+    if (token_group_active) cT.store(tD.slice(r0, token0));
 }
 #endif
 #ifdef QW3_METAL_HAS_TENSOR
@@ -1456,6 +1561,8 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
+    const bool token_group_active = QW3_PARTIAL_IQ_TILE(token0, args.n_tokens);
     threadgroup half *sa = (threadgroup half *)shmem;
     auto tA = tensor(sa, dextents<int32_t, 2>(STAGE_K, NR0));
     device float *ptrB = (device float *)x + args.in_offset;
@@ -1512,9 +1619,10 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (uint sub_k = 0u; sub_k < STAGE_K; sub_k += NK) {
             auto mA = tA.slice(int(sub_k), 0);
-            auto mB = tB.slice(int(stage_k + sub_k),
-                               r1 + int(simd_group) * ROWS_PER_SG);
-            mm.run(mB, mA, cT);
+            if (token_group_active) {
+                auto mB = tB.slice(int(stage_k + sub_k), token0);
+                mm.run(mB, mA, cT);
+            }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
@@ -1522,7 +1630,7 @@ kernel void qw3_matmul_iq3_s_mpp_staged128_k64(
                     dextents<int32_t, 2>(int(args.n_out),
                                          int(args.n_tokens)),
                     array<int, 2>({1, int(args.out_stride)}));
-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
+    if (token_group_active) cT.store(tD.slice(r0, token0));
 }
 #endif
 kernel void qw3_moe_iq3_s_prefill_mapped(constant qw3_moe_prefill_batch_args &args,
@@ -2190,6 +2298,8 @@ kernel void qw3_matmul_iq4_xs_mpp_staged128(
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * (4 * ROWS_PER_SG);
     if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
+    const bool token_group_active = QW3_PARTIAL_IQ_TILE(token0, args.n_tokens);
     threadgroup half *sa = (threadgroup half *)shmem;
     auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
     device float *ptrB = (device float *)x + args.in_offset;
@@ -2237,16 +2347,17 @@ kernel void qw3_matmul_iq4_xs_mpp_staged128(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         auto mA = tA.slice(0, 0);
-        auto mB = tB.slice(int(loop_k),
-                           r1 + int(simd_group) * ROWS_PER_SG);
-        mm.run(mB, mA, cT);
+        if (token_group_active) {
+            auto mB = tB.slice(int(loop_k), token0);
+            mm.run(mB, mA, cT);
+        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     auto tD = tensor(out + args.out_offset,
                     dextents<int32_t, 2>(int(args.n_out),
                                          int(args.n_tokens)),
                     array<int, 2>({1, int(args.out_stride)}));
-    cT.store(tD.slice(r0, r1 + int(simd_group) * ROWS_PER_SG));
+    if (token_group_active) cT.store(tD.slice(r0, token0));
 }
 #endif
 kernel void qw3_moe_down_iq4_xs_prefill_mapped(constant qw3_moe_prefill_batch_args &args,

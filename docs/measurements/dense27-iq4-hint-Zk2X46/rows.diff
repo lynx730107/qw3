@@ -1,0 +1,176 @@
+--- metal/qw3_core_linear.metal
++++ metal/qw3_core_linear.metal
+@@ -629,22 +629,42 @@
+     uint il = it & 1u;
+     float sum0 = 0.0f, sum1 = 0.0f;
+     uint n_blocks = args.n_in / 256u;
+-    for (uint b = ix; b < n_blocks; b += 2u) {
+-        device const float *xg = x + uint64_t(b) * 256ull +
+-                                 uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
+-        device const float4 *x4 = (device const float4 *)xg;
+-        float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
+-        uint row = first_row;
+-        uint64_t block_off = uint64_t(b) * 136ull;
+-        if (row < args.n_out)
+-            sum0 += qw3_iq4xs_dot8_vector(weights +
+-                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+-                xl, sh, ib, il);
+-        row = first_row + 1u;
+-        if (row < args.n_out)
+-            sum1 += qw3_iq4xs_dot8_vector(weights +
+-                uint64_t(row) * uint64_t(args.row_bytes) + block_off,
+-                xl, sh, ib, il);
++    if (first_row + 1u < args.n_out) {
++        for (uint b = ix; b < n_blocks; b += 2u) {
++            device const float *xg = x + uint64_t(b) * 256ull +
++                                     uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
++            device const float4 *x4 = (device const float4 *)xg;
++            float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
++            uint row = first_row;
++            uint64_t block_off = uint64_t(b) * 136ull;
++            
++                sum0 += qw3_iq4xs_dot8_vector(weights +
++                    uint64_t(row) * uint64_t(args.row_bytes) + block_off,
++                    xl, sh, ib, il);
++            row = first_row + 1u;
++            
++                sum1 += qw3_iq4xs_dot8_vector(weights +
++                    uint64_t(row) * uint64_t(args.row_bytes) + block_off,
++                    xl, sh, ib, il);
++        }
++    } else {
++        for (uint b = ix; b < n_blocks; b += 2u) {
++            device const float *xg = x + uint64_t(b) * 256ull +
++                                     uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
++            device const float4 *x4 = (device const float4 *)xg;
++            float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
++            uint row = first_row;
++            uint64_t block_off = uint64_t(b) * 136ull;
++            if (row < args.n_out)
++                sum0 += qw3_iq4xs_dot8_vector(weights +
++                    uint64_t(row) * uint64_t(args.row_bytes) + block_off,
++                    xl, sh, ib, il);
++            row = first_row + 1u;
++            if (row < args.n_out)
++                sum1 += qw3_iq4xs_dot8_vector(weights +
++                    uint64_t(row) * uint64_t(args.row_bytes) + block_off,
++                    xl, sh, ib, il);
++        }
+     }
+     sum0 = simd_sum(sum0);
+     sum1 = simd_sum(sum1);
+@@ -677,24 +697,47 @@
+     float gate0 = 0.0f, gate1 = 0.0f;
+     float up0 = 0.0f, up1 = 0.0f;
+     uint n_blocks = args.n_in / 256u;
+-    for (uint b = ix; b < n_blocks; b += 2u) {
+-        device const float *xg = x + uint64_t(b) * 256ull +
+-                                 uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
+-        device const float4 *x4 = (device const float4 *)xg;
+-        float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
+-        uint row = first_row;
+-        if (row < args.n_out) {
+-            uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
+-                           uint64_t(b) * 136ull;
+-            gate0 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
+-            up0 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++    if (first_row + 1u < args.n_out) {
++        for (uint b = ix; b < n_blocks; b += 2u) {
++            device const float *xg = x + uint64_t(b) * 256ull +
++                                     uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
++            device const float4 *x4 = (device const float4 *)xg;
++            float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
++            uint row = first_row;
++            {
++                uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
++                               uint64_t(b) * 136ull;
++                gate0 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
++                up0 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++            }
++            row = first_row + 1u;
++            {
++                uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
++                               uint64_t(b) * 136ull;
++                gate1 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
++                up1 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++            }
+         }
+-        row = first_row + 1u;
+-        if (row < args.n_out) {
+-            uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
+-                           uint64_t(b) * 136ull;
+-            gate1 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
+-            up1 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++    } else {
++        for (uint b = ix; b < n_blocks; b += 2u) {
++            device const float *xg = x + uint64_t(b) * 256ull +
++                                     uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
++            device const float4 *x4 = (device const float4 *)xg;
++            float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
++            uint row = first_row;
++            if (row < args.n_out) {
++                uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
++                               uint64_t(b) * 136ull;
++                gate0 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
++                up0 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++            }
++            row = first_row + 1u;
++            if (row < args.n_out) {
++                uint64_t off = uint64_t(row) * uint64_t(args.row_bytes) +
++                               uint64_t(b) * 136ull;
++                gate1 += qw3_iq4xs_dot8_vector(gate_weights + off, xl, sh, ib, il);
++                up1 += qw3_iq4xs_dot8_vector(up_weights + off, xl, sh, ib, il);
++            }
+         }
+     }
+     gate0 = simd_sum(gate0);
+@@ -735,19 +778,37 @@
+     float sum0 = 0.0f;
+     float sum1 = 0.0f;
+     uint n_blocks = args.n_in / 256u;
+-    for (uint b = ix; b < n_blocks; b += 2u) {
+-        device const float *xg = x + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
+-        device const float4 *x4 = (device const float4 *)xg;
+-        float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
+-        uint row = first_row;
+-        if (row < args.n_out) {
+-            device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
+-            sum0 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++    if (first_row + 1u < args.n_out) {
++        for (uint b = ix; b < n_blocks; b += 2u) {
++            device const float *xg = x + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
++            device const float4 *x4 = (device const float4 *)xg;
++            float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
++            uint row = first_row;
++            {
++                device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
++                sum0 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++            }
++            row = first_row + 1u;
++            {
++                device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
++                sum1 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++            }
+         }
+-        row = first_row + 1u;
+-        if (row < args.n_out) {
+-            device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
+-            sum1 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++    } else {
++        for (uint b = ix; b < n_blocks; b += 2u) {
++            device const float *xg = x + uint64_t(b) * 256ull + uint64_t(ib) * 32ull + uint64_t(il) * 8ull;
++            device const float4 *x4 = (device const float4 *)xg;
++            float4 xl[4] = {x4[0], x4[4], x4[1], x4[5]};
++            uint row = first_row;
++            if (row < args.n_out) {
++                device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
++                sum0 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++            }
++            row = first_row + 1u;
++            if (row < args.n_out) {
++                device const uchar *blk = weights + uint64_t(row) * uint64_t(args.row_bytes) + uint64_t(b) * 136ull;
++                sum1 += qw3_iq4xs_dot8_vector(blk, xl, sh, ib, il);
++            }
+         }
+     }
+     sum0 = simd_sum(sum0);

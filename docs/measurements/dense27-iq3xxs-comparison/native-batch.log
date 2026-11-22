@@ -1,0 +1,17 @@
+qw3: model=../../models/Qwen3.8-27B-UD-IQ3_XXS.gguf  backend=Metal  ctx=256  think=think
+qw3: loaded ../../models/Qwen3.8-27B-UD-IQ3_XXS.gguf (size=10.2 GiB, 866 tensors, 0.005s)
+qw3: Metal device Apple M5
+qw3: Metal 4 tensor API available for Tensor kernels
+qw3: Metal model mapped 10417.81 MiB from GGUF offset 10.48 MiB in 1 view(s)
+qw3: Metal backend initialized for graph bring-up (Apple M5)
+qw3: Qwen3.8-27B  layers=64  embd=5120  vocab=248320
+qw3: full_attn_layers=16 (GQA: 24 Q-heads, 4 KV-heads, dim=256)
+qw3: linear_layers=48 (DeltaNet: 16 QK-heads, 48 V-heads, dim=128)
+qw3: dense FFN: dim=17408
+qw3: memory estimate: total=166.9 MB (gqa_kv=16.0 MB  deltanet=144.0 MB  scratch=6.9 MB)
+qw3 chat ready. Type /help for commands.
+metal dense logits step: ok step=0 token=66 cpu_top=8 gpu_top=8 maxdiff=1.811981e-05 rmsdiff=3.236918e-06
+metal dense logits step: ok step=1 token=67 cpu_top=13 gpu_top=13 maxdiff=0.001760483 rmsdiff=0.0003319716
+metal dense batch prefill: ok tokens=66..193 serial_top=194 batch_top=194 maxdiff=0.01524734 rmsdiff=0.002838836 state0_ok=1 state0_maxdiff=0.001016676 state0_rmsdiff=4.681683e-05 error=
+metal dense batch continuation: ok input=194 serial_top=195 batch_top=195 maxdiff=0.01362872 rmsdiff=0.002184652 error=
+metal dense logits: ok tokens=66,67
