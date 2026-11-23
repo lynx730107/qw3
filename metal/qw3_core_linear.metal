@@ -178,15 +178,14 @@ kernel void qw3_matmul_q8_0_nax_direct_rhs(constant qw3_matmul_q8_0_mm_args &arg
                                            ushort tid [[thread_index_in_threadgroup]]) {
     constexpr int NR0 = 64;
     constexpr int NK = 32;
-    constexpr int NL = NK / 16;
-    constexpr int NUM_THREADS = 128;
+    constexpr int STAGE_K = 64;
     const int K = int(args.n_in);
     const int M = int(args.n_out);
     const int N = int(args.n_tokens);
     const int r0 = int(group.y) * NR0;
     const int r1 = int(group.x) * NR1;
     threadgroup half *sa = (threadgroup half *)shmem;
-    auto tA = tensor(sa, dextents<int32_t, 2>(NK, NR0));
+    auto tA = tensor(sa, dextents<int32_t, 2>(STAGE_K, NR0));
     device float *ptrB = (device float *)xin;
     auto tB = tensor(ptrB, dextents<int32_t, 2>(K, N),
                     array<int, 2>({1, int(args.in_stride)}));
@@ -197,30 +196,37 @@ kernel void qw3_matmul_q8_0_nax_direct_rhs(constant qw3_matmul_q8_0_mm_args &arg
     for (uint16_t i = 0; i < cT.get_capacity(); i++) {
         if (cT.is_valid_element(i)) cT[i] = 0.0f;
     }
-    for (int loop_k = 0; loop_k < K; loop_k += NK) {
-        for (int work = int(tid); work < NR0 * NL; work += NUM_THREADS) {
-            const int row = work / NL;
-            const int k_chunk = work % NL;
-            const int k_pos = loop_k + k_chunk * 16;
-            const short k_base = short(k_chunk * 16);
-            if (r0 + row < M) {
-                const int block_idx = k_pos / 32;
-                const short il = short((k_pos / 16) & 1);
-                device const qw3_block_q8_0 *row_ptr =
-                    (device const qw3_block_q8_0 *)(weights + uint64_t(r0 + row) * uint64_t(args.row_bytes));
-                half4x4 temp_a;
-                qw3_dequant_q8_0_16(row_ptr + block_idx, il, temp_a);
-                for (short i = 0; i < 16; i++) {
-                    sa[row * NK + k_base + i] = (k_pos + i < K) ? temp_a[i / 4][i % 4] : half(0.0f);
-                }
-            } else {
-                for (short i = 0; i < 16; i++) sa[row * NK + k_base + i] = half(0.0f);
-            }
+    const int row = int(tid) >> 1;
+    const int blk_half = int(tid) & 1;
+    const bool valid_row = (r0 + row < M);
+    device const qw3_block_q8_0 *row_ptr =
+        (device const qw3_block_q8_0 *)(weights + uint64_t(valid_row ? (r0 + row) : 0) * uint64_t(args.row_bytes));
+    threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * STAGE_K + blk_half * 32);
+    for (int stage_k = 0; stage_k < K; stage_k += STAGE_K) {
+        if (valid_row) {
+            device const qw3_block_q8_0 *blk = row_ptr + (stage_k >> 5) + blk_half;
+            const half dh = blk->d;
+            device const packed_char4 *qp = (device const packed_char4 *)blk->qs;
+            sa4[0] = half4(char4(qp[0])) * dh;
+            sa4[1] = half4(char4(qp[1])) * dh;
+            sa4[2] = half4(char4(qp[2])) * dh;
+            sa4[3] = half4(char4(qp[3])) * dh;
+            sa4[4] = half4(char4(qp[4])) * dh;
+            sa4[5] = half4(char4(qp[5])) * dh;
+            sa4[6] = half4(char4(qp[6])) * dh;
+            sa4[7] = half4(char4(qp[7])) * dh;
+        } else {
+            for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        auto mA = tA.slice(0, 0);
-        auto mB = tB.slice(loop_k, r1);
-        mm.run(mB, mA, cT);
+        {
+            auto mA0 = tA.slice(0, 0);
+            auto mB0 = tB.slice(stage_k, r1);
+            mm.run(mB0, mA0, cT);
+            auto mA1 = tA.slice(32, 0);
+            auto mB1 = tB.slice(stage_k + 32, r1);
+            mm.run(mB1, mA1, cT);
+        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     device float *dst = (device float *)yout;
@@ -3737,6 +3743,86 @@ kernel void qw3_matmul_q6_k_mpp_direct(
                     array<int, 2>({1, int(args.out_stride)}));
     cT.store(tD.slice(r0, r1));
 }
+
+kernel void qw3_matmul_q6_k_mpp_staged128(
+    constant qw3_matmul_q8_0_batch_args &args,
+    device const uchar *weights,
+    device const float *x,
+    device float *out,
+    threadgroup char *shmem [[threadgroup(0)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    ushort tid [[thread_index_in_threadgroup]],
+    ushort simd_group [[simdgroup_index_in_threadgroup]]) {
+    constexpr int NR0 = 64;
+    constexpr int ROWS_PER_SG = 32;
+    constexpr int NK = 32;
+    constexpr int STAGE_K = 64;
+    const int r0 = int(group.y) * NR0;
+    const int r1 = int(group.x) * (4 * ROWS_PER_SG);
+    if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    const int token0 = r1 + int(simd_group) * ROWS_PER_SG;
+    const bool token_group_active = QW3_PARTIAL_LINEAR_TILE(token0, args.n_tokens);
+    threadgroup half *sa = (threadgroup half *)shmem;
+    auto tA = tensor(sa, dextents<int32_t, 2>(STAGE_K, NR0));
+    device float *ptrB = (device float *)x + args.in_offset;
+    auto tB = tensor(ptrB,
+                    dextents<int32_t, 2>(int(args.n_in), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.in_stride)}));
+    matmul2d<matmul2d_descriptor(ROWS_PER_SG, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<1>> mm;
+    auto cT = mm.template get_destination_cooperative_tensor<
+        decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cT.get_capacity(); i++)
+        if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    const int row = int(tid) >> 1;
+    const uint sub = uint(tid) & 1u;
+    const bool valid_row = r0 + row < int(args.n_out);
+    device const uchar *wrow = weights + uint64_t(valid_row ? (r0 + row) : 0) * args.row_bytes;
+    threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * STAGE_K + int(sub * 32u));
+    for (uint stage_k = 0u; stage_k < args.n_in; stage_k += STAGE_K) {
+        if (valid_row) {
+            device const uchar *blk = wrow + uint64_t(stage_k >> 8u) * 210ull;
+            const float d = qw3_f16_to_f32(ushort(blk[208]) | (ushort(blk[209]) << 8u));
+            const uint local0 = stage_k & 255u;
+            const uint half_block = local0 >> 7u;
+            const uint part = ((local0 >> 5u) & 2u) + sub;
+            const uint high_shift = 2u * part;
+            const bool hi_nib = (part >= 2u);
+            device const uchar *ql = blk + half_block * 64u + (part & 1u) * 32u;
+            device const uchar *qh = blk + 128u + half_block * 32u;
+            device const char *sc = (device const char *)(blk + 192u + half_block * 8u + 2u * part);
+            const float dl0 = d * float(sc[0]);
+            const float dl1 = d * float(sc[1]);
+            for (uint g = 0u; g < 8u; g++) {
+                const float dl = (g < 4u) ? dl0 : dl1;
+                const uint l0 = g * 4u;
+                const uint p0 = uint(ql[l0 + 0u]), p1 = uint(ql[l0 + 1u]);
+                const uint p2 = uint(ql[l0 + 2u]), p3 = uint(ql[l0 + 3u]);
+                const int q0 = int((hi_nib ? (p0 >> 4u) : (p0 & 15u)) | (((uint(qh[l0 + 0u]) >> high_shift) & 3u) << 4u)) - 32;
+                const int q1 = int((hi_nib ? (p1 >> 4u) : (p1 & 15u)) | (((uint(qh[l0 + 1u]) >> high_shift) & 3u) << 4u)) - 32;
+                const int q2 = int((hi_nib ? (p2 >> 4u) : (p2 & 15u)) | (((uint(qh[l0 + 2u]) >> high_shift) & 3u) << 4u)) - 32;
+                const int q3 = int((hi_nib ? (p3 >> 4u) : (p3 & 15u)) | (((uint(qh[l0 + 3u]) >> high_shift) & 3u) << 4u)) - 32;
+                sa4[g] = half4(float4(float(q0), float(q1), float(q2), float(q3)) * dl);
+            }
+        } else {
+            for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint sub_k = 0u; sub_k < STAGE_K; sub_k += NK) {
+            auto mA = tA.slice(int(sub_k), 0);
+            if (token_group_active) {
+                auto mB = tB.slice(int(stage_k + sub_k), token0);
+                mm.run(mB, mA, cT);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    auto tD = tensor(out + args.out_offset,
+                    dextents<int32_t, 2>(int(args.n_out), int(args.n_tokens)),
+                    array<int, 2>({1, int(args.out_stride)}));
+    if (token_group_active) cT.store(tD.slice(r0, token0));
+}
 #endif
 kernel void qw3_matvec_q6_k_fast(constant qw3_matvec_q8_0_args &args,
                                  device const uchar *weights,
@@ -4164,15 +4250,45 @@ static inline float qw3_nvfp4_scale(uint bits) {
     return e ? as_type<float>(((e + 119u) << 23u) | (m << 20u))
              : (float(m) * (1.0f / 1024.0f));
 }
+constant half qw3_nvfp4_scale_h[256] = {
+    0.0h, 0.0009765625h, 0.001953125h, 0.0029296875h, 0.00390625h, 0.0048828125h, 0.005859375h, 0.0068359375h,
+    0.0078125h, 0.0087890625h, 0.009765625h, 0.0107421875h, 0.01171875h, 0.0126953125h, 0.013671875h, 0.0146484375h,
+    0.015625h, 0.017578125h, 0.01953125h, 0.021484375h, 0.0234375h, 0.025390625h, 0.02734375h, 0.029296875h,
+    0.03125h, 0.03515625h, 0.0390625h, 0.04296875h, 0.046875h, 0.05078125h, 0.0546875h, 0.05859375h,
+    0.0625h, 0.0703125h, 0.078125h, 0.0859375h, 0.09375h, 0.1015625h, 0.109375h, 0.1171875h,
+    0.125h, 0.140625h, 0.15625h, 0.171875h, 0.1875h, 0.203125h, 0.21875h, 0.234375h,
+    0.25h, 0.28125h, 0.3125h, 0.34375h, 0.375h, 0.40625h, 0.4375h, 0.46875h,
+    0.5h, 0.5625h, 0.625h, 0.6875h, 0.75h, 0.8125h, 0.875h, 0.9375h,
+    1.0h, 1.125h, 1.25h, 1.375h, 1.5h, 1.625h, 1.75h, 1.875h,
+    2.0h, 2.25h, 2.5h, 2.75h, 3.0h, 3.25h, 3.5h, 3.75h,
+    4.0h, 4.5h, 5.0h, 5.5h, 6.0h, 6.5h, 7.0h, 7.5h,
+    8.0h, 9.0h, 10.0h, 11.0h, 12.0h, 13.0h, 14.0h, 15.0h,
+    16.0h, 18.0h, 20.0h, 22.0h, 24.0h, 26.0h, 28.0h, 30.0h,
+    32.0h, 36.0h, 40.0h, 44.0h, 48.0h, 52.0h, 56.0h, 60.0h,
+    64.0h, 72.0h, 80.0h, 88.0h, 96.0h, 104.0h, 112.0h, 120.0h,
+    128.0h, 144.0h, 160.0h, 176.0h, 192.0h, 208.0h, 224.0h, 0.0h,
+    0.0h, 0.0009765625h, 0.001953125h, 0.0029296875h, 0.00390625h, 0.0048828125h, 0.005859375h, 0.0068359375h,
+    0.0078125h, 0.0087890625h, 0.009765625h, 0.0107421875h, 0.01171875h, 0.0126953125h, 0.013671875h, 0.0146484375h,
+    0.015625h, 0.017578125h, 0.01953125h, 0.021484375h, 0.0234375h, 0.025390625h, 0.02734375h, 0.029296875h,
+    0.03125h, 0.03515625h, 0.0390625h, 0.04296875h, 0.046875h, 0.05078125h, 0.0546875h, 0.05859375h,
+    0.0625h, 0.0703125h, 0.078125h, 0.0859375h, 0.09375h, 0.1015625h, 0.109375h, 0.1171875h,
+    0.125h, 0.140625h, 0.15625h, 0.171875h, 0.1875h, 0.203125h, 0.21875h, 0.234375h,
+    0.25h, 0.28125h, 0.3125h, 0.34375h, 0.375h, 0.40625h, 0.4375h, 0.46875h,
+    0.5h, 0.5625h, 0.625h, 0.6875h, 0.75h, 0.8125h, 0.875h, 0.9375h,
+    1.0h, 1.125h, 1.25h, 1.375h, 1.5h, 1.625h, 1.75h, 1.875h,
+    2.0h, 2.25h, 2.5h, 2.75h, 3.0h, 3.25h, 3.5h, 3.75h,
+    4.0h, 4.5h, 5.0h, 5.5h, 6.0h, 6.5h, 7.0h, 7.5h,
+    8.0h, 9.0h, 10.0h, 11.0h, 12.0h, 13.0h, 14.0h, 15.0h,
+    16.0h, 18.0h, 20.0h, 22.0h, 24.0h, 26.0h, 28.0h, 30.0h,
+    32.0h, 36.0h, 40.0h, 44.0h, 48.0h, 52.0h, 56.0h, 60.0h,
+    64.0h, 72.0h, 80.0h, 88.0h, 96.0h, 104.0h, 112.0h, 120.0h,
+    128.0h, 144.0h, 160.0h, 176.0h, 192.0h, 208.0h, 224.0h, 240.0h,
+};
 
 // Bit-exact IEEE-754 half4 decode of 4 NVFP4 (2*E2M1) nibbles with zero LUT/memory lookup.
 static inline half4 qw3_nvfp4_decode4_h(uint c0, uint c1, uint c2, uint c3) {
-    const uint4 c = uint4(c0, c1, c2, c3);
-    const uint4 m = c & 7u;
-    const ushort4 pos = select(ushort4(0x3c00u) + ushort4(m << 9u),
-                               select(ushort4(0u), ushort4(0x3c00u), m == 1u),
-                               m < 2u);
-    return as_type<half4>(pos | ushort4((c & 8u) << 12u));
+    return half4(qw3_nvfp4_e2m1_h[c0], qw3_nvfp4_e2m1_h[c1],
+                 qw3_nvfp4_e2m1_h[c2], qw3_nvfp4_e2m1_h[c3]);
 }
 
 static inline float qw3_nvfp4_dot8_f32(device const uchar *wrow, uint b, uint sub,
@@ -5398,6 +5514,79 @@ template [[host_name("qw3_matmul_float_mpp_s16")]] kernel void qw3_matmul_float_
     constant qw3_inkling_matmul_args &, device const uchar *, device const float *, device float *,
     threadgroup char *, uint2, ushort);
 
+// STAGE_K=64 float/bf16/f16 MPP for small n_out (control_down=64, router=128, sink=24) at n_tokens>=64:
+// 2x fewer weight reads & 2x fewer barriers.
+template<int NR0, int NR1>
+kernel void qw3_matmul_float_mpp_small_k64(
+    constant qw3_inkling_matmul_args &args [[buffer(0)]],
+    device const uchar *weights [[buffer(1)]],
+    device const float *x [[buffer(2)]],
+    device float *out [[buffer(3)]],
+    threadgroup char *shmem [[threadgroup(0)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    ushort tid [[thread_index_in_threadgroup]]) {
+    constexpr int NK = 32;
+    constexpr int STAGE_K = 64;
+    const int r0 = int(group.y) * NR0;
+    const int r1 = int(group.x) * NR1;
+    if (r0 >= int(args.n_out) || r1 >= int(args.n_tokens)) return;
+    threadgroup half *sa = (threadgroup half *)shmem;
+    auto tA = tensor(sa, dextents<int32_t, 2>(STAGE_K, NR0));
+    device float *ptrB = (device float *)x + args.in_offset;
+    auto tB = tensor(ptrB,
+                     dextents<int32_t, 2>(int(args.n_in), int(args.n_tokens)),
+                     array<int, 2>({1, int(args.in_stride)}));
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cT = mm.template get_destination_cooperative_tensor<
+        decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cT.get_capacity(); i++)
+        if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    constexpr int TOTAL_H4 = NR0 * (STAGE_K / 4);
+    threadgroup half4 *sa4 = (threadgroup half4 *)sa;
+    for (uint stage_k = 0; stage_k < args.n_in; stage_k += uint(STAGE_K)) {
+        for (int idx = int(tid); idx < TOTAL_H4; idx += 128) {
+            const int row = idx >> 4;
+            const int k4 = idx & 15;
+            const uint k0 = stage_k + uint(k4 * 4);
+            if (r0 + row < int(args.n_out) && k0 < args.n_in) {
+                device const uchar *wrow = weights + uint64_t(r0 + row) * args.row_bytes;
+                if (args.type == 0u) {
+                    sa4[idx] = half4(*(device const float4 *)((device const float *)wrow + k0));
+                } else if (args.type == 30u) {
+                    const ushort4 wb = *(device const ushort4 *)((device const ushort *)wrow + k0);
+                    sa4[idx] = half4(as_type<float4>(uint4(wb) << 16u));
+                } else {
+                    sa4[idx] = *(device const half4 *)((device const half *)wrow + k0);
+                }
+            } else {
+                sa4[idx] = half4(0.0f);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        {
+            auto mA0 = tA.slice(0, 0);
+            auto mB0 = tB.slice(int(stage_k), r1);
+            mm.run(mB0, mA0, cT);
+            auto mA1 = tA.slice(32, 0);
+            auto mB1 = tB.slice(int(stage_k + 32u), r1);
+            mm.run(mB1, mA1, cT);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    auto tD = tensor(out + args.out_offset,
+                     dextents<int32_t, 2>(int(args.n_out), int(args.n_tokens)),
+                     array<int, 2>({1, int(args.out_stride)}));
+    cT.store(tD.slice(r0, r1));
+}
+template [[host_name("qw3_matmul_float_mpp_s32_n64")]] kernel void qw3_matmul_float_mpp_small_k64<32, 64>(
+    constant qw3_inkling_matmul_args &, device const uchar *, device const float *, device float *,
+    threadgroup char *, uint2, ushort);
+template [[host_name("qw3_matmul_float_mpp_s16_n64")]] kernel void qw3_matmul_float_mpp_small_k64<16, 64>(
+    constant qw3_inkling_matmul_args &, device const uchar *, device const float *, device float *,
+    threadgroup char *, uint2, ushort);
+
 struct qw3_inkling_moe_mapped_args {
     uint n_in, n_out, row_bytes;
     uint expert_bytes;
@@ -5692,8 +5881,8 @@ kernel void qw3_inkling_moe_mapped_mpp(
     constexpr int NR0 = 64;
     constexpr int NR1 = 32;
     constexpr int NK = 32;
-    const uint r0u = group.y * uint(NR0);
-    const uint block = block_ids[group.x];
+    const uint r0u = group.x * uint(NR0);
+    const uint block = block_ids[group.y];
     const uint expert = block & 255u;
     const uint r1u = block >> 8u;
     const uint count = counts[expert];
@@ -5716,6 +5905,7 @@ kernel void qw3_inkling_moe_mapped_mpp(
     for (uint16_t i = 0; i < cT.get_capacity(); i++)
         if (cT.is_valid_element(i)) cT[i] = 0.0f;
     device const uchar *wexp = weights + uint64_t(expert) * uint64_t(args.expert_bytes);
+    device const half *xin_h = (device const half *)xin;
     for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK)) {
         const int row = int(tid) / 2;
         const int half_k = int(tid) & 1;
@@ -5733,9 +5923,14 @@ kernel void qw3_inkling_moe_mapped_mpp(
         const int k_part = int(tid) & 3;
         if (tok < nr1) {
             const uint pid = uint(pair_ids[map_base + uint(tok)]);
-            const uint row_idx = args.input_is_slot ? pid : (pid / args.n_active);
-            device const float *xrow = xin + uint64_t(row_idx) * args.in_stride + loop_k + uint(k_part * 8);
-            for (int i = 0; i < 8; i++) sb[tok * NK + k_part * 8 + i] = half(xrow[i]);
+            if (args.input_is_slot != 0u) {
+                device const half *xrow = xin_h + uint64_t(pid) * args.in_stride + loop_k + uint(k_part * 8);
+                for (int i = 0; i < 8; i++) sb[tok * NK + k_part * 8 + i] = xrow[i];
+            } else {
+                const uint row_idx = pid / args.n_active;
+                device const float *xrow = xin + uint64_t(row_idx) * args.in_stride + loop_k + uint(k_part * 8);
+                for (int i = 0; i < 8; i++) sb[tok * NK + k_part * 8 + i] = half(xrow[i]);
+            }
         } else {
             for (int i = 0; i < 8; i++) sb[tok * NK + k_part * 8 + i] = half(0.0f);
         }
@@ -5757,17 +5952,36 @@ kernel void qw3_inkling_moe_mapped_mpp(
     }
 }
 
-// Fast specialized NVFP4 mapped MoE MPP kernel: NK_STEP=64 (1 full NVFP4 block per barrier),
-// zero switch, zero ldexp, vectorized uint/float4/half4 loads and stores.
+// Gather+convert FP32 tokens into expert-contiguous FP16 buffer so gate_up reads tB directly via NAX tensor.
+kernel void qw3_inkling_moe_gather_x_f16(
+    constant uint2 &args [[buffer(0)]],
+    device const float4 *xin [[buffer(1)]],
+    device const int *flat_pair_ids [[buffer(2)]],
+    device half4 *xout [[buffer(3)]],
+    uint slot [[threadgroup_position_in_grid]],
+    ushort tid [[thread_index_in_threadgroup]]) {
+    if (slot >= args.y) return;
+    const uint n4 = args.x >> 2u;
+    const uint tok = uint(flat_pair_ids[slot]) >> 3u;
+    device const float4 *src = xin + uint64_t(tok) * n4;
+    device half4 *dst = xout + uint64_t(slot) * n4;
+    for (uint i = uint(tid); i < n4; i += 128u) {
+        dst[i] = half4(src[i]);
+    }
+}
+
+// Direct-tensor zero-sb NVFP4 mapped MoE down kernel: 8 KiB shmem for ALL NR1 (16/32/64),
+// reads expert-contiguous FP16 hidden directly via Metal 4 NAX tensor, pre-weights FP16 output slots.
 template<int NR1>
 kernel void qw3_inkling_moe_mapped_nvfp4_mpp(
     constant qw3_inkling_moe_mapped_args &args [[buffer(0)]],
     device const uchar *weights [[buffer(1)]],
-    device const float *xin [[buffer(2)]],
-    device float *out_slots [[buffer(3)]],
+    device const half *xin [[buffer(2)]],
+    device half *out_slots [[buffer(3)]],
     device const uint *counts [[buffer(4)]],
     device const int *pair_ids [[buffer(5)]],
     device const uint *block_ids [[buffer(6)]],
+    device const float *down_weights [[buffer(7)]],
     threadgroup char *shmem [[threadgroup(0)]],
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]],
@@ -5775,47 +5989,110 @@ kernel void qw3_inkling_moe_mapped_nvfp4_mpp(
     constexpr int NR0 = 64;
     constexpr int NK_STEP = 64;
     constexpr int NK = 32;
-    const uint r0u = group.y * uint(NR0);
-    const uint block = block_ids[group.x];
+    const uint r0u = group.x * uint(NR0);
+    const uint block = block_ids[group.y];
     const uint expert = block & 255u;
     const uint r1u = block >> 8u;
     const uint count = counts[expert];
     if (r0u >= args.n_out || r1u >= count) return;
+    const uint exp_off = counts[128u + expert];
     const int nr0 = int(min(uint(NR0), args.n_out - r0u));
     const int nr1 = int(min(uint(NR1), count - r1u));
     const uint map_base = expert * args.n_tokens + r1u;
     threadgroup half *sa = (threadgroup half *)shmem;
-    threadgroup half *sb = (threadgroup half *)(shmem + NR0 * NK_STEP * 2);
     threadgroup float *sc = (threadgroup float *)shmem;
     auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
         sa, dextents<int32_t, 2>(NK_STEP, NR0));
-    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sb, dextents<int32_t, 2>(NK_STEP, NR1));
-    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
-        matmul2d_descriptor::mode::multiply_accumulate),
-        execution_simdgroups<4>> mm;
-    auto cT = mm.template get_destination_cooperative_tensor<
-        decltype(tB), decltype(tA), float>();
-    for (uint16_t i = 0; i < cT.get_capacity(); i++)
-        if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    device half *ptrB = (device half *)xin + uint64_t(exp_off) * args.in_stride;
+    auto tB = tensor(ptrB, dextents<int32_t, 2>(int(args.n_in), int(count)),
+                     array<int, 2>({1, int(args.in_stride)}));
     device const uchar *wexp = weights + uint64_t(expert) * uint64_t(args.expert_bytes);
     const int row = int(tid) >> 1;
     const int half_blk = int(tid) & 1;
     device const uchar *wrow = (row < nr0) ? (wexp + uint64_t(r0u + uint(row)) * args.row_bytes) : wexp;
-    const int sb_tok = (NR1 == 16) ? (int(tid) >> 3) : ((NR1 == 32) ? (int(tid) >> 2) : (int(tid) >> 1));
-    const int sb_kp = (NR1 == 16) ? (int(tid) & 7) : ((NR1 == 32) ? (int(tid) & 3) : (int(tid) & 1));
-    const uint sb_row_idx = (sb_tok < nr1)
-        ? (args.input_is_slot ? uint(pair_ids[map_base + uint(sb_tok)])
-                              : (uint(pair_ids[map_base + uint(sb_tok)]) / args.n_active))
-        : 0u;
-    device const float *xbase = xin + uint64_t(sb_row_idx) * args.in_stride;
+    threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * NK_STEP + half_blk * 32);
+    const int lane = int(tid & 31u);
+
+    if (NR1 >= 64) {
+        constexpr int ROWS_PER_SG = (NR1 == 128) ? 32 : 16;
+        const int sg_r1 = int(r1u) + int(sgitg) * ROWS_PER_SG;
+        const int sg_nr1 = clamp(int(count) - sg_r1, 0, ROWS_PER_SG);
+        const bool sg_active = sg_nr1 > 0;
+        matmul2d<matmul2d_descriptor(ROWS_PER_SG, NR0, NK, false, true, true,
+            matmul2d_descriptor::mode::multiply_accumulate),
+            execution_simdgroups<1>> mm;
+        auto cT = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+        for (uint16_t i = 0; i < cT.get_capacity(); i++)
+            if (cT.is_valid_element(i)) cT[i] = 0.0f;
+        for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
+            if (row < nr0) {
+                device const uchar *blk = wrow + uint64_t(loop_k >> 6u) * 36ull;
+                const uint sub0 = uint(half_blk * 2);
+                const half sc0 = qw3_nvfp4_scale_h[blk[sub0]];
+                const half sc1 = qw3_nvfp4_scale_h[blk[sub0 + 1u]];
+                device const uint *vp = (device const uint *)(blk + 4u + 8u * sub0);
+                const uint w0 = vp[0], w1 = vp[1], w2 = vp[2], w3 = vp[3];
+                sa4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc0;
+                sa4[1] = qw3_nvfp4_decode4_h(w1 & 15u, (w1 >> 8u) & 15u, (w1 >> 16u) & 15u, (w1 >> 24u) & 15u) * sc0;
+                sa4[2] = qw3_nvfp4_decode4_h((w0 >> 4u) & 15u, (w0 >> 12u) & 15u, (w0 >> 20u) & 15u, (w0 >> 28u) & 15u) * sc0;
+                sa4[3] = qw3_nvfp4_decode4_h((w1 >> 4u) & 15u, (w1 >> 12u) & 15u, (w1 >> 20u) & 15u, (w1 >> 28u) & 15u) * sc0;
+                sa4[4] = qw3_nvfp4_decode4_h(w2 & 15u, (w2 >> 8u) & 15u, (w2 >> 16u) & 15u, (w2 >> 24u) & 15u) * sc1;
+                sa4[5] = qw3_nvfp4_decode4_h(w3 & 15u, (w3 >> 8u) & 15u, (w3 >> 16u) & 15u, (w3 >> 24u) & 15u) * sc1;
+                sa4[6] = qw3_nvfp4_decode4_h((w2 >> 4u) & 15u, (w2 >> 12u) & 15u, (w2 >> 20u) & 15u, (w2 >> 28u) & 15u) * sc1;
+                sa4[7] = qw3_nvfp4_decode4_h((w3 >> 4u) & 15u, (w3 >> 12u) & 15u, (w3 >> 20u) & 15u, (w3 >> 28u) & 15u) * sc1;
+            } else {
+                for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (sg_active) {
+                auto mA0 = tA.slice(0, 0);
+                auto mB0 = tB.slice(int(loop_k), sg_r1);
+                mm.run(mB0, mA0, cT);
+                auto mA1 = tA.slice(32, 0);
+                auto mB1 = tB.slice(int(loop_k + 32u), sg_r1);
+                mm.run(mB1, mA1, cT);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        constexpr int WAVES = (NR1 == 128) ? 4 : 2;
+        constexpr int SGS_PER_WAVE = 4 / WAVES;
+        for (int w = 0; w < WAVES; w++) {
+            const int sg_in_w = int(sgitg) - w * SGS_PER_WAVE;
+            if (sg_in_w >= 0 && sg_in_w < SGS_PER_WAVE && sg_active) {
+                threadgroup float *sc_sg = sc + sg_in_w * (ROWS_PER_SG * NR0);
+                auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+                    sc_sg, dextents<int32_t, 2>(NR0, ROWS_PER_SG));
+                cT.store(tC.slice(0, 0));
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+                for (int j = 0; j < sg_nr1; j++) {
+                    const uint pid = uint(pair_ids[expert * args.n_tokens + uint(sg_r1 + j)]);
+                    const float dw = down_weights[pid];
+                    device half *dst = out_slots + uint64_t(pid) * args.out_stride + r0u;
+                    threadgroup float *src = sc_sg + j * NR0;
+                    if (lane < nr0 / 4) {
+                        ((device half4 *)dst)[lane] = half4(((threadgroup float4 *)src)[lane] * dw);
+                    } else if (4 * (nr0 / 4) + lane < nr0) {
+                        dst[4 * (nr0 / 4) + lane] = half(src[4 * (nr0 / 4) + lane] * dw);
+                    }
+                }
+            }
+            if (w + 1 < WAVES) threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        return;
+    }
+
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cT = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cT.get_capacity(); i++)
+        if (cT.is_valid_element(i)) cT[i] = 0.0f;
     for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
-        threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * NK_STEP + half_blk * 32);
         if (row < nr0) {
             device const uchar *blk = wrow + uint64_t(loop_k >> 6u) * 36ull;
             const uint sub0 = uint(half_blk * 2);
-            const half sc0 = half(qw3_nvfp4_scale(uint(blk[sub0])));
-            const half sc1 = half(qw3_nvfp4_scale(uint(blk[sub0 + 1u])));
+            const half sc0 = qw3_nvfp4_scale_h[blk[sub0]];
+            const half sc1 = qw3_nvfp4_scale_h[blk[sub0 + 1u]];
             device const uint *vp = (device const uint *)(blk + 4u + 8u * sub0);
             const uint w0 = vp[0], w1 = vp[1], w2 = vp[2], w3 = vp[3];
             sa4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc0;
@@ -5829,47 +6106,13 @@ kernel void qw3_inkling_moe_mapped_nvfp4_mpp(
         } else {
             for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
         }
-        if (NR1 == 16) {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 8);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 8));
-                sb4[0] = half4(xf[0]);
-                sb4[1] = half4(xf[1]);
-            } else {
-                sb4[0] = half4(0.0f);
-                sb4[1] = half4(0.0f);
-            }
-        } else if (NR1 == 32) {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 16);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 16));
-                sb4[0] = half4(xf[0]);
-                sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]);
-                sb4[3] = half4(xf[3]);
-            } else {
-                sb4[0] = half4(0.0f); sb4[1] = half4(0.0f);
-                sb4[2] = half4(0.0f); sb4[3] = half4(0.0f);
-            }
-        } else {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 32);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 32));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]); sb4[3] = half4(xf[3]);
-                sb4[4] = half4(xf[4]); sb4[5] = half4(xf[5]);
-                sb4[6] = half4(xf[6]); sb4[7] = half4(xf[7]);
-            } else {
-                for (int i = 0; i < 8; i++) sb4[i] = half4(0.0f);
-            }
-        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         {
-            auto mB0 = tB.slice(0, 0);
             auto mA0 = tA.slice(0, 0);
+            auto mB0 = tB.slice(int(loop_k), int(r1u));
             mm.run(mB0, mA0, cT);
-            auto mB1 = tB.slice(32, 0);
             auto mA1 = tA.slice(32, 0);
+            auto mB1 = tB.slice(int(loop_k + 32u), int(r1u));
             mm.run(mB1, mA1, cT);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -5880,26 +6123,29 @@ kernel void qw3_inkling_moe_mapped_nvfp4_mpp(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (int j = int(sgitg); j < nr1; j += 4) {
         const uint pid = uint(pair_ids[map_base + uint(j)]);
-        device float *dst = out_slots + uint64_t(pid) * args.out_stride + r0u;
+        const float dw = down_weights[pid];
+        device half *dst = out_slots + uint64_t(pid) * args.out_stride + r0u;
         threadgroup float *src = sc + j * NR0;
-        const int lane = int(tid & 31u);
         if (lane < nr0 / 4) {
-            ((device float4 *)dst)[lane] = ((threadgroup float4 *)src)[lane];
+            ((device half4 *)dst)[lane] = half4(((threadgroup float4 *)src)[lane] * dw);
         } else if (4 * (nr0 / 4) + lane < nr0) {
-            dst[4 * (nr0 / 4) + lane] = src[4 * (nr0 / 4) + lane];
+            dst[4 * (nr0 / 4) + lane] = half(src[4 * (nr0 / 4) + lane] * dw);
         }
     }
 }
 
 template [[host_name("qw3_inkling_moe_mapped_nvfp4_n16")]] kernel void qw3_inkling_moe_mapped_nvfp4_mpp<16>(
-    constant qw3_inkling_moe_mapped_args &, device const uchar *, device const float *, device float *,
-    device const uint *, device const int *, device const uint *, threadgroup char *, uint2, ushort, ushort);
+    constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *,
+    device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
 template [[host_name("qw3_inkling_moe_mapped_nvfp4_n32")]] kernel void qw3_inkling_moe_mapped_nvfp4_mpp<32>(
-    constant qw3_inkling_moe_mapped_args &, device const uchar *, device const float *, device float *,
-    device const uint *, device const int *, device const uint *, threadgroup char *, uint2, ushort, ushort);
+    constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *,
+    device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
 template [[host_name("qw3_inkling_moe_mapped_nvfp4_n64")]] kernel void qw3_inkling_moe_mapped_nvfp4_mpp<64>(
-    constant qw3_inkling_moe_mapped_args &, device const uchar *, device const float *, device float *,
-    device const uint *, device const int *, device const uint *, threadgroup char *, uint2, ushort, ushort);
+    constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *,
+    device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
+template [[host_name("qw3_inkling_moe_mapped_nvfp4_n128")]] kernel void qw3_inkling_moe_mapped_nvfp4_mpp<128>(
+    constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *,
+    device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
 
 // Compile-time specialized non-NVFP4 mapped MoE MPP kernels: NK_STEP=64 (1 full ib32 sub-block
 // per thread for IQ3_XXS/IQ2_S/IQ3_S/IQ2_XS/IQ4_NL, 2x fewer barriers, direct half4 writes).
@@ -6074,14 +6320,15 @@ template<uint TYPE, int NR1>
 kernel void qw3_inkling_moe_mapped_typed_mpp(
     constant qw3_inkling_moe_mapped_args &args [[buffer(0)]],
     device const uchar *weights [[buffer(1)]],
-    device const float *xin [[buffer(2)]],
-    device float *out_slots [[buffer(3)]],
+    device const half *xin [[buffer(2)]],
+    device half *out_slots [[buffer(3)]],
     device const uint *counts [[buffer(4)]],
     device const int *pair_ids [[buffer(5)]],
     device const uint *block_ids [[buffer(6)]],
     device const ushort *grid16 [[buffer(7)]],
     device const uchar *signs [[buffer(8)]],
     device const uchar *iq3s_kgrid [[buffer(9)]],
+    device const float *down_weights [[buffer(10)]],
     threadgroup char *shmem [[threadgroup(0)]],
     uint2 group [[threadgroup_position_in_grid]],
     ushort tid [[thread_index_in_threadgroup]],
@@ -6089,85 +6336,106 @@ kernel void qw3_inkling_moe_mapped_typed_mpp(
     constexpr int NR0 = 64;
     constexpr int NK_STEP = 64;
     constexpr int NK = 32;
-    const uint r0u = group.y * uint(NR0);
-    const uint block = block_ids[group.x];
+    const uint r0u = group.x * uint(NR0);
+    const uint block = block_ids[group.y];
     const uint expert = block & 255u;
     const uint r1u = block >> 8u;
     const uint count = counts[expert];
     if (r0u >= args.n_out || r1u >= count) return;
+    const uint exp_off = counts[128u + expert];
     const int nr0 = int(min(uint(NR0), args.n_out - r0u));
     const int nr1 = int(min(uint(NR1), count - r1u));
     const uint map_base = expert * args.n_tokens + r1u;
     threadgroup half *sa = (threadgroup half *)shmem;
-    threadgroup half *sb = (threadgroup half *)(shmem + NR0 * NK_STEP * 2);
     threadgroup float *sc = (threadgroup float *)shmem;
     auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
         sa, dextents<int32_t, 2>(NK_STEP, NR0));
-    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sb, dextents<int32_t, 2>(NK_STEP, NR1));
-    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
-        matmul2d_descriptor::mode::multiply_accumulate),
-        execution_simdgroups<4>> mm;
-    auto cT = mm.template get_destination_cooperative_tensor<
-        decltype(tB), decltype(tA), float>();
-    for (uint16_t i = 0; i < cT.get_capacity(); i++)
-        if (cT.is_valid_element(i)) cT[i] = 0.0f;
+    device half *ptrB = (device half *)xin + uint64_t(exp_off) * args.in_stride;
+    auto tB = tensor(ptrB, dextents<int32_t, 2>(int(args.n_in), int(count)),
+                     array<int, 2>({1, int(args.in_stride)}));
     device const uchar *wexp = weights + uint64_t(expert) * uint64_t(args.expert_bytes);
     const int row = int(tid) >> 1;
     const int half_k = int(tid) & 1;
     device const uchar *wrow = (row < nr0) ? (wexp + uint64_t(r0u + uint(row)) * args.row_bytes) : wexp;
-    const int sb_tok = (NR1 == 16) ? (int(tid) >> 3) : ((NR1 == 32) ? (int(tid) >> 2) : (int(tid) >> 1));
-    const int sb_kp = (NR1 == 16) ? (int(tid) & 7) : ((NR1 == 32) ? (int(tid) & 3) : (int(tid) & 1));
-    const uint sb_row_idx = (sb_tok < nr1)
-        ? (args.input_is_slot ? uint(pair_ids[map_base + uint(sb_tok)])
-                              : (uint(pair_ids[map_base + uint(sb_tok)]) / args.n_active))
-        : 0u;
-    device const float *xbase = xin + uint64_t(sb_row_idx) * args.in_stride;
+    threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * NK_STEP + half_k * 32);
+    const int lane = int(tid & 31u);
+
+    if (NR1 >= 64) {
+        constexpr int ROWS_PER_SG = (NR1 == 128) ? 32 : 16;
+        const int sg_r1 = int(r1u) + int(sgitg) * ROWS_PER_SG;
+        const int sg_nr1 = clamp(int(count) - sg_r1, 0, ROWS_PER_SG);
+        const bool sg_active = sg_nr1 > 0;
+        matmul2d<matmul2d_descriptor(ROWS_PER_SG, NR0, NK, false, true, true,
+            matmul2d_descriptor::mode::multiply_accumulate),
+            execution_simdgroups<1>> mm;
+        auto cT = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+        for (uint16_t i = 0; i < cT.get_capacity(); i++)
+            if (cT.is_valid_element(i)) cT[i] = 0.0f;
+        for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
+            if (row < nr0) {
+                qw3_inkling_dequant_32_sa4<TYPE>(
+                    wrow, loop_k + uint(half_k * 32), grid16, signs, iq3s_kgrid, sa4);
+            } else {
+                for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (sg_active) {
+                auto mA0 = tA.slice(0, 0);
+                auto mB0 = tB.slice(int(loop_k), sg_r1);
+                mm.run(mB0, mA0, cT);
+                auto mA1 = tA.slice(32, 0);
+                auto mB1 = tB.slice(int(loop_k + 32u), sg_r1);
+                mm.run(mB1, mA1, cT);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        constexpr int WAVES = (NR1 == 128) ? 4 : 2;
+        constexpr int SGS_PER_WAVE = 4 / WAVES;
+        for (int w = 0; w < WAVES; w++) {
+            const int sg_in_w = int(sgitg) - w * SGS_PER_WAVE;
+            if (sg_in_w >= 0 && sg_in_w < SGS_PER_WAVE && sg_active) {
+                threadgroup float *sc_sg = sc + sg_in_w * (ROWS_PER_SG * NR0);
+                auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+                    sc_sg, dextents<int32_t, 2>(NR0, ROWS_PER_SG));
+                cT.store(tC.slice(0, 0));
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+                for (int j = 0; j < sg_nr1; j++) {
+                    const uint pid = uint(pair_ids[expert * args.n_tokens + uint(sg_r1 + j)]);
+                    const float dw = down_weights[pid];
+                    device half *dst = out_slots + uint64_t(pid) * args.out_stride + r0u;
+                    threadgroup float *src = sc_sg + j * NR0;
+                    if (lane < nr0 / 4) {
+                        ((device half4 *)dst)[lane] = half4(((threadgroup float4 *)src)[lane] * dw);
+                    } else if (4 * (nr0 / 4) + lane < nr0) {
+                        dst[4 * (nr0 / 4) + lane] = half(src[4 * (nr0 / 4) + lane] * dw);
+                    }
+                }
+            }
+            if (w + 1 < WAVES) threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        return;
+    }
+
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cT = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cT.get_capacity(); i++)
+        if (cT.is_valid_element(i)) cT[i] = 0.0f;
     for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
-        threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * NK_STEP + half_k * 32);
         if (row < nr0) {
             qw3_inkling_dequant_32_sa4<TYPE>(
                 wrow, loop_k + uint(half_k * 32), grid16, signs, iq3s_kgrid, sa4);
         } else {
             for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
         }
-        if (NR1 == 16) {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 8);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 8));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-            } else {
-                sb4[0] = half4(0.0f); sb4[1] = half4(0.0f);
-            }
-        } else if (NR1 == 32) {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 16);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 16));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]); sb4[3] = half4(xf[3]);
-            } else {
-                sb4[0] = half4(0.0f); sb4[1] = half4(0.0f);
-                sb4[2] = half4(0.0f); sb4[3] = half4(0.0f);
-            }
-        } else {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 32);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 32));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]); sb4[3] = half4(xf[3]);
-                sb4[4] = half4(xf[4]); sb4[5] = half4(xf[5]);
-                sb4[6] = half4(xf[6]); sb4[7] = half4(xf[7]);
-            } else {
-                for (int i = 0; i < 8; i++) sb4[i] = half4(0.0f);
-            }
-        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         {
-            auto mB0 = tB.slice(0, 0);
             auto mA0 = tA.slice(0, 0);
+            auto mB0 = tB.slice(int(loop_k), int(r1u));
             mm.run(mB0, mA0, cT);
-            auto mB1 = tB.slice(32, 0);
             auto mA1 = tA.slice(32, 0);
+            auto mB1 = tB.slice(int(loop_k + 32u), int(r1u));
             mm.run(mB1, mA1, cT);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -6178,30 +6446,34 @@ kernel void qw3_inkling_moe_mapped_typed_mpp(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (int j = int(sgitg); j < nr1; j += 4) {
         const uint pid = uint(pair_ids[map_base + uint(j)]);
-        device float *dst = out_slots + uint64_t(pid) * args.out_stride + r0u;
+        const float dw = down_weights[pid];
+        device half *dst = out_slots + uint64_t(pid) * args.out_stride + r0u;
         threadgroup float *src = sc + j * NR0;
-        const int lane = int(tid & 31u);
         if (lane < nr0 / 4) {
-            ((device float4 *)dst)[lane] = ((threadgroup float4 *)src)[lane];
+            ((device half4 *)dst)[lane] = half4(((threadgroup float4 *)src)[lane] * dw);
         } else if (4 * (nr0 / 4) + lane < nr0) {
-            dst[4 * (nr0 / 4) + lane] = src[4 * (nr0 / 4) + lane];
+            dst[4 * (nr0 / 4) + lane] = half(src[4 * (nr0 / 4) + lane] * dw);
         }
     }
 }
 
 #define QW3_INST_INK_MOE_MPP(T) \
     template [[host_name("qw3_inkling_moe_mapped_t" #T "_n16")]] kernel void qw3_inkling_moe_mapped_typed_mpp<T##u, 16>( \
-        constant qw3_inkling_moe_mapped_args &, device const uchar *, device const float *, device float *, \
+        constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *, \
         device const uint *, device const int *, device const uint *, \
-        device const ushort *, device const uchar *, device const uchar *, threadgroup char *, uint2, ushort, ushort); \
+        device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort); \
     template [[host_name("qw3_inkling_moe_mapped_t" #T "_n32")]] kernel void qw3_inkling_moe_mapped_typed_mpp<T##u, 32>( \
-        constant qw3_inkling_moe_mapped_args &, device const uchar *, device const float *, device float *, \
+        constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *, \
         device const uint *, device const int *, device const uint *, \
-        device const ushort *, device const uchar *, device const uchar *, threadgroup char *, uint2, ushort, ushort); \
+        device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort); \
     template [[host_name("qw3_inkling_moe_mapped_t" #T "_n64")]] kernel void qw3_inkling_moe_mapped_typed_mpp<T##u, 64>( \
-        constant qw3_inkling_moe_mapped_args &, device const uchar *, device const float *, device float *, \
+        constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *, \
         device const uint *, device const int *, device const uint *, \
-        device const ushort *, device const uchar *, device const uchar *, threadgroup char *, uint2, ushort, ushort);
+        device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort); \
+    template [[host_name("qw3_inkling_moe_mapped_t" #T "_n128")]] kernel void qw3_inkling_moe_mapped_typed_mpp<T##u, 128>( \
+        constant qw3_inkling_moe_mapped_args &, device const uchar *, device const half *, device half *, \
+        device const uint *, device const int *, device const uint *, \
+        device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort);
 
 QW3_INST_INK_MOE_MPP(8)
 QW3_INST_INK_MOE_MPP(11)
@@ -6216,8 +6488,8 @@ QW3_INST_INK_MOE_MPP(22)
 QW3_INST_INK_MOE_MPP(23)
 #undef QW3_INST_INK_MOE_MPP
 
-// Fused mapped gate_up + SiTU prefill kernels: compute 32 gate rows + 32 up rows in ONE
-// threadgroup (reading x once, zero batchMoeSlots DRAM roundtrip, zero expertActivationBatch dispatch).
+// Direct-tensor zero-sb fused gate_up + SiTU prefill kernels: 8 KiB shmem for ALL NR1 (16/32/64),
+// reads expert-contiguous FP16 x directly via Metal 4 NAX tensor, writes expert-contiguous FP16 hidden!
 struct qw3_inkling_moe_gate_up_situ_args {
     uint n_in, n_ff, row_bytes, expert_bytes;
     uint n_tokens, n_active, type, in_stride;
@@ -6228,8 +6500,8 @@ template<int NR1>
 kernel void qw3_inkling_moe_gate_up_situ_nvfp4_mpp(
     constant qw3_inkling_moe_gate_up_situ_args &args [[buffer(0)]],
     device const uchar *weights [[buffer(1)]],
-    device const float *xin [[buffer(2)]],
-    device float *hidden_out [[buffer(3)]],
+    device const half *xin [[buffer(2)]],
+    device half *hidden_out [[buffer(3)]],
     device const uint *counts [[buffer(4)]],
     device const int *pair_ids [[buffer(5)]],
     device const uint *block_ids [[buffer(6)]],
@@ -6239,145 +6511,190 @@ kernel void qw3_inkling_moe_gate_up_situ_nvfp4_mpp(
     ushort tid [[thread_index_in_threadgroup]],
     ushort sgitg [[simdgroup_index_in_threadgroup]]) {
     constexpr int NR0_H = 32;
+    constexpr int NR0 = 64;
     constexpr int NK_STEP = 64;
     constexpr int NK = 32;
-    const uint r0u = group.y * uint(NR0_H);
-    const uint block = block_ids[group.x];
+    const uint r0u = group.x * uint(NR0_H);
+    const uint block = block_ids[group.y];
     const uint expert = block & 255u;
     const uint r1u = block >> 8u;
     const uint count = counts[expert];
     if (r0u >= args.n_ff || r1u >= count) return;
+    const uint exp_off = counts[128u + expert];
     const int nr0 = int(min(uint(NR0_H), args.n_ff - r0u));
     const int nr1 = int(min(uint(NR1), count - r1u));
     const uint map_base = expert * args.n_tokens + r1u;
-    threadgroup half *sa_g = (threadgroup half *)shmem;
-    threadgroup half *sa_u = (threadgroup half *)(shmem + NR0_H * NK_STEP * 2);
-    threadgroup half *sb   = (threadgroup half *)(shmem + 2 * NR0_H * NK_STEP * 2);
-    auto tAg = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sa_g, dextents<int32_t, 2>(NK_STEP, NR0_H));
-    auto tAu = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sa_u, dextents<int32_t, 2>(NK_STEP, NR0_H));
-    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sb, dextents<int32_t, 2>(NK_STEP, NR1));
-    matmul2d<matmul2d_descriptor(NR1, NR0_H, NK, false, true, true,
-        matmul2d_descriptor::mode::multiply_accumulate),
-        execution_simdgroups<4>> mm;
-    auto cG = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tAg), float>();
-    auto cU = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tAu), float>();
-    for (uint16_t i = 0; i < cG.get_capacity(); i++) {
-        if (cG.is_valid_element(i)) cG[i] = 0.0f;
-        if (cU.is_valid_element(i)) cU[i] = 0.0f;
-    }
+    threadgroup half *sa   = (threadgroup half *)shmem;
+    threadgroup half *sa_g = sa;
+    threadgroup half *sa_u = sa + NR0_H * NK_STEP;
+    threadgroup float *sc  = (threadgroup float *)shmem;
+    auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
+        sa, dextents<int32_t, 2>(NK_STEP, NR0));
+    device half *ptrB = (device half *)xin + uint64_t(exp_off) * args.in_stride;
+    auto tB = tensor(ptrB, dextents<int32_t, 2>(int(args.n_in), int(count)),
+                     array<int, 2>({1, int(args.in_stride)}));
     device const uchar *wexp = weights + uint64_t(expert) * uint64_t(args.expert_bytes);
     const int row = int(tid) >> 2;
     const uint sub = uint(tid) & 3u;
     device const uchar *wrow_g = (row < nr0) ? (wexp + uint64_t(r0u + uint(row)) * args.row_bytes) : wexp;
     device const uchar *wrow_u = (row < nr0) ? (wexp + uint64_t(args.n_ff + r0u + uint(row)) * args.row_bytes) : wexp;
-    const int sb_tok = (NR1 == 32) ? (int(tid) >> 2) : (int(tid) >> 1);
-    const int sb_kp  = (NR1 == 32) ? (int(tid) & 3)  : (int(tid) & 1);
-    const uint sb_row_idx = (sb_tok < nr1) ? (uint(pair_ids[map_base + uint(sb_tok)]) / args.n_active) : 0u;
-    device const float *xbase = xin + uint64_t(sb_row_idx) * args.in_stride;
+    threadgroup half4 *sag4 = (threadgroup half4 *)(sa_g + row * NK_STEP + int(sub) * 16);
+    threadgroup half4 *sau4 = (threadgroup half4 *)(sa_u + row * NK_STEP + int(sub) * 16);
+    const int lane = int(tid & 31u);
+    const float beta = args.beta, limit = args.limit;
+
+    if (NR1 >= 64) {
+        constexpr int ROWS_PER_SG = (NR1 == 128) ? 32 : 16;
+        const int sg_r1 = int(r1u) + int(sgitg) * ROWS_PER_SG;
+        const int sg_nr1 = clamp(int(count) - sg_r1, 0, ROWS_PER_SG);
+        const bool sg_active = sg_nr1 > 0;
+        matmul2d<matmul2d_descriptor(ROWS_PER_SG, NR0, NK, false, true, true,
+            matmul2d_descriptor::mode::multiply_accumulate),
+            execution_simdgroups<1>> mm;
+        auto cGU = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+        for (uint16_t i = 0; i < cGU.get_capacity(); i++)
+            if (cGU.is_valid_element(i)) cGU[i] = 0.0f;
+        for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
+            if (row < nr0) {
+                const uint64_t boff = uint64_t(loop_k >> 6u) * 36ull;
+                {
+                    device const uchar *blk = wrow_g + boff;
+                    const half sc0 = qw3_nvfp4_scale_h[blk[sub]];
+                    device const uint *vp = (device const uint *)(blk + 4u + 8u * sub);
+                    const uint w0 = vp[0], w1 = vp[1];
+                    sag4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc0;
+                    sag4[1] = qw3_nvfp4_decode4_h(w1 & 15u, (w1 >> 8u) & 15u, (w1 >> 16u) & 15u, (w1 >> 24u) & 15u) * sc0;
+                    sag4[2] = qw3_nvfp4_decode4_h((w0 >> 4u) & 15u, (w0 >> 12u) & 15u, (w0 >> 20u) & 15u, (w0 >> 28u) & 15u) * sc0;
+                    sag4[3] = qw3_nvfp4_decode4_h((w1 >> 4u) & 15u, (w1 >> 12u) & 15u, (w1 >> 20u) & 15u, (w1 >> 28u) & 15u) * sc0;
+                }
+                {
+                    device const uchar *blk = wrow_u + boff;
+                    const half sc0 = qw3_nvfp4_scale_h[blk[sub]];
+                    device const uint *vp = (device const uint *)(blk + 4u + 8u * sub);
+                    const uint w0 = vp[0], w1 = vp[1];
+                    sau4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc0;
+                    sau4[1] = qw3_nvfp4_decode4_h(w1 & 15u, (w1 >> 8u) & 15u, (w1 >> 16u) & 15u, (w1 >> 24u) & 15u) * sc0;
+                    sau4[2] = qw3_nvfp4_decode4_h((w0 >> 4u) & 15u, (w0 >> 12u) & 15u, (w0 >> 20u) & 15u, (w0 >> 28u) & 15u) * sc0;
+                    sau4[3] = qw3_nvfp4_decode4_h((w1 >> 4u) & 15u, (w1 >> 12u) & 15u, (w1 >> 20u) & 15u, (w1 >> 28u) & 15u) * sc0;
+                }
+            } else {
+                for (int i = 0; i < 4; i++) { sag4[i] = half4(0.0f); sau4[i] = half4(0.0f); }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (sg_active) {
+                auto mA0 = tA.slice(0, 0);
+                auto mB0 = tB.slice(int(loop_k), sg_r1);
+                mm.run(mB0, mA0, cGU);
+                auto mA1 = tA.slice(32, 0);
+                auto mB1 = tB.slice(int(loop_k + 32u), sg_r1);
+                mm.run(mB1, mA1, cGU);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        constexpr int WAVES = (NR1 == 128) ? 4 : 2;
+        constexpr int SGS_PER_WAVE = 4 / WAVES;
+        for (int w = 0; w < WAVES; w++) {
+            const int sg_in_w = int(sgitg) - w * SGS_PER_WAVE;
+            if (sg_in_w >= 0 && sg_in_w < SGS_PER_WAVE && sg_active) {
+                threadgroup float *sc_sg = sc + sg_in_w * (ROWS_PER_SG * NR0);
+                auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+                    sc_sg, dextents<int32_t, 2>(NR0, ROWS_PER_SG));
+                cGU.store(tC.slice(0, 0));
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+                for (int j = 0; j < sg_nr1; j++) {
+                    const uint pid = uint(pair_ids[expert * args.n_tokens + uint(sg_r1 + j)]);
+                    const float sc_w = gate_scales[pid];
+                    if (lane < nr0) {
+                        const float ga = sc_sg[j * NR0 + lane] * sc_w;
+                        const float up = sc_sg[j * NR0 + NR0_H + lane] * sc_w;
+                        hidden_out[uint64_t(exp_off + uint(sg_r1 + j)) * args.n_ff + r0u + uint(lane)] =
+                            half(beta * tanh(ga / beta) / (1.0f + exp(-ga)) * limit * tanh(up / limit));
+                    }
+                }
+            }
+            if (w + 1 < WAVES) threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        return;
+    }
+
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cGU = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cGU.get_capacity(); i++)
+        if (cGU.is_valid_element(i)) cGU[i] = 0.0f;
     for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
-        threadgroup half4 *sag4 = (threadgroup half4 *)(sa_g + row * NK_STEP + int(sub) * 16);
-        threadgroup half4 *sau4 = (threadgroup half4 *)(sa_u + row * NK_STEP + int(sub) * 16);
         if (row < nr0) {
             const uint64_t boff = uint64_t(loop_k >> 6u) * 36ull;
             {
                 device const uchar *blk = wrow_g + boff;
-                const half sc = half(qw3_nvfp4_scale(uint(blk[sub])));
+                const half sc0 = qw3_nvfp4_scale_h[blk[sub]];
                 device const uint *vp = (device const uint *)(blk + 4u + 8u * sub);
                 const uint w0 = vp[0], w1 = vp[1];
-                sag4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc;
-                sag4[1] = qw3_nvfp4_decode4_h(w1 & 15u, (w1 >> 8u) & 15u, (w1 >> 16u) & 15u, (w1 >> 24u) & 15u) * sc;
-                sag4[2] = qw3_nvfp4_decode4_h((w0 >> 4u) & 15u, (w0 >> 12u) & 15u, (w0 >> 20u) & 15u, (w0 >> 28u) & 15u) * sc;
-                sag4[3] = qw3_nvfp4_decode4_h((w1 >> 4u) & 15u, (w1 >> 12u) & 15u, (w1 >> 20u) & 15u, (w1 >> 28u) & 15u) * sc;
+                sag4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc0;
+                sag4[1] = qw3_nvfp4_decode4_h(w1 & 15u, (w1 >> 8u) & 15u, (w1 >> 16u) & 15u, (w1 >> 24u) & 15u) * sc0;
+                sag4[2] = qw3_nvfp4_decode4_h((w0 >> 4u) & 15u, (w0 >> 12u) & 15u, (w0 >> 20u) & 15u, (w0 >> 28u) & 15u) * sc0;
+                sag4[3] = qw3_nvfp4_decode4_h((w1 >> 4u) & 15u, (w1 >> 12u) & 15u, (w1 >> 20u) & 15u, (w1 >> 28u) & 15u) * sc0;
             }
             {
                 device const uchar *blk = wrow_u + boff;
-                const half sc = half(qw3_nvfp4_scale(uint(blk[sub])));
+                const half sc0 = qw3_nvfp4_scale_h[blk[sub]];
                 device const uint *vp = (device const uint *)(blk + 4u + 8u * sub);
                 const uint w0 = vp[0], w1 = vp[1];
-                sau4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc;
-                sau4[1] = qw3_nvfp4_decode4_h(w1 & 15u, (w1 >> 8u) & 15u, (w1 >> 16u) & 15u, (w1 >> 24u) & 15u) * sc;
-                sau4[2] = qw3_nvfp4_decode4_h((w0 >> 4u) & 15u, (w0 >> 12u) & 15u, (w0 >> 20u) & 15u, (w0 >> 28u) & 15u) * sc;
-                sau4[3] = qw3_nvfp4_decode4_h((w1 >> 4u) & 15u, (w1 >> 12u) & 15u, (w1 >> 20u) & 15u, (w1 >> 28u) & 15u) * sc;
+                sau4[0] = qw3_nvfp4_decode4_h(w0 & 15u, (w0 >> 8u) & 15u, (w0 >> 16u) & 15u, (w0 >> 24u) & 15u) * sc0;
+                sau4[1] = qw3_nvfp4_decode4_h(w1 & 15u, (w1 >> 8u) & 15u, (w1 >> 16u) & 15u, (w1 >> 24u) & 15u) * sc0;
+                sau4[2] = qw3_nvfp4_decode4_h((w0 >> 4u) & 15u, (w0 >> 12u) & 15u, (w0 >> 20u) & 15u, (w0 >> 28u) & 15u) * sc0;
+                sau4[3] = qw3_nvfp4_decode4_h((w1 >> 4u) & 15u, (w1 >> 12u) & 15u, (w1 >> 20u) & 15u, (w1 >> 28u) & 15u) * sc0;
             }
         } else {
             for (int i = 0; i < 4; i++) { sag4[i] = half4(0.0f); sau4[i] = half4(0.0f); }
         }
-        if (NR1 == 32) {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 16);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 16));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]); sb4[3] = half4(xf[3]);
-            } else {
-                sb4[0] = half4(0.0f); sb4[1] = half4(0.0f);
-                sb4[2] = half4(0.0f); sb4[3] = half4(0.0f);
-            }
-        } else {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 32);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 32));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]); sb4[3] = half4(xf[3]);
-                sb4[4] = half4(xf[4]); sb4[5] = half4(xf[5]);
-                sb4[6] = half4(xf[6]); sb4[7] = half4(xf[7]);
-            } else {
-                for (int i = 0; i < 8; i++) sb4[i] = half4(0.0f);
-            }
-        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         {
-            auto mB0 = tB.slice(0, 0);
-            auto mB1 = tB.slice(32, 0);
-            auto mAg0 = tAg.slice(0, 0);
-            auto mAg1 = tAg.slice(32, 0);
-            mm.run(mB0, mAg0, cG);
-            mm.run(mB1, mAg1, cG);
-            auto mAu0 = tAu.slice(0, 0);
-            auto mAu1 = tAu.slice(32, 0);
-            mm.run(mB0, mAu0, cU);
-            mm.run(mB1, mAu1, cU);
+            auto mA0 = tA.slice(0, 0);
+            auto mB0 = tB.slice(int(loop_k), int(r1u));
+            mm.run(mB0, mA0, cGU);
+            auto mA1 = tA.slice(32, 0);
+            auto mB1 = tB.slice(int(loop_k + 32u), int(r1u));
+            mm.run(mB1, mA1, cGU);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    threadgroup float *sc_g = (threadgroup float *)shmem;
-    threadgroup float *sc_u = (threadgroup float *)(shmem + NR0_H * NR1 * 4);
-    auto tCG = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
-        sc_g, dextents<int32_t, 2>(NR0_H, NR1));
-    auto tCU = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
-        sc_u, dextents<int32_t, 2>(NR0_H, NR1));
-    cG.store(tCG.slice(0, 0));
-    cU.store(tCU.slice(0, 0));
+    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+        sc, dextents<int32_t, 2>(NR0, NR1));
+    cGU.store(tC.slice(0, 0));
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    const int lane = int(tid & 31u);
-    const float beta = args.beta, limit = args.limit;
     for (int j = int(sgitg); j < nr1; j += 4) {
         const uint pid = uint(pair_ids[map_base + uint(j)]);
-        const float sc = gate_scales[pid];
+        const float sc_w = gate_scales[pid];
         if (lane < nr0) {
-            const float ga = sc_g[j * NR0_H + lane] * sc;
-            const float up = sc_u[j * NR0_H + lane] * sc;
-            hidden_out[uint64_t(pid) * args.n_ff + r0u + uint(lane)] =
-                beta * tanh(ga / beta) / (1.0f + exp(-ga)) * limit * tanh(up / limit);
+            const float ga = sc[j * NR0 + lane] * sc_w;
+            const float up = sc[j * NR0 + NR0_H + lane] * sc_w;
+            hidden_out[uint64_t(exp_off + r1u + uint(j)) * args.n_ff + r0u + uint(lane)] =
+                half(beta * tanh(ga / beta) / (1.0f + exp(-ga)) * limit * tanh(up / limit));
         }
     }
 }
 
+template [[host_name("qw3_inkling_moe_gate_up_situ_nvfp4_n16")]] kernel void qw3_inkling_moe_gate_up_situ_nvfp4_mpp<16>(
+    constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *,
+    device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
 template [[host_name("qw3_inkling_moe_gate_up_situ_nvfp4_n32")]] kernel void qw3_inkling_moe_gate_up_situ_nvfp4_mpp<32>(
-    constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const float *, device float *,
+    constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *,
     device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
 template [[host_name("qw3_inkling_moe_gate_up_situ_nvfp4_n64")]] kernel void qw3_inkling_moe_gate_up_situ_nvfp4_mpp<64>(
-    constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const float *, device float *,
+    constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *,
+    device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
+template [[host_name("qw3_inkling_moe_gate_up_situ_nvfp4_n128")]] kernel void qw3_inkling_moe_gate_up_situ_nvfp4_mpp<128>(
+    constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *,
     device const uint *, device const int *, device const uint *, device const float *, threadgroup char *, uint2, ushort, ushort);
 
 template<uint TYPE, int NR1>
 kernel void qw3_inkling_moe_gate_up_situ_typed_mpp(
     constant qw3_inkling_moe_gate_up_situ_args &args [[buffer(0)]],
     device const uchar *weights [[buffer(1)]],
-    device const float *xin [[buffer(2)]],
-    device float *hidden_out [[buffer(3)]],
+    device const half *xin [[buffer(2)]],
+    device half *hidden_out [[buffer(3)]],
     device const uint *counts [[buffer(4)]],
     device const int *pair_ids [[buffer(5)]],
     device const uint *block_ids [[buffer(6)]],
@@ -6390,35 +6707,28 @@ kernel void qw3_inkling_moe_gate_up_situ_typed_mpp(
     ushort tid [[thread_index_in_threadgroup]],
     ushort sgitg [[simdgroup_index_in_threadgroup]]) {
     constexpr int NR0_H = 32;
+    constexpr int NR0 = 64;
     constexpr int NK_STEP = 64;
     constexpr int NK = 32;
-    const uint r0u = group.y * uint(NR0_H);
-    const uint block = block_ids[group.x];
+    const uint r0u = group.x * uint(NR0_H);
+    const uint block = block_ids[group.y];
     const uint expert = block & 255u;
     const uint r1u = block >> 8u;
     const uint count = counts[expert];
     if (r0u >= args.n_ff || r1u >= count) return;
+    const uint exp_off = counts[128u + expert];
     const int nr0 = int(min(uint(NR0_H), args.n_ff - r0u));
     const int nr1 = int(min(uint(NR1), count - r1u));
     const uint map_base = expert * args.n_tokens + r1u;
-    threadgroup half *sa_g = (threadgroup half *)shmem;
-    threadgroup half *sa_u = (threadgroup half *)(shmem + NR0_H * NK_STEP * 2);
-    threadgroup half *sb   = (threadgroup half *)(shmem + 2 * NR0_H * NK_STEP * 2);
-    auto tAg = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sa_g, dextents<int32_t, 2>(NK_STEP, NR0_H));
-    auto tAu = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sa_u, dextents<int32_t, 2>(NK_STEP, NR0_H));
-    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sb, dextents<int32_t, 2>(NK_STEP, NR1));
-    matmul2d<matmul2d_descriptor(NR1, NR0_H, NK, false, true, true,
-        matmul2d_descriptor::mode::multiply_accumulate),
-        execution_simdgroups<4>> mm;
-    auto cG = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tAg), float>();
-    auto cU = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tAu), float>();
-    for (uint16_t i = 0; i < cG.get_capacity(); i++) {
-        if (cG.is_valid_element(i)) cG[i] = 0.0f;
-        if (cU.is_valid_element(i)) cU[i] = 0.0f;
-    }
+    threadgroup half *sa   = (threadgroup half *)shmem;
+    threadgroup half *sa_g = sa;
+    threadgroup half *sa_u = sa + NR0_H * NK_STEP;
+    threadgroup float *sc  = (threadgroup float *)shmem;
+    auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
+        sa, dextents<int32_t, 2>(NK_STEP, NR0));
+    device half *ptrB = (device half *)xin + uint64_t(exp_off) * args.in_stride;
+    auto tB = tensor(ptrB, dextents<int32_t, 2>(int(args.n_in), int(count)),
+                     array<int, 2>({1, int(args.in_stride)}));
     device const uchar *wexp = weights + uint64_t(expert) * uint64_t(args.expert_bytes);
     const int row_all = int(tid) >> 1;
     const int half_k = int(tid) & 1;
@@ -6427,85 +6737,120 @@ kernel void qw3_inkling_moe_gate_up_situ_typed_mpp(
     const uint w_row_idx = (is_up ? args.n_ff : 0u) + r0u + uint(row_h);
     device const uchar *wrow = (row_h < nr0) ? (wexp + uint64_t(w_row_idx) * args.row_bytes) : wexp;
     threadgroup half *sa_dst = is_up ? sa_u : sa_g;
-    const int sb_tok = (NR1 == 32) ? (int(tid) >> 2) : (int(tid) >> 1);
-    const int sb_kp  = (NR1 == 32) ? (int(tid) & 3)  : (int(tid) & 1);
-    const uint sb_row_idx = (sb_tok < nr1) ? (uint(pair_ids[map_base + uint(sb_tok)]) / args.n_active) : 0u;
-    device const float *xbase = xin + uint64_t(sb_row_idx) * args.in_stride;
+    threadgroup half4 *sa4 = (threadgroup half4 *)(sa_dst + row_h * NK_STEP + half_k * 32);
+    const int lane = int(tid & 31u);
+    const float beta = args.beta, limit = args.limit;
+
+    if (NR1 >= 64) {
+        constexpr int ROWS_PER_SG = (NR1 == 128) ? 32 : 16;
+        const int sg_r1 = int(r1u) + int(sgitg) * ROWS_PER_SG;
+        const int sg_nr1 = clamp(int(count) - sg_r1, 0, ROWS_PER_SG);
+        const bool sg_active = sg_nr1 > 0;
+        matmul2d<matmul2d_descriptor(ROWS_PER_SG, NR0, NK, false, true, true,
+            matmul2d_descriptor::mode::multiply_accumulate),
+            execution_simdgroups<1>> mm;
+        auto cGU = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+        for (uint16_t i = 0; i < cGU.get_capacity(); i++)
+            if (cGU.is_valid_element(i)) cGU[i] = 0.0f;
+        for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
+            if (row_h < nr0) {
+                qw3_inkling_dequant_32_sa4<TYPE>(
+                    wrow, loop_k + uint(half_k * 32), grid16, signs, iq3s_kgrid, sa4);
+            } else {
+                for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (sg_active) {
+                auto mA0 = tA.slice(0, 0);
+                auto mB0 = tB.slice(int(loop_k), sg_r1);
+                mm.run(mB0, mA0, cGU);
+                auto mA1 = tA.slice(32, 0);
+                auto mB1 = tB.slice(int(loop_k + 32u), sg_r1);
+                mm.run(mB1, mA1, cGU);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        constexpr int WAVES = (NR1 == 128) ? 4 : 2;
+        constexpr int SGS_PER_WAVE = 4 / WAVES;
+        for (int w = 0; w < WAVES; w++) {
+            const int sg_in_w = int(sgitg) - w * SGS_PER_WAVE;
+            if (sg_in_w >= 0 && sg_in_w < SGS_PER_WAVE && sg_active) {
+                threadgroup float *sc_sg = sc + sg_in_w * (ROWS_PER_SG * NR0);
+                auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+                    sc_sg, dextents<int32_t, 2>(NR0, ROWS_PER_SG));
+                cGU.store(tC.slice(0, 0));
+                simdgroup_barrier(mem_flags::mem_threadgroup);
+                for (int j = 0; j < sg_nr1; j++) {
+                    const uint pid = uint(pair_ids[expert * args.n_tokens + uint(sg_r1 + j)]);
+                    const float sc_w = gate_scales[pid];
+                    if (lane < nr0) {
+                        const float ga = sc_sg[j * NR0 + lane] * sc_w;
+                        const float up = sc_sg[j * NR0 + NR0_H + lane] * sc_w;
+                        hidden_out[uint64_t(exp_off + uint(sg_r1 + j)) * args.n_ff + r0u + uint(lane)] =
+                            half(beta * tanh(ga / beta) / (1.0f + exp(-ga)) * limit * tanh(up / limit));
+                    }
+                }
+            }
+            if (w + 1 < WAVES) threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        return;
+    }
+
+    matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mm;
+    auto cGU = mm.template get_destination_cooperative_tensor<decltype(tB), decltype(tA), float>();
+    for (uint16_t i = 0; i < cGU.get_capacity(); i++)
+        if (cGU.is_valid_element(i)) cGU[i] = 0.0f;
     for (uint loop_k = 0; loop_k < args.n_in; loop_k += uint(NK_STEP)) {
-        threadgroup half4 *sa4 = (threadgroup half4 *)(sa_dst + row_h * NK_STEP + half_k * 32);
         if (row_h < nr0) {
             qw3_inkling_dequant_32_sa4<TYPE>(
                 wrow, loop_k + uint(half_k * 32), grid16, signs, iq3s_kgrid, sa4);
         } else {
             for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
         }
-        if (NR1 == 32) {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 16);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 16));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]); sb4[3] = half4(xf[3]);
-            } else {
-                sb4[0] = half4(0.0f); sb4[1] = half4(0.0f);
-                sb4[2] = half4(0.0f); sb4[3] = half4(0.0f);
-            }
-        } else {
-            threadgroup half4 *sb4 = (threadgroup half4 *)(sb + sb_tok * NK_STEP + sb_kp * 32);
-            if (sb_tok < nr1) {
-                device const float4 *xf = (device const float4 *)(xbase + loop_k + uint(sb_kp * 32));
-                sb4[0] = half4(xf[0]); sb4[1] = half4(xf[1]);
-                sb4[2] = half4(xf[2]); sb4[3] = half4(xf[3]);
-                sb4[4] = half4(xf[4]); sb4[5] = half4(xf[5]);
-                sb4[6] = half4(xf[6]); sb4[7] = half4(xf[7]);
-            } else {
-                for (int i = 0; i < 8; i++) sb4[i] = half4(0.0f);
-            }
-        }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         {
-            auto mB0 = tB.slice(0, 0);
-            auto mB1 = tB.slice(32, 0);
-            auto mAg0 = tAg.slice(0, 0);
-            auto mAg1 = tAg.slice(32, 0);
-            mm.run(mB0, mAg0, cG);
-            mm.run(mB1, mAg1, cG);
-            auto mAu0 = tAu.slice(0, 0);
-            auto mAu1 = tAu.slice(32, 0);
-            mm.run(mB0, mAu0, cU);
-            mm.run(mB1, mAu1, cU);
+            auto mA0 = tA.slice(0, 0);
+            auto mB0 = tB.slice(int(loop_k), int(r1u));
+            mm.run(mB0, mA0, cGU);
+            auto mA1 = tA.slice(32, 0);
+            auto mB1 = tB.slice(int(loop_k + 32u), int(r1u));
+            mm.run(mB1, mA1, cGU);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    threadgroup float *sc_g = (threadgroup float *)shmem;
-    threadgroup float *sc_u = (threadgroup float *)(shmem + NR0_H * NR1 * 4);
-    auto tCG = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
-        sc_g, dextents<int32_t, 2>(NR0_H, NR1));
-    auto tCU = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
-        sc_u, dextents<int32_t, 2>(NR0_H, NR1));
-    cG.store(tCG.slice(0, 0));
-    cU.store(tCU.slice(0, 0));
+    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+        sc, dextents<int32_t, 2>(NR0, NR1));
+    cGU.store(tC.slice(0, 0));
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    const int lane = int(tid & 31u);
-    const float beta = args.beta, limit = args.limit;
     for (int j = int(sgitg); j < nr1; j += 4) {
         const uint pid = uint(pair_ids[map_base + uint(j)]);
-        const float sc = gate_scales[pid];
+        const float sc_w = gate_scales[pid];
         if (lane < nr0) {
-            const float ga = sc_g[j * NR0_H + lane] * sc;
-            const float up = sc_u[j * NR0_H + lane] * sc;
-            hidden_out[uint64_t(pid) * args.n_ff + r0u + uint(lane)] =
-                beta * tanh(ga / beta) / (1.0f + exp(-ga)) * limit * tanh(up / limit);
+            const float ga = sc[j * NR0 + lane] * sc_w;
+            const float up = sc[j * NR0 + NR0_H + lane] * sc_w;
+            hidden_out[uint64_t(exp_off + r1u + uint(j)) * args.n_ff + r0u + uint(lane)] =
+                half(beta * tanh(ga / beta) / (1.0f + exp(-ga)) * limit * tanh(up / limit));
         }
     }
 }
 
 #define QW3_INST_INK_MOE_GU(T) \
+    template [[host_name("qw3_inkling_moe_gate_up_situ_t" #T "_n16")]] kernel void qw3_inkling_moe_gate_up_situ_typed_mpp<T##u, 16>( \
+        constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *, \
+        device const uint *, device const int *, device const uint *, \
+        device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort); \
     template [[host_name("qw3_inkling_moe_gate_up_situ_t" #T "_n32")]] kernel void qw3_inkling_moe_gate_up_situ_typed_mpp<T##u, 32>( \
-        constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const float *, device float *, \
+        constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *, \
         device const uint *, device const int *, device const uint *, \
         device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort); \
     template [[host_name("qw3_inkling_moe_gate_up_situ_t" #T "_n64")]] kernel void qw3_inkling_moe_gate_up_situ_typed_mpp<T##u, 64>( \
-        constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const float *, device float *, \
+        constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *, \
+        device const uint *, device const int *, device const uint *, \
+        device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort); \
+    template [[host_name("qw3_inkling_moe_gate_up_situ_t" #T "_n128")]] kernel void qw3_inkling_moe_gate_up_situ_typed_mpp<T##u, 128>( \
+        constant qw3_inkling_moe_gate_up_situ_args &, device const uchar *, device const half *, device half *, \
         device const uint *, device const int *, device const uint *, \
         device const ushort *, device const uchar *, device const uchar *, device const float *, threadgroup char *, uint2, ushort, ushort);
 
@@ -6522,8 +6867,8 @@ QW3_INST_INK_MOE_GU(22)
 QW3_INST_INK_MOE_GU(23)
 #undef QW3_INST_INK_MOE_GU
 
-// Metal 4 NAX tiled loop control apply: computes gain*code and forget*code for 32 tokens x 64 dims
-// per threadgroup (reading gain & forget ONCE per 32 tokens instead of per token), supports src != dst.
+// Metal 4 NAX tiled loop control apply: NR1=32, STAGE_K=64 (entire rank=64 in 1 barrier/mat),
+// direct tB (code in device memory), 1-wave parallel epilogue, zero register spill.
 kernel void qw3_inkling_control_apply_batch_mpp(
     constant uint4 &shape [[buffer(0)]],
     device const float *gain [[buffer(1)]],
@@ -6539,6 +6884,7 @@ kernel void qw3_inkling_control_apply_batch_mpp(
     constexpr int NR0 = 64;
     constexpr int NR1 = 32;
     constexpr int NK = 32;
+    constexpr int STAGE_K = 64;
     const uint width = shape.x, rank = shape.y, n_tokens = shape.z;
     const uint r0 = group.x * uint(NR0);
     const uint t0 = group.y * uint(NR1);
@@ -6546,11 +6892,11 @@ kernel void qw3_inkling_control_apply_batch_mpp(
     const int nr0 = int(min(uint(NR0), width - r0));
     const int nr1 = int(min(uint(NR1), n_tokens - t0));
     threadgroup half *sa = (threadgroup half *)shmem;
-    threadgroup half *sb = (threadgroup half *)(shmem + 4096);
     auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sa, dextents<int32_t, 2>(NK, NR0));
-    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
-        sb, dextents<int32_t, 2>(NK, NR1));
+        sa, dextents<int32_t, 2>(STAGE_K, NR0));
+    device float *ptrB = (device float *)code;
+    auto tB = tensor(ptrB, dextents<int32_t, 2>(int(rank), int(n_tokens)),
+                     array<int, 2>({1, int(rank)}));
     matmul2d<matmul2d_descriptor(NR1, NR0, NK, false, true, true,
         matmul2d_descriptor::mode::multiply_accumulate),
         execution_simdgroups<4>> mm;
@@ -6562,45 +6908,38 @@ kernel void qw3_inkling_control_apply_batch_mpp(
     }
     const int row = int(tid) >> 1;
     const int half_k = int(tid) & 1;
-    const int tok = int(tid) >> 2;
-    const int k_part = int(tid) & 3;
-    for (uint loop_k = 0; loop_k < rank; loop_k += uint(NK)) {
-        // Load code tile into sb once for both gain and forget
-        threadgroup half4 *sb4 = (threadgroup half4 *)(sb + tok * NK + k_part * 8);
-        if (tok < nr1) {
-            device const float4 *cf = (device const float4 *)(code + uint64_t(t0 + uint(tok)) * rank + loop_k + uint(k_part * 8));
-            sb4[0] = half4(cf[0]);
-            sb4[1] = half4(cf[1]);
-        } else {
-            sb4[0] = half4(0.0f); sb4[1] = half4(0.0f);
-        }
-        // Load gain tile into sa
-        threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * NK + half_k * 16);
+    threadgroup half4 *sa4 = (threadgroup half4 *)(sa + row * STAGE_K + half_k * 32);
+    for (uint stage_k = 0; stage_k < rank; stage_k += uint(STAGE_K)) {
         if (row < nr0) {
-            device const float4 *gf = (device const float4 *)(gain + uint64_t(r0 + uint(row)) * rank + loop_k + uint(half_k * 16));
-            sa4[0] = half4(gf[0]); sa4[1] = half4(gf[1]); sa4[2] = half4(gf[2]); sa4[3] = half4(gf[3]);
+            device const float4 *gf = (device const float4 *)(gain + uint64_t(r0 + uint(row)) * rank + stage_k + uint(half_k * 32));
+            for (int i = 0; i < 8; i++) sa4[i] = half4(gf[i]);
         } else {
-            sa4[0] = half4(0.0f); sa4[1] = half4(0.0f); sa4[2] = half4(0.0f); sa4[3] = half4(0.0f);
+            for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         {
-            auto mB = tB.slice(0, 0);
-            auto mA = tA.slice(0, 0);
-            mm.run(mB, mA, cG);
+            auto mB0 = tB.slice(int(stage_k), int(t0));
+            auto mA0 = tA.slice(0, 0);
+            mm.run(mB0, mA0, cG);
+            auto mB1 = tB.slice(int(stage_k + 32u), int(t0));
+            auto mA1 = tA.slice(32, 0);
+            mm.run(mB1, mA1, cG);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        // Load forget tile into sa
         if (row < nr0) {
-            device const float4 *ff = (device const float4 *)(forget + uint64_t(r0 + uint(row)) * rank + loop_k + uint(half_k * 16));
-            sa4[0] = half4(ff[0]); sa4[1] = half4(ff[1]); sa4[2] = half4(ff[2]); sa4[3] = half4(ff[3]);
+            device const float4 *ff = (device const float4 *)(forget + uint64_t(r0 + uint(row)) * rank + stage_k + uint(half_k * 32));
+            for (int i = 0; i < 8; i++) sa4[i] = half4(ff[i]);
         } else {
-            sa4[0] = half4(0.0f); sa4[1] = half4(0.0f); sa4[2] = half4(0.0f); sa4[3] = half4(0.0f);
+            for (int i = 0; i < 8; i++) sa4[i] = half4(0.0f);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         {
-            auto mB = tB.slice(0, 0);
-            auto mA = tA.slice(0, 0);
-            mm.run(mB, mA, cF);
+            auto mB0 = tB.slice(int(stage_k), int(t0));
+            auto mA0 = tA.slice(0, 0);
+            mm.run(mB0, mA0, cF);
+            auto mB1 = tB.slice(int(stage_k + 32u), int(t0));
+            auto mA1 = tA.slice(32, 0);
+            mm.run(mB1, mA1, cF);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
@@ -6661,17 +7000,17 @@ kernel void qw3_inkling_expert_activation_batch(
     constant float2 &limits [[buffer(1)]],
     device const float *scales [[buffer(2)]],
     device const float *gate_up [[buffer(3)]],
-    device float *hidden [[buffer(4)]],
+    device half *hidden [[buffer(4)]],
     uint2 pos [[thread_position_in_grid]]) {
     const uint width = shape.x, total_slots = shape.z;
     if (pos.x >= width || pos.y >= total_slots) return;
     device const float *src = gate_up + uint64_t(pos.y) * shape.y;
-    device float *dst = hidden + uint64_t(pos.y) * width;
+    device half *dst = hidden + uint64_t(pos.y) * width;
     const float sc = scales[pos.y];
     const float gate = src[pos.x] * sc;
     const float up = src[width + pos.x] * sc;
     const float beta = limits.x, limit = limits.y;
-    dst[pos.x] = beta * tanh(gate / beta) / (1.0f + exp(-gate)) * limit * tanh(up / limit);
+    dst[pos.x] = half(beta * tanh(gate / beta) / (1.0f + exp(-gate)) * limit * tanh(up / limit));
 }
 
 kernel void qw3_inkling_expert_reduce_batch(

@@ -9291,7 +9291,9 @@ static char *build_system_prompt(const char *user_system, bool tools_enabled,
     }
     sb_append(&sb,
               "You are qw3-agent, a local coding assistant. Work in the current "
-              "project, be concise, and be careful with file changes.\n");
+              "project, be concise, and be careful with file changes. For simple "
+              "greetings or conversation with no project task, reply directly "
+              "without calling tools.\n");
     if (user_system && user_system[0])
     {
         sb_append(&sb, "\n");

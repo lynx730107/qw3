@@ -6405,8 +6405,8 @@ int qw3_session_sync_interruptible(qw3_session *s, const qw3_tokens *prompt,
 #ifndef QW3_NO_METAL
     if (s->inkling && s->inkling->metal) {
         const char *batch_env = getenv("QW3_INKLING_PREFILL_BATCH");
-        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 256;
-        const int limit = batch > 512 ? 512 : batch > 1 ? (int)batch : 1;
+        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 1024;
+        const int limit = batch > 1024 ? 1024 : batch > 1 ? (int)batch : 1;
         for (int i = common; limit > 1 && i + 1 < prompt->len;) {
             if (should_interrupt && should_interrupt(ud)) goto interrupted;
             int n = prompt->len - i;
@@ -6554,8 +6554,8 @@ int qw3_session_prefill_tokens_interruptible(qw3_session *s,
 #ifndef QW3_NO_METAL
     if (s->inkling && s->inkling->metal) {
         const char *batch_env = getenv("QW3_INKLING_PREFILL_BATCH");
-        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 256;
-        const int limit = batch > 512 ? 512 : batch > 1 ? (int)batch : 1;
+        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 1024;
+        const int limit = batch > 1024 ? 1024 : batch > 1 ? (int)batch : 1;
         while (limit > 1 && i + 1 < n_tokens) {
             if (should_interrupt && should_interrupt(ud)) {
                 if (err && errlen) snprintf(err, errlen, "prefill interrupted");
@@ -6611,8 +6611,8 @@ int qw3_session_eval_embeddings_interruptible(qw3_session *s,
 #ifndef QW3_NO_METAL
     if (s->inkling->metal) {
         const char *batch_env = getenv("QW3_INKLING_PREFILL_BATCH");
-        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 256;
-        const int limit = batch > 512 ? 512 : batch > 1 ? (int)batch : 1;
+        const long batch = batch_env ? strtol(batch_env, NULL, 10) : 1024;
+        const int limit = batch > 1024 ? 1024 : batch > 1 ? (int)batch : 1;
         while (limit > 1 && i + 1 < n_tokens) {
             if (should_interrupt && should_interrupt(ud)) {
                 if (err && errlen) snprintf(err, errlen, "prefill interrupted");

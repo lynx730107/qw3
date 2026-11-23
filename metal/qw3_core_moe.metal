@@ -1464,6 +1464,112 @@ kernel void qw3_moe_topk_expert_map_n64(constant qw3_moe_expert_map_args &args,
         dispatch_embd[0] = n_blocks;
     }
 }
+struct qw3_inkling_moe_map_hybrid_args {
+    uint n_tokens;
+    uint n_active;
+    uint n_expert;
+    uint pair_capacity;
+    uint n_ff_tiles;
+    uint n_embd_tiles;
+    uint max_blocks_per_bucket;
+};
+kernel void qw3_inkling_moe_topk_map_hybrid(constant qw3_inkling_moe_map_hybrid_args &args,
+                                            device const int *ids,
+                                            device uint *counts,
+                                            device int *pair_ids,
+                                            device atomic_uint *bucket_counts,
+                                            device uint *block_ids,
+                                            device uint *dispatch_gate,
+                                            device uint *dispatch_down,
+                                            uint expert [[thread_position_in_grid]]) {
+    threadgroup int4 sh_ids[512];
+    if (expert < 4u) {
+        atomic_store_explicit(bucket_counts + expert, 0u, memory_order_relaxed);
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    uint n = 0u;
+    const int e = int(expert);
+    if (args.n_active == 8u) {
+        device const int4 *ids4 = (device const int4 *)ids;
+        for (uint t0 = 0u; t0 < args.n_tokens; t0 += 256u) {
+            const uint chunk = min(256u, args.n_tokens - t0);
+            const uint n_vec4 = chunk * 2u;
+            for (uint i = expert; i < n_vec4; i += 128u) {
+                sh_ids[i] = ids4[t0 * 2u + i];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (expert < args.n_expert) {
+                for (uint c = 0u; c < chunk; c++) {
+                    const int4 v0 = sh_ids[2u * c];
+                    const int4 v1 = sh_ids[2u * c + 1u];
+                    int found = -1;
+                    if (v0.x == e) found = 0;
+                    else if (v0.y == e) found = 1;
+                    else if (v0.z == e) found = 2;
+                    else if (v0.w == e) found = 3;
+                    else if (v1.x == e) found = 4;
+                    else if (v1.y == e) found = 5;
+                    else if (v1.z == e) found = 6;
+                    else if (v1.w == e) found = 7;
+                    if (found >= 0 && n < args.pair_capacity) {
+                        pair_ids[expert * args.pair_capacity + n] = int((t0 + c) * 8u + uint(found));
+                        n++;
+                    }
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+    } else if (expert < args.n_expert) {
+        for (uint t = 0u; t < args.n_tokens; t++) {
+            int found = -1;
+            for (uint slot = 0u; slot < args.n_active; slot++) {
+                if (ids[t * args.n_active + slot] == e) { found = int(slot); break; }
+            }
+            if (found >= 0 && n < args.pair_capacity) {
+                pair_ids[expert * args.pair_capacity + n] = int(t * args.n_active + uint(found));
+                n++;
+            }
+        }
+    }
+    threadgroup uint sg_tot[4];
+    const uint n_valid = (expert < args.n_expert) ? n : 0u;
+    const uint sg_scan = simd_prefix_exclusive_sum(n_valid);
+    if ((expert & 31u) == 31u) sg_tot[expert >> 5u] = sg_scan + n_valid;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint base_off = sg_scan;
+    for (uint s = 0u; s < (expert >> 5u); s++) base_off += sg_tot[s];
+    if (expert < args.n_expert) {
+        counts[expert] = n;
+        counts[128u + expert] = base_off;
+        for (uint k = 0u; k < n; k++) {
+            pair_ids[128u * args.pair_capacity + base_off + k] = pair_ids[expert * args.pair_capacity + k];
+        }
+        uint r1u = 0u;
+        while (r1u < n) {
+            const uint rem = n - r1u;
+            uint b, step;
+            if (rem > 64u) { b = 3u; step = 128u; }
+            else if (rem > 32u) { b = 2u; step = 64u; }
+            else if (rem > 16u) { b = 1u; step = 32u; }
+            else { b = 0u; step = 16u; }
+            uint dst = atomic_fetch_add_explicit(bucket_counts + b, 1u, memory_order_relaxed);
+            block_ids[b * args.max_blocks_per_bucket + dst] = expert | (r1u << 8u);
+            r1u += step;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_device);
+    if (expert < 4u) {
+        uint nb = atomic_load_explicit(bucket_counts + expert, memory_order_relaxed);
+        dispatch_gate[4u * expert + 0u] = nb > 0u ? args.n_ff_tiles : 0u;
+        dispatch_gate[4u * expert + 1u] = nb;
+        dispatch_gate[4u * expert + 2u] = 1u;
+        dispatch_gate[4u * expert + 3u] = 0u;
+        dispatch_down[4u * expert + 0u] = nb > 0u ? args.n_embd_tiles : 0u;
+        dispatch_down[4u * expert + 1u] = nb;
+        dispatch_down[4u * expert + 2u] = 1u;
+        dispatch_down[4u * expert + 3u] = 0u;
+    }
+}
 inline half qw3_iq3s_dequant_k_expanded(device const uchar *row, device const uchar *kgrid, uint k) {
     uint block = k >> 8u;
     uint local = k & 255u;

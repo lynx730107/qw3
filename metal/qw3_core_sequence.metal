@@ -2495,6 +2495,71 @@ kernel void qw3_inkling_post_conv_batch(constant qw3_inkling_post_conv_batch_arg
     history[ch + 2u * inkling_state_width] = c;
 }
 
+kernel void qw3_inkling_post_conv_add_batch(
+        constant qw3_inkling_post_conv_batch_args &args [[buffer(0)]],
+        device const float *src [[buffer(1)]], device float *cur [[buffer(2)]],
+        device const float4 *weights [[buffer(3)]], device float *history [[buffer(4)]],
+        uint i [[thread_position_in_grid]]) {
+    if (i >= args.width) return;
+    const uint ch = args.channel + i;
+    const float4 w = weights[i];
+    const float scale = rsqrt(5.0f);
+    float a = args.pos0 ? history[ch] : 0.0f;
+    float b = args.pos0 ? history[ch + inkling_state_width] : 0.0f;
+    float c = args.pos0 ? history[ch + 2u * inkling_state_width] : 0.0f;
+    for (uint t = 0u; t < args.n_tokens; t++) {
+        const uint64_t idx = uint64_t(t) * args.width + i;
+        const float d = src[idx];
+        const float residual = dot(float4(a, b, c, d), w);
+        cur[idx] += (d + residual) * scale;
+        a = b;
+        b = c;
+        c = d;
+    }
+    history[ch] = a;
+    history[ch + inkling_state_width] = b;
+    history[ch + 2u * inkling_state_width] = c;
+}
+
+kernel void qw3_inkling_moe_reduce_conv_add_batch(
+        constant qw3_inkling_post_conv_batch_args &args [[buffer(0)]],
+        device const float *down_weights [[buffer(1)]],
+        device const half *down [[buffer(2)]],
+        device const float4 *conv_weights [[buffer(3)]],
+        device float *history [[buffer(4)]],
+        device float *cur [[buffer(5)]],
+        uint i [[thread_position_in_grid]]) {
+    const uint width = args.width;
+    if (i >= width) return;
+    const uint ch = args.channel + i;
+    const float4 w = conv_weights[i];
+    const float scale = rsqrt(5.0f);
+    float a = args.pos0 ? history[ch] : 0.0f;
+    float b = args.pos0 ? history[ch + inkling_state_width] : 0.0f;
+    float c = args.pos0 ? history[ch + 2u * inkling_state_width] : 0.0f;
+    (void)down_weights;
+    for (uint t = 0u; t < args.n_tokens; t++) {
+        const uint64_t row_base = uint64_t(t * 8u) * width + i;
+        const float d =
+            float(down[row_base + 0u * width]) +
+            float(down[row_base + 1u * width]) +
+            float(down[row_base + 2u * width]) +
+            float(down[row_base + 3u * width]) +
+            float(down[row_base + 4u * width]) +
+            float(down[row_base + 5u * width]) +
+            float(down[row_base + 6u * width]) +
+            float(down[row_base + 7u * width]);
+        const float residual = dot(float4(a, b, c, d), w);
+        cur[uint64_t(t) * width + i] += (d + residual) * scale;
+        a = b;
+        b = c;
+        c = d;
+    }
+    history[ch] = a;
+    history[ch + inkling_state_width] = b;
+    history[ch + 2u * inkling_state_width] = c;
+}
+
 struct qw3_inkling_batch_attn_args {
     uint pos0, n_tokens, capacity, extent;
     uint sliding;
@@ -2525,63 +2590,53 @@ kernel void qw3_inkling_attention_prepare_q_batch(
 
 kernel void qw3_inkling_attention_prepare_kv_batch(
         constant qw3_inkling_batch_attn_args &args [[buffer(0)]],
-        device const float *k_in [[buffer(1)]], device const float *v_in [[buffer(2)]],
+        device const float4 *k_in [[buffer(1)]], device const float4 *v_in [[buffer(2)]],
         device const float4 *k_taps [[buffer(3)]], device const float4 *v_taps [[buffer(4)]],
         device half4 *incoming [[buffer(5)]], device float *history [[buffer(6)]],
         device const float4 *k_conv [[buffer(7)]], device const float4 *v_conv [[buffer(8)]],
-        uint kv_head [[threadgroup_position_in_grid]], uint lane [[thread_index_in_simdgroup]]) {
-    if (kv_head >= 8u) return;
+        uint2 group [[threadgroup_position_in_grid]], uint lane [[thread_index_in_simdgroup]]) {
+    const uint kv_head = group.x;
+    const uint is_v = group.y;
+    if (kv_head >= 8u || is_v >= 2u) return;
     const bool dynamic = !args.sliding;
     const float conv_scale = dynamic ? (1.0f / 3.0f) : rsqrt(5.0f);
     const uint start = kv_head * inkling_head_width + lane * 4u;
-    float4 ka, kb, kc, va, vb, vc;
-    float4 kw[4], vw[4];
+    const uint start4 = start >> 2u;
+    const uint hist_base = (is_v ? inkling_kv_width : 0u) + start;
+    device const float4 *in_src = is_v ? v_in : k_in;
+    device const float4 *taps_src = is_v ? v_taps : k_taps;
+    device const float4 *conv_src = is_v ? v_conv : k_conv;
+    const uint inc_off = is_v ? (inkling_kv_width / 4u) : 0u;
+    float4 a, b, c;
+    float4 w[4];
     for (uint i = 0; i < 4u; i++) {
-        const uint j = start + i;
-        kw[i] = k_conv[j];
-        vw[i] = v_conv[j];
-        ka[i] = args.pos0 ? history[j] : 0.0f;
-        kb[i] = args.pos0 ? history[j + inkling_state_width] : 0.0f;
-        kc[i] = args.pos0 ? history[j + 2u * inkling_state_width] : 0.0f;
-        const uint vj = inkling_kv_width + j;
-        va[i] = args.pos0 ? history[vj] : 0.0f;
-        vb[i] = args.pos0 ? history[vj + inkling_state_width] : 0.0f;
-        vc[i] = args.pos0 ? history[vj + 2u * inkling_state_width] : 0.0f;
+        w[i] = conv_src[start + i];
+        a[i] = args.pos0 ? history[hist_base + i] : 0.0f;
+        b[i] = args.pos0 ? history[hist_base + i + inkling_state_width] : 0.0f;
+        c[i] = args.pos0 ? history[hist_base + i + 2u * inkling_state_width] : 0.0f;
     }
+    const uint kv4_stride = inkling_kv_width / 4u;
+    const uint inc_stride = 2u * kv4_stride;
     for (uint t = 0; t < args.n_tokens; t++) {
-        const float4 kt = dynamic ? k_taps[t * 8u + kv_head] : float4(0.0f);
-        const float4 vt = dynamic ? v_taps[t * 8u + kv_head] : float4(0.0f);
-        device const float *kr = k_in + uint64_t(t) * inkling_kv_width + start;
-        device const float *vr = v_in + uint64_t(t) * inkling_kv_width + start;
-        float4 key, val;
+        const float4 tp = dynamic ? taps_src[t * 8u + kv_head] : float4(0.0f);
+        const float4 d = in_src[uint64_t(t) * kv4_stride + start4];
+        float4 outv;
         for (uint i = 0; i < 4u; i++) {
-            const float kd = kr[i];
-            float kres = dot(float4(ka[i], kb[i], kc[i], kd), kw[i]);
-            if (dynamic) kres += dot(float4(kd, kc[i], kb[i], ka[i]), kt);
-            key[i] = (kd + kres) * conv_scale;
-            ka[i] = kb[i]; kb[i] = kc[i]; kc[i] = kd;
-
-            const float vd = vr[i];
-            float vres = dot(float4(va[i], vb[i], vc[i], vd), vw[i]);
-            if (dynamic) vres += dot(float4(vd, vc[i], vb[i], va[i]), vt);
-            val[i] = (vd + vres) * conv_scale;
-            va[i] = vb[i]; vb[i] = vc[i]; vc[i] = vd;
+            float res = dot(float4(a[i], b[i], c[i], d[i]), w[i]);
+            if (dynamic) res += dot(float4(d[i], c[i], b[i], a[i]), tp);
+            outv[i] = (d[i] + res) * conv_scale;
         }
-        const float k_norm = sqrt(simd_sum(dot(key, key)));
-        const float v_scale = rsqrt(simd_sum(dot(val, val)) / float(inkling_head_width) + 1.0e-6f);
-        const uint offset = t * (2u * inkling_kv_width / 4u) + start / 4u;
-        incoming[offset] = half4(key * min(1.0f, args.qk_limit / (k_norm + 1.0e-6f)));
-        incoming[offset + inkling_kv_width / 4u] = half4(val * v_scale);
+        a = b; b = c; c = d;
+        const float ss = simd_sum(dot(outv, outv));
+        const float scale = is_v
+            ? rsqrt(ss / float(inkling_head_width) + 1.0e-6f)
+            : min(1.0f, args.qk_limit / (sqrt(ss) + 1.0e-6f));
+        incoming[uint64_t(t) * inc_stride + start4 + inc_off] = half4(outv * scale);
     }
     for (uint i = 0; i < 4u; i++) {
-        const uint j = start + i;
-        history[j] = ka[i];
-        history[j + inkling_state_width] = kb[i];
-        history[j + 2u * inkling_state_width] = kc[i];
-        const uint vj = inkling_kv_width + j;
-        history[vj] = va[i];
-        history[vj + inkling_state_width] = vb[i];
-        history[vj + 2u * inkling_state_width] = vc[i];
+        history[hist_base + i] = a[i];
+        history[hist_base + i + inkling_state_width] = b[i];
+        history[hist_base + i + 2u * inkling_state_width] = c[i];
     }
 }
 

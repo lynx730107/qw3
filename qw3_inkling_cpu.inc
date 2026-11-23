@@ -551,7 +551,8 @@ static bool inkling_metal_ffn(inkling_metal_graph graph,
         };
         moe.gate_up_expert_bytes = moe.gate_up.n_out * moe.gate_up.row_bytes;
         moe.down_expert_bytes = moe.down.n_out * moe.down.row_bytes;
-        return qw3_metal_inkling_batch_ffn(gpu, &router, &moe, INK_INPUT, INK_OUT,
+        *added_cur = true;
+        return qw3_metal_inkling_batch_ffn(gpu, &router, &moe, INK_INPUT, INK_CUR,
                                           m->inkling.situ_beta, m->inkling.situ_up,
                                           visit, pos, graph.count, l->ffn_conv->offset);
     }
@@ -678,12 +679,9 @@ static bool inkling_eval_metal(qw3_session *s, const int *tokens, const float *e
             n_blocks++;
             if (!inkling_metal_attention(graph, m, l, visit, pos, sliding, shared_qkv, INK_CUR, false))
                 return false;
-        } else if (count == 1) {
+        } else {
             if (!inkling_metal_attention(graph, m, l, visit, pos, sliding, shared_qkv, INK_CUR, true))
                 return false;
-        } else {
-            if (!inkling_metal_attention(graph, m, l, visit, pos, sliding, shared_qkv, INK_OUT, false) ||
-                !inkling_metal_vector_op(graph, INK_CUR, INK_OUT, 1, true)) return false;
         }
         bool ffn_added = false;
         if (!repeat) {

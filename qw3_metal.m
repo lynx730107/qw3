@@ -159,6 +159,7 @@ static id<MTLComputePipelineState> g_matmul_iq3_xxs_mpp_staged128_pipeline;
 
 static id<MTLComputePipelineState> g_matvec_q6_k_pipeline;
 static id<MTLComputePipelineState> g_matmul_q6_k_mpp_pipeline;
+static id<MTLComputePipelineState> g_matmul_q6_k_mpp_staged128_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_pair_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_pair_swiglu_pipeline;
 static id<MTLComputePipelineState> g_matvec_iq4_xs_add_x0_pipeline;
@@ -1763,7 +1764,13 @@ static int qw3_metal_compile_kernels(void) {
         return 0;
     }
     g_matmul_q6_k_mpp_pipeline = nil;
+    g_matmul_q6_k_mpp_staged128_pipeline = nil;
     if (g_metal4_tensor_api_enabled) {
+        fn = [g_library newFunctionWithName:@"qw3_matmul_q6_k_mpp_staged128"];
+        if (fn) {
+            g_matmul_q6_k_mpp_staged128_pipeline =
+                [g_device newComputePipelineStateWithFunction:fn error:&error];
+        }
         fn = [g_library newFunctionWithName:@"qw3_matmul_q6_k_mpp_direct"];
         if (fn) {
             g_matmul_q6_k_mpp_pipeline =
@@ -3896,6 +3903,8 @@ static int qw3_metal_dense_iq_buffers(id<MTLBuffer> *signs,
 @property (nonatomic, strong) id<MTLComputePipelineState> mixBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> routeBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> postConvBatch;
+@property (nonatomic, strong) id<MTLComputePipelineState> postConvAddBatch;
+@property (nonatomic, strong) id<MTLComputePipelineState> moeReduceConvAddBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionPrepareQBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionPrepareKVBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionBatchTiled;
@@ -3908,19 +3917,30 @@ static int qw3_metal_dense_iq_buffers(id<MTLBuffer> *signs,
 @property (nonatomic, strong) id<MTLComputePipelineState> matmulFloatMpp;
 @property (nonatomic, strong) id<MTLComputePipelineState> matmulFloatMppS32;
 @property (nonatomic, strong) id<MTLComputePipelineState> matmulFloatMppS16;
+@property (nonatomic, strong) id<MTLComputePipelineState> matmulFloatMppS32N64;
+@property (nonatomic, strong) id<MTLComputePipelineState> matmulFloatMppS16N64;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeMappedMpp;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeTopkMapN16;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeTopkMapN64;
+@property (nonatomic, strong) id<MTLComputePipelineState> moeTopkMapHybrid;
+@property (nonatomic, strong) id<MTLComputePipelineState> moeGatherXF16;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeMappedNvfp4N16;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeMappedNvfp4N32;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeMappedNvfp4N64;
+@property (nonatomic, strong) id<MTLComputePipelineState> moeMappedNvfp4N128;
+@property (nonatomic, strong) id<MTLComputePipelineState> moeGateUpNvfp4N16;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeGateUpNvfp4N32;
 @property (nonatomic, strong) id<MTLComputePipelineState> moeGateUpNvfp4N64;
+@property (nonatomic, strong) id<MTLComputePipelineState> moeGateUpNvfp4N128;
 @property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeMappedN16ByType;
 @property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeMappedN32ByType;
 @property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeMappedN64ByType;
+@property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeMappedN128ByType;
+@property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeGateUpN16ByType;
 @property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeGateUpN32ByType;
 @property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeGateUpN64ByType;
+@property (nonatomic, strong) NSDictionary<NSNumber *, id<MTLComputePipelineState>> *moeGateUpN128ByType;
+@property (nonatomic, assign) uint32_t batchMaxBlocksPerBucket;
 @property (nonatomic, strong) id<MTLComputePipelineState> controlApplyBatchMpp;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionBatchNax;
 @property (nonatomic, assign) uint32_t batchCapacity;
@@ -4006,7 +4026,9 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
                                          @"qw3_inkling_matvec_q5_k_cap",
                                          @"qw3_inkling_matvec_q8_0_pair",
                                          @"qw3_inkling_mix_norm",
-                                         @"qw3_inkling_mix_norm_batch"];
+                                         @"qw3_inkling_mix_norm_batch",
+                                         @"qw3_inkling_post_conv_add_batch",
+                                         @"qw3_inkling_moe_reduce_conv_add_batch"];
         NSMutableArray<id<MTLComputePipelineState>> *pipelines = [NSMutableArray new];
         for (NSString *name in kernels) {
             NSError *error = nil;
@@ -4062,6 +4084,8 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
         obj.inklingQ8Pair = pipelines[39];
         obj.inklingMixNorm = pipelines[40];
         obj.inklingMixNormBatch = pipelines[41];
+        obj.postConvAddBatch = pipelines[42];
+        obj.moeReduceConvAddBatch = pipelines[43];
         {
             static const uint32_t kMoeTypes[] = {8, 11, 12, 13, 14, 17, 18, 20, 21, 22, 23};
             NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *guMap = [NSMutableDictionary new];
@@ -4095,22 +4119,36 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
             if (fn) obj.matmulFloatMppS32 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_matmul_float_mpp_s16"];
             if (fn) obj.matmulFloatMppS16 = [g_device newComputePipelineStateWithFunction:fn error:&error];
+            fn = [g_library newFunctionWithName:@"qw3_matmul_float_mpp_s32_n64"];
+            if (fn) obj.matmulFloatMppS32N64 = [g_device newComputePipelineStateWithFunction:fn error:&error];
+            fn = [g_library newFunctionWithName:@"qw3_matmul_float_mpp_s16_n64"];
+            if (fn) obj.matmulFloatMppS16N64 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_moe_mapped_mpp"];
             if (fn) obj.moeMappedMpp = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_moe_topk_expert_map_n16"];
             if (fn) obj.moeTopkMapN16 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_moe_topk_expert_map_n64"];
             if (fn) obj.moeTopkMapN64 = [g_device newComputePipelineStateWithFunction:fn error:&error];
+            fn = [g_library newFunctionWithName:@"qw3_inkling_moe_topk_map_hybrid"];
+            if (fn) obj.moeTopkMapHybrid = [g_device newComputePipelineStateWithFunction:fn error:&error];
+            fn = [g_library newFunctionWithName:@"qw3_inkling_moe_gather_x_f16"];
+            if (fn) obj.moeGatherXF16 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_moe_mapped_nvfp4_n16"];
             if (fn) obj.moeMappedNvfp4N16 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_moe_mapped_nvfp4_n32"];
             if (fn) obj.moeMappedNvfp4N32 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_moe_mapped_nvfp4_n64"];
             if (fn) obj.moeMappedNvfp4N64 = [g_device newComputePipelineStateWithFunction:fn error:&error];
+            fn = [g_library newFunctionWithName:@"qw3_inkling_moe_mapped_nvfp4_n128"];
+            if (fn) obj.moeMappedNvfp4N128 = [g_device newComputePipelineStateWithFunction:fn error:&error];
+            fn = [g_library newFunctionWithName:@"qw3_inkling_moe_gate_up_situ_nvfp4_n16"];
+            if (fn) obj.moeGateUpNvfp4N16 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_moe_gate_up_situ_nvfp4_n32"];
             if (fn) obj.moeGateUpNvfp4N32 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_moe_gate_up_situ_nvfp4_n64"];
             if (fn) obj.moeGateUpNvfp4N64 = [g_device newComputePipelineStateWithFunction:fn error:&error];
+            fn = [g_library newFunctionWithName:@"qw3_inkling_moe_gate_up_situ_nvfp4_n128"];
+            if (fn) obj.moeGateUpNvfp4N128 = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_control_apply_batch_mpp"];
             if (fn) obj.controlApplyBatchMpp = [g_device newComputePipelineStateWithFunction:fn error:&error];
             fn = [g_library newFunctionWithName:@"qw3_inkling_attention_batch_nax"];
@@ -4125,8 +4163,11 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
             NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *n16Map = [NSMutableDictionary new];
             NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *n32Map = [NSMutableDictionary new];
             NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *n64Map = [NSMutableDictionary new];
+            NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *n128Map = [NSMutableDictionary new];
+            NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *gu16Map = [NSMutableDictionary new];
             NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *gu32Map = [NSMutableDictionary new];
             NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *gu64Map = [NSMutableDictionary new];
+            NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *gu128Map = [NSMutableDictionary new];
             for (size_t i = 0; i < sizeof(kMoeTypes) / sizeof(kMoeTypes[0]); i++) {
                 const uint32_t t = kMoeTypes[i];
                 id<MTLFunction> f16 = [g_library newFunctionWithName:
@@ -4147,6 +4188,18 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
                     id<MTLComputePipelineState> p = [g_device newComputePipelineStateWithFunction:f64 error:&error];
                     if (p) n64Map[@(t)] = p;
                 }
+                id<MTLFunction> f128 = [g_library newFunctionWithName:
+                    [NSString stringWithFormat:@"qw3_inkling_moe_mapped_t%u_n128", t]];
+                if (f128) {
+                    id<MTLComputePipelineState> p = [g_device newComputePipelineStateWithFunction:f128 error:&error];
+                    if (p) n128Map[@(t)] = p;
+                }
+                id<MTLFunction> g16 = [g_library newFunctionWithName:
+                    [NSString stringWithFormat:@"qw3_inkling_moe_gate_up_situ_t%u_n16", t]];
+                if (g16) {
+                    id<MTLComputePipelineState> p = [g_device newComputePipelineStateWithFunction:g16 error:&error];
+                    if (p) gu16Map[@(t)] = p;
+                }
                 id<MTLFunction> g32 = [g_library newFunctionWithName:
                     [NSString stringWithFormat:@"qw3_inkling_moe_gate_up_situ_t%u_n32", t]];
                 if (g32) {
@@ -4159,12 +4212,21 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
                     id<MTLComputePipelineState> p = [g_device newComputePipelineStateWithFunction:g64 error:&error];
                     if (p) gu64Map[@(t)] = p;
                 }
+                id<MTLFunction> g128 = [g_library newFunctionWithName:
+                    [NSString stringWithFormat:@"qw3_inkling_moe_gate_up_situ_t%u_n128", t]];
+                if (g128) {
+                    id<MTLComputePipelineState> p = [g_device newComputePipelineStateWithFunction:g128 error:&error];
+                    if (p) gu128Map[@(t)] = p;
+                }
             }
             obj.moeMappedN16ByType = n16Map;
             obj.moeMappedN32ByType = n32Map;
             obj.moeMappedN64ByType = n64Map;
+            obj.moeMappedN128ByType = n128Map;
+            obj.moeGateUpN16ByType = gu16Map;
             obj.moeGateUpN32ByType = gu32Map;
             obj.moeGateUpN64ByType = gu64Map;
+            obj.moeGateUpN128ByType = gu128Map;
         }
         obj.vectors = qw3_metal_new_private_buffer(QW3_INKLING_VECTOR_SLOTS * QW3_INK_GPU_VECTOR_BYTES);
         obj.scratch = qw3_metal_new_private_buffer(QW3_INK_GPU_SCRATCH_BYTES);
@@ -4899,16 +4961,17 @@ static int qw3_inkling_ensure_batch_buffers(QW3MetalInklingObj *work, uint32_t n
     const uint64_t vectors_bytes = (uint64_t)QW3_INKLING_VECTOR_SLOTS * slot_bytes;
     // Attention scratch (<= 12288*cap floats) and MoE slots (18432*cap floats) have disjoint
     // lifetimes, so aliasing them saves ~48 KB/token of private GPU memory.
-    const uint64_t slots_bytes = (uint64_t)cap * QW3_INK_GPU_EXPERTS * (2u * QW3_INK_GPU_FF) * sizeof(float);
-    const uint64_t hidden_bytes = (uint64_t)cap * QW3_INK_GPU_EXPERTS * QW3_INK_GPU_FF * sizeof(float);
+    const uint64_t slots_bytes = (uint64_t)cap * 12288ull * sizeof(float);
+    const uint64_t hidden_bytes = (uint64_t)cap * QW3_INK_GPU_EXPERTS * QW3_INK_GPU_FF * sizeof(uint16_t);
     const uint64_t router_bytes = (uint64_t)cap * 128ull * sizeof(float);
     const uint64_t route_ids_bytes = (uint64_t)cap * QW3_INK_GPU_EXPERTS * sizeof(int32_t);
     const uint64_t route_wt_bytes = (uint64_t)cap * QW3_INK_GPU_EXPERTS * sizeof(float);
-    const uint64_t counts_bytes = 128ull * sizeof(uint32_t);
-    const uint64_t pair_ids_bytes = 128ull * (uint64_t)cap * sizeof(int32_t);
-    const uint64_t max_blocks = (128ull + ((uint64_t)cap * QW3_INK_GPU_EXPERTS) / 16ull + 16ull);
-    const uint64_t block_ids_bytes = max_blocks * sizeof(uint32_t);
+    const uint64_t counts_bytes = 256ull * sizeof(uint32_t);
+    const uint64_t pair_ids_bytes = (128ull + QW3_INK_GPU_EXPERTS) * (uint64_t)cap * sizeof(int32_t);
+    const uint64_t max_blocks_per_bucket = (128ull + ((uint64_t)cap * QW3_INK_GPU_EXPERTS) / 32ull + 16ull);
+    const uint64_t block_ids_bytes = 4ull * max_blocks_per_bucket * sizeof(uint32_t);
 
+    work.batchMaxBlocksPerBucket = (uint32_t)max_blocks_per_bucket;
     work.batchVectors = qw3_metal_new_private_buffer(vectors_bytes);
     work.batchTokens = [g_device newBufferWithLength:(NSUInteger)((uint64_t)cap * sizeof(uint32_t))
                                              options:MTLResourceStorageModeShared];
@@ -4921,10 +4984,10 @@ static int qw3_inkling_ensure_batch_buffers(QW3MetalInklingObj *work, uint32_t n
     work.batchDownWeights = qw3_metal_new_private_buffer(route_wt_bytes);
     work.batchExpertCounts = qw3_metal_new_private_buffer(counts_bytes);
     work.batchPairIds = qw3_metal_new_private_buffer(pair_ids_bytes);
-    work.batchBlockCount = qw3_metal_new_private_buffer(sizeof(uint32_t));
+    work.batchBlockCount = qw3_metal_new_private_buffer(4 * sizeof(uint32_t));
     work.batchBlockIds = qw3_metal_new_private_buffer(block_ids_bytes);
-    work.batchDispatchGate = qw3_metal_new_private_buffer(3 * sizeof(uint32_t));
-    work.batchDispatchDown = qw3_metal_new_private_buffer(3 * sizeof(uint32_t));
+    work.batchDispatchGate = qw3_metal_new_private_buffer(16 * sizeof(uint32_t));
+    work.batchDispatchDown = qw3_metal_new_private_buffer(16 * sizeof(uint32_t));
     if (!work.batchVectors || !work.batchTokens || !work.batchAttnScratch ||
         !work.batchMoeSlots || !work.batchMoeHidden || !work.batchRouterLogits ||
         !work.batchRouterIds || !work.batchGateScales || !work.batchDownWeights ||
@@ -4955,9 +5018,10 @@ static int qw3_metal_encode_inkling_batch_projection(QW3MetalInklingObj *work,
             (req->n_in % 64u) == 0u && (req->n_out % 64u) == 0u) {
             uint32_t tile_n;
             if (req->n_out <= 512u) {
-                tile_n = 32u;
-            } else if (req->n_out <= 1024u) {
                 tile_n = (n_tokens >= 256u && (n_tokens % 64u) == 0u) ? 64u : 32u;
+            } else if (req->n_out <= 1024u) {
+                tile_n = (n_tokens >= 512u && (n_tokens % 128u) == 0u) ? 128u :
+                         ((n_tokens >= 256u && (n_tokens % 64u) == 0u) ? 64u : 32u);
             } else {
                 tile_n = (n_tokens >= 256u && (n_tokens % 128u) == 0u) ? 128u :
                          ((n_tokens % 64u) == 0u ? 64u : 32u);
@@ -4972,7 +5036,7 @@ static int qw3_metal_encode_inkling_batch_projection(QW3MetalInklingObj *work,
                 [enc setBuffer:weights offset:(NSUInteger)model_offset atIndex:1];
                 [enc setBuffer:input offset:input_offset atIndex:2];
                 [enc setBuffer:output offset:output_offset atIndex:3];
-                [enc setThreadgroupMemoryLength:64u * 32u * sizeof(uint16_t) atIndex:0];
+                [enc setThreadgroupMemoryLength:64u * 64u * sizeof(uint16_t) atIndex:0];
                 [enc dispatchThreadgroups:MTLSizeMake(n_tokens / tile_n, req->n_out / 64u, 1)
                     threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
                 return 1;
@@ -5014,54 +5078,61 @@ static int qw3_metal_encode_inkling_batch_projection(QW3MetalInklingObj *work,
 
     // Fast path for Q4_K / Q5_K / Q6_K / Q3_K / Q2_K / IQ4_NL / IQ3_S / IQ2_XS / IQ2_S / IQ3_XXS / IQ4_XS via Metal 4 MPP
     if (g_metal4_tensor_api_enabled && n_tokens >= 8u) {
+        const bool use_staged = qw3_metal_dense_staged_rows(n_tokens) && qw3_metal_staged128_enabled();
         if ((req->type == 12u || req->type == 13u) && (req->n_in % 256u) == 0u &&
             g_matmul_q4_q5_k_mpp_pipeline) {
+            const bool s128 = use_staged && g_matmul_q4_q5_k_mpp_staged128_pipeline != nil;
             const struct {
                 uint32_t n_in, n_out, row_bytes, n_tokens;
                 uint32_t in_offset, in_stride, out_offset, out_stride, is_q5;
             } args = {req->n_in, req->n_out, req->row_bytes, n_tokens,
                       0u, req->n_in, 0u, req->n_out, req->type == 13u};
-            [enc setComputePipelineState:g_matmul_q4_q5_k_mpp_pipeline];
+            [enc setComputePipelineState:(s128 ? g_matmul_q4_q5_k_mpp_staged128_pipeline
+                                               : g_matmul_q4_q5_k_mpp_pipeline)];
             [enc setBytes:&args length:sizeof(args) atIndex:0];
             [enc setBuffer:weights offset:(NSUInteger)model_offset atIndex:1];
             [enc setBuffer:input offset:input_offset atIndex:2];
             [enc setBuffer:output offset:output_offset atIndex:3];
             [enc setThreadgroupMemoryLength:8192u atIndex:0];
-            [enc dispatchThreadgroups:MTLSizeMake((n_tokens + 63u) / 64u,
+            [enc dispatchThreadgroups:MTLSizeMake(s128 ? (n_tokens + 127u) / 128u : (n_tokens + 63u) / 64u,
                                                   (req->n_out + 63u) / 64u, 1)
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
             return 1;
         }
         if (req->type == 14u && (req->n_in % 256u) == 0u && g_matmul_q6_k_mpp_pipeline) {
+            const bool s128 = use_staged && g_matmul_q6_k_mpp_staged128_pipeline != nil;
             const struct {
                 uint32_t n_in, n_out, row_bytes, n_tokens;
                 uint32_t in_offset, in_stride, out_offset, out_stride;
             } args = {req->n_in, req->n_out, req->row_bytes, n_tokens,
                       0u, req->n_in, 0u, req->n_out};
-            [enc setComputePipelineState:g_matmul_q6_k_mpp_pipeline];
+            [enc setComputePipelineState:(s128 ? g_matmul_q6_k_mpp_staged128_pipeline
+                                               : g_matmul_q6_k_mpp_pipeline)];
             [enc setBytes:&args length:sizeof(args) atIndex:0];
             [enc setBuffer:weights offset:(NSUInteger)model_offset atIndex:1];
             [enc setBuffer:input offset:input_offset atIndex:2];
             [enc setBuffer:output offset:output_offset atIndex:3];
             [enc setThreadgroupMemoryLength:8192u atIndex:0];
-            [enc dispatchThreadgroups:MTLSizeMake((n_tokens + 63u) / 64u,
+            [enc dispatchThreadgroups:MTLSizeMake(s128 ? (n_tokens + 127u) / 128u : (n_tokens + 63u) / 64u,
                                                   (req->n_out + 63u) / 64u, 1)
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
             return 1;
         }
         if (req->type == 11u && (req->n_in % 256u) == 0u && g_matmul_q3_k_mpp_pipeline) {
+            const bool s128 = use_staged && g_matmul_q3_k_mpp_staged128_pipeline != nil;
             const struct {
                 uint32_t n_in, n_out, row_bytes, n_tokens;
                 uint32_t in_offset, in_stride, out_offset, out_stride;
             } args = {req->n_in, req->n_out, req->row_bytes, n_tokens,
                       0u, req->n_in, 0u, req->n_out};
-            [enc setComputePipelineState:g_matmul_q3_k_mpp_pipeline];
+            [enc setComputePipelineState:(s128 ? g_matmul_q3_k_mpp_staged128_pipeline
+                                               : g_matmul_q3_k_mpp_pipeline)];
             [enc setBytes:&args length:sizeof(args) atIndex:0];
             [enc setBuffer:weights offset:(NSUInteger)model_offset atIndex:1];
             [enc setBuffer:input offset:input_offset atIndex:2];
             [enc setBuffer:output offset:output_offset atIndex:3];
             [enc setThreadgroupMemoryLength:8192u atIndex:0];
-            [enc dispatchThreadgroups:MTLSizeMake((n_tokens + 63u) / 64u,
+            [enc dispatchThreadgroups:MTLSizeMake(s128 ? (n_tokens + 127u) / 128u : (n_tokens + 63u) / 64u,
                                                   (req->n_out + 63u) / 64u, 1)
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
             return 1;
@@ -5110,8 +5181,12 @@ static int qw3_metal_encode_inkling_batch_projection(QW3MetalInklingObj *work,
             id<MTLComputePipelineState> fp = work.matmulFloatMpp;
             uint32_t nr0 = 64u, nr1 = 64u;
             NSUInteger shmem = 8192u;
-            if (req->n_out <= 64u && work.matmulFloatMppS16) {
+            if (req->n_out <= 64u && n_tokens >= 64u && (req->n_in % 64u) == 0u && work.matmulFloatMppS16N64) {
+                fp = work.matmulFloatMppS16N64; nr0 = 16u; nr1 = 64u; shmem = 2048u;
+            } else if (req->n_out <= 64u && work.matmulFloatMppS16) {
                 fp = work.matmulFloatMppS16; nr0 = 16u; nr1 = 32u; shmem = 1024u;
+            } else if (req->n_out <= 256u && n_tokens >= 64u && (req->n_in % 64u) == 0u && work.matmulFloatMppS32N64) {
+                fp = work.matmulFloatMppS32N64; nr0 = 32u; nr1 = 64u; shmem = 4096u;
             } else if (req->n_out <= 256u && work.matmulFloatMppS32) {
                 fp = work.matmulFloatMppS32; nr0 = 32u; nr1 = 32u; shmem = 2048u;
             }
@@ -5364,7 +5439,6 @@ int qw3_metal_inkling_batch_apply_control_from(qw3_metal_inkling_session *worksp
         QW3MetalInklingObj *work = (__bridge QW3MetalInklingObj *)workspace->obj;
         id<MTLComputeCommandEncoder> enc = qw3_metal_inkling_encoder(work);
         if (!enc) return 0;
-        // Pack rmsnorm_plain(src_state[t]) and rmsnorm_plain(message[t]) into batchAttnScratch[t * 2 * D]
         const uint32_t pair_args[2] = {QW3_INK_GPU_D, n_tokens};
         [enc setComputePipelineState:work.rmsnormPairBatch];
         [enc setBytes:pair_args length:sizeof(pair_args) atIndex:0];
@@ -5504,7 +5578,7 @@ int qw3_metal_inkling_batch_attend(qw3_metal_inkling_session *workspace,
         if (!qw3_metal_bind_model_tensor(enc, 7, a->k_conv, QW3_INK_GPU_KV * 4 * sizeof(float)) ||
             !qw3_metal_bind_model_tensor(enc, 8, a->v_conv, QW3_INK_GPU_KV * 4 * sizeof(float)))
             return 0;
-        [enc dispatchThreadgroups:MTLSizeMake(8, 1, 1)
+        [enc dispatchThreadgroups:MTLSizeMake(8, 2, 1)
             threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
 
         // Multi-query causal attention: use Metal 4 NAX FlashAttention when n_tokens >= 8
@@ -5547,13 +5621,32 @@ int qw3_metal_inkling_batch_attend(qw3_metal_inkling_session *workspace,
         [enc dispatchThreadgroups:MTLSizeMake((kv_vecs + 127u) / 128u, n_tokens, 1)
             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
 
-        // Output projection + causal post-attention short conv
-        if (!qw3_metal_encode_inkling_batch_projection(work, enc, &a->output,
-                work.batchAttnScratch, mixed_offset,
-                work.batchVectors, qw3_inkling_batch_slot_offset(work, dst), n_tokens))
-            return 0;
-        return qw3_inkling_post_conv_batch(work, enc, dst, visit, pos0, 2 * QW3_INK_GPU_KV,
-                                           n_tokens, a->post_conv);
+        // Output projection + causal post-attention short conv (+ fused residual add when add_dst)
+        int ok = 1;
+        if (a->add_dst) {
+            if (!qw3_metal_encode_inkling_batch_projection(work, enc, &a->output,
+                    work.batchAttnScratch, mixed_offset,
+                    work.batchAttnScratch, 0, n_tokens))
+                return 0;
+            const struct { uint32_t width, pos0, channel, n_tokens; } pc_args = {
+                QW3_INK_GPU_D, pos0, 2 * QW3_INK_GPU_KV, n_tokens
+            };
+            [enc setComputePipelineState:work.postConvAddBatch];
+            [enc setBytes:&pc_args length:sizeof(pc_args) atIndex:0];
+            [enc setBuffer:work.batchAttnScratch offset:0 atIndex:1];
+            [enc setBuffer:work.batchVectors offset:qw3_inkling_batch_slot_offset(work, dst) atIndex:2];
+            if (!qw3_metal_bind_model_tensor(enc, 3, a->post_conv, 4 * QW3_INK_GPU_VECTOR_BYTES)) return 0;
+            [enc setBuffer:work.history[visit] offset:0 atIndex:4];
+            qw3_inkling_dispatch(enc, QW3_INK_GPU_D);
+        } else {
+            if (!qw3_metal_encode_inkling_batch_projection(work, enc, &a->output,
+                    work.batchAttnScratch, mixed_offset,
+                    work.batchVectors, qw3_inkling_batch_slot_offset(work, dst), n_tokens))
+                return 0;
+            ok = qw3_inkling_post_conv_batch(work, enc, dst, visit, pos0, 2 * QW3_INK_GPU_KV,
+                                             n_tokens, a->post_conv);
+        }
+        return ok;
     }
 }
 
@@ -5618,17 +5711,41 @@ int qw3_metal_inkling_batch_ffn(qw3_metal_inkling_session *workspace,
         [enc dispatchThreadgroups:MTLSizeMake(n_tokens, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
 
-        // 3. Build compact expert->(token,slot) worklist on GPU (NR1=64 for n_tokens>=384, NR1=32 otherwise)
-        const bool use_n64 = (n_tokens >= 384u && work.moeTopkMapN64 &&
-                              work.moeGateUpNvfp4N64 && work.moeMappedNvfp4N64);
-        const NSUInteger moe_shmem = use_n64 ? 16384u : 12288u;
+        // 3. Build 4-bucket hybrid (N16/N32/N64/N128) L2-friendly expert->(token,slot) worklist on GPU
+        id<MTLComputePipelineState> gu_p[4];
+        if (moe->gate_up.type == 40u) {
+            gu_p[0] = work.moeGateUpNvfp4N16;
+            gu_p[1] = work.moeGateUpNvfp4N32;
+            gu_p[2] = work.moeGateUpNvfp4N64;
+            gu_p[3] = work.moeGateUpNvfp4N128;
+        } else {
+            gu_p[0] = work.moeGateUpN16ByType[@(moe->gate_up.type)];
+            gu_p[1] = work.moeGateUpN32ByType[@(moe->gate_up.type)];
+            gu_p[2] = work.moeGateUpN64ByType[@(moe->gate_up.type)];
+            gu_p[3] = work.moeGateUpN128ByType[@(moe->gate_up.type)];
+        }
+        id<MTLComputePipelineState> dn_p[4];
+        if (moe->down.type == 40u) {
+            dn_p[0] = work.moeMappedNvfp4N16;
+            dn_p[1] = work.moeMappedNvfp4N32;
+            dn_p[2] = work.moeMappedNvfp4N64;
+            dn_p[3] = work.moeMappedNvfp4N128;
+        } else {
+            dn_p[0] = work.moeMappedN16ByType[@(moe->down.type)];
+            dn_p[1] = work.moeMappedN32ByType[@(moe->down.type)];
+            dn_p[2] = work.moeMappedN64ByType[@(moe->down.type)];
+            dn_p[3] = work.moeMappedN128ByType[@(moe->down.type)];
+        }
+        const uint32_t max_bpb = work.batchMaxBlocksPerBucket;
         const struct {
-            uint32_t n_tokens, n_active, n_expert, pair_capacity, n_ff, n_embd;
+            uint32_t n_tokens, n_active, n_expert, pair_capacity;
+            uint32_t n_ff_tiles, n_embd_tiles, max_blocks_per_bucket;
         } map_args = {
             n_tokens, QW3_INK_GPU_EXPERTS, 128u, n_tokens,
-            moe->gate_up.n_out, moe->down.n_out
+            (moe->gate_up.n_out + 63u) / 64u, (moe->down.n_out + 63u) / 64u, max_bpb
         };
-        [enc setComputePipelineState:(use_n64 ? work.moeTopkMapN64 : g_moe_topk_expert_map_pipeline)];
+        if (!work.moeTopkMapHybrid || !work.moeGatherXF16) return 0;
+        [enc setComputePipelineState:work.moeTopkMapHybrid];
         [enc setBytes:&map_args length:sizeof(map_args) atIndex:0];
         [enc setBuffer:work.batchRouterIds offset:0 atIndex:1];
         [enc setBuffer:work.batchExpertCounts offset:0 atIndex:2];
@@ -5637,22 +5754,30 @@ int qw3_metal_inkling_batch_ffn(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.batchBlockIds offset:0 atIndex:5];
         [enc setBuffer:work.batchDispatchGate offset:0 atIndex:6];
         [enc setBuffer:work.batchDispatchDown offset:0 atIndex:7];
-        [enc dispatchThreads:MTLSizeMake(128, 1, 1)
+        [enc dispatchThreadgroups:MTLSizeMake(1, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
 
-        // 4+5. Fused indirect mapped gate_up + SiTU -> batchMoeHidden (reads x once, zero batchMoeSlots roundtrip!)
+        // 3b. Gather FP32 tokens into expert-contiguous FP16 scratch (aliases batchMoeSlots during gate_up)
+        const uint32_t total_slots = n_tokens * QW3_INK_GPU_EXPERTS;
+        const uint32_t g_args[2] = {QW3_INK_GPU_D, total_slots};
+        [enc setComputePipelineState:work.moeGatherXF16];
+        [enc setBytes:g_args length:sizeof(g_args) atIndex:0];
+        [enc setBuffer:work.batchVectors offset:qw3_inkling_batch_slot_offset(work, src) atIndex:1];
+        [enc setBuffer:work.batchPairIds offset:(NSUInteger)(128ull * n_tokens * sizeof(int32_t)) atIndex:2];
+        [enc setBuffer:work.batchMoeSlots offset:0 atIndex:3];
+        [enc dispatchThreadgroups:MTLSizeMake(total_slots, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+
+
+        static const NSUInteger kBucketShmem[4] = {8192u, 8192u, 8192u, 8192u};
+        const uint32_t n_buckets = (n_tokens > 64u) ? 4u : ((n_tokens > 32u) ? 3u : ((n_tokens > 16u) ? 2u : 1u));
+
+        // 4+5. Direct-tensor zero-sb fused gate_up + SiTU -> expert-contiguous FP16 batchMoeHidden
         const uint64_t gate_total = (uint64_t)moe->gate_up_expert_bytes * 128ull;
         uint64_t gate_inner = 0;
         id<MTLBuffer> gate_w = qw3_metal_model_view_for(moe->gate_up.tensor_offset, gate_total, &gate_inner);
         if (!gate_w) return 0;
-        id<MTLComputePipelineState> fused_gu = nil;
-        if (moe->gate_up.type == 40u) {
-            fused_gu = use_n64 ? work.moeGateUpNvfp4N64 : work.moeGateUpNvfp4N32;
-        } else {
-            fused_gu = use_n64 ? work.moeGateUpN64ByType[@(moe->gate_up.type)]
-                               : work.moeGateUpN32ByType[@(moe->gate_up.type)];
-        }
-        if (fused_gu) {
+        if (gu_p[0] && gu_p[1] && gu_p[2] && gu_p[3]) {
             const struct {
                 uint32_t n_in, n_ff, row_bytes, expert_bytes;
                 uint32_t n_tokens, n_active, type, in_stride;
@@ -5662,62 +5787,31 @@ int qw3_metal_inkling_batch_ffn(qw3_metal_inkling_session *workspace,
                 moe->gate_up_expert_bytes, n_tokens, QW3_INK_GPU_EXPERTS,
                 moe->gate_up.type, QW3_INK_GPU_D, beta, limit
             };
-            [enc setComputePipelineState:fused_gu];
             [enc setBytes:&gu_args length:sizeof(gu_args) atIndex:0];
             [enc setBuffer:gate_w offset:(NSUInteger)gate_inner atIndex:1];
-            [enc setBuffer:work.batchVectors offset:qw3_inkling_batch_slot_offset(work, src) atIndex:2];
+            [enc setBuffer:work.batchMoeSlots offset:0 atIndex:2];
             [enc setBuffer:work.batchMoeHidden offset:0 atIndex:3];
             [enc setBuffer:work.batchExpertCounts offset:0 atIndex:4];
             [enc setBuffer:work.batchPairIds offset:0 atIndex:5];
-            [enc setBuffer:work.batchBlockIds offset:0 atIndex:6];
             if (moe->gate_up.type == 40u) {
                 [enc setBuffer:work.batchGateScales offset:0 atIndex:7];
             } else {
                 qw3_inkling_bind_iq_tables(enc, moe->gate_up.type, work.batchBlockCount);
                 [enc setBuffer:work.batchGateScales offset:0 atIndex:10];
             }
-            [enc setThreadgroupMemoryLength:moe_shmem atIndex:0];
-            [enc dispatchThreadgroupsWithIndirectBuffer:work.batchDispatchGate
-                                   indirectBufferOffset:0
-                                  threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+            for (uint32_t b = 0; b < n_buckets; b++) {
+                [enc setComputePipelineState:gu_p[b]];
+                [enc setBuffer:work.batchBlockIds offset:(NSUInteger)b * max_bpb * sizeof(uint32_t) atIndex:6];
+                [enc setThreadgroupMemoryLength:kBucketShmem[b] atIndex:0];
+                [enc dispatchThreadgroupsWithIndirectBuffer:work.batchDispatchGate
+                                       indirectBufferOffset:(NSUInteger)b * 16u
+                                      threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+            }
         } else {
-            const struct {
-                uint32_t n_in, n_out, row_bytes, expert_bytes;
-                uint32_t n_tokens, n_active, type, input_is_slot;
-                uint32_t in_stride, out_stride;
-            } gate_args = {
-                moe->gate_up.n_in, moe->gate_up.n_out, moe->gate_up.row_bytes,
-                moe->gate_up_expert_bytes, n_tokens, QW3_INK_GPU_EXPERTS,
-                moe->gate_up.type, 0u, QW3_INK_GPU_D, moe->gate_up.n_out
-            };
-            [enc setComputePipelineState:work.moeMappedMpp];
-            [enc setBytes:&gate_args length:sizeof(gate_args) atIndex:0];
-            [enc setBuffer:gate_w offset:(NSUInteger)gate_inner atIndex:1];
-            [enc setBuffer:work.batchVectors offset:qw3_inkling_batch_slot_offset(work, src) atIndex:2];
-            [enc setBuffer:work.batchMoeSlots offset:0 atIndex:3];
-            [enc setBuffer:work.batchExpertCounts offset:0 atIndex:4];
-            [enc setBuffer:work.batchPairIds offset:0 atIndex:5];
-            [enc setBuffer:work.batchBlockIds offset:0 atIndex:6];
-            qw3_inkling_bind_iq_tables(enc, moe->gate_up.type, work.batchBlockCount);
-            [enc setThreadgroupMemoryLength:8192u atIndex:0];
-            [enc dispatchThreadgroupsWithIndirectBuffer:work.batchDispatchGate
-                                   indirectBufferOffset:0
-                                  threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
-
-            const uint32_t total_slots = n_tokens * QW3_INK_GPU_EXPERTS;
-            const uint32_t act_shape[4] = {QW3_INK_GPU_FF, 2u * QW3_INK_GPU_FF, total_slots, 0};
-            const float limits[2] = {beta, limit};
-            [enc setComputePipelineState:work.expertActivationBatch];
-            [enc setBytes:act_shape length:sizeof(act_shape) atIndex:0];
-            [enc setBytes:limits length:sizeof(limits) atIndex:1];
-            [enc setBuffer:work.batchGateScales offset:0 atIndex:2];
-            [enc setBuffer:work.batchMoeSlots offset:0 atIndex:3];
-            [enc setBuffer:work.batchMoeHidden offset:0 atIndex:4];
-            [enc dispatchThreadgroups:MTLSizeMake((QW3_INK_GPU_FF + 127u) / 128u, total_slots, 1)
-                threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+            return 0;
         }
 
-        // 6. Indirect mapped down projection: batchMoeHidden[slot, FF] -> batchMoeSlots[slot, D]
+        // 6. Indirect mapped down projection: FP16 batchMoeHidden[slot, FF] -> batchMoeSlots[slot, D]
         const uint64_t down_total = (uint64_t)moe->down_expert_bytes * 128ull;
         uint64_t down_inner = 0;
         id<MTLBuffer> down_w = qw3_metal_model_view_for(moe->down.tensor_offset, down_total, &down_inner);
@@ -5731,48 +5825,45 @@ int qw3_metal_inkling_batch_ffn(qw3_metal_inkling_session *workspace,
             moe->down_expert_bytes, n_tokens, QW3_INK_GPU_EXPERTS,
             moe->down.type, 1u, QW3_INK_GPU_FF, QW3_INK_GPU_D
         };
-        if (moe->down.type == 40u && (use_n64 ? work.moeMappedNvfp4N64 : work.moeMappedNvfp4N32)) {
-            [enc setComputePipelineState:(use_n64 ? work.moeMappedNvfp4N64 : work.moeMappedNvfp4N32)];
+        if (dn_p[0] && dn_p[1] && dn_p[2] && dn_p[3]) {
             [enc setBytes:&down_args length:sizeof(down_args) atIndex:0];
             [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
             [enc setBuffer:work.batchMoeHidden offset:0 atIndex:2];
             [enc setBuffer:work.batchMoeSlots offset:0 atIndex:3];
             [enc setBuffer:work.batchExpertCounts offset:0 atIndex:4];
             [enc setBuffer:work.batchPairIds offset:0 atIndex:5];
-            [enc setBuffer:work.batchBlockIds offset:0 atIndex:6];
-            [enc setThreadgroupMemoryLength:moe_shmem atIndex:0];
+            if (moe->down.type == 40u) {
+                [enc setBuffer:work.batchDownWeights offset:0 atIndex:7];
+            } else {
+                qw3_inkling_bind_iq_tables(enc, moe->down.type, work.batchBlockCount);
+                [enc setBuffer:work.batchDownWeights offset:0 atIndex:10];
+            }
+            for (uint32_t b = 0; b < n_buckets; b++) {
+                [enc setComputePipelineState:dn_p[b]];
+                [enc setBuffer:work.batchBlockIds offset:(NSUInteger)b * max_bpb * sizeof(uint32_t) atIndex:6];
+                [enc setThreadgroupMemoryLength:kBucketShmem[b] atIndex:0];
+                [enc dispatchThreadgroupsWithIndirectBuffer:work.batchDispatchDown
+                                       indirectBufferOffset:(NSUInteger)b * 16u
+                                      threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+            }
         } else {
-            id<MTLComputePipelineState> dp = use_n64
-                ? work.moeMappedN64ByType[@(moe->down.type)]
-                : work.moeMappedN32ByType[@(moe->down.type)];
-            const NSUInteger dshmem = dp ? moe_shmem : 8192u;
-            [enc setComputePipelineState:(dp ?: work.moeMappedMpp)];
-            [enc setBytes:&down_args length:sizeof(down_args) atIndex:0];
-            [enc setBuffer:down_w offset:(NSUInteger)down_inner atIndex:1];
-            [enc setBuffer:work.batchMoeHidden offset:0 atIndex:2];
-            [enc setBuffer:work.batchMoeSlots offset:0 atIndex:3];
-            [enc setBuffer:work.batchExpertCounts offset:0 atIndex:4];
-            [enc setBuffer:work.batchPairIds offset:0 atIndex:5];
-            [enc setBuffer:work.batchBlockIds offset:0 atIndex:6];
-            qw3_inkling_bind_iq_tables(enc, moe->down.type, work.batchBlockCount);
-            [enc setThreadgroupMemoryLength:dshmem atIndex:0];
+            return 0;
         }
-        [enc dispatchThreadgroupsWithIndirectBuffer:work.batchDispatchDown
-                               indirectBufferOffset:0
-                              threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
 
-        // 7. Reduce top-8 expert outputs per token + causal post-FFN short conv
-        const uint32_t red_shape[4] = {QW3_INK_GPU_D, QW3_INK_GPU_D, QW3_INK_GPU_EXPERTS, n_tokens};
-        [enc setComputePipelineState:work.expertReduceBatch];
-        [enc setBytes:red_shape length:sizeof(red_shape) atIndex:0];
+        // 7. Fused top-8 FP16 expert reduce + causal post-FFN short conv + residual add into cur (dst)
+        const struct { uint32_t width, pos0, channel, n_tokens; } rca_args = {
+            QW3_INK_GPU_D, pos0, 2 * QW3_INK_GPU_KV + QW3_INK_GPU_D, n_tokens
+        };
+        [enc setComputePipelineState:work.moeReduceConvAddBatch];
+        [enc setBytes:&rca_args length:sizeof(rca_args) atIndex:0];
         [enc setBuffer:work.batchDownWeights offset:0 atIndex:1];
         [enc setBuffer:work.batchMoeSlots offset:0 atIndex:2];
-        [enc setBuffer:work.batchVectors offset:qw3_inkling_batch_slot_offset(work, dst) atIndex:3];
-        [enc dispatchThreadgroups:MTLSizeMake((QW3_INK_GPU_D + 127u) / 128u, n_tokens, 1)
-            threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
-
-        return qw3_inkling_post_conv_batch(work, enc, dst, visit, pos0,
-                                           2 * QW3_INK_GPU_KV + QW3_INK_GPU_D, n_tokens, post_conv);
+        if (!qw3_metal_bind_model_tensor(enc, 3, post_conv, 4 * QW3_INK_GPU_VECTOR_BYTES)) return 0;
+        [enc setBuffer:work.history[visit] offset:0 atIndex:4];
+        [enc setBuffer:work.batchVectors offset:qw3_inkling_batch_slot_offset(work, dst) atIndex:5];
+        qw3_inkling_dispatch(enc, QW3_INK_GPU_D);
+        int ok = 1;
+        return ok;
     }
 }
 
@@ -5797,7 +5888,8 @@ int qw3_metal_inkling_batch_finish(qw3_metal_inkling_session *workspace,
             memcpy(logits, work.logits.contents, bytes);
             return 1;
         }
-        return qw3_metal_inkling_submit(work, "batch_prefill");
+        int ok = qw3_metal_inkling_submit(work, "batch_prefill");
+        return ok;
     }
 }
 
@@ -6824,20 +6916,22 @@ static int qw3_metal_encode_dense_batch_matmul_strided(
     if (tensor_type == 14u) {
         if (!weights || !g_matmul_q6_k_mpp_pipeline ||
             n_tokens < 16u) return 0;
+        const bool s128 = qw3_metal_dense_staged_rows(n_tokens) &&
+            g_matmul_q6_k_mpp_staged128_pipeline && qw3_metal_staged128_enabled();
         struct {
             uint32_t n_in, n_out, row_bytes, n_tokens;
             uint32_t in_offset, in_stride, out_offset, out_stride;
         } args = {n_in, n_out, (uint32_t)row_bytes, n_tokens,
                   in_offset, in_stride, out_offset, out_stride};
         id<MTLComputeCommandEncoder> enc = qw3_metal_compute_encoder(cb);
-        [enc setComputePipelineState:g_matmul_q6_k_mpp_pipeline];
+        [enc setComputePipelineState:s128 ? g_matmul_q6_k_mpp_staged128_pipeline : g_matmul_q6_k_mpp_pipeline];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:weights offset:(NSUInteger)inner atIndex:1];
         [enc setBuffer:src offset:0 atIndex:2];
         [enc setBuffer:dst offset:0 atIndex:3];
         [enc setThreadgroupMemoryLength:8192u atIndex:0];
         [enc dispatchThreadgroups:
-             MTLSizeMake((n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
+             MTLSizeMake(s128 ? (n_tokens + 127u) / 128u : (n_tokens + 63u) / 64u, (n_out + 63u) / 64u, 1u)
              threadsPerThreadgroup:MTLSizeMake(128u, 1u, 1u)];
         qw3_metal_end_compute_encoder(cb, enc);
         return 1;
@@ -7939,7 +8033,7 @@ static int qw3_metal_encode_batch_matmul_q8_0(
             [enc setBuffer:wbuf offset:woff atIndex:1];
             [enc setBuffer:xbuf offset:xoff atIndex:2];
             [enc setBuffer:outbuf offset:outoff atIndex:3];
-            [enc setThreadgroupMemoryLength:64u * 32u * sizeof(uint16_t)
+            [enc setThreadgroupMemoryLength:64u * 64u * sizeof(uint16_t)
                                     atIndex:0];
             [enc dispatchThreadgroups:MTLSizeMake(n_tokens / tile_n,
                                                   n_out / 64u, 1)
@@ -15539,6 +15633,7 @@ void qw3_metal_cleanup(void) {
     g_matmul_iq3_xxs_mpp_staged128_pipeline = nil;
     g_matvec_q6_k_pipeline = nil;
     g_matmul_q6_k_mpp_pipeline = nil;
+    g_matmul_q6_k_mpp_staged128_pipeline = nil;
     g_matvec_iq4_xs_pair_swiglu_pipeline = nil;
     g_matvec_iq4_xs_add_x0_pipeline = nil;
     g_matvec_q6_k_add_x0_pipeline = nil;
