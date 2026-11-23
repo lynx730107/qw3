@@ -14,10 +14,10 @@ and numerical validation.
 
 | Model | Validated GGUF | Backend & Highlights |
 | :--- | :--- | :--- |
-| **Inkling 2 Mini** (26.4B looped MoE) | `Inkling-2-Mini-UD-Q3_K_XL.gguf` | Metal 4 / NAX prefill (batch 256 default), zero-sync GPU-indexed MoE decode, FP16 KV, zero env vars |
+| **Inkling 2 Mini** (26.4B looped MoE) | `Inkling-2-Mini-UD-Q3_K_XL.gguf` | Metal 4 / NAX prefill (4-bucket direct-tensor MoE, batch 1024 default), zero-sync GPU-indexed MoE decode, FP16 KV, zero env vars |
 | **Inkling 2 Mini Vision** (`inkling2v`) | `mmproj-Inkling-2-Mini-F16.gguf` | Native Metal ViT (`metal/qw3_vision.metal`) + `ImageIO`/`CoreGraphics`, 2D RoPE, `simdgroup_matrix` FlashAttention, LRU cache |
 | **Qwen3.6 35B-A3B** (Hybrid DeltaNet/GQA MoE) | `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` | Full Metal offload, FP16 KV, ~633 tok/s warmed `pp4096` prefill |
-| **Qwen3.8 27B** (Hybrid DeltaNet/GQA dense) | `Qwen3.8-27B-UD-Q3_K_XL.gguf`, `UD-IQ3_XXS` | Full Metal offload (`--ngl 64`), staged Metal 4 FFN/GQA prefill, packed8 DeltaNet |
+| **Qwen3.8 27B** (Hybrid DeltaNet/GQA dense) | `Qwen3.8-27B-UD-Q3_K_XL.gguf`, `UD-IQ3_XXS` | Full Metal offload (`--ngl 64`), partial-tile staged Metal 4 FFN/GQA prefill, packed8 DeltaNet |
 
 All measurements and tests were run on a fanless **MacBook Air M5 (24 GB
 unified memory)** up to **32,768 tokens**. Other quantizations and hardware
@@ -56,9 +56,10 @@ make voice-setup # Optional local voice mode (see docs/voice.md)
 ./qw3-cli -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 16000 --nothink -p "hello"
 ./qw3-agent -m ../../models/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --ctx 16000 --nothink
 
-# Qwen3.8 Dense CLI & Agent
+# Qwen3.8 Dense CLI, Agent & Server
 ./qw3-cli -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ngl 64 --ctx 2048 --nothink -p "ciao"
 ./qw3-agent -m ../../models/Qwen3.8-27B-UD-Q3_K_XL.gguf --ngl 64 --kv-f16 --ctx 2048 --compact-tools --nothink
+./start_qwen38_server.sh
 ```
 
 ## OpenAI API Server & Vision (`qw3-server`)
@@ -87,20 +88,31 @@ curl -s http://127.0.0.1:8080/v1/chat/completions \
 
 ### Inkling 2 Mini (`Inkling-2-Mini-UD-Q3_K_XL.gguf`, FP16 KV)
 
-Measured November 22, 2026 against `llama.cpp` (`b12588-mix-c0c3de8`) with default settings:
+Measured November 23, 2026 with default settings (zero environment variables, batch 1024 default) vs `llama.cpp` (`b12588-mix-c0c3de8`):
 
 | Workload | `qw3` Metal 4 | `llama.cpp` b12588 | Delta |
 | :--- | ---: | ---: | ---: |
-| Prefill `pp128`, depth 0 | 326.42 tok/s | 198.77 tok/s | +64.2% |
-| Prefill `pp512`, depth 0 (default batch 256) | 407.28 tok/s | 216.55 tok/s | +88.1% |
-| Prefill `pp512`, depth 0 (`batch=512`) | 438.90 tok/s | 216.55 tok/s | +102.7% |
-| 8,283-token needle prompt (`qw3-cli`) | 295.65 tok/s | 127.6–146.0 tok/s | >2.0× |
-| Decode `tg32`, depth 0 | 29.65 tok/s | 19.78 tok/s | +49.9% |
-| Decode `tg32`, depth 1,024 | 26.29 tok/s | 18.95 tok/s | +38.7% |
+| Prefill `pp128`, depth 0 | **436.06 tok/s** | 198.77 tok/s | **+119.4% (2.19×)** |
+| Prefill `pp512`, depth 0 | **682.48 tok/s** | 216.55 tok/s | **+215.2% (3.15×)** |
+| Prefill `pp1024`, depth 0 | **708.23 tok/s** | — | — |
+| Decode `tg32`, depth 0 | **28.60 tok/s** | 19.78 tok/s | **+44.6%** |
+| Decode `tg32`, depth 1,024 | **25.63 tok/s** | 18.95 tok/s | **+35.3%** |
 
 `qw3-agent --ctx 32768` also passes tool-call, resume, and 20,234-token needle
-tests (128.9 tok/s sustained warm prefill, 1,324.5 MiB peak private footprint,
-0 swap).
+tests (1,324.5 MiB peak private footprint, 0 swap; ~522.7 tok/s cold prefill on
+the 1,824-token agent system+prompt turn).
+
+### Qwen3.8 27B (`Qwen3.8-27B-UD-IQ3_XXS.gguf`, FP16 KV)
+
+Measured November 23, 2026 with default settings (partial-tile `staged128` enabled for all `n_tokens >= 64`):
+
+| Workload | `qw3` Metal 4 | Notes |
+| :--- | ---: | :--- |
+| Prefill `pp128`, depth 0 | **170.6 tok/s** | +1.4% vs `llama.cpp` b11960 |
+| Prefill `pp512`, depth 0 | **171.6 tok/s** | +14.5% vs `llama.cpp` b11960 |
+| Agent prefill (`1,831` tokens, non-128-multiple) | **163.0 tok/s** | `qw3-agent --no-prefix-cache` |
+| Decode `tg32`, depth 0 | **10.42 tok/s** | — |
+| Decode `tg32`, depth 1,024 | **10.25 tok/s** | — |
 
 ### Qwen3.6 35B-A3B (`UD-IQ4_XS`, FP16 KV)
 
