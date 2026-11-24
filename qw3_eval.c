@@ -1195,6 +1195,7 @@ typedef struct {
     const char *model_path;
     const char *trace_path;
     const char *regrade_trace_path;
+    const char *cases_spec;
     qw3_backend backend;
     int threads;
     int ctx_size;
@@ -1211,6 +1212,10 @@ typedef struct {
     int hard_limit_reply_budget;
     int soft_limit_think_close_rank;
     qw3_think_mode think_mode;
+    bool temp_set;
+    bool top_p_set;
+    bool min_p_set;
+    bool repeat_penalty_set;
     bool plain;
     bool warm_weights;
     bool quality;
@@ -1586,6 +1591,7 @@ static void usage(FILE *fp) {
         "Evaluation:\n"
         "  -n, --tokens N         Max generated tokens per question. Default: 16000\n"
         "  --questions N          Run only the first N embedded questions.\n"
+        "  --cases LIST           Run only comma-separated 1-based question numbers.\n"
         "  --temp F               Sampling temperature. Default: 0\n"
         "  --top-p F              Nucleus sampling probability. Default: 1\n"
         "  --min-p F              Keep tokens scoring at least F times the top token. Default: 0.05\n"
@@ -1639,14 +1645,20 @@ static eval_config parse_options(int argc, char **argv) {
             c.max_tokens = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--questions")) {
             c.question_limit = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--cases")) {
+            c.cases_spec = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--temp")) {
             c.temperature = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 100.0f);
+            c.temp_set = true;
         } else if (!strcmp(arg, "--top-p")) {
             c.top_p = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
+            c.top_p_set = true;
         } else if (!strcmp(arg, "--min-p")) {
             c.min_p = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
+            c.min_p_set = true;
         } else if (!strcmp(arg, "--repeat-penalty")) {
             c.repeat_penalty = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 1.0f, 100.0f);
+            c.repeat_penalty_set = true;
         } else if (!strcmp(arg, "--repeat-last-n")) {
             c.repeat_last_n = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--seed")) {
@@ -2423,6 +2435,19 @@ static char *build_question_prompt(const eval_case *tc) {
     return empty;
 }
 
+static bool eval_encode_prompt(qw3_engine *engine,
+                               const char *system,
+                               const char *question,
+                               qw3_think_mode think_mode,
+                               qw3_tokens *out)
+{
+    if (qw3_engine_is_inkling(engine)) {
+        return qw3_inkling_encode_prompt(engine, system, question, think_mode, out);
+    }
+    qw3_encode_chat_prompt(engine, system, question, think_mode, out);
+    return true;
+}
+
 static int eval_max_prompt_tokens(qw3_engine *engine,
                                   const eval_config *cfg,
                                   const eval_case *cases,
@@ -2442,7 +2467,12 @@ static int eval_max_prompt_tokens(qw3_engine *engine,
             exit(1);
         }
         qw3_tokens prompt = {0};
-        qw3_encode_chat_prompt(engine, eval_system_prompt(), question, think_mode, &prompt);
+        if (!eval_encode_prompt(engine, eval_system_prompt(), question, think_mode, &prompt)) {
+            fprintf(stderr, "qw3-eval: failed to encode prompt for %s\n", cases[i].id);
+            qw3_tokens_free(&prompt);
+            free(question);
+            exit(1);
+        }
         if (prompt.len > max_prompt) {
             max_prompt = prompt.len;
             max_case = i;
@@ -2688,11 +2718,86 @@ static char *find_last_answer_marker(const char *visible) {
     return last ? last : strcasestr_local(visible, "answer");
 }
 
-static char find_answer_letter(const char *generated, int nchoices) {
-    if (nchoices <= 0) return '?';
+static char *eval_copy_visible_output(const char *generated) {
+    if (!generated) return strdup("");
+
+    /* Inkling models wrap thinking and final answers in control tags such as
+     * <|message_model|><|content_thinking|>...<|end_message|> and
+     * <|message_model|><|content_text|>...<|end_message|>. */
+    if (strstr(generated, "<|content_text|>") ||
+        strstr(generated, "<|content_code|>") ||
+        strstr(generated, "<|content_thinking|>") ||
+        strstr(generated, "<|message_model|>"))
+    {
+        enum { INK_V_HIDDEN = 0, INK_V_SPEAKER, INK_V_THINK, INK_V_TEXT } state = INK_V_HIDDEN;
+        byte_buf visible = {0};
+        byte_buf fallback = {0};
+        const char *p = generated;
+        while (*p) {
+            if (p[0] == '<' && p[1] == '|') {
+                const char *end = strstr(p + 2, "|>");
+                if (end) {
+                    size_t tlen = (size_t)((end + 2) - p);
+                    if (tlen == strlen("<|message_model|>") &&
+                        memcmp(p, "<|message_model|>", tlen) == 0) {
+                        state = INK_V_SPEAKER;
+                    } else if (tlen == strlen("<|content_thinking|>") &&
+                               memcmp(p, "<|content_thinking|>", tlen) == 0) {
+                        state = INK_V_THINK;
+                    } else if ((tlen == strlen("<|content_text|>") &&
+                                memcmp(p, "<|content_text|>", tlen) == 0) ||
+                               (tlen == strlen("<|content_code|>") &&
+                                memcmp(p, "<|content_code|>", tlen) == 0)) {
+                        if (visible.len > 0 && visible.v[visible.len - 1] != '\n') {
+                            buf_append(&visible, "\n", 1);
+                        }
+                        state = INK_V_TEXT;
+                    } else {
+                        state = INK_V_HIDDEN;
+                    }
+                    p = end + 2;
+                    continue;
+                }
+            }
+            const char *next = strstr(p, "<|");
+            size_t chunk = next ? (size_t)(next - p) : strlen(p);
+            if (chunk == 0) {
+                chunk = 1;
+            }
+            if (state == INK_V_TEXT) {
+                buf_append(&visible, p, chunk);
+                buf_append(&fallback, p, chunk);
+            } else if (state == INK_V_THINK) {
+                buf_append(&fallback, p, chunk);
+            }
+            p += chunk;
+        }
+        if (visible.len > 0) {
+            buf_free(&fallback);
+            return visible.v;
+        }
+        buf_free(&visible);
+        if (fallback.len > 0) return fallback.v;
+        buf_free(&fallback);
+        return strdup("");
+    }
+
     const char *visible = strstr(generated, "</think>");
     visible = visible ? visible + 8 : generated;
+    char *copy = strdup(visible);
+    if (!copy) {
+        fprintf(stderr, "qw3-eval: out of memory\n");
+        exit(1);
+    }
+    return copy;
+}
+
+static char find_answer_letter(const char *generated, int nchoices) {
+    if (nchoices <= 0) return '?';
+    char *visible_owned = eval_copy_visible_output(generated);
+    const char *visible = visible_owned;
     char max_answer = (char)('A' + nchoices - 1);
+    char picked = '?';
 
     char *answer = find_last_answer_marker(visible);
     if (answer) {
@@ -2703,20 +2808,29 @@ static char find_answer_letter(const char *generated, int nchoices) {
             if (c >= 'A' && c <= max_answer) {
                 char before = p == visible ? ' ' : p[-1];
                 char after = p[1];
-                if (is_letter_boundary(before, after)) return c;
+                if (is_letter_boundary(before, after)) {
+                    picked = c;
+                    break;
+                }
             }
         }
     }
 
-    for (const char *p = visible + strlen(visible); p > visible; p--) {
-        char c = (char)toupper((unsigned char)p[-1]);
-        if (c >= 'A' && c <= max_answer) {
-            char before = p - 1 == visible ? ' ' : p[-2];
-            char after = p[0];
-            if (is_letter_boundary(before, after)) return c;
+    if (picked == '?') {
+        for (const char *p = visible + strlen(visible); p > visible; p--) {
+            char c = (char)toupper((unsigned char)p[-1]);
+            if (c >= 'A' && c <= max_answer) {
+                char before = p - 1 == visible ? ' ' : p[-2];
+                char after = p[0];
+                if (is_letter_boundary(before, after)) {
+                    picked = c;
+                    break;
+                }
+            }
         }
     }
-    return '?';
+    free(visible_owned);
+    return picked;
 }
 
 static void normalize_integer_answer(const char *p, size_t len,
@@ -2749,14 +2863,17 @@ static bool scan_first_integer(const char *start, const char *end,
 static void find_integer_answer(const char *generated, char *dst, size_t dstlen) {
     if (dstlen == 0) return;
     snprintf(dst, dstlen, "?");
-    const char *visible = strstr(generated, "</think>");
-    visible = visible ? visible + 8 : generated;
+    char *visible_owned = eval_copy_visible_output(generated);
+    const char *visible = visible_owned;
 
     char *answer = find_last_answer_marker(visible);
     if (answer) {
         const char *end = answer + strlen(answer);
         if (strlen(answer) > 160) end = answer + 160;
-        if (scan_first_integer(answer, end, dst, dstlen)) return;
+        if (scan_first_integer(answer, end, dst, dstlen)) {
+            free(visible_owned);
+            return;
+        }
     }
 
     const char *last_start = NULL;
@@ -2774,6 +2891,7 @@ static void find_integer_answer(const char *generated, char *dst, size_t dstlen)
         normalize_integer_answer(last_start, (size_t)(last_end - last_start),
                                  dst, dstlen);
     }
+    free(visible_owned);
 }
 
 static void normalize_compsec_line_spec(const char *p, const char *end,
@@ -2819,8 +2937,8 @@ static void normalize_compsec_line_spec(const char *p, const char *end,
 static void find_compsec_answer(const char *generated, char *dst, size_t dstlen) {
     if (dstlen == 0) return;
     snprintf(dst, dstlen, "?");
-    const char *visible = strstr(generated, "</think>");
-    visible = visible ? visible + 8 : generated;
+    char *visible_owned = eval_copy_visible_output(generated);
+    const char *visible = visible_owned;
 
     char *answer = find_last_answer_marker(visible);
     if (answer) {
@@ -2829,8 +2947,12 @@ static void find_compsec_answer(const char *generated, char *dst, size_t dstlen)
         const char *newline = memchr(answer, '\n', (size_t)(end - answer));
         if (newline) end = newline;
         normalize_compsec_line_spec(answer, end, dst, dstlen);
-        if (strcmp(dst, "?") != 0) return;
+        if (strcmp(dst, "?") != 0) {
+            free(visible_owned);
+            return;
+        }
     }
+    free(visible_owned);
     find_integer_answer(generated, dst, dstlen);
 }
 
@@ -3328,6 +3450,25 @@ static int run_extractor_self_tests(void) {
         "Answer: 10",
         "10");
 
+    failed += extractor_self_test_case(
+        "Inkling multiple-choice extracts visible text block",
+        &mc,
+        "<|message_model|><|content_thinking|>Option H looks tempting, wait actually F.<|end_message|>"
+        "<|message_model|><|content_text|>After checking the steps:\nAnswer: F<|end_message|>",
+        "F");
+    failed += extractor_self_test_case(
+        "Inkling integer extracts visible text block",
+        &integer,
+        "<|message_model|><|content_thinking|>Preliminary guess 80.<|end_message|>"
+        "<|message_model|><|content_text|>Answer: 082<|end_message|>",
+        "82");
+    failed += extractor_self_test_case(
+        "Inkling COMPSEC extracts visible text block",
+        &compsec,
+        "<|message_model|><|content_thinking|>Could be line 3.<|end_message|>"
+        "<|message_model|><|content_text|>Answer: 9, 10<|end_message|>",
+        "9,10");
+
     if (failed) return 1;
     printf("qw3-eval: answer extractor self-tests passed\n");
     return 0;
@@ -3382,7 +3523,7 @@ static void eval_prefill_progress(void *ud, const char *event, int current, int 
 static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                                     const eval_config *cfg, eval_ui *ui,
                                     FILE *trace, int idx, uint64_t *rng) {
-    const eval_case *tc = &eval_cases[idx];
+    const eval_case *tc = &ui->cases[idx];
     const bool tty = ui->enabled;
     const bool use_plain_color = !tty && isatty(STDOUT_FILENO);
     const qw3_think_mode think_mode = qw3_think_mode_for_context(cfg->think_mode, cfg->ctx_size);
@@ -3395,7 +3536,12 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
     }
 
     qw3_tokens prompt = {0};
-    qw3_encode_chat_prompt(engine, system, question, think_mode, &prompt);
+    if (!eval_encode_prompt(engine, system, question, think_mode, &prompt)) {
+        fprintf(stderr, "qw3-eval: failed to encode prompt for %s\n", tc->id);
+        free(question);
+        qw3_tokens_free(&prompt);
+        return EVAL_RUN_ERROR;
+    }
     ui->prompt_tokens[idx] = prompt.len;
     ui->generated_tokens[idx] = 0;
 
@@ -3522,11 +3668,32 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
             return EVAL_RUN_ERROR;
         }
     }
-    bool plain_in_think = qw3_think_mode_enabled(think_mode);
+    const bool is_inkling = qw3_engine_is_inkling(engine);
+    const int ink_model = is_inkling ? qw3_inkling_chat_control_id(engine, "<|message_model|>") : -1;
+    const int ink_think = is_inkling ? qw3_inkling_chat_control_id(engine, "<|content_thinking|>") : -1;
+    const int ink_text = is_inkling ? qw3_inkling_chat_control_id(engine, "<|content_text|>") : -1;
+    const int ink_code = is_inkling ? qw3_inkling_chat_control_id(engine, "<|content_code|>") : -1;
+    const int ink_end = is_inkling ? qw3_inkling_chat_control_id(engine, "<|end_message|>") : -1;
+    const int ink_end_sampling =
+        is_inkling ? qw3_inkling_chat_control_id(engine, "<|content_model_end_sampling|>") : -1;
+    enum { INK_HIDDEN = 0, INK_SPEAKER, INK_THINK, INK_TEXT } ink_state = INK_HIDDEN;
+    bool ink_saw_think = false;
+
+    bool plain_in_think = !is_inkling && qw3_think_mode_enabled(think_mode);
     bool generation_in_think = qw3_think_mode_enabled(think_mode);
     eval_think_close_info think_close = {0};
     qw3_tokens think_close_tokens = {0};
-    if (generation_in_think) qw3_tokenize_text(engine, "</think>", &think_close_tokens);
+    if (generation_in_think) {
+        if (is_inkling) {
+            if (ink_end >= 0 && ink_model >= 0 && ink_text >= 0) {
+                qw3_tokens_push(&think_close_tokens, ink_end);
+                qw3_tokens_push(&think_close_tokens, ink_model);
+                qw3_tokens_push(&think_close_tokens, ink_text);
+            }
+        } else {
+            qw3_tokenize_text(engine, "</think>", &think_close_tokens);
+        }
+    }
     if (!tty && plain_in_think) plain_set_thinking_color(use_plain_color);
     tui_refresh(ui, "thinking");
 
@@ -3623,7 +3790,8 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
          * top of the distribution.  The hard limit is a uniform benchmark rule:
          * leave a fixed answer reserve instead of failing a case because all
          * tokens were spent before the visible answer could start. */
-        if (generation_in_think && think_close_tokens.len > 0) {
+        if (generation_in_think && think_close_tokens.len > 0 &&
+            (!is_inkling || ink_state == INK_THINK || forced_close_pos >= 0)) {
             if (forced_close_pos >= 0) {
                 token = think_close_tokens.v[forced_close_pos++];
                 if (forced_close_pos >= think_close_tokens.len) forced_close_pos = -1;
@@ -3632,12 +3800,13 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                 token = think_close_tokens.v[0];
                 forced_close_pos = think_close_tokens.len > 1 ? 1 : -1;
             } else if (remaining_budget <= cfg->soft_limit_reply_budget &&
-                       think_close_tokens.len == 1) {
+                       (think_close_tokens.len == 1 || is_inkling)) {
                 close_rank = token_rank_in_top(session, think_close_tokens.v[0],
                                                cfg->soft_limit_think_close_rank);
                 if (close_rank > 0) {
                     close_kind = EVAL_THINK_CLOSE_SOFT;
                     token = think_close_tokens.v[0];
+                    forced_close_pos = think_close_tokens.len > 1 ? 1 : -1;
                 }
             }
         }
@@ -3667,7 +3836,7 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
                 session, cfg->temperature, 0, cfg->top_p, cfg->min_p, rng,
                 repeat_tokens, repeat_len, cfg->repeat_penalty);
         }
-        if (token == eos) break;
+        if (token == eos || (is_inkling && ink_end_sampling >= 0 && token == ink_end_sampling)) break;
         if (close_kind != EVAL_THINK_CLOSE_NONE &&
             think_close.kind == EVAL_THINK_CLOSE_NONE) {
             think_close.kind = close_kind;
@@ -3717,28 +3886,84 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
         ui->generated++;
         ui->generated_tokens[idx] = ui->generated;
         tui_run_clock_tick(ui);
-        if (generation_in_think && raw.v && strstr(raw.v, "</think>")) {
-            generation_in_think = false;
-            if (think_close.kind == EVAL_THINK_CLOSE_NONE) {
-                think_close.kind = EVAL_THINK_CLOSE_NATURAL;
-                think_close.token_index = ui->generated;
-                think_close.remaining_budget = remaining_budget;
-                think_close.rank = 0;
-            }
-        }
         double elapsed = now_sec() - ui->phase_start_sec;
         ui->speed_tps = elapsed > 0.001 ? (double)ui->generated / elapsed : 0.0;
 
-        if (tty) {
-            stream_append_token_text(ui, text, len, false);
-            tui_refresh(ui, ui->in_think ? "thinking" : "answer");
-        } else {
-            if (plain_in_think && strstr(raw.v ? raw.v : "", "</think>")) {
+        if (is_inkling) {
+            bool is_ctrl = false;
+            if (token == ink_model) {
+                ink_state = INK_SPEAKER;
+                is_ctrl = true;
+            } else if (token == ink_end) {
+                ink_state = INK_HIDDEN;
+                is_ctrl = true;
+            } else if (ink_state == INK_SPEAKER && token == ink_think) {
+                ink_state = INK_THINK;
+                ink_saw_think = true;
+                ui->in_think = true;
+                plain_in_think = true;
+                if (!tty) plain_set_thinking_color(use_plain_color);
+                is_ctrl = true;
+            } else if (ink_state == INK_SPEAKER && (token == ink_text || token == ink_code)) {
+                ink_state = INK_TEXT;
+                if (generation_in_think) {
+                    generation_in_think = false;
+                    if (think_close.kind == EVAL_THINK_CLOSE_NONE) {
+                        think_close.kind = EVAL_THINK_CLOSE_NATURAL;
+                        think_close.token_index = ui->generated;
+                        think_close.remaining_budget = remaining_budget;
+                        think_close.rank = 0;
+                    }
+                }
+                ui->in_think = false;
                 plain_in_think = false;
-                plain_reset_color(use_plain_color);
+                if (tty) {
+                    if (ink_saw_think) stream_append_visible(ui, "\n", 1);
+                    tui_refresh(ui, "answer");
+                } else {
+                    plain_reset_color(use_plain_color);
+                    if (ink_saw_think) {
+                        fputc('\n', stdout);
+                        fflush(stdout);
+                    }
+                }
+                is_ctrl = true;
+            } else if (len >= 4 && !memcmp(text, "<|", 2) && !memcmp(text + len - 2, "|>", 2)) {
+                ink_state = INK_HIDDEN;
+                is_ctrl = true;
             }
-            fwrite(text, 1, len, stdout);
-            fflush(stdout);
+
+            if (!is_ctrl && (ink_state == INK_THINK || ink_state == INK_TEXT)) {
+                if (tty) {
+                    stream_append_visible(ui, text, len);
+                    tui_refresh(ui, ink_state == INK_THINK ? "thinking" : "answer");
+                } else {
+                    fwrite(text, 1, len, stdout);
+                    fflush(stdout);
+                }
+            }
+        } else {
+            if (generation_in_think && raw.v && strstr(raw.v, "</think>")) {
+                generation_in_think = false;
+                if (think_close.kind == EVAL_THINK_CLOSE_NONE) {
+                    think_close.kind = EVAL_THINK_CLOSE_NATURAL;
+                    think_close.token_index = ui->generated;
+                    think_close.remaining_budget = remaining_budget;
+                    think_close.rank = 0;
+                }
+            }
+
+            if (tty) {
+                stream_append_token_text(ui, text, len, false);
+                tui_refresh(ui, ui->in_think ? "thinking" : "answer");
+            } else {
+                if (plain_in_think && strstr(raw.v ? raw.v : "", "</think>")) {
+                    plain_in_think = false;
+                    plain_reset_color(use_plain_color);
+                }
+                fwrite(text, 1, len, stdout);
+                fflush(stdout);
+            }
         }
         free(text);
     }
@@ -3842,18 +4067,74 @@ static void print_eval_report(const eval_ui *ui, int ncases, int passed, int fai
     }
 }
 
+static eval_case *select_eval_cases(const eval_config *cfg, int *ncases_out) {
+    const int total = (int)(sizeof(eval_cases) / sizeof(eval_cases[0]));
+    if (cfg->cases_spec) {
+        int cap = 16;
+        int n = 0;
+        eval_case *selected = malloc((size_t)cap * sizeof(*selected));
+        if (!selected) {
+            fprintf(stderr, "qw3-eval: out of memory\n");
+            exit(1);
+        }
+        const char *p = cfg->cases_spec;
+        while (*p) {
+            while (*p == ',' || isspace((unsigned char)*p)) p++;
+            if (!*p) break;
+            char *end = NULL;
+            long idx1 = strtol(p, &end, 10);
+            if (end == p || idx1 < 1 || idx1 > total || (*end && *end != ',' && !isspace((unsigned char)*end))) {
+                fprintf(stderr, "qw3-eval: invalid --cases entry near '%s' (valid range: 1..%d)\n",
+                        p, total);
+                free(selected);
+                exit(2);
+            }
+            if (n == cap) {
+                cap *= 2;
+                eval_case *v = realloc(selected, (size_t)cap * sizeof(*v));
+                if (!v) {
+                    fprintf(stderr, "qw3-eval: out of memory\n");
+                    free(selected);
+                    exit(1);
+                }
+                selected = v;
+            }
+            selected[n++] = eval_cases[idx1 - 1];
+            p = end;
+        }
+        if (n == 0) {
+            fprintf(stderr, "qw3-eval: --cases must specify at least one question number\n");
+            free(selected);
+            exit(2);
+        }
+        if (cfg->question_limit > 0 && cfg->question_limit < n) n = cfg->question_limit;
+        *ncases_out = n;
+        return selected;
+    }
+
+    int ncases = total;
+    if (cfg->question_limit > 0 && cfg->question_limit < ncases) ncases = cfg->question_limit;
+    if (cfg->question_limit > total) {
+        fprintf(stderr, "qw3-eval: only %d questions are embedded\n", total);
+        exit(2);
+    }
+    eval_case *selected = malloc((size_t)ncases * sizeof(*selected));
+    if (!selected) {
+        fprintf(stderr, "qw3-eval: out of memory\n");
+        exit(1);
+    }
+    memcpy(selected, eval_cases, (size_t)ncases * sizeof(*selected));
+    *ncases_out = ncases;
+    return selected;
+}
+
 int main(int argc, char **argv) {
     eval_config cfg = parse_options(argc, argv);
     if (cfg.self_test_extractors) return run_extractor_self_tests();
     if (cfg.regrade_trace_path) return regrade_trace_file(cfg.regrade_trace_path);
 
-    int ncases = (int)(sizeof(eval_cases) / sizeof(eval_cases[0]));
-    if (cfg.question_limit > 0 && cfg.question_limit < ncases) ncases = cfg.question_limit;
-    if (cfg.question_limit > (int)(sizeof(eval_cases) / sizeof(eval_cases[0]))) {
-        fprintf(stderr, "qw3-eval: only %zu questions are embedded\n",
-                sizeof(eval_cases) / sizeof(eval_cases[0]));
-        return 2;
-    }
+    int ncases = 0;
+    eval_case *selected_cases = select_eval_cases(&cfg, &ncases);
     if (!cfg.seed) {
         cfg.seed = (uint64_t)time(NULL) ^
                    ((uint64_t)getpid() << 32) ^
@@ -3866,6 +4147,7 @@ int main(int argc, char **argv) {
         if (!trace) {
             fprintf(stderr, "qw3-eval: cannot open trace '%s': %s\n",
                     cfg.trace_path, strerror(errno));
+            free(selected_cases);
             return 2;
         }
     }
@@ -3874,18 +4156,34 @@ int main(int argc, char **argv) {
         .model_path = cfg.model_path,
         .backend = cfg.backend,
         .n_threads = cfg.threads,
-        .warm_weights = cfg.warm_weights
+        .warm_weights = cfg.warm_weights,
+        .enable_inkling = true
     };
 
     qw3_engine *engine = NULL;
     if (qw3_engine_open(&engine, &opt) != 0) {
         if (trace) fclose(trace);
+        free(selected_cases);
         return 1;
+    }
+
+    if (qw3_engine_is_inkling(engine)) {
+        bool adjusted = false;
+        if (!cfg.temp_set) { cfg.temperature = 1.0f; adjusted = true; }
+        if (!cfg.top_p_set) { cfg.top_p = 1.0f; adjusted = true; }
+        if (!cfg.min_p_set) { cfg.min_p = 0.0f; adjusted = true; }
+        if (!cfg.repeat_penalty_set) { cfg.repeat_penalty = 1.0f; adjusted = true; }
+        if (adjusted) {
+            fprintf(stderr,
+                    "qw3-eval: Inkling model detected; using model card sampling defaults "
+                    "(temp=%.6g, top_p=%.6g, min_p=%.6g, repeat_penalty=%.6g)\n",
+                    cfg.temperature, cfg.top_p, cfg.min_p, cfg.repeat_penalty);
+        }
     }
 
     int max_prompt_tokens = 0;
     int max_prompt_case = -1;
-    cfg.ctx_size = eval_auto_context_size(engine, &cfg, eval_cases, ncases,
+    cfg.ctx_size = eval_auto_context_size(engine, &cfg, selected_cases, ncases,
                                           &max_prompt_tokens, &max_prompt_case);
     fprintf(stderr,
             "qw3-eval: context auto-sized to %d tokens "
@@ -3899,12 +4197,13 @@ int main(int argc, char **argv) {
         fprintf(stderr, "qw3-eval: failed to create session\n");
         if (trace) fclose(trace);
         qw3_engine_close(engine);
+        free(selected_cases);
         return 1;
     }
 
     eval_ui ui;
     bool split_ui = !cfg.plain && isatty(STDOUT_FILENO);
-    tui_start(&ui, eval_cases, ncases, cfg.max_tokens, split_ui);
+    tui_start(&ui, selected_cases, ncases, cfg.max_tokens, split_ui);
 
     uint64_t rng = cfg.seed;
     int rc = 0;
@@ -3968,5 +4267,6 @@ int main(int argc, char **argv) {
     qw3_session_free(session);
     qw3_engine_close(engine);
     if (trace) fclose(trace);
+    free(selected_cases);
     return rc || failed ? 1 : 0;
 }
