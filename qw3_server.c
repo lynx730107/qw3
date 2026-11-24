@@ -3092,10 +3092,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    const char *kv_q8_env = (srv.cfg.backend == QW3_BACKEND_METAL) ? getenv("QW3_METAL_KV_Q8_0") : NULL;
+    const char *kv_f16_env = (srv.cfg.backend == QW3_BACKEND_METAL) ? getenv("QW3_METAL_KV_F16") : NULL;
+    const char *kv_fmt = srv.cfg.backend != QW3_BACKEND_METAL ? "f32" :
+        ((kv_q8_env && strcmp(kv_q8_env, "0") != 0) ? "q8_0" :
+         (srv.is_inkling || (kv_f16_env && strcmp(kv_f16_env, "0") != 0)) ? "f16" : "f32");
     fprintf(stderr,
-        "qw3-server: listening on http://%s:%d  model=%s  backend=%s  ctx=%d  kv_est=%.1f MiB",
+        "qw3-server: listening on http://%s:%d  model=%s  backend=%s  ctx=%d  kv=%s(%.1f MiB)",
         srv.cfg.host, srv.cfg.port, srv.cfg.model_alias,
-        qw3_backend_name(srv.cfg.backend), srv.cfg.ctx_size,
+        qw3_backend_name(srv.cfg.backend), srv.cfg.ctx_size, kv_fmt,
         (double)mem.total_bytes / (1024.0 * 1024.0));
 #ifndef QW3_NO_METAL
     if (srv.vision) {

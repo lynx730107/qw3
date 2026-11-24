@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int verify_logits(qw3_session *s, float *logits, int vocab, unsigned step) {
+static int verify_logits(qw3_session *s, float *logits, int vocab, unsigned step, float tol) {
     // Unsloth llama.cpp b12588, the original UD-Q3_K_XL, serial Metal decode.
     static const int ids[3][5] = {
         {11, 156558, 0, 149971, 13},
@@ -24,9 +24,9 @@ static int verify_logits(qw3_session *s, float *logits, int vocab, unsigned step
         if (!isfinite(logits[i])) return 1;
     }
     for (unsigned i = 0; i < 5; i++) {
-        if (top[i].id != ids[step][i] || fabsf(top[i].logit - reference[step][i]) > 0.01f) {
-            fprintf(stderr, "Inkling step %u rank %u: %d %.7f vs %d %.7f\n",
-                    step, i, top[i].id, top[i].logit, ids[step][i], reference[step][i]);
+        if (top[i].id != ids[step][i] || fabsf(top[i].logit - reference[step][i]) > tol) {
+            fprintf(stderr, "Inkling step %u rank %u: %d %.7f vs %d %.7f (tol=%.3f)\n",
+                    step, i, top[i].id, top[i].logit, ids[step][i], reference[step][i], tol);
             return 1;
         }
     }
@@ -54,8 +54,11 @@ int main(int argc, char **argv) {
     const int vocab = qw3_vocab_size(engine);
     if (vocab != 200058) goto done;
     const qw3_context_memory memory = qw3_engine_context_memory_estimate(engine, 65536);
+    const char *kv_q8_env = getenv("QW3_METAL_KV_Q8_0");
+    const int kv_q8 = (backend == QW3_BACKEND_METAL && kv_q8_env && kv_q8_env[0] && strcmp(kv_q8_env, "0") != 0);
     const uint64_t kv_rows = 8 * 65536 + 40 * 1024;
-    const uint64_t kv_bytes = kv_rows * 2 * 1024 * (backend == QW3_BACKEND_METAL ? 2 : 4);
+    const uint64_t kv_row_bytes = backend == QW3_BACKEND_METAL ? (kv_q8 ? 2176 : 4096) : 8192;
+    const uint64_t kv_bytes = kv_rows * kv_row_bytes;
     if (memory.gqa_kv_bytes != kv_bytes) {
         fprintf(stderr, "Inkling KV estimate disagrees with the full and sliding visit capacities\n");
         goto done;
@@ -72,16 +75,31 @@ int main(int argc, char **argv) {
 #else
     for (unsigned i = 0; i < 3; i++) qw3_tokens_push(&prompt, tokens[i]);
 #endif
+    const float logit_tol = kv_q8 ? 0.25f : 0.01f;
     for (unsigned i = 0; i < 3; i++) {
         if (qw3_session_eval(session, tokens[i], err, sizeof(err)) != 0 ||
-            verify_logits(session, logits, vocab, i) != 0) goto done;
+            verify_logits(session, logits, vocab, i, logit_tol) != 0) goto done;
     }
     memcpy(before, logits, bytes);
     qw3_session_rewind(session, 1);
     if (qw3_session_sync(session, &prompt, err, sizeof(err)) != 0 ||
-        qw3_session_copy_logits(session, logits, vocab) != vocab ||
-        memcmp(before, logits, bytes) != 0) goto done;
-    printf("test-inkling-%s: tokenizer, KV estimate, reference top-5 and exact replay ok\n", backend_name);
+        qw3_session_copy_logits(session, logits, vocab) != vocab) goto done;
+    if (kv_q8) {
+        float max_diff = 0.0f;
+        for (int i = 0; i < vocab; i++) {
+            float d = fabsf(before[i] - logits[i]);
+            if (d > max_diff) max_diff = d;
+        }
+        if (verify_logits(session, logits, vocab, 2, logit_tol) != 0 || max_diff > 0.25f) {
+            fprintf(stderr, "Inkling Q8_0 replay max_diff=%.6f\n", max_diff);
+            goto done;
+        }
+        printf("test-inkling-%s (q8_0): tokenizer, KV estimate, reference top-5 and replay ok (max_diff=%.5f)\n",
+               backend_name, max_diff);
+    } else {
+        if (memcmp(before, logits, bytes) != 0) goto done;
+        printf("test-inkling-%s: tokenizer, KV estimate, reference top-5 and exact replay ok\n", backend_name);
+    }
     status = 0;
 
 done:

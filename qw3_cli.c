@@ -1931,17 +1931,21 @@ int main(int argc, char **argv)
     }
     if (qw3_engine_is_inkling(engine))
     {
-        if (ngl_set || (cache_type_k && strcmp(cache_type_k, "f16") != 0))
+        if (ngl_set || (cache_type_k && strcmp(cache_type_k, "f16") != 0 &&
+                        strcmp(cache_type_k, "q8_0") != 0))
         {
-            fprintf(stderr, "qw3: Inkling Metal uses fixed offload and an FP16 KV cache\n");
+            fprintf(stderr, "qw3: Inkling Metal uses fixed offload and an FP16 or Q8_0 KV cache\n");
             rc = 1;
         }
         else
         {
             qw3_engine_summary(engine);
             const qw3_context_memory mem = qw3_engine_context_memory_estimate(engine, ctx_size);
+            const char *kv_q8_env = backend == QW3_BACKEND_METAL ? getenv("QW3_METAL_KV_Q8_0") : NULL;
+            const char *kv_fmt = backend != QW3_BACKEND_METAL ? "FP32" :
+                ((kv_q8_env && strcmp(kv_q8_env, "0") != 0) ? "Q8_0" : "FP16");
             fprintf(stderr, "qw3: Inkling KV %s on %s: %.1f MiB at %d tokens\n",
-                    backend == QW3_BACKEND_METAL ? "FP16" : "FP32", qw3_backend_name(backend),
+                    kv_fmt, qw3_backend_name(backend),
                     (double)mem.gqa_kv_bytes / (1024.0 * 1024.0), ctx_size);
             rc = generate_inkling_chat(engine, system_prompt, prompt, think_mode,
                                        think_effort_set, think_effort,

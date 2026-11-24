@@ -3888,7 +3888,9 @@ static int qw3_metal_dense_iq_buffers(id<MTLBuffer> *signs,
 @property (nonatomic, strong) id<MTLComputePipelineState> expertActivation;
 @property (nonatomic, strong) id<MTLComputePipelineState> expertReduce;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionPrepare;
+@property (nonatomic, strong) id<MTLComputePipelineState> attentionPrepareQ8;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionPartition;
+@property (nonatomic, strong) id<MTLComputePipelineState> attentionPartitionQ8;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionMerge;
 @property (nonatomic, strong) id<MTLComputePipelineState> postConv;
 @property (nonatomic, strong) id<MTLComputePipelineState> embed;
@@ -3908,7 +3910,9 @@ static int qw3_metal_dense_iq_buffers(id<MTLBuffer> *signs,
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionPrepareQBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionPrepareKVBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionBatchTiled;
+@property (nonatomic, strong) id<MTLComputePipelineState> attentionBatchTiledQ8;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionCommitBatch;
+@property (nonatomic, strong) id<MTLComputePipelineState> attentionCommitBatchQ8;
 @property (nonatomic, strong) id<MTLComputePipelineState> controlApplyBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> expertActivationBatch;
 @property (nonatomic, strong) id<MTLComputePipelineState> expertReduceBatch;
@@ -3943,6 +3947,8 @@ static int qw3_metal_dense_iq_buffers(id<MTLBuffer> *signs,
 @property (nonatomic, assign) uint32_t batchMaxBlocksPerBucket;
 @property (nonatomic, strong) id<MTLComputePipelineState> controlApplyBatchMpp;
 @property (nonatomic, strong) id<MTLComputePipelineState> attentionBatchNax;
+@property (nonatomic, strong) id<MTLComputePipelineState> attentionBatchNaxQ8;
+@property (nonatomic, assign) BOOL kvQ8;
 @property (nonatomic, assign) uint32_t batchCapacity;
 @property (nonatomic, strong) id<MTLBuffer> batchVectors;
 @property (nonatomic, strong) id<MTLBuffer> batchTokens;
@@ -3972,6 +3978,7 @@ enum {
     QW3_INK_GPU_VECTOR_BYTES = QW3_INK_GPU_D * sizeof(float),
     QW3_INK_GPU_SCRATCH_BYTES = QW3_INK_GPU_EXPERTS * (2 * QW3_INK_GPU_FF + QW3_INK_GPU_D) * sizeof(float),
     QW3_INK_GPU_KV_ROW_BYTES = 2 * QW3_INK_GPU_KV * sizeof(uint16_t),
+    QW3_INK_GPU_KV_Q8_ROW_BYTES = 2176,
     QW3_INK_GPU_HISTORY_BYTES = 3 * (2 * QW3_INK_GPU_KV + 2 * QW3_INK_GPU_D) * sizeof(float),
 };
 
@@ -4030,7 +4037,11 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
                                          @"qw3_inkling_mix_norm",
                                          @"qw3_inkling_mix_norm_batch",
                                          @"qw3_inkling_post_conv_add_batch",
-                                         @"qw3_inkling_moe_reduce_conv_add_batch"];
+                                         @"qw3_inkling_moe_reduce_conv_add_batch",
+                                         @"qw3_inkling_attention_prepare_q8",
+                                         @"qw3_inkling_attention_partition_q8",
+                                         @"qw3_inkling_attention_batch_tiled_q8",
+                                         @"qw3_inkling_attention_commit_batch_q8"];
         NSMutableArray<id<MTLComputePipelineState>> *pipelines = [NSMutableArray new];
         for (NSString *name in kernels) {
             NSError *error = nil;
@@ -4088,6 +4099,10 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
         obj.inklingMixNormBatch = pipelines[41];
         obj.postConvAddBatch = pipelines[42];
         obj.moeReduceConvAddBatch = pipelines[43];
+        obj.attentionPrepareQ8 = pipelines[44];
+        obj.attentionPartitionQ8 = pipelines[45];
+        obj.attentionBatchTiledQ8 = pipelines[46];
+        obj.attentionCommitBatchQ8 = pipelines[47];
         {
             static const uint32_t kMoeTypes[] = {8, 11, 12, 13, 14, 17, 18, 20, 21, 22, 23};
             NSMutableDictionary<NSNumber *, id<MTLComputePipelineState>> *guMap = [NSMutableDictionary new];
@@ -4158,6 +4173,14 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
                 obj.attentionBatchNax = [g_device newComputePipelineStateWithFunction:fn error:&error];
                 if (!obj.attentionBatchNax && error) {
                     fprintf(stderr, "qw3: Metal Inkling NAX attention unavailable: %s\n",
+                            error.localizedDescription.UTF8String);
+                }
+            }
+            fn = [g_library newFunctionWithName:@"qw3_inkling_attention_batch_nax_q8"];
+            if (fn) {
+                obj.attentionBatchNaxQ8 = [g_device newComputePipelineStateWithFunction:fn error:&error];
+                if (!obj.attentionBatchNaxQ8 && error) {
+                    fprintf(stderr, "qw3: Metal Inkling NAX Q8 attention unavailable: %s\n",
                             error.localizedDescription.UTF8String);
                 }
             }
@@ -4236,11 +4259,15 @@ qw3_metal_inkling_session *qw3_metal_inkling_session_create(
         obj.routeIds = [g_device newBufferWithLength:QW3_INK_GPU_EXPERTS * sizeof(uint32_t)
                                             options:MTLResourceStorageModeShared];
         if (!obj.vectors || !obj.scratch || !obj.routeCoefficients || !obj.routeIds) return NULL;
+        const char *kv_q8_env = getenv("QW3_METAL_KV_Q8_0");
+        const BOOL use_kv_q8 = (kv_q8_env && strcmp(kv_q8_env, "0") != 0) ? YES : NO;
+        obj.kvQ8 = use_kv_q8;
+        const uint64_t kv_row_bytes = use_kv_q8 ? QW3_INK_GPU_KV_Q8_ROW_BYTES : QW3_INK_GPU_KV_ROW_BYTES;
         obj.history = qw3_metal_new_private_buffer_layers(visit_count, QW3_INK_GPU_HISTORY_BYTES);
         NSMutableArray<id<MTLBuffer>> *kv = [NSMutableArray arrayWithCapacity:visit_count];
         for (uint32_t i = 0; i < visit_count; i++) {
             id<MTLBuffer> cache = qw3_metal_new_private_buffer(
-                (uint64_t)visit_capacities[i] * QW3_INK_GPU_KV_ROW_BYTES);
+                (uint64_t)visit_capacities[i] * kv_row_bytes);
             if (!cache || !obj.history) {
                 fprintf(stderr, "qw3: could not allocate Inkling Metal state for visit %u (%u KV rows)\n",
                         i, visit_capacities[i]);
@@ -5015,7 +5042,7 @@ int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
         qw3_inkling_profile_flush(work, INK_PROF_ATTN_PROJ);
         enc = qw3_metal_inkling_encoder(work);
         if (!enc) goto failed;
-        [enc setComputePipelineState:work.attentionPrepare];
+        [enc setComputePipelineState:(work.kvQ8 ? work.attentionPrepareQ8 : work.attentionPrepare)];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:work.scratch offset:0 atIndex:1];
         [enc setBuffer:kv offset:0 atIndex:2];
@@ -5029,7 +5056,7 @@ int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
         qw3_inkling_barrier(work, enc);
 
         // 3-head GQA grouped partition kernel: 8 KV heads x parts.
-        [enc setComputePipelineState:work.attentionPartition];
+        [enc setComputePipelineState:(work.kvQ8 ? work.attentionPartitionQ8 : work.attentionPartition)];
         [enc setBuffer:work.attentionPartial offset:0 atIndex:4];
         if (!qw3_metal_bind_model_tensor(enc, 3, a->relative_bias,
                                         (uint64_t)a->relative_extent * 16 * sizeof(float))) goto failed;
@@ -5718,8 +5745,9 @@ int qw3_metal_inkling_batch_attend(qw3_metal_inkling_session *workspace,
             threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
 
         // Multi-query causal attention: use Metal 4 NAX FlashAttention when n_tokens >= 8
-        if (work.attentionBatchNax && n_tokens >= 8u) {
-            [enc setComputePipelineState:work.attentionBatchNax];
+        id<MTLComputePipelineState> nax_pipe = work.kvQ8 ? work.attentionBatchNaxQ8 : work.attentionBatchNax;
+        if (nax_pipe && n_tokens >= 8u) {
+            [enc setComputePipelineState:nax_pipe];
             [enc setBytes:&attn_args length:sizeof(attn_args) atIndex:0];
             [enc setBuffer:work.batchAttnScratch offset:offsets[0] atIndex:1];
             [enc setBuffer:work.batchAttnScratch offset:offsets[4] atIndex:2];
@@ -5734,7 +5762,7 @@ int qw3_metal_inkling_batch_attend(qw3_metal_inkling_session *workspace,
             [enc dispatchThreadgroups:MTLSizeMake(QW3_INK_GPU_HEADS, (n_tokens + 31u) / 32u, 1)
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         } else {
-            [enc setComputePipelineState:work.attentionBatchTiled];
+            [enc setComputePipelineState:(work.kvQ8 ? work.attentionBatchTiledQ8 : work.attentionBatchTiled)];
             [enc setBytes:&attn_args length:sizeof(attn_args) atIndex:0];
             [enc setBuffer:work.batchAttnScratch offset:offsets[0] atIndex:1];
             [enc setBuffer:work.batchAttnScratch offset:offsets[4] atIndex:2];
@@ -5749,13 +5777,22 @@ int qw3_metal_inkling_batch_attend(qw3_metal_inkling_session *workspace,
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         }
 
-        [enc setComputePipelineState:work.attentionCommitBatch];
-        [enc setBytes:&attn_args length:sizeof(attn_args) atIndex:0];
-        [enc setBuffer:work.kv[visit] offset:0 atIndex:1];
-        [enc setBuffer:incoming offset:0 atIndex:2];
-        const uint32_t kv_vecs = QW3_INK_GPU_KV_ROW_BYTES / (4u * sizeof(uint16_t));
-        [enc dispatchThreadgroups:MTLSizeMake((kv_vecs + 127u) / 128u, n_tokens, 1)
-            threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+        if (work.kvQ8) {
+            [enc setComputePipelineState:work.attentionCommitBatchQ8];
+            [enc setBytes:&attn_args length:sizeof(attn_args) atIndex:0];
+            [enc setBuffer:work.kv[visit] offset:0 atIndex:1];
+            [enc setBuffer:incoming offset:0 atIndex:2];
+            [enc dispatchThreadgroups:MTLSizeMake(16, n_tokens, 1)
+                threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+        } else {
+            [enc setComputePipelineState:work.attentionCommitBatch];
+            [enc setBytes:&attn_args length:sizeof(attn_args) atIndex:0];
+            [enc setBuffer:work.kv[visit] offset:0 atIndex:1];
+            [enc setBuffer:incoming offset:0 atIndex:2];
+            const uint32_t kv_vecs = QW3_INK_GPU_KV_ROW_BYTES / (4u * sizeof(uint16_t));
+            [enc dispatchThreadgroups:MTLSizeMake((kv_vecs + 127u) / 128u, n_tokens, 1)
+                threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+        }
 
         // Output projection + causal post-attention short conv (+ fused residual add when add_dst)
         int ok = 1;

@@ -98,9 +98,13 @@ static unsigned inkling_visit_capacity(const qw3_model *m, unsigned visit, unsig
 static qw3_context_memory inkling_context_memory(const qw3_model *m, int ctx_size, bool metal) {
     qw3_context_memory mem = {0};
     if (ctx_size <= 0 || ctx_size > m->meta.context_length) return mem;
+    const char *kv_q8_env = metal ? getenv("QW3_METAL_KV_Q8_0") : NULL;
+    const bool kv_q8 = (kv_q8_env && strcmp(kv_q8_env, "0") != 0);
+    const uint64_t kv_row_bytes = metal
+        ? (kv_q8 ? 2176ull : (uint64_t)(2 * INK_KV * sizeof(uint16_t)))
+        : (uint64_t)(2 * INK_KV * sizeof(float));
     for (unsigned i = 0; i < INKLING_VISITS; i++) {
-        mem.gqa_kv_bytes += (uint64_t)inkling_visit_capacity(m, i, (unsigned)ctx_size) *
-                           2 * INK_KV * (metal ? sizeof(uint16_t) : sizeof(float));
+        mem.gqa_kv_bytes += (uint64_t)inkling_visit_capacity(m, i, (unsigned)ctx_size) * kv_row_bytes;
     }
     mem.scratch_bytes = sizeof(qw3_inkling_state) +
                         (uint64_t)m->inkling.vocab_unpadded * sizeof(float);

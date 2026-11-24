@@ -9392,7 +9392,7 @@ static void print_help(void)
             "  -ctk TYPE -ctv TYPE  Metal KV cache type: f32, f16, or q8_0\n"
             "  --kv-f16             Use f16 Metal GQA KV cache (recommended for large ctx)\n"
             "  --kv-f32             Use f32 Metal GQA KV cache\n"
-            "  --kv-q8              Use q8_0 Metal GQA KV cache (experimental)\n"
+            "  --kv-q8              Use q8_0 Metal GQA KV cache (~47%% less KV RAM on Inkling)\n"
             "  --temp N             Temperature (default: 0.6)\n"
             "  --sample-top-k N     Sampling top-k (default: 20)\n"
             "  --top-p N            Sampling top-p (default: 0.95)\n"

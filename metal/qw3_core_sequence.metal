@@ -1865,6 +1865,179 @@ kernel void qw3_inkling_attention_merge(constant qw3_inkling_attention_args &arg
     ((device float4 *)(projected + args.mixed))[offset] = value / (sum * (1.0f + exp(-gate)));
 }
 
+// Split-scale per-row Q8_0 KV cache for Inkling 2 Mini:
+// 2176 bytes/row (16-byte aligned, 53.1% of FP16's 4096 bytes/row):
+//   [   0 .. 1023]: K_q (256 x char4 = 8 heads x 32 lanes x 4 int8)
+//   [1024 .. 2047]: V_q (256 x char4)
+//   [2048 .. 2111]: K_scale (32 x half = 8 heads x 4 subblocks of 32 elems)
+//   [2112 .. 2175]: V_scale (32 x half)
+constant uint inkling_kv_q8_row_bytes = 2176u;
+
+static inline char4 qw3_inkling_q8_quantize4(float4 v, thread float &scale_out) {
+    float amax = max(max(abs(v.x), abs(v.y)), max(abs(v.z), abs(v.w)));
+    amax = max(amax, simd_shuffle_xor(amax, 4u));
+    amax = max(amax, simd_shuffle_xor(amax, 2u));
+    amax = max(amax, simd_shuffle_xor(amax, 1u));
+    scale_out = amax > 0.0f ? (amax / 127.0f) : 0.0f;
+    const float inv = amax > 0.0f ? (127.0f / amax) : 0.0f;
+    return char4(clamp(rint(v * inv), -127.0f, 127.0f));
+}
+
+static inline float4 qw3_inkling_q8_load4(device const uchar *cache_q8, uint slot,
+        uint kv_head, uint lane, bool is_v) {
+    device const uchar *row = cache_q8 + ulong(slot) * ulong(inkling_kv_q8_row_bytes);
+    device const char4 *qptr = (device const char4 *)(row + (is_v ? 1024u : 0u));
+    device const half *sptr = (device const half *)(row + (is_v ? 2112u : 2048u));
+    const char4 q4 = qptr[kv_head * 32u + lane];
+    const float sc = float(sptr[kv_head * 4u + (lane >> 3u)]);
+    return float4(q4) * sc;
+}
+
+kernel void qw3_inkling_attention_prepare_q8(constant qw3_inkling_attention_args &args [[buffer(0)]],
+        device float *projected [[buffer(1)]], device uchar *cache [[buffer(2)]],
+        device float *history [[buffer(3)]], device const float4 *k_conv [[buffer(4)]],
+        device const float4 *v_conv [[buffer(5)]], device const float4 *q_clip [[buffer(6)]],
+        device const float *relative_clip [[buffer(7)]],
+        uint head [[threadgroup_position_in_grid]], uint lane [[thread_index_in_simdgroup]]) {
+    if (head < 24u) {
+        const uint vec = 32u * head + lane;
+        device float4 *q = (device float4 *)(projected + args.q);
+        const float4 value = q[vec] * q_clip[vec];
+        const float norm = sqrt(simd_sum(dot(value, value)));
+        q[vec] = value * min(1.0f, args.qk_limit / (norm + 1.0e-6f));
+
+        const uint ri = 16u * head + lane;
+        const float relative = lane < 16u ? projected[args.relative + ri] * relative_clip[ri] : 0.0f;
+        const float rel_norm = sqrt(simd_sum(relative * relative));
+        if (lane < 16u) {
+            projected[args.relative + ri] = relative * min(1.0f, args.relative_limit / (rel_norm + 1.0e-6f));
+        }
+    } else {
+        const uint kv_head = head - 24u;
+        const bool dynamic = !args.sliding;
+        const uint start = kv_head * inkling_head_width + lane * 4u;
+        const float4 kt = dynamic ? ((device const float4 *)(projected + args.k_taps))[kv_head] : float4(0);
+        const float4 vt = dynamic ? ((device const float4 *)(projected + args.v_taps))[kv_head] : float4(0);
+        float4 key, val;
+        for (uint i = 0; i < 4u; i++) {
+            const uint j = start + i;
+            key[i] = qw3_inkling_short_conv(projected[args.k + j], k_conv[j], kt, dynamic,
+                                            args.pos, history, j);
+            val[i] = qw3_inkling_short_conv(projected[args.v + j], v_conv[j], vt, dynamic,
+                                            args.pos, history, inkling_kv_width + j);
+        }
+        const float k_norm = sqrt(simd_sum(dot(key, key)));
+        const float v_scale = rsqrt(simd_sum(dot(val, val)) / float(inkling_head_width) + 1.0e-6f);
+        const float4 k_final = key * min(1.0f, args.qk_limit / (k_norm + 1.0e-6f));
+        const float4 v_final = val * v_scale;
+        float ks = 0.0f, vs = 0.0f;
+        const char4 kq = qw3_inkling_q8_quantize4(k_final, ks);
+        const char4 vq = qw3_inkling_q8_quantize4(v_final, vs);
+        const uint slot = args.pos % args.capacity;
+        device uchar *row = cache + ulong(slot) * ulong(inkling_kv_q8_row_bytes);
+        ((device char4 *)row)[kv_head * 32u + lane] = kq;
+        ((device char4 *)(row + 1024u))[kv_head * 32u + lane] = vq;
+        if ((lane & 7u) == 0u) {
+            const uint sidx = kv_head * 4u + (lane >> 3u);
+            ((device half *)(row + 2048u))[sidx] = half(ks);
+            ((device half *)(row + 2112u))[sidx] = half(vs);
+        }
+    }
+}
+
+kernel void qw3_inkling_attention_partition_q8(constant qw3_inkling_attention_args &args [[buffer(0)]],
+        device float *projected [[buffer(1)]], device const uchar *cache [[buffer(2)]],
+        device const float *bias [[buffer(3)]], device float4 *partial [[buffer(4)]],
+        uint2 group [[threadgroup_position_in_grid]], uint lane [[thread_index_in_simdgroup]]) {
+    const uint kv_head = group.x, part = group.y;
+    const uint h0 = kv_head * 3u;
+    const uint h1 = h0 + 1u;
+    const uint h2 = h0 + 2u;
+    const uint rows = min(args.capacity, args.pos + 1u);
+    const uint first = args.pos + 1u - rows;
+    const uint begin = first + part * inkling_partition_rows;
+    const uint end = min(args.pos + 1u, begin + inkling_partition_rows);
+    device const float4 *q_ptr = (device const float4 *)(projected + args.q);
+    const float4 q0 = q_ptr[h0 * 32u + lane];
+    const float4 q1 = q_ptr[h1 * 32u + lane];
+    const float4 q2 = q_ptr[h2 * 32u + lane];
+    const float rel0 = lane < 16u ? projected[args.relative + h0 * 16u + lane] : 0.0f;
+    const float rel1 = lane < 16u ? projected[args.relative + h1 * 16u + lane] : 0.0f;
+    const float rel2 = lane < 16u ? projected[args.relative + h2 * 16u + lane] : 0.0f;
+    const bool single = (args.partitions == 1u);
+    float max0 = single ? projected[args.sink + h0] : -3.402823e38f;
+    float max1 = single ? projected[args.sink + h1] : -3.402823e38f;
+    float max2 = single ? projected[args.sink + h2] : -3.402823e38f;
+    float sum0 = single ? 1.0f : 0.0f;
+    float sum1 = single ? 1.0f : 0.0f;
+    float sum2 = single ? 1.0f : 0.0f;
+    float4 val0 = float4(0.0f), val1 = float4(0.0f), val2 = float4(0.0f);
+    const float inv_sqrt_d = rsqrt(float(inkling_head_width));
+    uint slot = begin % args.capacity;
+    for (uint j = begin; j < end; j++) {
+        const uint distance = args.pos - j;
+        const float4 kv_k = qw3_inkling_q8_load4(cache, slot, kv_head, lane, false);
+        float s0 = dot(q0, kv_k) * inv_sqrt_d;
+        float s1 = dot(q1, kv_k) * inv_sqrt_d;
+        float s2 = dot(q2, kv_k) * inv_sqrt_d;
+        if (distance < args.extent && lane < 16u) {
+            const float b = bias[distance * 16u + lane];
+            s0 += rel0 * b;
+            s1 += rel1 * b;
+            s2 += rel2 * b;
+        }
+        s0 = simd_sum(s0) * args.tau;
+        s1 = simd_sum(s1) * args.tau;
+        s2 = simd_sum(s2) * args.tau;
+        const float4 kv_v = qw3_inkling_q8_load4(cache, slot, kv_head, lane, true);
+        {
+            const float next = max(max0, s0);
+            const float keep = exp(max0 - next), add = exp(s0 - next);
+            sum0 = sum0 * keep + add;
+            val0 = val0 * keep + kv_v * add;
+            max0 = next;
+        }
+        {
+            const float next = max(max1, s1);
+            const float keep = exp(max1 - next), add = exp(s1 - next);
+            sum1 = sum1 * keep + add;
+            val1 = val1 * keep + kv_v * add;
+            max1 = next;
+        }
+        {
+            const float next = max(max2, s2);
+            const float keep = exp(max2 - next), add = exp(s2 - next);
+            sum2 = sum2 * keep + add;
+            val2 = val2 * keep + kv_v * add;
+            max2 = next;
+        }
+        slot++;
+        if (slot == args.capacity) slot = 0;
+    }
+    if (single) {
+        device const float4 *gate_ptr = (device const float4 *)(projected + args.gate);
+        device float4 *mixed_ptr = (device float4 *)(projected + args.mixed);
+        const uint o0 = h0 * 32u + lane;
+        const uint o1 = h1 * 32u + lane;
+        const uint o2 = h2 * 32u + lane;
+        mixed_ptr[o0] = val0 / (sum0 * (1.0f + exp(-gate_ptr[o0])));
+        mixed_ptr[o1] = val1 / (sum1 * (1.0f + exp(-gate_ptr[o1])));
+        mixed_ptr[o2] = val2 / (sum2 * (1.0f + exp(-gate_ptr[o2])));
+        return;
+    }
+    device float4 *out0 = partial + (h0 * args.partitions + part) * 33u;
+    device float4 *out1 = partial + (h1 * args.partitions + part) * 33u;
+    device float4 *out2 = partial + (h2 * args.partitions + part) * 33u;
+    out0[lane] = val0;
+    out1[lane] = val1;
+    out2[lane] = val2;
+    if (lane == 0u) {
+        out0[32] = float4(max0, sum0, 0.0f, 0.0f);
+        out1[32] = float4(max1, sum1, 0.0f, 0.0f);
+        out2[32] = float4(max2, sum2, 0.0f, 0.0f);
+    }
+}
+
 kernel void qw3_inkling_post_conv(constant uint4 &args [[buffer(0)]],
         device float *value [[buffer(1)]], device const float4 *weights [[buffer(2)]],
         device float *history [[buffer(3)]], uint i [[thread_position_in_grid]]) {
@@ -2735,6 +2908,118 @@ kernel void qw3_inkling_attention_commit_batch(
     cache[slot * row + gid.x] = incoming[gid.y * row + gid.x];
 }
 
+// Multi-query tiled causal attention reading Q8_0 historical cache + FP16 incoming batch.
+kernel void qw3_inkling_attention_batch_tiled_q8(
+        constant qw3_inkling_batch_attn_args &args [[buffer(0)]],
+        device const float4 *q_buf [[buffer(1)]], device const float *rel_buf [[buffer(2)]],
+        device const float *sink_buf [[buffer(3)]], device const float4 *gate_buf [[buffer(4)]],
+        device const uchar *cache [[buffer(5)]], device const float *bias [[buffer(6)]],
+        device float4 *mixed_buf [[buffer(7)]],
+        device const half4 *incoming [[buffer(8)]],
+        uint2 group [[threadgroup_position_in_grid]],
+        ushort sg [[simdgroup_index_in_threadgroup]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort tid [[thread_index_in_threadgroup]]) {
+    constexpr uint Q_TILE = 4u;
+    constexpr uint K_TILE = 16u;
+    const uint head = group.x;
+    const uint t0 = group.y * Q_TILE;
+    if (head >= 24u || t0 >= args.n_tokens) return;
+    const uint t = t0 + uint(sg);
+    const bool active = t < args.n_tokens;
+    const uint pos = args.pos0 + (active ? t : (args.n_tokens - 1u));
+    const uint kv_head = head / 3u;
+
+    const uint pos_min = args.pos0 + t0;
+    const uint pos_max = args.pos0 + min(args.n_tokens, t0 + Q_TILE) - 1u;
+    const uint first_min = pos_min + 1u > args.capacity ? pos_min + 1u - args.capacity : 0u;
+
+    const float4 q = active ? q_buf[uint64_t(t) * (24u * 32u) + head * 32u + lane] : float4(0.0f);
+    const float rel = (active && lane < 16u) ? rel_buf[uint64_t(t) * (24u * 16u) + head * 16u + lane] : 0.0f;
+    const float tau = args.sliding ? 1.0f :
+        1.0f + args.log_alpha * log(max(1.0f, float(pos + 1u) / args.log_floor));
+    const uint my_first = pos + 1u > args.capacity ? pos + 1u - args.capacity : 0u;
+    const float inv_sqrt_d = rsqrt(float(inkling_head_width));
+
+    float maximum = active ? sink_buf[uint64_t(t) * 24u + head] : 0.0f;
+    float sum = 1.0f;
+    float4 value = float4(0.0f);
+
+    threadgroup half4 k_sh[K_TILE * 32u];
+    threadgroup half4 v_sh[K_TILE * 32u];
+
+    for (uint j0 = first_min; j0 <= pos_max; j0 += K_TILE) {
+        const uint k_count = min(K_TILE, pos_max + 1u - j0);
+        for (uint idx = uint(tid); idx < k_count * 32u; idx += 128u) {
+            const uint k_local = idx >> 5u;
+            const uint k_lane = idx & 31u;
+            const uint jpos = j0 + k_local;
+            const bool in_batch = jpos >= args.pos0;
+            if (in_batch) {
+                const uint slot = jpos - args.pos0;
+                const uint offset = slot * (2u * inkling_kv_width / 4u) + kv_head * 32u + k_lane;
+                k_sh[idx] = incoming[offset];
+                v_sh[idx] = incoming[offset + inkling_kv_width / 4u];
+            } else {
+                const uint slot = jpos % args.capacity;
+                k_sh[idx] = half4(qw3_inkling_q8_load4(cache, slot, kv_head, k_lane, false));
+                v_sh[idx] = half4(qw3_inkling_q8_load4(cache, slot, kv_head, k_lane, true));
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (active) {
+            for (uint k_local = 0u; k_local < k_count; k_local++) {
+                const uint j = j0 + k_local;
+                if (j < my_first || j > pos) continue;
+                const uint idx = k_local * 32u + lane;
+                const uint distance = pos - j;
+                float score = dot(q, float4(k_sh[idx])) * inv_sqrt_d;
+                if (distance < args.extent && lane < 16u) {
+                    score += rel * bias[distance * 16u + lane];
+                }
+                score = simd_sum(score) * tau;
+                const float next = max(maximum, score);
+                const float keep = exp(maximum - next);
+                const float add = exp(score - next);
+                sum = sum * keep + add;
+                value = value * keep + float4(v_sh[idx]) * add;
+                maximum = next;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (active) {
+        const uint offset = uint64_t(t) * (24u * 32u) + head * 32u + lane;
+        const float4 gate = gate_buf[offset];
+        mixed_buf[offset] = value / (sum * (1.0f + exp(-gate)));
+    }
+}
+
+// Quantize FP16 incoming batch rows into split-scale Q8_0 ring cache.
+// Dispatch: (16, n_tokens, 1) threadgroups of 32 threads (group.x = kv_head*2 + is_v).
+kernel void qw3_inkling_attention_commit_batch_q8(
+        constant qw3_inkling_batch_attn_args &args [[buffer(0)]],
+        device uchar *cache [[buffer(1)]], device const half4 *incoming [[buffer(2)]],
+        uint2 group [[threadgroup_position_in_grid]], uint lane [[thread_index_in_simdgroup]]) {
+    const uint hv = group.x;
+    const uint t = group.y;
+    if (hv >= 16u || t >= args.n_tokens) return;
+    if (t + args.capacity < args.n_tokens) return;
+    const uint kv_head = hv >> 1u;
+    const bool is_v = (hv & 1u) != 0u;
+    const uint in_row = 2u * inkling_kv_width / 4u;
+    const uint in_off = t * in_row + (is_v ? (inkling_kv_width / 4u) : 0u) + kv_head * 32u + lane;
+    const float4 v = float4(incoming[in_off]);
+    float sc = 0.0f;
+    const char4 q4 = qw3_inkling_q8_quantize4(v, sc);
+    const uint slot = (args.pos0 + t) % args.capacity;
+    device uchar *row = cache + ulong(slot) * ulong(inkling_kv_q8_row_bytes);
+    ((device char4 *)(row + (is_v ? 1024u : 0u)))[kv_head * 32u + lane] = q4;
+    if ((lane & 7u) == 0u) {
+        ((device half *)(row + (is_v ? 2112u : 2048u)))[kv_head * 4u + (lane >> 3u)] = half(sc);
+    }
+}
+
 #ifdef QW3_METAL_HAS_TENSOR
 // Metal 4 NAX FlashAttention for Inkling prefill: Q_M=32, K_N=32, D=128 using matmul2d
 // for both Q*K^T and P*V, with online tile softmax, relative bias, per-position tau, sink, and gate.
@@ -2932,6 +3217,224 @@ kernel void qw3_inkling_attention_batch_nax(
     }
 
     // Store row sums and O tile (reusing shmem[0..16383]), apply norm & gate
+    for (uint r = 0u; r < 8u; r++) {
+        if (lane == 0u) sum_sh[uint(sg) * 8u + r] = row_sum[r];
+    }
+    threadgroup float *o_sh = (threadgroup float *)shmem;
+    auto tO = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+        o_sh, dextents<int32_t, 2>(int(D), int(Q_M)));
+    cO.store(tO.slice(0, 0));
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    threadgroup const float4 *o_sh4 = (threadgroup const float4 *)o_sh;
+    for (uint r = 0u; r < 8u; r++) {
+        const uint ql = uint(sg) * 8u + r;
+        if (ql < q_count) {
+            const uint t = t0 + ql;
+            const uint offset = uint64_t(t) * (24u * 32u) + head * 32u + uint(lane);
+            const float4 gate = gate_buf[offset];
+            mixed_buf[offset] = o_sh4[ql * 32u + uint(lane)] / (sum_sh[ql] * (1.0f + exp(-gate)));
+        }
+    }
+}
+
+// Metal 4 NAX FlashAttention for Inkling prefill with Q8_0 historical cache + FP16 incoming batch.
+kernel void qw3_inkling_attention_batch_nax_q8(
+        constant qw3_inkling_batch_attn_args &args [[buffer(0)]],
+        device const float4 *q_buf [[buffer(1)]], device const float *rel_buf [[buffer(2)]],
+        device const float *sink_buf [[buffer(3)]], device const float4 *gate_buf [[buffer(4)]],
+        device const uchar *cache [[buffer(5)]], device const float *bias [[buffer(6)]],
+        device float4 *mixed_buf [[buffer(7)]],
+        device const half4 *incoming [[buffer(8)]],
+        threadgroup char *shmem [[threadgroup(0)]],
+        uint2 group [[threadgroup_position_in_grid]],
+        ushort sg [[simdgroup_index_in_threadgroup]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort tid [[thread_index_in_threadgroup]]) {
+    constexpr uint Q_M = 32u;
+    constexpr uint K_N = 32u;
+    constexpr uint D = 128u;
+    const uint head = group.x;
+    const uint t0 = group.y * Q_M;
+    if (head >= 24u || t0 >= args.n_tokens) return;
+    const uint q_count = min(Q_M, args.n_tokens - t0);
+    const uint kv_head = head / 3u;
+    const uint pos_min = args.pos0 + t0;
+    const uint pos_max = args.pos0 + t0 + q_count - 1u;
+    const uint first_min = pos_min + 1u > args.capacity ? pos_min + 1u - args.capacity : 0u;
+    const float inv_sqrt_d = rsqrt(float(D));
+
+    threadgroup half *q_sh = (threadgroup half *)(shmem + 0);
+    threadgroup half *kv_sh = (threadgroup half *)(shmem + 8192);
+    threadgroup float *s_sh = (threadgroup float *)(shmem + 16384);
+    threadgroup half *p_sh = (threadgroup half *)(shmem + 20480);
+    threadgroup float *rel_sh = (threadgroup float *)(shmem + 22528);
+    threadgroup float *rescale_sh = (threadgroup float *)(shmem + 24576);
+    threadgroup float *sum_sh = (threadgroup float *)(shmem + 24704);
+
+    threadgroup half4 *q_sh4 = (threadgroup half4 *)q_sh;
+    for (uint idx = tid; idx < Q_M * 32u; idx += 128u) {
+        const uint ql = idx >> 5u;
+        const uint qlane = idx & 31u;
+        if (ql < q_count) {
+            q_sh4[idx] = half4(q_buf[uint64_t(t0 + ql) * (24u * 32u) + head * 32u + qlane]);
+        } else {
+            q_sh4[idx] = half4(0.0f);
+        }
+    }
+    threadgroup float4 *rel_sh4 = (threadgroup float4 *)rel_sh;
+    if (tid < Q_M * 4u) {
+        const uint ql = tid >> 2u;
+        const uint r4 = tid & 3u;
+        if (ql < q_count) {
+            device const float4 *rp = (device const float4 *)(rel_buf + uint64_t(t0 + ql) * (24u * 16u) + head * 16u);
+            rel_sh4[tid] = rp[r4];
+        } else {
+            rel_sh4[tid] = float4(0.0f);
+        }
+    }
+
+    float row_max[8], row_sum[8], my_tau[8];
+    uint my_pos[8], my_first[8];
+    for (uint r = 0u; r < 8u; r++) {
+        const uint ql = uint(sg) * 8u + r;
+        if (ql < q_count) {
+            const uint t = t0 + ql;
+            row_max[r] = sink_buf[uint64_t(t) * 24u + head];
+            row_sum[r] = 1.0f;
+            const uint p = args.pos0 + t;
+            my_pos[r] = p;
+            my_first[r] = p + 1u > args.capacity ? p + 1u - args.capacity : 0u;
+            my_tau[r] = args.sliding ? 1.0f :
+                (1.0f + args.log_alpha * log(max(1.0f, float(p + 1u) / args.log_floor)));
+        } else {
+            row_max[r] = 0.0f;
+            row_sum[r] = 1.0f;
+            my_pos[r] = 0u;
+            my_first[r] = 1u;
+            my_tau[r] = 1.0f;
+        }
+    }
+
+    auto tQ = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
+        q_sh, dextents<int32_t, 2>(int(D), int(Q_M)));
+    auto tKV = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
+        kv_sh, dextents<int32_t, 2>(int(D), int(K_N)));
+    auto tS = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(
+        s_sh, dextents<int32_t, 2>(int(K_N), int(Q_M)));
+    auto tP = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(
+        p_sh, dextents<int32_t, 2>(int(K_N), int(Q_M)));
+
+    matmul2d<matmul2d_descriptor(int(Q_M), int(K_N), int(D), false, true, true,
+        matmul2d_descriptor::mode::multiply),
+        execution_simdgroups<4>> mmQK;
+    matmul2d<matmul2d_descriptor(int(Q_M), int(D), int(K_N), false, false, true,
+        matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mmPV;
+
+    auto cO = mmPV.template get_destination_cooperative_tensor<decltype(tP), decltype(tKV), float>();
+    for (uint16_t i = 0; i < cO.get_capacity(); i++) {
+        if (cO.is_valid_element(i)) cO[i] = 0.0f;
+    }
+
+    threadgroup half4 *kv_sh4 = (threadgroup half4 *)kv_sh;
+    for (uint j0 = first_min; j0 <= pos_max; j0 += K_N) {
+        const uint k_count = min(K_N, pos_max + 1u - j0);
+        for (uint idx = tid; idx < K_N * 32u; idx += 128u) {
+            const uint kl = idx >> 5u;
+            const uint klane = idx & 31u;
+            if (kl < k_count) {
+                const uint jpos = j0 + kl;
+                const bool in_batch = jpos >= args.pos0;
+                if (in_batch) {
+                    const uint slot = jpos - args.pos0;
+                    const uint off = slot * (2u * inkling_kv_width / 4u) + kv_head * 32u + klane;
+                    kv_sh4[idx] = incoming[off];
+                } else {
+                    const uint slot = jpos % args.capacity;
+                    kv_sh4[idx] = half4(qw3_inkling_q8_load4(cache, slot, kv_head, klane, false));
+                }
+            } else {
+                kv_sh4[idx] = half4(0.0f);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        auto cS = mmQK.template get_destination_cooperative_tensor<decltype(tQ), decltype(tKV), float>();
+        {
+            auto mQ = tQ.slice(0, 0);
+            auto mK = tKV.slice(0, 0);
+            mmQK.run(mQ, mK, cS);
+        }
+        cS.store(tS.slice(0, 0));
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        const uint j = j0 + uint(lane);
+        for (uint r = 0u; r < 8u; r++) {
+            const uint ql = uint(sg) * 8u + r;
+            if (ql < q_count) {
+                const bool valid = (uint(lane) < k_count) && (j >= my_first[r]) && (j <= my_pos[r]);
+                float score = -3.402823e38f;
+                if (valid) {
+                    score = s_sh[ql * K_N + uint(lane)] * inv_sqrt_d;
+                    const uint dist = my_pos[r] - j;
+                    if (dist < args.extent) {
+                        threadgroup const float4 *r4 = rel_sh4 + ql * 4u;
+                        device const float4 *b4 = (device const float4 *)(bias + dist * 16u);
+                        score += dot(r4[0], b4[0]) + dot(r4[1], b4[1]) +
+                                 dot(r4[2], b4[2]) + dot(r4[3], b4[3]);
+                    }
+                    score *= my_tau[r];
+                }
+                const float tile_max = simd_max(score);
+                const float next_max = max(row_max[r], tile_max);
+                const float rescale = exp(row_max[r] - next_max);
+                const float p = valid ? exp(score - next_max) : 0.0f;
+                const float tile_sum = simd_sum(p);
+                row_sum[r] = row_sum[r] * rescale + tile_sum;
+                row_max[r] = next_max;
+                if (lane == 0u) rescale_sh[ql] = rescale;
+                p_sh[ql * K_N + uint(lane)] = half(p);
+            } else {
+                if (lane == 0u) rescale_sh[ql] = 1.0f;
+                p_sh[ql * K_N + uint(lane)] = half(0.0f);
+            }
+        }
+
+        for (uint idx = tid; idx < K_N * 32u; idx += 128u) {
+            const uint kl = idx >> 5u;
+            const uint klane = idx & 31u;
+            if (kl < k_count) {
+                const uint jpos = j0 + kl;
+                const bool in_batch = jpos >= args.pos0;
+                if (in_batch) {
+                    const uint slot = jpos - args.pos0;
+                    const uint off = slot * (2u * inkling_kv_width / 4u) + kv_head * 32u + klane;
+                    kv_sh4[idx] = incoming[off + inkling_kv_width / 4u];
+                } else {
+                    const uint slot = jpos % args.capacity;
+                    kv_sh4[idx] = half4(qw3_inkling_q8_load4(cache, slot, kv_head, klane, true));
+                }
+            } else {
+                kv_sh4[idx] = half4(0.0f);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint16_t i = 0; i < cO.get_capacity(); i++) {
+            if (cO.is_valid_element(i)) {
+                auto idx = cO.get_multidimensional_index(i);
+                cO[i] *= rescale_sh[idx[1]];
+            }
+        }
+        {
+            auto mP = tP.slice(0, 0);
+            auto mV = tKV.slice(0, 0);
+            mmPV.run(mP, mV, cO);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
     for (uint r = 0u; r < 8u; r++) {
         if (lane == 0u) sum_sh[uint(sg) * 8u + r] = row_sum[r];
     }

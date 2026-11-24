@@ -8,6 +8,16 @@ static void fill_value(id<MTLBuffer> buffer, unsigned row, unsigned value) {
     }
 }
 
+static void fill_value_q8(id<MTLBuffer> buffer, unsigned row, unsigned value) {
+    uint8_t *base = (uint8_t *)buffer.contents + (size_t)row * QW3_INK_GPU_KV_Q8_ROW_BYTES;
+    int8_t *vq = (int8_t *)(base + 1024);
+    _Float16 *vs = (_Float16 *)(base + 2112);
+    const float sc = value ? ((float)value / 127.0f) : 0.0f;
+    const int8_t q = value ? 127 : 0;
+    for (unsigned i = 0; i < QW3_INK_GPU_KV; i++) vq[i] = q;
+    for (unsigned i = 0; i < 32; i++) vs[i] = (_Float16)sc;
+}
+
 int main(void) {
     @autoreleasepool {
         if (!qw3_metal_init() || !qw3_metal_compile_kernels()) return 1;
@@ -117,7 +127,102 @@ int main(void) {
                 }
             }
         }
-        puts("test-inkling-window: causal attention and final ring contents ok");
+        // Also verify Q8_0 KV cache wraparound for tiled, commit, and NAX FlashAttention
+        {
+            id<MTLComputePipelineState> attnQ8 = [g_device newComputePipelineStateWithFunction:
+                [g_library newFunctionWithName:@"qw3_inkling_attention_batch_tiled_q8"] error:&error];
+            id<MTLComputePipelineState> commitQ8 = [g_device newComputePipelineStateWithFunction:
+                [g_library newFunctionWithName:@"qw3_inkling_attention_commit_batch_q8"] error:&error];
+            if (!attnQ8 || !commitQ8) {
+                fprintf(stderr, "q8: %s\n", error ? error.localizedDescription.UTF8String : "missing");
+                return 1;
+            }
+            id<MTLBuffer> q8Cache = [g_device newBufferWithLength:WINDOW * QW3_INK_GPU_KV_Q8_ROW_BYTES
+                                                          options:MTLResourceStorageModeShared];
+            if (!q8Cache) return 1;
+            memset(q8Cache.contents, 0, q8Cache.length);
+            for (unsigned row = 0; row < WINDOW; row++) fill_value_q8(q8Cache, row, row);
+            memset(buf[6].contents, 0, sizes[6]);
+
+            id<MTLCommandBuffer> cbq = [g_queue commandBuffer];
+            id<MTLComputeCommandEncoder> encq = [cbq computeCommandEncoder];
+            [encq setComputePipelineState:attnQ8];
+            [encq setBytes:&args length:sizeof(args) atIndex:0];
+            for (unsigned i = 0; i < 8; i++) [encq setBuffer:(i == 4 ? q8Cache : buf[i]) offset:0 atIndex:i + 1];
+            [encq dispatchThreadgroups:MTLSizeMake(QW3_INK_GPU_HEADS, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+            [encq setComputePipelineState:commitQ8];
+            [encq setBuffer:q8Cache offset:0 atIndex:1];
+            [encq setBuffer:buf[7] offset:0 atIndex:2];
+            [encq dispatchThreadgroups:MTLSizeMake(16, TOKENS, 1)
+                threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+            [encq endEncoding];
+            [cbq commit];
+            [cbq waitUntilCompleted];
+            if (cbq.status != MTLCommandBufferStatusCompleted) {
+                fprintf(stderr, "q8: %s\n", cbq.error.localizedDescription.UTF8String);
+                return 1;
+            }
+            const float *qout = buf[6].contents;
+            for (unsigned i = 0; i < Q_WIDTH; i++) {
+                const float first = qout[i], second = qout[Q_WIDTH + i];
+                if (!isfinite(first) || !isfinite(second) ||
+                    fabsf(first - 1.0f) > 5e-3f || fabsf(second - 1.4f) > 5e-3f) {
+                    fprintf(stderr, "q8 tiled mismatch at %u: %g %g\n", i, first, second);
+                    return 1;
+                }
+            }
+            for (unsigned row = 0; row < WINDOW; row++) {
+                const float expected = (float)(row < TOKENS ? WINDOW + row : row);
+                const uint8_t *base = (const uint8_t *)q8Cache.contents + (size_t)row * QW3_INK_GPU_KV_Q8_ROW_BYTES;
+                const int8_t *vq = (const int8_t *)(base + 1024);
+                const _Float16 *vs = (const _Float16 *)(base + 2112);
+                for (unsigned i = 0; i < QW3_INK_GPU_KV; i++) {
+                    const float got = (float)vq[i] * (float)vs[i / 32];
+                    if (fabsf(got - expected) > 5e-2f) {
+                        fprintf(stderr, "q8 ring mismatch row=%u i=%u got=%g exp=%g\n", row, i, got, expected);
+                        return 1;
+                    }
+                }
+            }
+            if (g_metal4_tensor_api_enabled) {
+                id<MTLFunction> naxQ8Fn = [g_library newFunctionWithName:@"qw3_inkling_attention_batch_nax_q8"];
+                id<MTLComputePipelineState> naxQ8 = naxQ8Fn ?
+                    [g_device newComputePipelineStateWithFunction:naxQ8Fn error:&error] : nil;
+                if (!naxQ8) {
+                    fprintf(stderr, "nax q8: %s\n", error ? error.localizedDescription.UTF8String : "missing");
+                    return 1;
+                }
+                memset(q8Cache.contents, 0, q8Cache.length);
+                for (unsigned row = 0; row < WINDOW; row++) fill_value_q8(q8Cache, row, row);
+                memset(buf[6].contents, 0, sizes[6]);
+                id<MTLCommandBuffer> cbq2 = [g_queue commandBuffer];
+                id<MTLComputeCommandEncoder> encq2 = [cbq2 computeCommandEncoder];
+                [encq2 setComputePipelineState:naxQ8];
+                [encq2 setBytes:&args length:sizeof(args) atIndex:0];
+                for (unsigned i = 0; i < 8; i++) [encq2 setBuffer:(i == 4 ? q8Cache : buf[i]) offset:0 atIndex:i + 1];
+                [encq2 setThreadgroupMemoryLength:25088u atIndex:0];
+                [encq2 dispatchThreadgroups:MTLSizeMake(QW3_INK_GPU_HEADS, 1, 1)
+                    threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+                [encq2 endEncoding];
+                [cbq2 commit];
+                [cbq2 waitUntilCompleted];
+                if (cbq2.status != MTLCommandBufferStatusCompleted) {
+                    fprintf(stderr, "nax q8: %s\n", cbq2.error.localizedDescription.UTF8String);
+                    return 1;
+                }
+                const float *nqout = buf[6].contents;
+                for (unsigned i = 0; i < Q_WIDTH; i++) {
+                    const float first = nqout[i], second = nqout[Q_WIDTH + i];
+                    if (!isfinite(first) || !isfinite(second) ||
+                        fabsf(first - 1.0f) > 1e-2f || fabsf(second - 1.4f) > 1e-2f) {
+                        fprintf(stderr, "nax q8 mismatch at %u: %g %g\n", i, first, second);
+                        return 1;
+                    }
+                }
+            }
+        }
+        puts("test-inkling-window: causal attention and final ring contents ok (fp16 + q8_0)");
         return 0;
     }
 }

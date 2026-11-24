@@ -296,6 +296,18 @@ static bench_config parse_options(int argc, char **argv) {
             c.ngl = parse_nonnegative_int(need_arg(&i, argc, argv, arg), arg);
             c.ngl_set = true;
             c.backend = QW3_BACKEND_METAL;
+        } else if (!strcmp(arg, "--kv-q8")) {
+            setenv("QW3_METAL_KV_Q8_0", "1", 1);
+            setenv("QW3_METAL_KV_F16", "0", 1);
+            c.backend = QW3_BACKEND_METAL;
+        } else if (!strcmp(arg, "--kv-f16")) {
+            setenv("QW3_METAL_KV_Q8_0", "0", 1);
+            setenv("QW3_METAL_KV_F16", "1", 1);
+            c.backend = QW3_BACKEND_METAL;
+        } else if (!strcmp(arg, "--kv-f32")) {
+            setenv("QW3_METAL_KV_Q8_0", "0", 1);
+            setenv("QW3_METAL_KV_F16", "0", 1);
+            c.backend = QW3_BACKEND_METAL;
         } else if (!strcmp(arg, "--cuda")) {
             fprintf(stderr, "qw3-bench: CUDA backend is not supported\n");
             exit(2);
