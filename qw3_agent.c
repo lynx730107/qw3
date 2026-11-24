@@ -193,6 +193,9 @@ typedef struct
     bool prefix_cache;
     qw3_backend backend;
     qw3_think_mode think_mode;
+    float inkling_think_effort;
+    bool inkling_think_effort_set;
+    int think_budget;
     sample_opts sample;
 } agent_config;
 
@@ -8637,33 +8640,94 @@ static int generate_once(agent_state *a, char **assistant_text,
                 repeat_pos = repeat_len < repeat_last_n ? repeat_len : 0;
             }
         }
+        int think_tokens = 0;
+        int forced_close[8];
+        int forced_close_len = 0;
+        int forced_close_pos = 0;
+        bool think_budget_closed = false;
         for (int i = 0; rc == 0 && i < max_tokens; i++)
         {
             if (agent_should_interrupt(a))
                 break;
-            const int *repeat_tokens = repeat_len > 0 ? repeat_buf : NULL;
-            int token = qw3_session_sample_repetition(
-                a->session, a->cfg.sample.temperature,
-                a->cfg.sample.sample_top_k, a->cfg.sample.top_p,
-                a->cfg.sample.min_p, &a->cfg.sample.rng,
-                repeat_tokens, repeat_len, a->cfg.sample.repeat_penalty);
-            if (token < 0)
+            int token = -1;
+            bool is_forced_close = false;
+            if (forced_close_pos < forced_close_len)
             {
-                rc = -1;
-                break;
+                token = forced_close[forced_close_pos++];
+                is_forced_close = true;
             }
-            if (token == eos)
-                break;
-            int repeat_ngram = agent_repeated_token_ngram_size(&emit.generated, token);
-            if (repeat_ngram && !agent_token_repeat_is_formatting(a->engine, &emit,
-                                                                  token, repeat_ngram))
+            else if (a->cfg.think_budget > 0 && !think_budget_closed &&
+                     think_tokens >= a->cfg.think_budget)
             {
-                agent_statusf(a, "agent: stopped repeated token loop\n");
-                break;
+                if (inkling_calls)
+                {
+                    if (emit.inkling_block == INKLING_THINK &&
+                        emit.inkling_end >= 0 && emit.inkling_model >= 0 &&
+                        emit.inkling_text >= 0)
+                    {
+                        forced_close[0] = emit.inkling_end;
+                        forced_close[1] = emit.inkling_model;
+                        forced_close[2] = emit.inkling_text;
+                        forced_close_len = 3;
+                        forced_close_pos = 0;
+                        think_budget_closed = true;
+                        token = forced_close[forced_close_pos++];
+                        is_forced_close = true;
+                    }
+                }
+                else if (qw3_think_mode_enabled(a->cfg.think_mode) &&
+                         emit.renderer.in_think)
+                {
+                    qw3_tokens close_toks = {0};
+                    qw3_tokenize_rendered_chat(a->engine, "</think>", &close_toks);
+                    if (close_toks.len > 0 &&
+                        close_toks.len <= (int)(sizeof(forced_close) / sizeof(forced_close[0])))
+                    {
+                        memcpy(forced_close, close_toks.v,
+                               (size_t)close_toks.len * sizeof(forced_close[0]));
+                        forced_close_len = close_toks.len;
+                        forced_close_pos = 0;
+                        think_budget_closed = true;
+                        token = forced_close[forced_close_pos++];
+                        is_forced_close = true;
+                    }
+                    qw3_tokens_free(&close_toks);
+                }
+            }
+            if (!is_forced_close)
+            {
+                const int *repeat_tokens = repeat_len > 0 ? repeat_buf : NULL;
+                token = qw3_session_sample_repetition(
+                    a->session, a->cfg.sample.temperature,
+                    a->cfg.sample.sample_top_k, a->cfg.sample.top_p,
+                    a->cfg.sample.min_p, &a->cfg.sample.rng,
+                    repeat_tokens, repeat_len, a->cfg.sample.repeat_penalty);
+                if (token < 0)
+                {
+                    rc = -1;
+                    break;
+                }
+                if (token == eos)
+                    break;
+                int repeat_ngram = agent_repeated_token_ngram_size(&emit.generated, token);
+                if (repeat_ngram && !agent_token_repeat_is_formatting(a->engine, &emit,
+                                                                      token, repeat_ngram))
+                {
+                    agent_statusf(a, "agent: stopped repeated token loop\n");
+                    break;
+                }
             }
             agent_emit_token(&emit, token);
             n_generated++;
-            if (repeat_buf)
+            if (!is_forced_close)
+            {
+                const bool in_think_now = inkling_calls
+                    ? (emit.inkling_block == INKLING_THINK)
+                    : (qw3_think_mode_enabled(a->cfg.think_mode) && emit.renderer.in_think);
+                if (in_think_now)
+                    think_tokens++;
+            }
+            if (repeat_buf && !is_forced_close)
             {
                 repeat_buf[repeat_pos] = token;
                 repeat_pos++;
@@ -8714,6 +8778,8 @@ static int generate_once(agent_state *a, char **assistant_text,
         agent_trace_f64(a, "prefill_tps",
                         prefill_s > 0.0 ? (double)prefill_tokens / prefill_s : 0.0);
         agent_trace_i64(a, "generation_tokens", n_generated);
+        agent_trace_i64(a, "thinking_tokens", think_tokens);
+        agent_trace_bool(a, "think_budget_closed", think_budget_closed);
         agent_trace_i64(a, "assistant_bytes", (int64_t)emit.text.len);
         agent_trace_bool(a, "assistant_nonempty",
                          text_slice_has_nonspace(emit.text.p, emit.text.len));
@@ -9338,6 +9404,8 @@ static void print_help(void)
             "  --cpu                Use CPU backend\n"
             "  --metal              Use Metal backend\n"
             "  --nothink            Disable thinking mode\n"
+            "  --think-effort F     Inkling thinking effort level 0.0..0.99\n"
+            "  --think-budget N     Max thinking tokens per turn before closing (0=unlimited)\n"
             "  --read-only          Diagnose with local read tools; no writes, shell or indexing\n"
             "  --store-dir PATH     Conversation store directory\n"
             "  --conversation NAME  Load/save a named conversation\n"
@@ -9361,7 +9429,7 @@ static void print_help(void)
             "Interactive commands:\n"
             "  /help, /quit, /new, /ctx, /chdir [path], /compact, /save [name], /list, /switch id\n"
             "  /del id, /strip [id], /load name, /sessions\n"
-            "  /read PATH, /think, /nothink, /tools on|off\n",
+            "  /read PATH, /think, /nothink, /effort [0..0.99], /budget [N], /tools on|off\n",
             (double)QW3_AGENT_REPEAT_PENALTY_DEFAULT,
             QW3_AGENT_REPEAT_LAST_N_DEFAULT);
 }
@@ -9540,6 +9608,35 @@ static int parse_args(agent_config *cfg, int argc, char **argv)
         else if (!strcmp(argv[i], "--nothink"))
         {
             cfg->think_mode = QW3_THINK_NONE;
+            cfg->inkling_think_effort = 0.0f;
+            cfg->inkling_think_effort_set = false;
+        }
+        else if (!strcmp(argv[i], "--think-effort") && i + 1 < argc)
+        {
+            const char *val = argv[++i];
+            char *end = NULL;
+            float effort = strtof(val, &end);
+            if (!val[0] || *end || !isfinite(effort) || effort < 0.0f || effort > 0.99f)
+            {
+                fprintf(stderr, "agent: --think-effort must be a float in [0.0, 0.99]\n");
+                return -1;
+            }
+            cfg->inkling_think_effort = effort;
+            cfg->inkling_think_effort_set = true;
+            cfg->think_mode = (effort <= 0.0f) ? QW3_THINK_NONE : QW3_THINK_ON;
+        }
+        else if (!strcmp(argv[i], "--think-budget") && i + 1 < argc)
+        {
+            const char *val = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            long budget = strtol(val, &end, 10);
+            if (errno || !val[0] || *end || budget < 0 || budget > INT_MAX)
+            {
+                fprintf(stderr, "agent: --think-budget requires a non-negative integer\n");
+                return -1;
+            }
+            cfg->think_budget = (int)budget;
         }
         else if (!strcmp(argv[i], "--store-dir") && i + 1 < argc)
         {
@@ -9886,7 +9983,10 @@ static void agent_build_inkling_preamble(agent_state *a, qw3_tokens *tokens)
         free(tools);
     }
     qw3_chat_append_message(a->engine, tokens, "system", a->cfg.system_prompt);
-    qw3_inkling_chat_append_effort(a->engine, tokens, a->cfg.think_mode);
+    if (a->cfg.inkling_think_effort_set)
+        qw3_inkling_chat_append_effort_level(a->engine, tokens, a->cfg.inkling_think_effort);
+    else
+        qw3_inkling_chat_append_effort(a->engine, tokens, a->cfg.think_mode);
 }
 
 static bool agent_refresh_inkling_preamble(agent_state *a)
@@ -9987,6 +10087,8 @@ static void interactive_help(void)
             "  /read PATH         Send file content as the next message\n"
             "  /think             Enable thinking mode\n"
             "  /nothink           Disable thinking mode\n"
+            "  /effort [0..0.99]  Show or set Inkling thinking effort level\n"
+            "  /budget [N]        Show or set max thinking tokens per turn (0=unlimited)\n"
             "  /tools on|off      Enable or disable tool execution\n");
 }
 
@@ -10170,15 +10272,82 @@ static int handle_command(agent_state *a, char *line, char **message_out)
     else if (!strcmp(line, "/think") || !strcmp(line, "/nothink"))
     {
         qw3_think_mode previous = a->cfg.think_mode;
+        float prev_effort = a->cfg.inkling_think_effort;
+        bool prev_effort_set = a->cfg.inkling_think_effort_set;
         a->cfg.think_mode = !strcmp(line, "/think") ? QW3_THINK_ON : QW3_THINK_NONE;
+        a->cfg.inkling_think_effort_set = false;
         if (agent_refresh_inkling_preamble(a))
             agent_statusf(a, "agent: thinking %s\n", a->cfg.think_mode == QW3_THINK_NONE ?
                           "disabled" : "enabled");
         else
         {
             a->cfg.think_mode = previous;
+            a->cfg.inkling_think_effort = prev_effort;
+            a->cfg.inkling_think_effort_set = prev_effort_set;
             agent_statusf(a, "agent: use /new to change this Inkling session's thinking mode\n");
         }
+    }
+    else if (!strcmp(line, "/effort"))
+    {
+        float cur = a->cfg.inkling_think_effort_set
+            ? a->cfg.inkling_think_effort
+            : (a->cfg.think_mode == QW3_THINK_NONE ? 0.0f :
+               (a->cfg.think_mode == QW3_THINK_HIGH ? 0.99f : 0.9f));
+        agent_statusf(a, "agent: thinking effort = %.2f\n", (double)cur);
+    }
+    else if (!strncmp(line, "/effort ", 8))
+    {
+        const char *val = line + 8;
+        while (*val == ' ' || *val == '\t') val++;
+        char *end = NULL;
+        float effort = strtof(val, &end);
+        while (end && (*end == ' ' || *end == '\t')) end++;
+        if (!val[0] || !end || *end || !isfinite(effort) || effort < 0.0f || effort > 0.99f)
+        {
+            agent_statusf(a, "agent: usage: /effort <0.0..0.99>\n");
+            return 0;
+        }
+        qw3_think_mode previous = a->cfg.think_mode;
+        float prev_effort = a->cfg.inkling_think_effort;
+        bool prev_effort_set = a->cfg.inkling_think_effort_set;
+        a->cfg.inkling_think_effort = effort;
+        a->cfg.inkling_think_effort_set = true;
+        a->cfg.think_mode = (effort <= 0.0f) ? QW3_THINK_NONE : QW3_THINK_ON;
+        if (agent_refresh_inkling_preamble(a))
+            agent_statusf(a, "agent: thinking effort set to %.2f\n", (double)effort);
+        else
+        {
+            a->cfg.think_mode = previous;
+            a->cfg.inkling_think_effort = prev_effort;
+            a->cfg.inkling_think_effort_set = prev_effort_set;
+            agent_statusf(a, "agent: use /new to change this Inkling session's thinking effort\n");
+        }
+    }
+    else if (!strcmp(line, "/budget"))
+    {
+        if (a->cfg.think_budget > 0)
+            agent_statusf(a, "agent: thinking budget = %d tokens\n", a->cfg.think_budget);
+        else
+            agent_statusf(a, "agent: thinking budget = unlimited\n");
+    }
+    else if (!strncmp(line, "/budget ", 8))
+    {
+        const char *val = line + 8;
+        while (*val == ' ' || *val == '\t') val++;
+        char *end = NULL;
+        errno = 0;
+        long budget = strtol(val, &end, 10);
+        while (end && (*end == ' ' || *end == '\t')) end++;
+        if (errno || !val[0] || !end || *end || budget < 0 || budget > INT_MAX)
+        {
+            agent_statusf(a, "agent: usage: /budget <N> (0 = unlimited)\n");
+            return 0;
+        }
+        a->cfg.think_budget = (int)budget;
+        if (a->cfg.think_budget > 0)
+            agent_statusf(a, "agent: thinking budget set to %d tokens\n", a->cfg.think_budget);
+        else
+            agent_statusf(a, "agent: thinking budget disabled (unlimited)\n");
     }
     else if (!strcmp(line, "/tools on") || !strcmp(line, "/tools off"))
     {

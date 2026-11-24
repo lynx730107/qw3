@@ -5031,11 +5031,37 @@ static bool inkling_chat_block(qw3_engine *e, const char *role, const char *spea
            inkling_control_token(e, "<|end_message|>", out);
 }
 
+static bool inkling_chat_effort_level(qw3_engine *e, token_vec *out, float effort) {
+    if (!isfinite(effort)) effort = 0.9f;
+    if (effort <= 0.0f) effort = 0.0f;
+    else if (effort > 0.99f) effort = 0.99f;
+
+    char msg[64];
+    if (effort <= 0.0f) {
+        snprintf(msg, sizeof(msg), "Thinking effort level: 0");
+    } else {
+        char num[32];
+        snprintf(num, sizeof(num), "%.2f", (double)effort);
+        size_t len = strlen(num);
+        while (len > 0 && num[len - 1] == '0') len--;
+        if (len > 0 && num[len - 1] == '.') len--;
+        num[len] = '\0';
+        snprintf(msg, sizeof(msg), "Thinking effort level: %s", num[0] ? num : "0");
+    }
+    return inkling_chat_block(e, "<|message_system|>", NULL, "<|content_text|>", msg, out);
+}
+
 static bool inkling_chat_effort(qw3_engine *e, token_vec *out, qw3_think_mode think) {
-    return inkling_chat_block(e, "<|message_system|>", NULL, "<|content_text|>",
-        think == QW3_THINK_NONE ? "Thinking effort level: 0" :
-        think == QW3_THINK_HIGH ? "Thinking effort level: 0.99" :
-                                 "Thinking effort level: 0.9", out);
+    const float effort =
+        think == QW3_THINK_NONE ? 0.0f :
+        think == QW3_THINK_HIGH ? 0.99f : 0.9f;
+    return inkling_chat_effort_level(e, out, effort);
+}
+
+void qw3_inkling_chat_append_effort_level(qw3_engine *e, qw3_tokens *out, float effort) {
+    if (!e || !e->inkling || !out) return;
+    const int original = out->len;
+    if (!inkling_chat_effort_level(e, out, effort)) out->len = original;
 }
 
 void qw3_inkling_chat_append_effort(qw3_engine *e, qw3_tokens *out, qw3_think_mode think) {
@@ -5044,16 +5070,24 @@ void qw3_inkling_chat_append_effort(qw3_engine *e, qw3_tokens *out, qw3_think_mo
     if (!inkling_chat_effort(e, out, think)) out->len = original;
 }
 
-bool qw3_inkling_encode_prompt(qw3_engine *e, const char *system, const char *text,
-                               qw3_think_mode think, qw3_tokens *out) {
+bool qw3_inkling_encode_prompt_effort(qw3_engine *e, const char *system, const char *text,
+                                      float effort, qw3_tokens *out) {
     if (!e || !e->inkling || !text || !out) return false;
     const int original = out->len;
     const bool ok = (!system || !system[0] ||
         inkling_chat_block(e, "<|message_system|>", NULL, "<|content_text|>", system, out)) &&
-        inkling_chat_effort(e, out, think) &&
+        inkling_chat_effort_level(e, out, effort) &&
         inkling_chat_block(e, "<|message_user|>", NULL, "<|content_text|>", text, out);
     if (!ok) out->len = original;
     return ok;
+}
+
+bool qw3_inkling_encode_prompt(qw3_engine *e, const char *system, const char *text,
+                               qw3_think_mode think, qw3_tokens *out) {
+    const float effort =
+        think == QW3_THINK_NONE ? 0.0f :
+        think == QW3_THINK_HIGH ? 0.99f : 0.9f;
+    return qw3_inkling_encode_prompt_effort(e, system, text, effort, out);
 }
 
 void qw3_tokenize_text(qw3_engine *e, const char *text, qw3_tokens *out) {

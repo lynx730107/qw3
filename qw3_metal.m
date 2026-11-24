@@ -3959,6 +3959,8 @@ static int qw3_metal_dense_iq_buffers(id<MTLBuffer> *signs,
 @property (nonatomic, strong) id<MTLBuffer> batchBlockIds;
 @property (nonatomic, strong) id<MTLBuffer> batchDispatchGate;
 @property (nonatomic, strong) id<MTLBuffer> batchDispatchDown;
+@property (nonatomic, assign) BOOL batchActive;
+@property (nonatomic, assign) BOOL concurrentActive;
 @end
 @implementation QW3MetalInklingObj
 @end
@@ -4337,10 +4339,66 @@ static int qw3_metal_encode_projection(QW3MetalInklingObj *work,
     return 1;
 }
 
+enum {
+    INK_PROF_MIX_NORM = 0,
+    INK_PROF_CONTROL,
+    INK_PROF_ATTN_PROJ,
+    INK_PROF_ATTN_CORE,
+    INK_PROF_ATTN_OUT,
+    INK_PROF_MOE_ROUTE,
+    INK_PROF_MOE_GATE_NVFP4,
+    INK_PROF_MOE_GATE_OTHER,
+    INK_PROF_MOE_DOWN_NVFP4,
+    INK_PROF_MOE_DOWN_OTHER,
+    INK_PROF_MOE_REDUCE,
+    INK_PROF_LOGITS,
+    INK_PROF_COUNT
+};
+static int g_inkling_profile_decode = -1;
+static double g_inkling_prof_ms[INK_PROF_COUNT];
+static uint64_t g_inkling_prof_calls[INK_PROF_COUNT];
+static uint64_t g_inkling_prof_tokens = 0;
+
+static bool qw3_inkling_profile_enabled(void) {
+    if (g_inkling_profile_decode < 0) {
+        const char *e = getenv("QW3_INKLING_PROFILE_DECODE");
+        g_inkling_profile_decode = (e && e[0] && strcmp(e, "0") != 0) ? 1 : 0;
+    }
+    return g_inkling_profile_decode != 0;
+}
+
+static void qw3_inkling_profile_flush(QW3MetalInklingObj *work, int bucket) {
+    if (!qw3_inkling_profile_enabled()) return;
+    id<MTLCommandBuffer> cb = work.command;
+    if (!cb || !work.encoder) return;
+    [work.encoder endEncoding];
+    work.encoder = nil;
+    work.command = nil;
+    [cb commit];
+    [cb waitUntilCompleted];
+    if (cb.status == MTLCommandBufferStatusCompleted) {
+        double dt = (cb.GPUEndTime - cb.GPUStartTime) * 1000.0;
+        if (dt > 0.0) g_inkling_prof_ms[bucket] += dt;
+        g_inkling_prof_calls[bucket]++;
+    }
+}
+
+static void qw3_inkling_barrier(QW3MetalInklingObj *work, id<MTLComputeCommandEncoder> enc) {
+    if (work.concurrentActive) {
+        [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    }
+}
+
 static id<MTLComputeCommandEncoder> qw3_metal_inkling_encoder(QW3MetalInklingObj *work) {
     if (!work.encoder) {
         if (!work.command) work.command = [g_queue commandBuffer];
-        work.encoder = [work.command computeCommandEncoder];
+        if (!work.batchActive && !qw3_inkling_profile_enabled()) {
+            work.encoder = [work.command computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
+            work.concurrentActive = (work.encoder != nil);
+        } else {
+            work.encoder = [work.command computeCommandEncoder];
+            work.concurrentActive = NO;
+        }
     }
     return work.encoder;
 }
@@ -4351,6 +4409,7 @@ static int qw3_metal_inkling_submit(QW3MetalInklingObj *work, const char *label)
     [work.encoder endEncoding];
     work.encoder = nil;
     work.command = nil;
+    work.concurrentActive = NO;
     [cb commit];
     [cb waitUntilCompleted];
     if (cb.status == MTLCommandBufferStatusCompleted) return 1;
@@ -4365,6 +4424,8 @@ void qw3_metal_inkling_discard(qw3_metal_inkling_session *workspace) {
     [work.encoder endEncoding];
     work.encoder = nil;
     work.command = nil;
+    work.batchActive = NO;
+    work.concurrentActive = NO;
 }
 
 static int qw3_metal_bind_model_tensor(id<MTLComputeCommandEncoder> enc,
@@ -4404,6 +4465,7 @@ int qw3_metal_inkling_embed(qw3_metal_inkling_session *workspace,
         if (!qw3_metal_bind_model_tensor(enc, 1, offset, embedding->row_bytes)) return 0;
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(dst) atIndex:2];
         qw3_inkling_dispatch(enc, embedding->n_in);
+        qw3_inkling_barrier(work, enc);
         return 1;
     }
 }
@@ -4425,6 +4487,7 @@ int qw3_metal_inkling_norm(qw3_metal_inkling_session *workspace, uint32_t vector
         if (!qw3_metal_bind_model_tensor(enc, 2, weights, QW3_INK_GPU_VECTOR_BYTES)) return 0;
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(vector) atIndex:3];
         qw3_inkling_dispatch(enc, 128);
+        qw3_inkling_barrier(work, enc);
         return 1;
     }
 }
@@ -4442,6 +4505,7 @@ int qw3_metal_inkling_vector_op(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(dst) atIndex:1];
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(src) atIndex:2];
         qw3_inkling_dispatch(enc, args[0]);
+        qw3_inkling_barrier(work, enc);
         return 1;
     }
 }
@@ -4459,6 +4523,7 @@ int qw3_metal_inkling_mix(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(history) atIndex:3];
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(dst) atIndex:4];
         qw3_inkling_dispatch(enc, 128);
+        qw3_inkling_barrier(work, enc);
         return 1;
     }
 }
@@ -4478,6 +4543,7 @@ int qw3_metal_inkling_mix_norm(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(history) atIndex:4];
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(dst) atIndex:5];
         qw3_inkling_dispatch(enc, 128);
+        qw3_inkling_barrier(work, enc);
         return 1;
     }
 }
@@ -4497,6 +4563,7 @@ int qw3_metal_inkling_mix4(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(history) atIndex:4];
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(dst_base) atIndex:5];
         qw3_inkling_dispatch(enc, 128);
+        qw3_inkling_barrier(work, enc);
         return 1;
     }
 }
@@ -4515,6 +4582,7 @@ int qw3_metal_inkling_apply_control_from(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(message) atIndex:2];
         [enc setBuffer:work.scratch offset:0 atIndex:3];
         [enc dispatchThreadgroups:MTLSizeMake(2, 1, 1) threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+        qw3_inkling_barrier(work, enc);
 
         const NSUInteger code_offset = 2 * QW3_INK_GPU_VECTOR_BYTES;
         const qw3_metal_projection down = {
@@ -4523,6 +4591,7 @@ int qw3_metal_inkling_apply_control_from(qw3_metal_inkling_session *workspace,
         };
         if (!qw3_metal_encode_projection(work, enc, &down, work.scratch, 0, work.scratch, code_offset))
             return 0;
+        qw3_inkling_barrier(work, enc);
         [enc setComputePipelineState:work.inklingControlFast];
         const uint32_t shape[] = {QW3_INK_GPU_D, QW3_INK_GPU_RANK};
         [enc setBytes:shape length:sizeof(shape) atIndex:0];
@@ -4535,6 +4604,8 @@ int qw3_metal_inkling_apply_control_from(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(dst_state) atIndex:6];
         [enc dispatchThreadgroups:MTLSizeMake((QW3_INK_GPU_D + 15u) / 16u, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+        qw3_inkling_barrier(work, enc);
+        qw3_inkling_profile_flush(work, INK_PROF_CONTROL);
         return 1;
     }
 }
@@ -4568,6 +4639,7 @@ static int qw3_inkling_encode_route(QW3MetalInklingObj *work, id<MTLComputeComma
                                     const qw3_metal_inkling_router *router, uint32_t src) {
     if (!qw3_metal_encode_projection(work, enc, &router->matrix,
             work.vectors, qw3_inkling_vector(src), work.scratch, 0)) return 0;
+    qw3_inkling_barrier(work, enc);
     [enc setComputePipelineState:work.route];
     [enc setBuffer:work.scratch offset:0 atIndex:1];
     const uint64_t optional[] = {router->bias, router->gate_scale, router->down_scale};
@@ -4586,6 +4658,7 @@ static int qw3_inkling_encode_route(QW3MetalInklingObj *work, id<MTLComputeComma
     [enc setBuffer:work.routeIds offset:0 atIndex:5];
     [enc setBuffer:work.routeCoefficients offset:0 atIndex:6];
     qw3_inkling_dispatch(enc, 128);
+    qw3_inkling_barrier(work, enc);
     return 1;
 }
 
@@ -4614,7 +4687,12 @@ int qw3_metal_inkling_ffn(qw3_metal_inkling_session *workspace,
         id<MTLComputeCommandEncoder> enc = qw3_metal_inkling_encoder(work);
         if (!enc) return 0;
         // 1. Router projection + parallel top-8 selection entirely on GPU (zero CPU sync!)
-        if (!qw3_inkling_encode_route(work, enc, router, src)) return 0;
+        qw3_inkling_profile_flush(work, INK_PROF_MIX_NORM);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc || !qw3_inkling_encode_route(work, enc, router, src)) return 0;
+        qw3_inkling_profile_flush(work, INK_PROF_MOE_ROUTE);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc) return 0;
 
         // 2. GPU-indexed fused gate_up + SiTU -> work.scratch[0 .. 8*1152)
         const uint32_t n_ff = QW3_INK_GPU_FF;
@@ -4653,6 +4731,10 @@ int qw3_metal_inkling_ffn(qw3_metal_inkling_session *workspace,
             [enc dispatchThreadgroups:MTLSizeMake((n_ff + 3u) / 4u, QW3_INK_GPU_EXPERTS, 1)
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         }
+        qw3_inkling_barrier(work, enc);
+        qw3_inkling_profile_flush(work, moe->gate_up.type == 40u ? INK_PROF_MOE_GATE_NVFP4 : INK_PROF_MOE_GATE_OTHER);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc) return 0;
 
         // 3. GPU-indexed down projection -> work.scratch[down_start .. down_start + 8*2304)
         const uint64_t down_total = (uint64_t)moe->down_expert_bytes * 128ull;
@@ -4687,6 +4769,10 @@ int qw3_metal_inkling_ffn(qw3_metal_inkling_session *workspace,
             [enc dispatchThreadgroups:MTLSizeMake((QW3_INK_GPU_D + 7u) / 8u, QW3_INK_GPU_EXPERTS, 1)
                 threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
         }
+        qw3_inkling_barrier(work, enc);
+        qw3_inkling_profile_flush(work, moe->down.type == 40u ? INK_PROF_MOE_DOWN_NVFP4 : INK_PROF_MOE_DOWN_OTHER);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc) return 0;
 
         // 4. Fused top-8 reduce + post-FFN short conv + residual add into cur_dst
         const uint32_t rargs[4] = {QW3_INK_GPU_D, pos, 2 * QW3_INK_GPU_KV + QW3_INK_GPU_D, 0};
@@ -4698,6 +4784,8 @@ int qw3_metal_inkling_ffn(qw3_metal_inkling_session *workspace,
         [enc setBuffer:work.history[visit] offset:0 atIndex:4];
         [enc setBuffer:work.vectors offset:qw3_inkling_vector(cur_dst) atIndex:5];
         qw3_inkling_dispatch(enc, QW3_INK_GPU_D);
+        qw3_inkling_barrier(work, enc);
+        qw3_inkling_profile_flush(work, INK_PROF_MOE_REDUCE);
         return 1;
     }
 }
@@ -4775,6 +4863,7 @@ static int qw3_inkling_encode_logits_cap(QW3MetalInklingObj *work, id<MTLCompute
         return 1;
     }
     if (!qw3_metal_encode_projection(work, enc, output, input, input_offset, out_buf, 0)) return 0;
+    qw3_inkling_barrier(work, enc);
     [enc setComputePipelineState:work.logitCap];
     const struct { uint32_t n; float cap; } args = {output->n_out, cap};
     [enc setBytes:&args length:sizeof(args) atIndex:0];
@@ -4792,9 +4881,34 @@ int qw3_metal_inkling_logits(qw3_metal_inkling_session *workspace,
             work.logits = [g_device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
         }
         id<MTLComputeCommandEncoder> enc = qw3_metal_inkling_encoder(work);
-        if (!enc || !work.logits || !qw3_inkling_encode_logits_cap(work, enc, output,
+        if (!enc || !work.logits) return 0;
+        qw3_inkling_profile_flush(work, INK_PROF_MIX_NORM);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc || !qw3_inkling_encode_logits_cap(work, enc, output,
                 work.vectors, qw3_inkling_vector(src), cap, work.logits)) return 0;
-        if (!qw3_metal_inkling_submit(work, "logits")) return 0;
+        if (qw3_inkling_profile_enabled()) {
+            qw3_inkling_profile_flush(work, INK_PROF_LOGITS);
+            g_inkling_prof_tokens++;
+            if (g_inkling_prof_tokens == 10 || g_inkling_prof_tokens == 30) {
+                static const char *names[INK_PROF_COUNT] = {
+                    "mix_norm", "control", "attn_proj", "attn_core", "attn_out",
+                    "moe_route", "moe_gate_nvfp4", "moe_gate_other",
+                    "moe_down_nvfp4", "moe_down_other", "moe_reduce", "logits"
+                };
+                double tot = 0.0;
+                for (int k = 0; k < INK_PROF_COUNT; k++) tot += g_inkling_prof_ms[k];
+                fprintf(stderr, "\n=== INKLING DECODE GPU PROFILE (avg over %llu tok, sum=%.2f ms/tok) ===\n",
+                        (unsigned long long)g_inkling_prof_tokens, tot / (double)g_inkling_prof_tokens);
+                for (int k = 0; k < INK_PROF_COUNT; k++) {
+                    double avg = g_inkling_prof_ms[k] / (double)g_inkling_prof_tokens;
+                    double pct = tot > 0.0 ? (100.0 * g_inkling_prof_ms[k] / tot) : 0.0;
+                    fprintf(stderr, "  %-16s %6.2f ms (%5.1f%%)  calls/tok=%.1f\n",
+                            names[k], avg, pct, (double)g_inkling_prof_calls[k] / (double)g_inkling_prof_tokens);
+                }
+            }
+        } else {
+            if (!qw3_metal_inkling_submit(work, "logits")) return 0;
+        }
         memcpy(logits, work.logits.contents, bytes);
         return 1;
     }
@@ -4866,6 +4980,9 @@ int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
         id<MTLBuffer> kv = work.kv[visit], history = work.history[visit];
         id<MTLComputeCommandEncoder> enc = qw3_metal_inkling_encoder(work);
         if (!enc) return 0;
+        qw3_inkling_profile_flush(work, INK_PROF_MIX_NORM);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc) return 0;
         const uint32_t input_index[] = {0, 1, 2, 0, 0, 0, 1, 2};
         const bool fuse_qg = work.inklingQ8Pair &&
             projections[0]->type == 8u && projections[3]->type == 8u &&
@@ -4894,6 +5011,10 @@ int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
             if (!qw3_metal_encode_projection(work, enc, projections[i], work.vectors,
                     qw3_inkling_vector(slot), work.scratch, offsets[i])) goto failed;
         }
+        qw3_inkling_barrier(work, enc);
+        qw3_inkling_profile_flush(work, INK_PROF_ATTN_PROJ);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc) goto failed;
         [enc setComputePipelineState:work.attentionPrepare];
         [enc setBytes:&args length:sizeof(args) atIndex:0];
         [enc setBuffer:work.scratch offset:0 atIndex:1];
@@ -4905,6 +5026,7 @@ int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
             !qw3_metal_bind_model_tensor(enc, 7, a->relative_clip, a->relative.n_out * sizeof(float)))
             goto failed;
         [enc dispatchThreadgroups:MTLSizeMake(32, 1, 1) threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+        qw3_inkling_barrier(work, enc);
 
         // 3-head GQA grouped partition kernel: 8 KV heads x parts.
         [enc setComputePipelineState:work.attentionPartition];
@@ -4913,16 +5035,22 @@ int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
                                         (uint64_t)a->relative_extent * 16 * sizeof(float))) goto failed;
         [enc dispatchThreadgroups:MTLSizeMake(8, parts, 1)
             threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+        qw3_inkling_barrier(work, enc);
         if (parts > 1u) {
             [enc setComputePipelineState:work.attentionMerge];
             [enc setBuffer:work.attentionPartial offset:0 atIndex:2];
             [enc dispatchThreadgroups:MTLSizeMake(QW3_INK_GPU_HEADS, 1, 1)
                 threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+            qw3_inkling_barrier(work, enc);
         }
+        qw3_inkling_profile_flush(work, INK_PROF_ATTN_CORE);
+        enc = qw3_metal_inkling_encoder(work);
+        if (!enc) goto failed;
         if (a->add_dst) {
             // Write wo output to work.scratch[0..D) (disjoint from mixed >= 32KB), then fused conv+add into dst.
             if (!qw3_metal_encode_projection(work, enc, &a->output, work.scratch, mixed,
                     work.scratch, 0)) goto failed;
+            qw3_inkling_barrier(work, enc);
             const uint32_t cargs[4] = {QW3_INK_GPU_D, pos, 2 * QW3_INK_GPU_KV, 1u};
             [enc setComputePipelineState:work.inklingPostConvAdd];
             [enc setBytes:cargs length:sizeof(cargs) atIndex:0];
@@ -4932,11 +5060,18 @@ int qw3_metal_inkling_attend(qw3_metal_inkling_session *workspace,
                 goto failed;
             [enc setBuffer:work.history[visit] offset:0 atIndex:4];
             qw3_inkling_dispatch(enc, QW3_INK_GPU_D);
+            qw3_inkling_barrier(work, enc);
+            qw3_inkling_profile_flush(work, INK_PROF_ATTN_OUT);
             return 1;
         }
         if (!qw3_metal_encode_projection(work, enc, &a->output, work.scratch, mixed,
                 work.vectors, qw3_inkling_vector(dst))) goto failed;
-        return qw3_inkling_post_conv(work, enc, dst, visit, pos, 2 * QW3_INK_GPU_KV, a->post_conv);
+        qw3_inkling_barrier(work, enc);
+        if (!qw3_inkling_post_conv(work, enc, dst, visit, pos, 2 * QW3_INK_GPU_KV, a->post_conv))
+            goto failed;
+        qw3_inkling_barrier(work, enc);
+        qw3_inkling_profile_flush(work, INK_PROF_ATTN_OUT);
+        return 1;
 
 failed:
         fprintf(stderr, "qw3: could not encode Inkling Metal attention for visit %u\n", visit);
@@ -5233,6 +5368,7 @@ int qw3_metal_inkling_batch_begin(qw3_metal_inkling_session *workspace, uint32_t
     @autoreleasepool {
         QW3MetalInklingObj *work = (__bridge QW3MetalInklingObj *)workspace->obj;
         if (!work.moeMappedMpp) return 0;
+        work.batchActive = YES;
         return qw3_inkling_ensure_batch_buffers(work, n_tokens);
     }
 }
@@ -5883,12 +6019,18 @@ int qw3_metal_inkling_batch_finish(qw3_metal_inkling_session *workspace,
             const NSUInteger last_offset = qw3_inkling_batch_slot_offset(work, src) +
                                            (NSUInteger)(n_tokens - 1u) * QW3_INK_GPU_VECTOR_BYTES;
             if (!enc || !work.logits || !qw3_inkling_encode_logits_cap(work, enc, output,
-                    work.batchVectors, last_offset, cap, work.logits)) return 0;
-            if (!qw3_metal_inkling_submit(work, "batch_logits")) return 0;
+                    work.batchVectors, last_offset, cap, work.logits)) {
+                work.batchActive = NO;
+                return 0;
+            }
+            int ok = qw3_metal_inkling_submit(work, "batch_logits");
+            work.batchActive = NO;
+            if (!ok) return 0;
             memcpy(logits, work.logits.contents, bytes);
             return 1;
         }
         int ok = qw3_metal_inkling_submit(work, "batch_prefill");
+        work.batchActive = NO;
         return ok;
     }
 }

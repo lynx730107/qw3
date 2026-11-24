@@ -509,6 +509,7 @@ static int generate_from_session(qw3_engine *engine, qw3_session *session,
 
 static int generate_inkling_chat(qw3_engine *engine, const char *system_prompt,
                                   const char *prompt, qw3_think_mode think_mode,
+                                  bool think_effort_set, float think_effort,
                                   int ctx_size, int n_predict, sample_opts *sample)
 {
     if (!prompt)
@@ -520,7 +521,10 @@ static int generate_inkling_chat(qw3_engine *engine, const char *system_prompt,
     qw3_session *session = NULL;
     char err[256] = {0};
     int status = 1;
-    if (!qw3_inkling_encode_prompt(engine, system_prompt, prompt, think_mode, &tokens))
+    const bool encoded = think_effort_set
+        ? qw3_inkling_encode_prompt_effort(engine, system_prompt, prompt, think_effort, &tokens)
+        : qw3_inkling_encode_prompt(engine, system_prompt, prompt, think_mode, &tokens);
+    if (!encoded)
     {
         fprintf(stderr, "qw3: could not encode the Inkling prompt with macOS ICU\n");
     }
@@ -593,7 +597,8 @@ static int cli_public_option_takes_value(const char *arg)
            !strcmp(arg, "-ctk") ||
            !strcmp(arg, "--ctk") ||
            !strcmp(arg, "-ctv") ||
-           !strcmp(arg, "--ctv");
+           !strcmp(arg, "--ctv") ||
+           !strcmp(arg, "--think-effort");
 }
 
 static int cli_internal_option(const char *arg)
@@ -919,6 +924,8 @@ static void usage(void)
             "  --cpu        Use CPU backend\n"
             "  --metal      Use Metal backend when compiled in\n"
             "  --nothink    Disable thinking mode\n"
+            "  --think-effort F\n"
+            "              Inkling thinking effort level 0.0..0.99\n"
             "  --inspect    Print GGUF metadata summary after loading\n"
             "  --layer-types N\n"
             "              Print tensor quantization types for one layer\n"
@@ -1128,6 +1135,8 @@ int main(int argc, char **argv)
     qw3_backend backend = QW3_BACKEND_METAL;
 #endif
     qw3_think_mode think_mode = QW3_THINK_ON;
+    float think_effort = 0.0f;
+    bool think_effort_set = false;
     int inspect = 0;
     int layer_types = -1;
 #if QW3_CLI_ENABLE_INTERNAL_TESTS
@@ -1364,6 +1373,23 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--nothink") == 0)
         {
             think_mode = QW3_THINK_NONE;
+            think_effort_set = false;
+        }
+        else if (strcmp(argv[i], "--think-effort") == 0 && i + 1 < argc)
+        {
+            const char *val = argv[++i];
+            char *end = NULL;
+            float effort = strtof(val, &end);
+            if (!val[0] || *end || !isfinite(effort) || effort < 0.0f || effort > 0.99f)
+            {
+                fprintf(stderr, "qw3: --think-effort must be a float in [0.0, 0.99]\n");
+                free(prompt_owned);
+                free(system_owned);
+                return 1;
+            }
+            think_effort = effort;
+            think_effort_set = true;
+            think_mode = (effort <= 0.0f) ? QW3_THINK_NONE : QW3_THINK_ON;
         }
         else if (strcmp(argv[i], "--inspect") == 0)
         {
@@ -1918,6 +1944,7 @@ int main(int argc, char **argv)
                     backend == QW3_BACKEND_METAL ? "FP16" : "FP32", qw3_backend_name(backend),
                     (double)mem.gqa_kv_bytes / (1024.0 * 1024.0), ctx_size);
             rc = generate_inkling_chat(engine, system_prompt, prompt, think_mode,
+                                       think_effort_set, think_effort,
                                        ctx_size, n_predict, &sample);
         }
         qw3_engine_close(engine);

@@ -1212,6 +1212,8 @@ typedef struct {
     int hard_limit_reply_budget;
     int soft_limit_think_close_rank;
     qw3_think_mode think_mode;
+    float think_effort;
+    bool think_effort_set;
     bool temp_set;
     bool top_p_set;
     bool min_p_set;
@@ -1602,6 +1604,7 @@ static void usage(FILE *fp) {
         "  --regrade-trace FILE   Regrade a prior --trace file without loading the model.\n"
         "  --think                Enable thinking mode. Default\n"
         "  --nothink              Disable thinking mode.\n"
+        "  --think-effort F       Inkling thinking effort level 0.0..0.99\n"
         "  --soft-limit-reply-budget N\n"
         "                         Inside the last N tokens, close thinking if\n"
         "                         </think> is already among the top close ranks.\n"
@@ -1689,8 +1692,14 @@ static eval_config parse_options(int argc, char **argv) {
             c.warm_weights = true;
         } else if (!strcmp(arg, "--think")) {
             c.think_mode = QW3_THINK_HIGH;
+            c.think_effort_set = false;
         } else if (!strcmp(arg, "--nothink")) {
             c.think_mode = QW3_THINK_NONE;
+            c.think_effort_set = false;
+        } else if (!strcmp(arg, "--think-effort")) {
+            c.think_effort = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 0.99f);
+            c.think_effort_set = true;
+            c.think_mode = (c.think_effort <= 0.0f) ? QW3_THINK_NONE : QW3_THINK_HIGH;
         } else if (!strcmp(arg, "--plain")) {
             c.plain = true;
         } else if (!strcmp(arg, "--self-test-extractors")) {
@@ -2436,12 +2445,17 @@ static char *build_question_prompt(const eval_case *tc) {
 }
 
 static bool eval_encode_prompt(qw3_engine *engine,
+                               const eval_config *cfg,
                                const char *system,
                                const char *question,
                                qw3_think_mode think_mode,
                                qw3_tokens *out)
 {
     if (qw3_engine_is_inkling(engine)) {
+        if (cfg && cfg->think_effort_set) {
+            return qw3_inkling_encode_prompt_effort(engine, system, question,
+                                                    cfg->think_effort, out);
+        }
         return qw3_inkling_encode_prompt(engine, system, question, think_mode, out);
     }
     qw3_encode_chat_prompt(engine, system, question, think_mode, out);
@@ -2467,7 +2481,7 @@ static int eval_max_prompt_tokens(qw3_engine *engine,
             exit(1);
         }
         qw3_tokens prompt = {0};
-        if (!eval_encode_prompt(engine, eval_system_prompt(), question, think_mode, &prompt)) {
+        if (!eval_encode_prompt(engine, cfg, eval_system_prompt(), question, think_mode, &prompt)) {
             fprintf(stderr, "qw3-eval: failed to encode prompt for %s\n", cases[i].id);
             qw3_tokens_free(&prompt);
             free(question);
@@ -3536,7 +3550,7 @@ static eval_run_result run_one_case(qw3_engine *engine, qw3_session *session,
     }
 
     qw3_tokens prompt = {0};
-    if (!eval_encode_prompt(engine, system, question, think_mode, &prompt)) {
+    if (!eval_encode_prompt(engine, cfg, system, question, think_mode, &prompt)) {
         fprintf(stderr, "qw3-eval: failed to encode prompt for %s\n", tc->id);
         free(question);
         qw3_tokens_free(&prompt);

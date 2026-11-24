@@ -101,8 +101,12 @@ bool qw3_engine_is_dense(qw3_engine *e);
 bool qw3_engine_is_inkling(qw3_engine *e);
 bool qw3_inkling_encode_prompt(qw3_engine *e, const char *system, const char *text,
                                qw3_think_mode think, qw3_tokens *out);
+bool qw3_inkling_encode_prompt_effort(qw3_engine *e, const char *system, const char *text,
+                                      float effort, qw3_tokens *out);
 void qw3_inkling_chat_append_effort(qw3_engine *e, qw3_tokens *out,
                                     qw3_think_mode think);
+void qw3_inkling_chat_append_effort_level(qw3_engine *e, qw3_tokens *out,
+                                          float effort);
 int qw3_inkling_chat_control_id(qw3_engine *e, const char *text);
 void qw3_engine_summary(qw3_engine *e);
 /* Inspect an Inkling file without opening an inference session. Returns

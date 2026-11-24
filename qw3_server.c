@@ -765,6 +765,8 @@ typedef struct {
     int ngl;
     bool warm_weights;
     qw3_think_mode default_think;
+    float default_think_effort;
+    bool default_think_effort_set;
     float default_temp;
     float default_top_p;
     int default_top_k;
@@ -1395,7 +1397,9 @@ static bool message_has_image_part(const jval *msg) {
 }
 
 static bool encode_openai_chat_plan(srv_state *srv, const jval *messages, const jval *tools,
-                                    qw3_think_mode think_mode, srv_prompt_plan *plan,
+                                    qw3_think_mode think_mode,
+                                    bool think_effort_set, float think_effort,
+                                    srv_prompt_plan *plan,
                                     char *err, size_t errlen) {
     memset(plan, 0, sizeof(*plan));
     qw3_tokens *out = &plan->tokens;
@@ -1437,7 +1441,10 @@ static bool encode_openai_chat_plan(srv_state *srv, const jval *messages, const 
             qw3_chat_append_message(srv->engine, out, "system", sys.p);
         }
         sb_free(&sys);
-        qw3_inkling_chat_append_effort(srv->engine, out, think_mode);
+        if (think_effort_set)
+            qw3_inkling_chat_append_effort_level(srv->engine, out, think_effort);
+        else
+            qw3_inkling_chat_append_effort(srv->engine, out, think_mode);
 
         for (size_t i = idx; i < messages->len; i++) {
             const jval *m = messages->items[i];
@@ -1823,6 +1830,8 @@ typedef struct {
     bool include_usage;
     bool has_tools;
     qw3_think_mode think_mode;
+    float think_effort;
+    bool think_effort_set;
     char *stops[QW3_SRV_MAX_STOPS];
     size_t stop_lens[QW3_SRV_MAX_STOPS];
     int n_stops;
@@ -1861,26 +1870,77 @@ static void parse_req_params(const srv_config *cfg, const jval *body, req_params
     const jval *tools = jobj_get(body, "tools");
     p->has_tools = (tools && tools->type == J_ARR && tools->len > 0);
 
-    /* Thinking mode resolution: reasoning_effort / enable_thinking / chat_template_kwargs */
+    /* Thinking mode resolution: reasoning_effort / think_effort / enable_thinking / chat_template_kwargs */
     p->think_mode = cfg->default_think;
-    const char *re = jobj_str(body, "reasoning_effort");
-    if (re) {
-        if (strcmp(re, "none") == 0 || strcmp(re, "off") == 0 || strcmp(re, "0") == 0)
-            p->think_mode = QW3_THINK_NONE;
-        else if (strcmp(re, "high") == 0)
-            p->think_mode = QW3_THINK_HIGH;
-        else
-            p->think_mode = QW3_THINK_ON;
+    p->think_effort = cfg->default_think_effort;
+    p->think_effort_set = cfg->default_think_effort_set;
+    const jval *re_val = jobj_get(body, "reasoning_effort");
+    if (re_val) {
+        if (re_val->type == J_NUM && isfinite(re_val->num)) {
+            float ef = (float)re_val->num;
+            if (ef < 0.0f) ef = 0.0f;
+            if (ef > 0.99f) ef = 0.99f;
+            p->think_effort = ef;
+            p->think_effort_set = true;
+            p->think_mode = (ef <= 0.0f) ? QW3_THINK_NONE : QW3_THINK_ON;
+        } else if (re_val->type == J_STR && re_val->str) {
+            const char *re = re_val->str;
+            if (strcmp(re, "none") == 0 || strcmp(re, "off") == 0 || strcmp(re, "0") == 0) {
+                p->think_mode = QW3_THINK_NONE;
+                p->think_effort = 0.0f;
+                p->think_effort_set = true;
+            } else if (strcmp(re, "low") == 0) {
+                p->think_mode = QW3_THINK_ON;
+                p->think_effort = 0.3f;
+                p->think_effort_set = true;
+            } else if (strcmp(re, "medium") == 0) {
+                p->think_mode = QW3_THINK_ON;
+                p->think_effort = 0.6f;
+                p->think_effort_set = true;
+            } else if (strcmp(re, "high") == 0) {
+                p->think_mode = QW3_THINK_HIGH;
+                p->think_effort = 0.9f;
+                p->think_effort_set = true;
+            } else if (strcmp(re, "max") == 0) {
+                p->think_mode = QW3_THINK_HIGH;
+                p->think_effort = 0.99f;
+                p->think_effort_set = true;
+            } else {
+                p->think_mode = QW3_THINK_ON;
+            }
+        }
+    }
+    const jval *te = jobj_get(body, "think_effort");
+    if (te && te->type == J_NUM && isfinite(te->num)) {
+        float ef = (float)te->num;
+        if (ef < 0.0f) ef = 0.0f;
+        if (ef > 0.99f) ef = 0.99f;
+        p->think_effort = ef;
+        p->think_effort_set = true;
+        p->think_mode = (ef <= 0.0f) ? QW3_THINK_NONE : QW3_THINK_ON;
     }
     const jval *et = jobj_get(body, "enable_thinking");
     if (et && et->type == J_BOOL) {
         p->think_mode = et->b ? QW3_THINK_ON : QW3_THINK_NONE;
+        if (!et->b) {
+            p->think_effort = 0.0f;
+            p->think_effort_set = true;
+        } else if (p->think_effort_set && p->think_effort <= 0.0f) {
+            p->think_effort_set = false;
+        }
     }
     const jval *ctk = jobj_get(body, "chat_template_kwargs");
     if (ctk && ctk->type == J_OBJ) {
         const jval *cet = jobj_get(ctk, "enable_thinking");
-        if (cet && cet->type == J_BOOL)
+        if (cet && cet->type == J_BOOL) {
             p->think_mode = cet->b ? QW3_THINK_ON : QW3_THINK_NONE;
+            if (!cet->b) {
+                p->think_effort = 0.0f;
+                p->think_effort_set = true;
+            } else if (p->think_effort_set && p->think_effort <= 0.0f) {
+                p->think_effort_set = false;
+            }
+        }
     }
 
     /* Stop sequences */
@@ -1951,7 +2011,9 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
     srv_prompt_plan plan;
     memset(&plan, 0, sizeof(plan));
     pthread_mutex_lock(&srv->infer_lock);
-    if (!encode_openai_chat_plan(srv, messages, tools, p.think_mode, &plan, err, sizeof(err))) {
+    if (!encode_openai_chat_plan(srv, messages, tools, p.think_mode,
+                                 p.think_effort_set, p.think_effort,
+                                 &plan, err, sizeof(err))) {
         pthread_mutex_unlock(&srv->infer_lock);
         send_http_error(fd, 400, "Bad Request", "invalid_request_error", err);
         srv_prompt_plan_free(&plan);
@@ -2762,6 +2824,7 @@ static void print_usage(void) {
         "  -t, --threads N        CPU helper threads\n"
         "  --warm-weights         Touch mapped weight pages on startup\n"
         "  --nothink              Default thinking mode off (overridable per request)\n"
+        "  --think-effort F       Default Inkling thinking effort level 0.0..0.99\n"
         "  --temp N               Default temperature (default: 0.6)\n"
         "  --top-p N              Default top-p (default: 0.95)\n"
         "  --top-k N              Default top-k (default: 40)\n"
@@ -2874,6 +2937,18 @@ int main(int argc, char **argv) {
             srv.cfg.warm_weights = true;
         } else if (!strcmp(argv[i], "--nothink")) {
             srv.cfg.default_think = QW3_THINK_NONE;
+            srv.cfg.default_think_effort_set = false;
+        } else if (!strcmp(argv[i], "--think-effort") && i + 1 < argc) {
+            const char *val = argv[++i];
+            char *end = NULL;
+            float effort = strtof(val, &end);
+            if (!val[0] || *end || !isfinite(effort) || effort < 0.0f || effort > 0.99f) {
+                fprintf(stderr, "qw3-server: --think-effort must be a float in [0.0, 0.99]\n");
+                return 1;
+            }
+            srv.cfg.default_think_effort = effort;
+            srv.cfg.default_think_effort_set = true;
+            srv.cfg.default_think = (effort <= 0.0f) ? QW3_THINK_NONE : QW3_THINK_ON;
         } else if (!strcmp(argv[i], "--temp") && i + 1 < argc) {
             srv.cfg.default_temp = (float)atof(argv[++i]);
         } else if (!strcmp(argv[i], "--top-p") && i + 1 < argc) {

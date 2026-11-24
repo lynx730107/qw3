@@ -4294,7 +4294,7 @@ static inline half4 qw3_nvfp4_decode4_h(uint c0, uint c1, uint c2, uint c3) {
 static inline float qw3_nvfp4_dot8_f32(device const uchar *wrow, uint b, uint sub,
                                        uint half_sub, float4 x_lo, float4 x_hi) {
     device const uchar *blk = wrow + ulong(b) * 36ull;
-    const float sc = qw3_nvfp4_scale(uint(blk[sub]));
+    const float sc = float(qw3_nvfp4_scale_h[uint(blk[sub])]);
     const uint word = *(device const uint *)(blk + 4u + 8u * sub + 4u * half_sub);
     const float4 w_lo = float4(
         qw3_nvfp4_e2m1_f[word & 15u],
@@ -4312,7 +4312,7 @@ static inline float qw3_nvfp4_dot8_f32(device const uchar *wrow, uint b, uint su
 static inline float qw3_nvfp4_dot4_f32(device const uchar *wrow, uint b, uint sub,
                                        uint q_pair, float2 x_lo, float2 x_hi) {
     device const uchar *blk = wrow + ulong(b) * 36ull;
-    const float sc = qw3_nvfp4_scale(uint(blk[sub]));
+    const float sc = float(qw3_nvfp4_scale_h[uint(blk[sub])]);
     const uint word = uint(*(device const ushort *)(blk + 4u + 8u * sub + 2u * q_pair));
     const float2 w_lo = float2(qw3_nvfp4_e2m1_f[word & 15u],
                                qw3_nvfp4_e2m1_f[(word >> 8u) & 15u]);
@@ -4347,6 +4347,15 @@ kernel void qw3_matvec_nvfp4(constant qw3_matvec_q8_0_args &args [[buffer(0)]],
 }
 
 // Fast Inkling decode Q8_0 matvec: 4 lanes/block (8 blocks = 256 elems/iter), 2 rows/simdgroup.
+// Fast Q8_0 matvec: 4 lanes/block, 2 rows/simdgroup (8 rows/TG), single 64-bit ushort4 load per 8 elements.
+static inline float qw3_inkling_q8_dot8(device const uchar *blk, uint sub, float4 x0, float4 x1) {
+    const float d = float(*(device const half *)blk);
+    const ushort4 raw = *(device const ushort4 *)(blk + 2u + sub * 8u);
+    const char4 c0 = as_type<char4>(raw.xy);
+    const char4 c1 = as_type<char4>(raw.zw);
+    return d * (dot(float4(c0), x0) + dot(float4(c1), x1));
+}
+
 kernel void qw3_inkling_matvec_q8_0(constant qw3_matvec_q8_0_args &args [[buffer(0)]],
                                     device const uchar *weights [[buffer(1)]],
                                     device const float *x [[buffer(2)]],
@@ -4368,24 +4377,8 @@ kernel void qw3_inkling_matvec_q8_0(constant qw3_matvec_q8_0_args &args [[buffer
         const float4 x0 = *(device const float4 *)(x + x_off);
         const float4 x1 = *(device const float4 *)(x + x_off + 4u);
         const ulong boff = ulong(b) * 34ull;
-        {
-            device const uchar *blk = wr0 + boff;
-            const float d = float(*(device const half *)blk);
-            device const char2 *qp = (device const char2 *)(blk + 2u + sub * 8u);
-            const char2 c0 = qp[0], c1 = qp[1], c2 = qp[2], c3 = qp[3];
-            const float4 q0 = float4(float(c0.x), float(c0.y), float(c1.x), float(c1.y));
-            const float4 q1 = float4(float(c2.x), float(c2.y), float(c3.x), float(c3.y));
-            sum0 += d * (dot(q0, x0) + dot(q1, x1));
-        }
-        if (has_r1) {
-            device const uchar *blk = wr1 + boff;
-            const float d = float(*(device const half *)blk);
-            device const char2 *qp = (device const char2 *)(blk + 2u + sub * 8u);
-            const char2 c0 = qp[0], c1 = qp[1], c2 = qp[2], c3 = qp[3];
-            const float4 q0 = float4(float(c0.x), float(c0.y), float(c1.x), float(c1.y));
-            const float4 q1 = float4(float(c2.x), float(c2.y), float(c3.x), float(c3.y));
-            sum1 += d * (dot(q0, x0) + dot(q1, x1));
-        }
+        sum0 += qw3_inkling_q8_dot8(wr0 + boff, sub, x0, x1);
+        if (has_r1) sum1 += qw3_inkling_q8_dot8(wr1 + boff, sub, x0, x1);
     }
     sum0 = simd_sum(sum0);
     sum1 = simd_sum(sum1);
@@ -4423,39 +4416,11 @@ kernel void qw3_inkling_matvec_q8_0_pair(constant qw3_inkling_q8_pair_args &args
         const float4 x0 = *(device const float4 *)(x + x_off);
         const float4 x1 = *(device const float4 *)(x + x_off + 4u);
         const ulong boff = ulong(b) * 34ull;
-        {
-            device const uchar *blk = wa0 + boff;
-            const float d = float(*(device const half *)blk);
-            device const char2 *qp = (device const char2 *)(blk + 2u + sub * 8u);
-            const char2 c0 = qp[0], c1 = qp[1], c2 = qp[2], c3 = qp[3];
-            sa0 += d * (dot(float4(float(c0.x), float(c0.y), float(c1.x), float(c1.y)), x0) +
-                        dot(float4(float(c2.x), float(c2.y), float(c3.x), float(c3.y)), x1));
-        }
-        {
-            device const uchar *blk = wb0 + boff;
-            const float d = float(*(device const half *)blk);
-            device const char2 *qp = (device const char2 *)(blk + 2u + sub * 8u);
-            const char2 c0 = qp[0], c1 = qp[1], c2 = qp[2], c3 = qp[3];
-            sb0 += d * (dot(float4(float(c0.x), float(c0.y), float(c1.x), float(c1.y)), x0) +
-                        dot(float4(float(c2.x), float(c2.y), float(c3.x), float(c3.y)), x1));
-        }
+        sa0 += qw3_inkling_q8_dot8(wa0 + boff, sub, x0, x1);
+        sb0 += qw3_inkling_q8_dot8(wb0 + boff, sub, x0, x1);
         if (has_r1) {
-            {
-                device const uchar *blk = wa1 + boff;
-                const float d = float(*(device const half *)blk);
-                device const char2 *qp = (device const char2 *)(blk + 2u + sub * 8u);
-                const char2 c0 = qp[0], c1 = qp[1], c2 = qp[2], c3 = qp[3];
-                sa1 += d * (dot(float4(float(c0.x), float(c0.y), float(c1.x), float(c1.y)), x0) +
-                            dot(float4(float(c2.x), float(c2.y), float(c3.x), float(c3.y)), x1));
-            }
-            {
-                device const uchar *blk = wb1 + boff;
-                const float d = float(*(device const half *)blk);
-                device const char2 *qp = (device const char2 *)(blk + 2u + sub * 8u);
-                const char2 c0 = qp[0], c1 = qp[1], c2 = qp[2], c3 = qp[3];
-                sb1 += d * (dot(float4(float(c0.x), float(c0.y), float(c1.x), float(c1.y)), x0) +
-                            dot(float4(float(c2.x), float(c2.y), float(c3.x), float(c3.y)), x1));
-            }
+            sa1 += qw3_inkling_q8_dot8(wa1 + boff, sub, x0, x1);
+            sb1 += qw3_inkling_q8_dot8(wb1 + boff, sub, x0, x1);
         }
     }
     sa0 = simd_sum(sa0); sb0 = simd_sum(sb0);
@@ -4827,6 +4792,66 @@ static inline float qw3_iq2xs_dot8_f32(device const uchar *blk, uint ib32, uint 
     return db * (dot(v0, x0) + dot(v1, x1));
 }
 
+static inline float qw3_q3k_dot8_f32(device const uchar *blk, uint ib32, uint q8,
+        float4 x0, float4 x1) {
+    device const uchar *packed = blk + 96u;
+    const uint aux0 = uint(*(device const ushort *)packed) | (uint(*(device const ushort *)(packed + 2u)) << 16u);
+    const uint aux1 = uint(*(device const ushort *)(packed + 4u)) | (uint(*(device const ushort *)(packed + 6u)) << 16u);
+    const uint tmp  = uint(*(device const ushort *)(packed + 8u)) | (uint(*(device const ushort *)(packed + 10u)) << 16u);
+    const uint kmask1 = 0x03030303u, kmask2 = 0x0f0f0f0fu;
+    const uint half_b = ib32 >> 2u;
+    const uint within = (ib32 & 3u) * 32u + q8 * 8u;
+    const uint grp = within >> 5u;
+    const uint upper = (within & 31u) >> 4u;
+    const uint scale_index = half_b * 8u + grp * 2u + upper;
+    const uint ax = (scale_index >> 2u) == 0u ? ((aux0 & kmask2) | (((tmp >> 0u) & kmask1) << 4u)) :
+                    (scale_index >> 2u) == 1u ? ((aux1 & kmask2) | (((tmp >> 2u) & kmask1) << 4u)) :
+                    (scale_index >> 2u) == 2u ? (((aux0 >> 4u) & kmask2) | (((tmp >> 4u) & kmask1) << 4u)) :
+                                                (((aux1 >> 4u) & kmask2) | (((tmp >> 6u) & kmask1) << 4u));
+    const float d = float(*(device const half *)(blk + 108u));
+    const uint scale = (ax >> (8u * (scale_index & 3u))) & 255u;
+    const float dl = d * float(int(scale) - 32);
+    const uint shift = grp * 2u;
+    const uint mask = 1u << (half_b * 4u + grp);
+    const uint qbase = upper * 16u + (q8 & 1u) * 8u;
+    const uint q_index = half_b * 32u + qbase;
+    const uint2 qraw = uint2(*(device const uint *)(blk + 32u + q_index),
+                             *(device const uint *)(blk + 32u + q_index + 4u));
+    const uint2 hraw = uint2(*(device const uint *)(blk + qbase),
+                             *(device const uint *)(blk + qbase + 4u));
+    const uchar4 ql0 = as_type<uchar4>(qraw.x);
+    const uchar4 ql1 = as_type<uchar4>(qraw.y);
+    const uchar4 qh0 = as_type<uchar4>(hraw.x);
+    const uchar4 qh1 = as_type<uchar4>(hraw.y);
+    const float4 v0 = float4(
+        float(int((ql0.x >> shift) & 3u) - ((qh0.x & mask) ? 0 : 4)),
+        float(int((ql0.y >> shift) & 3u) - ((qh0.y & mask) ? 0 : 4)),
+        float(int((ql0.z >> shift) & 3u) - ((qh0.z & mask) ? 0 : 4)),
+        float(int((ql0.w >> shift) & 3u) - ((qh0.w & mask) ? 0 : 4)));
+    const float4 v1 = float4(
+        float(int((ql1.x >> shift) & 3u) - ((qh1.x & mask) ? 0 : 4)),
+        float(int((ql1.y >> shift) & 3u) - ((qh1.y & mask) ? 0 : 4)),
+        float(int((ql1.z >> shift) & 3u) - ((qh1.z & mask) ? 0 : 4)),
+        float(int((ql1.w >> shift) & 3u) - ((qh1.w & mask) ? 0 : 4)));
+    return dl * (dot(v0, x0) + dot(v1, x1));
+}
+
+static inline float qw3_iq4nl_dot4_f32(device const uchar *blk, uint lane_in_blk,
+        float4 x) {
+    const float d = float(*(device const half *)blk);
+    const uint qs_off = (lane_in_blk & 3u) * 4u;
+    const uint packed = uint(*(device const ushort *)(blk + 2u + qs_off)) |
+                        (uint(*(device const ushort *)(blk + 4u + qs_off)) << 16u);
+    const bool hi = (lane_in_blk & 4u) != 0u;
+    const uint s = hi ? (packed >> 4u) : packed;
+    const float4 w = float4(
+        qw3_iq4nl_table[s & 15u],
+        qw3_iq4nl_table[(s >> 8u) & 15u],
+        qw3_iq4nl_table[(s >> 16u) & 15u],
+        qw3_iq4nl_table[(s >> 24u) & 15u]);
+    return d * dot(w, x);
+}
+
 // Compile-time specialized FP32 16-element dot product for all non-NVFP4 Inkling expert types.
 template<uint TYPE>
 static inline float qw3_inkling_dot16_f32(
@@ -5087,13 +5112,13 @@ kernel void qw3_inkling_moe_gate_up_situ_id(
     device const uchar *wg = wexp + ulong(row) * args.row_bytes;
     device const uchar *wu = wexp + ulong(row + n_ff) * args.row_bytes;
     float g = 0.0f, u = 0.0f;
-    if (TYPE == 18u || TYPE == 22u || TYPE == 21u || TYPE == 17u) {
+    if (TYPE == 18u || TYPE == 22u || TYPE == 21u || TYPE == 17u || TYPE == 11u) {
         // Fast 32-lane-per-superblock path: 8 weights/lane, exact 9 iters for n_in=2304, zero idle lanes!
         const uint nb = args.n_in >> 8u;
         const uint ib32 = uint(lane) >> 2u;
         const uint q8 = uint(lane) & 3u;
         const uint x_lane_off = ib32 * 32u + q8 * 8u;
-        const ulong bsize = (TYPE == 18u) ? 98ull : ((TYPE == 22u) ? 82ull : ((TYPE == 21u) ? 110ull : 74ull));
+        const ulong bsize = (TYPE == 18u) ? 98ull : ((TYPE == 22u) ? 82ull : ((TYPE == 21u || TYPE == 11u) ? 110ull : 74ull));
         for (uint ib = 0u; ib < nb; ib++) {
             const uint xb = ib * 256u + x_lane_off;
             const float4 x0 = *(device const float4 *)(x + xb);
@@ -5109,6 +5134,9 @@ kernel void qw3_inkling_moe_gate_up_situ_id(
             } else if (TYPE == 21u) {
                 g += qw3_iq3s_dot8_f32(bg, ib32, q8, x0, x1, iq3s_kgrid);
                 u += qw3_iq3s_dot8_f32(bu, ib32, q8, x0, x1, iq3s_kgrid);
+            } else if (TYPE == 11u) {
+                g += qw3_q3k_dot8_f32(bg, ib32, q8, x0, x1);
+                u += qw3_q3k_dot8_f32(bu, ib32, q8, x0, x1);
             } else {
                 g += qw3_iq2xs_dot8_f32(bg, ib32, q8, x0, x1, grid16, signs);
                 u += qw3_iq2xs_dot8_f32(bu, ib32, q8, x0, x1, grid16, signs);
@@ -5154,9 +5182,22 @@ kernel void qw3_inkling_moe_down_id(
     device const uchar *wr1 = has_r1 ? (wr0 + args.row_bytes) : wr0;
     device const float *xs = hidden_in + ulong(slot) * args.n_in;
     float s0 = 0.0f, s1 = 0.0f;
-    for (uint k0 = uint(lane) * 16u; k0 < args.n_in; k0 += 512u) {
-        s0 += qw3_inkling_dot16_f32<TYPE>(wr0, k0, xs, grid16, signs, iq3s_kgrid);
-        if (has_r1) s1 += qw3_inkling_dot16_f32<TYPE>(wr1, k0, xs, grid16, signs, iq3s_kgrid);
+    if (TYPE == 20u) {
+        // 8 lanes/block = 4 blocks/iter -> exact 9 iters for n_in=1152, zero idle lanes!
+        const uint nb = args.n_in >> 5u;
+        const uint blk_lane = uint(lane) >> 3u;
+        const uint in_blk = uint(lane) & 7u;
+        for (uint b = blk_lane; b < nb; b += 4u) {
+            const float4 x4 = *(device const float4 *)(xs + b * 32u + in_blk * 4u);
+            const ulong boff = ulong(b) * 18ull;
+            s0 += qw3_iq4nl_dot4_f32(wr0 + boff, in_blk, x4);
+            if (has_r1) s1 += qw3_iq4nl_dot4_f32(wr1 + boff, in_blk, x4);
+        }
+    } else {
+        for (uint k0 = uint(lane) * 16u; k0 < args.n_in; k0 += 512u) {
+            s0 += qw3_inkling_dot16_f32<TYPE>(wr0, k0, xs, grid16, signs, iq3s_kgrid);
+            if (has_r1) s1 += qw3_inkling_dot16_f32<TYPE>(wr1, k0, xs, grid16, signs, iq3s_kgrid);
+        }
     }
     s0 = simd_sum(s0);
     s1 = simd_sum(s1);
