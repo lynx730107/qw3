@@ -760,6 +760,7 @@ typedef struct {
     const char *host;
     int port;
     int ctx_size;
+    int aux_ctx_size;
     qw3_backend backend;
     int n_threads;
     int ngl;
@@ -795,11 +796,24 @@ typedef struct {
 } srv_vis_cache_entry;
 
 #define QW3_SRV_MAX_CACHED_TURNS 256
+#define QW3_SRV_MAX_SLOTS 2
+
+typedef struct {
+    qw3_session *session;
+    int ctx_size;
+    const char *name;
+    /* Multi-turn KV prefix continuity across OpenAI assistant turns */
+    cached_asst_turn cached_turns[QW3_SRV_MAX_CACHED_TURNS];
+    int n_cached_turns;
+    uint64_t last_use;
+} srv_slot;
 
 typedef struct {
     srv_config cfg;
     qw3_engine *engine;
-    qw3_session *session;
+    srv_slot slots[QW3_SRV_MAX_SLOTS];
+    int n_slots;
+    uint64_t slot_clock;
 #ifndef QW3_NO_METAL
     qw3_vision *vision;
 #else
@@ -810,9 +824,6 @@ typedef struct {
     pthread_mutex_t infer_lock;
     uint64_t req_counter;
     time_t started_at;
-    /* Multi-turn KV prefix continuity across OpenAI assistant turns */
-    cached_asst_turn cached_turns[QW3_SRV_MAX_CACHED_TURNS];
-    int n_cached_turns;
     /* Inkling control token IDs cached once at startup */
     bool is_inkling;
     int ink_user;
@@ -836,11 +847,21 @@ static uint64_t fnv1a_update(uint64_t h, const void *data, size_t len) {
     return h;
 }
 
-static void srv_clear_cached_turns(srv_state *srv) {
-    for (int i = 0; i < srv->n_cached_turns; i++) {
-        qw3_tokens_free(&srv->cached_turns[i].raw_tokens);
+static void srv_slot_clear_cached_turns(srv_slot *slot) {
+    if (!slot) return;
+    for (int i = 0; i < slot->n_cached_turns; i++) {
+        qw3_tokens_free(&slot->cached_turns[i].raw_tokens);
     }
-    srv->n_cached_turns = 0;
+    slot->n_cached_turns = 0;
+}
+
+static void srv_free_slots(srv_state *srv) {
+    for (int i = 0; i < srv->n_slots; i++) {
+        srv_slot_clear_cached_turns(&srv->slots[i]);
+        qw3_session_free(srv->slots[i].session);
+        srv->slots[i].session = NULL;
+    }
+    srv->n_slots = 0;
 }
 
 static void srv_clear_vis_cache(srv_state *srv) {
@@ -1093,23 +1114,26 @@ static uint64_t hash_asst_turn_gen(const strbuf *content, const srv_tool_call_li
 
 static bool try_splice_cached_asst(const srv_state *srv, qw3_tokens *out,
                                    const strbuf *content, const jval *tcs) {
-    if (!srv->session || srv->n_cached_turns <= 0) return false;
-    const qw3_tokens *sess_toks = qw3_session_tokens(srv->session);
-    if (!sess_toks || out->len > sess_toks->len) return false;
     uint64_t h = hash_asst_turn_json(content, tcs);
-    for (int i = 0; i < srv->n_cached_turns; i++) {
-        const cached_asst_turn *ct = &srv->cached_turns[i];
-        if (ct->prompt_end != out->len || ct->turn_hash != h) continue;
-        if (out->len + ct->raw_tokens.len > sess_toks->len) continue;
-        if (out->len > 0 && memcmp(out->v, sess_toks->v, (size_t)out->len * sizeof(int)) != 0)
-            continue;
-        if (ct->raw_tokens.len > 0 &&
-            memcmp(ct->raw_tokens.v, sess_toks->v + out->len,
-                   (size_t)ct->raw_tokens.len * sizeof(int)) != 0)
-            continue;
-        for (int k = 0; k < ct->raw_tokens.len; k++)
-            qw3_tokens_push(out, ct->raw_tokens.v[k]);
-        return true;
+    for (int si = 0; si < srv->n_slots; si++) {
+        const srv_slot *sl = &srv->slots[si];
+        if (!sl->session || sl->n_cached_turns <= 0) continue;
+        const qw3_tokens *sess_toks = qw3_session_tokens(sl->session);
+        if (!sess_toks || out->len > sess_toks->len) continue;
+        for (int i = 0; i < sl->n_cached_turns; i++) {
+            const cached_asst_turn *ct = &sl->cached_turns[i];
+            if (ct->prompt_end != out->len || ct->turn_hash != h) continue;
+            if (out->len + ct->raw_tokens.len > sess_toks->len) continue;
+            if (out->len > 0 && memcmp(out->v, sess_toks->v, (size_t)out->len * sizeof(int)) != 0)
+                continue;
+            if (ct->raw_tokens.len > 0 &&
+                memcmp(ct->raw_tokens.v, sess_toks->v + out->len,
+                       (size_t)ct->raw_tokens.len * sizeof(int)) != 0)
+                continue;
+            for (int k = 0; k < ct->raw_tokens.len; k++)
+                qw3_tokens_push(out, ct->raw_tokens.v[k]);
+            return true;
+        }
     }
     return false;
 }
@@ -1639,24 +1663,72 @@ static bool encode_openai_chat_plan(srv_state *srv, const jval *messages, const 
     return srv_plan_flush_text(plan, text_start);
 }
 
-static int srv_sync_prompt_plan(srv_state *srv, const srv_prompt_plan *plan, int fd,
+static srv_slot *srv_select_slot(srv_state *srv, const qw3_tokens *prompt) {
+    if (srv->n_slots <= 1) return &srv->slots[0];
+
+    /* 1. Prefer any fitting slot with an exact KV prefix match */
+    int best_hit_idx = -1;
+    int best_hit_len = 0;
+    for (int i = 0; i < srv->n_slots; i++) {
+        srv_slot *sl = &srv->slots[i];
+        int max_prompt = (i == 0) ? (sl->ctx_size - 1) : (sl->ctx_size - 64);
+        if (max_prompt < 1) max_prompt = sl->ctx_size - 1;
+        if (prompt->len > max_prompt) continue;
+        int pos = qw3_session_pos(sl->session);
+        if (pos <= 0 || prompt->len < pos) continue;
+        int common = qw3_session_common_prefix(sl->session, prompt);
+        if (common == pos && common > best_hit_len) {
+            best_hit_len = common;
+            best_hit_idx = i;
+        }
+    }
+    if (best_hit_idx >= 0) {
+        return &srv->slots[best_hit_idx];
+    }
+
+    /* 2. Cache miss: keep long prompts in the primary full-context slot */
+    srv_slot *main_sl = &srv->slots[0];
+    srv_slot *aux_sl = &srv->slots[1];
+    int aux_prompt_limit = (aux_sl->ctx_size * 3) / 4;
+    if (aux_prompt_limit < 1) aux_prompt_limit = aux_sl->ctx_size - 1;
+    if (prompt->len > aux_prompt_limit) {
+        return main_sl;
+    }
+
+    /* 3. Short cache miss: route to aux slot so auxiliary requests (e.g. title/summary)
+     *    do not evict a longer active conversation in the main slot.
+     *    If main holds a heavy context (> aux_prompt_limit, or >=1024 and >=2x aux),
+     *    always protect main; otherwise fall back to LRU across the two slots. */
+    int main_pos = qw3_session_pos(main_sl->session);
+    int aux_pos = qw3_session_pos(aux_sl->session);
+    if (main_pos == 0) return main_sl;
+    if (aux_pos == 0) return aux_sl;
+    bool protect_main = (main_pos > aux_prompt_limit) ||
+                        (main_pos >= 1024 && main_pos >= aux_pos * 2);
+    if (protect_main) return aux_sl;
+    bool protect_aux = (aux_pos >= 1024 && aux_pos >= main_pos * 2);
+    if (protect_aux) return main_sl;
+    return (main_sl->last_use <= aux_sl->last_use) ? main_sl : aux_sl;
+}
+
+static int srv_sync_prompt_plan(srv_slot *slot, const srv_prompt_plan *plan, int fd,
                                 int *out_cached, char *err, size_t errlen) {
-    int session_pos = qw3_session_pos(srv->session);
-    int common = qw3_session_common_prefix(srv->session, &plan->tokens);
+    int session_pos = qw3_session_pos(slot->session);
+    int common = qw3_session_common_prefix(slot->session, &plan->tokens);
     int cached = (common == session_pos && plan->tokens.len >= common) ? common : 0;
     if (out_cached) *out_cached = cached;
     if (cached == 0) {
-        srv_clear_cached_turns(srv);
+        srv_slot_clear_cached_turns(slot);
     }
 
     if (!plan->has_images) {
-        return qw3_session_sync_interruptible(srv->session, &plan->tokens,
+        return qw3_session_sync_interruptible(slot->session, &plan->tokens,
                                               http_interrupt_cb, &fd,
                                               err, errlen);
     }
 
     if (cached != session_pos) {
-        qw3_session_invalidate(srv->session);
+        qw3_session_invalidate(slot->session);
         cached = 0;
         if (out_cached) *out_cached = 0;
     }
@@ -1672,11 +1744,11 @@ static int srv_sync_prompt_plan(srv_state *srv, const srv_prompt_plan *plan, int
         int rc = 0;
         if (!seg->is_image) {
             rc = qw3_session_prefill_tokens_interruptible(
-                srv->session, plan->tokens.v + seg->start_pos + skip, rem,
+                slot->session, plan->tokens.v + seg->start_pos + skip, rem,
                 is_last, http_interrupt_cb, &fd, err, errlen);
         } else {
             rc = qw3_session_eval_embeddings_interruptible(
-                srv->session,
+                slot->session,
                 seg->embd + (size_t)skip * (size_t)seg->embd_dim,
                 rem, seg->embd_dim,
                 plan->tokens.v + seg->start_pos + skip,
@@ -2036,9 +2108,13 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
     char req_id[64];
     snprintf(req_id, sizeof(req_id), "chatcmpl-qw3-%llu", (unsigned long long)rseq);
 
+    srv_slot *slot = srv_select_slot(srv, prompt);
+    slot->last_use = ++srv->slot_clock;
+    const char *slot_name = slot->name;
+
     int cached_tokens = 0;
     double t0 = srv_now_ms();
-    int sync_rc = srv_sync_prompt_plan(srv, &plan, fd, &cached_tokens, err, sizeof(err));
+    int sync_rc = srv_sync_prompt_plan(slot, &plan, fd, &cached_tokens, err, sizeof(err));
     double prefill_ms = srv_now_ms() - t0;
     int prefill_n = prompt->len - cached_tokens;
 
@@ -2082,7 +2158,7 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
     uint64_t rng = p.seed;
     int eos_id = qw3_token_eos(srv->engine);
     int max_gen = p.max_tokens;
-    int avail_ctx = srv->cfg.ctx_size - prompt->len - 1;
+    int avail_ctx = slot->ctx_size - prompt->len - 1;
     if (avail_ctx < 0) avail_ctx = 0;
     if (max_gen > avail_ctx) max_gen = avail_ctx;
 
@@ -2118,7 +2194,7 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
             stream_ok = false;
             break;
         }
-        int tok = sample_next_token(srv->session, &p, &rng, &recent);
+        int tok = sample_next_token(slot->session, &p, &rng, &recent);
         if (tok < 0) {
             finish_reason = "stop";
             break;
@@ -2129,7 +2205,7 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
 
         if (tok == eos_id) {
             /* Advance session past EOS so exact next-turn continuations can reuse KV */
-            if (qw3_session_eval(srv->session, tok, err, sizeof(err)) == 0) {
+            if (qw3_session_eval(slot->session, tok, err, sizeof(err)) == 0) {
                 ended_at_eos = true;
             }
             finish_reason = tool_calls.count > 0 ? "tool_calls" : "stop";
@@ -2282,7 +2358,7 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
         }
 
         if (step + 1 < max_gen) {
-            if (qw3_session_eval(srv->session, tok, err, sizeof(err)) != 0) {
+            if (qw3_session_eval(slot->session, tok, err, sizeof(err)) != 0) {
                 break;
             }
         }
@@ -2337,9 +2413,9 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
 
     /* Record exact generated tokens for seamless multi-turn KV prefix reuse */
     if (srv->is_inkling && ended_at_eos && gen_tokens > 0 &&
-        srv->n_cached_turns < QW3_SRV_MAX_CACHED_TURNS &&
+        slot->n_cached_turns < QW3_SRV_MAX_CACHED_TURNS &&
         gen_raw.len == gen_tokens) {
-        cached_asst_turn *ct = &srv->cached_turns[srv->n_cached_turns++];
+        cached_asst_turn *ct = &slot->cached_turns[slot->n_cached_turns++];
         memset(ct, 0, sizeof(*ct));
         ct->prompt_end = prompt->len;
         ct->turn_hash = hash_asst_turn_gen(&full_content, &tool_calls);
@@ -2351,16 +2427,16 @@ static void handle_chat_completions(srv_state *srv, int fd, const jval *body) {
 
     if (plan.has_images) {
         fprintf(stderr,
-            "qw3-server: %s prompt=%d (cached=%d, prefill=%d @ %.1f tok/s, imgs=%d vis=%.1fms) gen=%d @ %.1f tok/s finish=%s\n",
-            req_id, prompt->len, cached_tokens, prefill_n,
+            "qw3-server: %s slot=%s prompt=%d (cached=%d, prefill=%d @ %.1f tok/s, imgs=%d vis=%.1fms) gen=%d @ %.1f tok/s finish=%s\n",
+            req_id, slot_name, prompt->len, cached_tokens, prefill_n,
             prefill_ms > 0.0 ? (1000.0 * prefill_n / prefill_ms) : 0.0,
             plan.n_images, plan.vis_encode_ms,
             gen_tokens, gen_ms > 0.0 ? (1000.0 * gen_tokens / gen_ms) : 0.0,
             finish_reason);
     } else {
         fprintf(stderr,
-            "qw3-server: %s prompt=%d (cached=%d, prefill=%d @ %.1f tok/s) gen=%d @ %.1f tok/s finish=%s\n",
-            req_id, prompt->len, cached_tokens, prefill_n,
+            "qw3-server: %s slot=%s prompt=%d (cached=%d, prefill=%d @ %.1f tok/s) gen=%d @ %.1f tok/s finish=%s\n",
+            req_id, slot_name, prompt->len, cached_tokens, prefill_n,
             prefill_ms > 0.0 ? (1000.0 * prefill_n / prefill_ms) : 0.0,
             gen_tokens, gen_ms > 0.0 ? (1000.0 * gen_tokens / gen_ms) : 0.0,
             finish_reason);
@@ -2477,13 +2553,19 @@ static void handle_completions(srv_state *srv, int fd, const jval *body) {
     char req_id[64];
     snprintf(req_id, sizeof(req_id), "cmpl-qw3-%llu", (unsigned long long)rseq);
 
-    int session_pos = qw3_session_pos(srv->session);
-    int common = qw3_session_common_prefix(srv->session, &prompt);
+    srv_slot *slot = srv_select_slot(srv, &prompt);
+    slot->last_use = ++srv->slot_clock;
+
+    int session_pos = qw3_session_pos(slot->session);
+    int common = qw3_session_common_prefix(slot->session, &prompt);
     int cached_tokens = (common == session_pos && prompt.len >= common) ? common : 0;
+    if (cached_tokens == 0) {
+        srv_slot_clear_cached_turns(slot);
+    }
     int prefill_n = prompt.len - cached_tokens;
 
     double t0 = srv_now_ms();
-    int sync_rc = qw3_session_sync_interruptible(srv->session, &prompt,
+    int sync_rc = qw3_session_sync_interruptible(slot->session, &prompt,
                                                  http_interrupt_cb, &fd,
                                                  err, sizeof(err));
     double prefill_ms = srv_now_ms() - t0;
@@ -2510,7 +2592,7 @@ static void handle_completions(srv_state *srv, int fd, const jval *body) {
     uint64_t rng = p.seed;
     int eos_id = qw3_token_eos(srv->engine);
     int max_gen = p.max_tokens;
-    int avail_ctx = srv->cfg.ctx_size - prompt.len - 1;
+    int avail_ctx = slot->ctx_size - prompt.len - 1;
     if (avail_ctx < 0) avail_ctx = 0;
     if (max_gen > avail_ctx) max_gen = avail_ctx;
 
@@ -2525,11 +2607,11 @@ static void handle_completions(srv_state *srv, int fd, const jval *body) {
 
     for (int step = 0; step < max_gen; step++) {
         if (client_disconnected(fd)) { stream_ok = false; break; }
-        int tok = sample_next_token(srv->session, &p, &rng, &recent);
+        int tok = sample_next_token(slot->session, &p, &rng, &recent);
         if (tok < 0 || tok == eos_id) {
             if (tok == eos_id) {
                 gen_tokens++;
-                (void)qw3_session_eval(srv->session, tok, err, sizeof(err));
+                (void)qw3_session_eval(slot->session, tok, err, sizeof(err));
             }
             finish_reason = "stop";
             break;
@@ -2577,7 +2659,7 @@ static void handle_completions(srv_state *srv, int fd, const jval *body) {
         }
         if (!stream_ok) break;
         if (hit_stop) { finish_reason = "stop"; break; }
-        if (step + 1 < max_gen && qw3_session_eval(srv->session, tok, err, sizeof(err)) != 0) break;
+        if (step + 1 < max_gen && qw3_session_eval(slot->session, tok, err, sizeof(err)) != 0) break;
     }
 
     double gen_ms = srv_now_ms() - tg0;
@@ -2737,7 +2819,11 @@ static void *handle_connection(void *arg) {
         sb_init(&resp);
         sb_append(&resp, "{\"status\":\"ok\",\"model\":");
         sb_append_json_str(&resp, srv->cfg.model_alias);
-        sb_appendf(&resp, ",\"ctx_size\":%d,\"backend\":", srv->cfg.ctx_size);
+        sb_appendf(&resp, ",\"ctx_size\":%d", srv->cfg.ctx_size);
+        if (srv->n_slots > 1) {
+            sb_appendf(&resp, ",\"aux_ctx_size\":%d", srv->slots[1].ctx_size);
+        }
+        sb_append(&resp, ",\"backend\":");
         sb_append_json_str(&resp, qw3_backend_name(srv->cfg.backend));
         sb_appendf(&resp, ",\"vision\":%s", srv->vision ? "true" : "false");
 #ifndef QW3_NO_METAL
@@ -2816,6 +2902,8 @@ static void print_usage(void) {
         "  --host ADDR            Bind address (default: 127.0.0.1)\n"
         "  --port N               Listen port (default: 8080)\n"
         "  -c, --ctx, --ctx-size N Context size in tokens (default: 32768)\n"
+        "  --aux-ctx N            Secondary KV slot context size for short/auxiliary\n"
+        "                         requests (default: 4096; 0 to disable)\n"
         "  --metal | --cpu        Select backend (default: Metal on macOS)\n"
         "  --ngl N                Metal layers to offload (Qwen3 models)\n"
         "  --kv-f16 | --kv-f32 | --kv-q8\n"
@@ -2879,6 +2967,7 @@ int main(int argc, char **argv) {
     srv.cfg.host = "127.0.0.1";
     srv.cfg.port = 8080;
     srv.cfg.ctx_size = 32768;
+    srv.cfg.aux_ctx_size = 4096;
 #ifdef QW3_NO_METAL
     srv.cfg.backend = QW3_BACKEND_CPU;
 #else
@@ -2915,6 +3004,8 @@ int main(int argc, char **argv) {
         } else if ((!strcmp(argv[i], "-c") || !strcmp(argv[i], "--ctx") ||
                     !strcmp(argv[i], "--ctx-size")) && i + 1 < argc) {
             srv.cfg.ctx_size = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--aux-ctx") && i + 1 < argc) {
+            srv.cfg.aux_ctx_size = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--metal")) {
             srv.cfg.backend = QW3_BACKEND_METAL;
         } else if (!strcmp(argv[i], "--cpu")) {
@@ -2975,6 +3066,13 @@ int main(int argc, char **argv) {
         fprintf(stderr, "qw3-server: invalid port or ctx size\n");
         return 1;
     }
+    if (srv.cfg.aux_ctx_size < 0 || (srv.cfg.aux_ctx_size > 0 && srv.cfg.aux_ctx_size < 128)) {
+        fprintf(stderr, "qw3-server: --aux-ctx must be 0 (disabled) or >= 128\n");
+        return 1;
+    }
+    if (srv.cfg.aux_ctx_size > srv.cfg.ctx_size) {
+        srv.cfg.aux_ctx_size = srv.cfg.ctx_size;
+    }
     if (!srv.cfg.model_alias[0]) {
         derive_alias(srv.cfg.model_path, srv.cfg.model_alias, sizeof(srv.cfg.model_alias));
     }
@@ -3027,10 +3125,25 @@ int main(int argc, char **argv) {
         fprintf(stderr, "qw3-server: failed to load model %s\n", srv.cfg.model_path);
         return 1;
     }
-    if (qw3_session_create(&srv.session, srv.engine, srv.cfg.ctx_size) != 0) {
+    if (qw3_session_create(&srv.slots[0].session, srv.engine, srv.cfg.ctx_size) != 0) {
         fprintf(stderr, "qw3-server: failed to create session (ctx=%d)\n", srv.cfg.ctx_size);
         qw3_engine_close(srv.engine);
         return 1;
+    }
+    srv.slots[0].ctx_size = srv.cfg.ctx_size;
+    srv.slots[0].name = "main";
+    srv.n_slots = 1;
+    if (srv.cfg.aux_ctx_size > 0) {
+        if (qw3_session_create(&srv.slots[1].session, srv.engine, srv.cfg.aux_ctx_size) != 0) {
+            fprintf(stderr, "qw3-server: failed to create aux session (aux_ctx=%d)\n",
+                    srv.cfg.aux_ctx_size);
+            srv_free_slots(&srv);
+            qw3_engine_close(srv.engine);
+            return 1;
+        }
+        srv.slots[1].ctx_size = srv.cfg.aux_ctx_size;
+        srv.slots[1].name = "aux";
+        srv.n_slots = 2;
     }
 
     srv.is_inkling = qw3_engine_is_inkling(srv.engine);
@@ -3050,7 +3163,7 @@ int main(int argc, char **argv) {
     if (srv.cfg.mmproj_path && srv.cfg.mmproj_path[0]) {
 #ifdef QW3_NO_METAL
         fprintf(stderr, "qw3-server: --mmproj requires the Metal build (qw3-server)\n");
-        qw3_session_free(srv.session);
+        srv_free_slots(&srv);
         qw3_engine_close(srv.engine);
         return 1;
 #else
@@ -3059,7 +3172,7 @@ int main(int argc, char **argv) {
                             srv.cfg.vision_max_tokens, verr, sizeof(verr)) != 0) {
             fprintf(stderr, "qw3-server: failed to load mmproj %s: %s\n",
                     srv.cfg.mmproj_path, verr);
-            qw3_session_free(srv.session);
+            srv_free_slots(&srv);
             qw3_engine_close(srv.engine);
             return 1;
         }
@@ -3069,7 +3182,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "qw3-server: mmproj projection_dim (%d) != model embd_dim (%d)\n",
                     vis_dim, eng_dim);
             qw3_vision_close(srv.vision);
-            qw3_session_free(srv.session);
+            srv_free_slots(&srv);
             qw3_engine_close(srv.engine);
             return 1;
         }
@@ -3077,6 +3190,11 @@ int main(int argc, char **argv) {
     }
 
     qw3_context_memory mem = qw3_engine_context_memory_estimate(srv.engine, srv.cfg.ctx_size);
+    qw3_context_memory aux_mem;
+    memset(&aux_mem, 0, sizeof(aux_mem));
+    if (srv.n_slots > 1) {
+        aux_mem = qw3_engine_context_memory_estimate(srv.engine, srv.slots[1].ctx_size);
+    }
     pthread_mutex_init(&srv.infer_lock, NULL);
     srv.started_at = time(NULL);
 
@@ -3087,7 +3205,7 @@ int main(int argc, char **argv) {
 #ifndef QW3_NO_METAL
         qw3_vision_close(srv.vision);
 #endif
-        qw3_session_free(srv.session);
+        srv_free_slots(&srv);
         qw3_engine_close(srv.engine);
         return 1;
     }
@@ -3097,11 +3215,20 @@ int main(int argc, char **argv) {
     const char *kv_fmt = srv.cfg.backend != QW3_BACKEND_METAL ? "f32" :
         ((kv_q8_env && strcmp(kv_q8_env, "0") != 0) ? "q8_0" :
          (srv.is_inkling || (kv_f16_env && strcmp(kv_f16_env, "0") != 0)) ? "f16" : "f32");
-    fprintf(stderr,
-        "qw3-server: listening on http://%s:%d  model=%s  backend=%s  ctx=%d  kv=%s(%.1f MiB)",
-        srv.cfg.host, srv.cfg.port, srv.cfg.model_alias,
-        qw3_backend_name(srv.cfg.backend), srv.cfg.ctx_size, kv_fmt,
-        (double)mem.total_bytes / (1024.0 * 1024.0));
+    if (srv.n_slots > 1) {
+        fprintf(stderr,
+            "qw3-server: listening on http://%s:%d  model=%s  backend=%s  ctx=%d  aux_ctx=%d  kv=%s(%.1f+%.1f MiB)",
+            srv.cfg.host, srv.cfg.port, srv.cfg.model_alias,
+            qw3_backend_name(srv.cfg.backend), srv.cfg.ctx_size, srv.slots[1].ctx_size, kv_fmt,
+            (double)mem.total_bytes / (1024.0 * 1024.0),
+            (double)aux_mem.total_bytes / (1024.0 * 1024.0));
+    } else {
+        fprintf(stderr,
+            "qw3-server: listening on http://%s:%d  model=%s  backend=%s  ctx=%d  kv=%s(%.1f MiB)",
+            srv.cfg.host, srv.cfg.port, srv.cfg.model_alias,
+            qw3_backend_name(srv.cfg.backend), srv.cfg.ctx_size, kv_fmt,
+            (double)mem.total_bytes / (1024.0 * 1024.0));
+    }
 #ifndef QW3_NO_METAL
     if (srv.vision) {
         fprintf(stderr, "  vision=%s(max_tok=%d)",
@@ -3138,12 +3265,11 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\nqw3-server: shutting down...\n");
     close(lfd);
     pthread_mutex_lock(&srv.infer_lock);
-    srv_clear_cached_turns(&srv);
     srv_clear_vis_cache(&srv);
 #ifndef QW3_NO_METAL
     qw3_vision_close(srv.vision);
 #endif
-    qw3_session_free(srv.session);
+    srv_free_slots(&srv);
     qw3_engine_close(srv.engine);
     pthread_mutex_unlock(&srv.infer_lock);
     pthread_mutex_destroy(&srv.infer_lock);

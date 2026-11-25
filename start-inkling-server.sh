@@ -9,10 +9,10 @@ fi
 
 MMPROJ="$root/../../models/mmproj-Inkling-2-Mini-F16.gguf"
 if [ -f "$MMPROJ" ]; then
-    exec ./qw3-server --metal --kv-q8 --ctx 65536 --port 8080 \
+    exec ./qw3-server --metal --kv-q8 --ctx 65536 --aux-ctx 4096 --port 8080 \
         -m "$root/../../models/Inkling-2-Mini-UD-Q3_K_XL.gguf" \
         --mmproj "$MMPROJ" "$@"
 else
-    exec ./qw3-server --metal --kv-q8 --ctx 65536 --port 8080 \
+    exec ./qw3-server --metal --kv-q8 --ctx 65536 --aux-ctx 4096 --port 8080 \
         -m "$root/../../models/Inkling-2-Mini-UD-Q3_K_XL.gguf" "$@"
 fi

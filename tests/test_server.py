@@ -161,7 +161,20 @@ def main():
             f"tg={usage_chunk[0]['timings']['predicted_per_second']:.1f} tok/s"
         )
 
-        # 6. Multi-turn KV prefix reuse (Turn 2 appends to Turn 1)
+        # 6. Multi-turn KV prefix reuse (Turn 2 appends to Turn 1, even after an interleaved short aux call)
+        st, _, body = http_req(
+            f"{base}/v1/chat/completions",
+            "POST",
+            {
+                "model": model_id,
+                "messages": [{"role": "user", "content": "Genera un titolo di 3 parole per una chat su codici segreti."}],
+                "temperature": 0,
+                "max_tokens": 32,
+                "reasoning_effort": "none",
+            },
+        )
+        assert st == 200, body
+
         turn2_messages = turn1_messages + [
             {"role": "assistant", "content": stream_text},
             {"role": "user", "content": "Qual era il codice che ti ho chiesto di ricordare? Rispondi solo col codice."},
@@ -182,9 +195,57 @@ def main():
         ans2 = r2["choices"][0]["message"]["content"]
         cached = r2["usage"]["prompt_tokens_details"]["cached_tokens"]
         assert "ALPHA-99" in ans2, f"multi-turn recall failed: {ans2!r}"
-        assert cached > 0, f"expected KV prefix cache hit > 0, got {r2['usage']}"
+        assert cached > 0, f"expected KV prefix cache hit > 0 after interleaved aux call, got {r2['usage']}"
         print(
-            f"[6/9] multi-turn KV reuse OK: ans={ans2!r} cached={cached}/{r2['usage']['prompt_tokens']}"
+            f"[6/9] multi-turn KV reuse (+ aux slot isolation) OK: ans={ans2!r} cached={cached}/{r2['usage']['prompt_tokens']}"
+        )
+
+        # 6b. Heavy main conversation (>1200 tok) survives TWO consecutive short aux calls
+        long_sys = " ".join(f"Regola operativa numero {i}: mantieni il contesto pulito e conciso." for i in range(1, 140))
+        long_t1 = [
+            {"role": "system", "content": long_sys},
+            {"role": "user", "content": "Ricorda il token BETA-77 e rispondi solo OK."},
+        ]
+        st, _, body = http_req(
+            f"{base}/v1/chat/completions",
+            "POST",
+            {"model": model_id, "messages": long_t1, "temperature": 0, "max_tokens": 256, "reasoning_effort": "none"},
+        )
+        assert st == 200, body
+        long_r1 = json.loads(body)
+        long_ans1 = long_r1["choices"][0]["message"]["content"]
+        assert long_r1["usage"]["prompt_tokens"] > 1024, long_r1["usage"]
+        for aux_prompt in ("Titolo breve per sessione coding.", "Classifica intento: domanda tecnica."):
+            st, _, body = http_req(
+                f"{base}/v1/chat/completions",
+                "POST",
+                {
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": aux_prompt}],
+                    "temperature": 0,
+                    "max_tokens": 64,
+                    "reasoning_effort": "none",
+                },
+            )
+            assert st == 200, body
+        long_t2 = long_t1 + [
+            {"role": "assistant", "content": long_ans1},
+            {"role": "user", "content": "Qual era il token? Rispondi solo col token."},
+        ]
+        st, _, body = http_req(
+            f"{base}/v1/chat/completions",
+            "POST",
+            {"model": model_id, "messages": long_t2, "temperature": 0, "max_tokens": 256, "reasoning_effort": "none"},
+        )
+        assert st == 200, body
+        long_r2 = json.loads(body)
+        long_cached = long_r2["usage"]["prompt_tokens_details"]["cached_tokens"]
+        assert "BETA-77" in long_r2["choices"][0]["message"]["content"], long_r2
+        assert long_cached >= long_r1["usage"]["prompt_tokens"], (
+            f"expected heavy main slot to survive 2 aux calls, got {long_r2['usage']}"
+        )
+        print(
+            f"[6b/9] heavy main slot survived 2 aux calls OK: cached={long_cached}/{long_r2['usage']['prompt_tokens']}"
         )
 
         # 7. OpenAI tools / tool_calls + tool response roundtrip
